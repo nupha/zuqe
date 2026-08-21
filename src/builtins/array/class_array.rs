@@ -1325,6 +1325,136 @@ pub const js_array_iterator_proto_funcs: &[FieldDef] = &[
 // static array functions
 //
 
+/// Array.fromAsync (ES2024) defined in JS source: the algorithm needs
+/// sequential awaits over iterator/promise results, which the VM's async
+/// machinery already provides. Evaluated once at context setup (ctx.rs).
+///
+/// Spec notes kept here since they are easy to get wrong:
+/// - async-iterable values are stored as-is (NOT awaited); sync-iterable
+///   values go through AsyncFromSyncIteratorContinuation, which awaits them
+///   and closes the iterator when a thenable value rejects;
+/// - errors from next()/awaiting its result do NOT close the iterator,
+///   errors from mapper/define/length DO (IfAbruptCloseAsyncIterator);
+/// - non-callable mapper rejects the returned promise (async built-in);
+/// - Construct(C, «len») must not observe iterators, so no spread-call.
+pub(crate) const FROM_ASYNC_JS: &str = r#"
+(function () {
+    var MAX_SAFE = 9007199254740991;
+    var DATA = { value: undefined, writable: true, enumerable: true, configurable: true };
+    // intrinsics captured at load: globalThis.Symbol may be patched later
+    var SYM_ITERATOR = Symbol.iterator;
+    var SYM_ASYNC_ITERATOR = Symbol.asyncIterator;
+
+    function isObject(v) {
+        return v !== null && (typeof v === "object" || typeof v === "function");
+    }
+
+    function getMethod(obj, key) {
+        var f = obj[key];
+        if (f !== undefined && f !== null) {
+            if (typeof f !== "function") throw new TypeError("not a function");
+            return f;
+        }
+        return undefined;
+    }
+
+    function toLength(v) {
+        v = Math.trunc(+v);
+        if (!(v > 0)) return 0;
+        return v > MAX_SAFE ? MAX_SAFE : v;
+    }
+
+    // Construct(C) / Construct(C, «len»), or undefined when C is not a
+    // constructor. `class extends C` probes constructibility without
+    // invoking C; no spread-call, which would observe the iterator protocol.
+    function construct(C, hasLen, len) {
+        if (typeof C !== "function") return undefined;
+        try { void (class extends C {}); } catch (e) { return undefined; }
+        return hasLen ? new C(len) : new C();
+    }
+
+    // AsyncIteratorClose with an abrupt completion: run return() when
+    // present, awaiting its result; an error from return() replaces ours.
+    async function closeIterator(iterator) {
+        var ret = getMethod(iterator, "return");
+        if (ret !== undefined) await ret.call(iterator);
+    }
+
+    var fromAsync = async function fromAsync(items, mapper = undefined, thisArg = undefined) {
+        var C = this;
+
+        var mapping = mapper !== undefined;
+        if (mapping && typeof mapper !== "function") throw new TypeError("mapper is not a function");
+
+        var asyncMethod = getMethod(items, SYM_ASYNC_ITERATOR);
+        var syncMethod = asyncMethod === undefined ? getMethod(items, SYM_ITERATOR) : undefined;
+
+        if (asyncMethod !== undefined || syncMethod !== undefined) {
+            // iterator path
+            var method = asyncMethod !== undefined ? asyncMethod : syncMethod;
+            var iterator = method.call(items);
+            if (!isObject(iterator)) throw new TypeError("iterator is not an object");
+            var next = getMethod(iterator, "next");
+
+            var A = construct(C, false);
+            if (A === undefined) A = [];
+
+            var k = 0;
+            while (true) {
+                if (k >= MAX_SAFE) {
+                    await closeIterator(iterator);
+                    throw new TypeError("iteration index overflow");
+                }
+                var result = await next.call(iterator);
+                if (!isObject(result)) throw new TypeError("iterator result is not an object");
+                if (result.done) break;
+                var value = result.value;
+                try {
+                    if (syncMethod !== undefined) value = await value;
+                    if (mapping) value = await mapper.call(thisArg, value, k);
+                    DATA.value = value;
+                    Object.defineProperty(A, k, DATA);
+                } catch (e) {
+                    await closeIterator(iterator);
+                    throw e;
+                }
+                k++;
+            }
+            A.length = k;
+            return A;
+        }
+
+        // array-like path
+        var arrayLike = Object(items);
+        var len = toLength(arrayLike.length);
+
+        var A = construct(C, true, len);
+        if (A === undefined) A = new Array(len);
+
+        var k = 0;
+        while (k < len) {
+            var value = await arrayLike[k];
+            if (mapping) value = await mapper.call(thisArg, value, k);
+            DATA.value = value;
+            Object.defineProperty(A, k, DATA);
+            k++;
+        }
+        A.length = len;
+        return A;
+    };
+
+    // a built-in async function: [[Prototype]] is %Function.prototype%, and
+    // per the merged spec the property is {writable, non-enumerable, config}
+    Object.setPrototypeOf(fromAsync, Function.prototype);
+    Object.defineProperty(Array, "fromAsync", {
+        value: fromAsync,
+        writable: true,
+        enumerable: false,
+        configurable: true,
+    });
+})();
+"#;
+
 fn js_array_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // from(items, mapfn = void 0, this_arg = void 0)
 

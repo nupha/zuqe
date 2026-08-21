@@ -509,6 +509,17 @@ impl<'c> ScopedContext<'c> {
                 )?;
             }
 
+            // Array.fromAsync (ES2024): defined in JS to reuse the VM's async
+            // machinery. Strict mode so `A.length = k` throws on failure.
+            ctx.with_new_scope(|cx| {
+                cx.eval(
+                    crate::builtins::array::FROM_ASYNC_JS.as_bytes(),
+                    &crate::EvalName::Name("<Array.fromAsync>".into()),
+                    crate::EvalType::Global,
+                    crate::EvalFlags::STRICT,
+                )
+            })?;
+
             Ok(())
         };
 }

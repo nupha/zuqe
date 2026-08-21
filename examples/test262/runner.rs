@@ -385,8 +385,16 @@ async fn run_test_script<'c>(
     if is_async {
         let n = ASYNC_DONE.load(Ordering::SeqCst);
         if n != 1 {
+            // Surface the harness' own failure message ($DONE(err) prints
+            // "Test262:AsyncTestFailure:<msg>"), falling back to a generic note.
+            let msg = PRINT_BUF.with(|b| {
+                b.borrow()
+                    .lines()
+                    .find(|l| l.contains("Test262:AsyncTestFailure"))
+                    .map(|l| l.trim().to_string())
+            });
             return Err(ExceptionText {
-                message: format!("TypeError: $DONE() not called {n}"),
+                message: msg.unwrap_or_else(|| format!("TypeError: $DONE() not called {n}")),
                 traceback: None,
             });
         }
