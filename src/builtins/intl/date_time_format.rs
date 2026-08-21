@@ -661,18 +661,35 @@ pub(crate) fn format_date(
     let month = month_from_epoch(local_secs);
     let day = day_from_epoch(local_secs);
 
+    let cyclic = if is_cyclic_calendar(&this.calendar)
+        && (this.year.is_some() || this.month.is_some() || this.day.is_some())
+    {
+        Some(cyclic_date_parts(local_secs))
+    } else {
+        None
+    };
+
     let mut parts: Vec<String> = Vec::new();
     if this.era.is_some() {
         parts.push(if year <= 0 { "BC" } else { "AD" }.to_string());
     }
     if let Some(f) = this.year {
-        parts.push(format_year(f, year));
+        match &cyclic {
+            Some((rel, name, _, _)) => parts.push(format!("{rel}{name}年")),
+            None => parts.push(format_year(f, year)),
+        }
     }
     if let Some(f) = this.month {
-        parts.push(format_month(f, month));
+        match &cyclic {
+            Some((_, _, m, _)) => parts.push(format_lunar_month(f, *m)),
+            None => parts.push(format_month(f, month)),
+        }
     }
     if let Some(f) = this.day {
-        parts.push(format_day(f, day));
+        match &cyclic {
+            Some((_, _, _, d)) => parts.push(format_day(f, *d as u32)),
+            None => parts.push(format_day(f, day)),
+        }
     }
     out.push_str(&parts.join("/"));
 
@@ -786,6 +803,44 @@ fn parse_gmt_seconds(num: &str) -> i64 {
         0
     };
     hh * 3600 + mm * 60
+}
+
+/// Calendars whose years are identified by a sexagenary name plus the related
+/// ISO year (ECMA-402 `relatedYear`/`yearName`) instead of a year number.
+fn is_cyclic_calendar(cal: &str) -> bool {
+    cal == "chinese" || cal == "dangi"
+}
+
+/// Related ISO year, stem-branch name (e.g. 2019, "己亥"), and lunar month/day
+/// of the Chinese calendar year containing the given epoch instant.
+fn cyclic_date_parts(secs: i64) -> (i32, String, u8, u8) {
+    const STEMS: [&str; 10] = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"];
+    const BRANCHES: [&str; 12] = [
+        "子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥",
+    ];
+    let days = secs.div_euclid(86400);
+    let (y, m, d) = civil_from_days(days);
+    let iso =
+        icu::calendar::Date::try_new_iso(y as i32, m as u8, d as u8).expect("civil date is valid");
+    let cn = iso.to_calendar(icu::calendar::cal::ChineseTraditional::new());
+    let rel = cn.cyclic_year().related_iso;
+    // The cycle is 1-based with 甲子 at ISO year 4.
+    let idx = (rel - 4).rem_euclid(60) as usize;
+    (
+        rel,
+        STEMS[idx % 10].to_string() + BRANCHES[idx % 12],
+        cn.month().number(),
+        cn.day_of_month().0,
+    )
+}
+
+// ponytail: lunar month names (CLDR) unsupported; numeric fallback for
+// narrow/short/long styles.
+fn format_lunar_month(f: DateField, m: u8) -> String {
+    match f {
+        DateField::TwoDigit => format!("{:02}", m),
+        _ => m.to_string(),
+    }
 }
 
 fn format_year(f: DateField, y: i64) -> String {
@@ -973,6 +1028,13 @@ fn format_fields(
     let year = year_from_epoch(local_secs);
     let month = month_from_epoch(local_secs);
     let day = day_from_epoch(local_secs);
+    let cyclic = if is_cyclic_calendar(&this.calendar)
+        && (this.year.is_some() || this.month.is_some() || this.day.is_some())
+    {
+        Some(cyclic_date_parts(local_secs))
+    } else {
+        None
+    };
     if this.era.is_some() {
         date_parts.push((
             "era".to_string(),
@@ -980,18 +1042,33 @@ fn format_fields(
         ));
     }
     if let Some(f) = this.year {
-        date_parts.push(("year".to_string(), format_year(f, year)));
+        match &cyclic {
+            Some((rel, name, _, _)) => {
+                date_parts.push(("relatedYear".to_string(), rel.to_string()));
+                date_parts.push(("yearName".to_string(), name.clone()));
+                date_parts.push(("literal".to_string(), "年".to_string()));
+            }
+            None => date_parts.push(("year".to_string(), format_year(f, year))),
+        }
     }
     if let Some(f) = this.month {
-        date_parts.push(("month".to_string(), format_month(f, month)));
+        match &cyclic {
+            Some((_, _, m, _)) => date_parts.push(("month".to_string(), format_lunar_month(f, *m))),
+            None => date_parts.push(("month".to_string(), format_month(f, month))),
+        }
     }
     if let Some(f) = this.day {
-        date_parts.push(("day".to_string(), format_day(f, day)));
+        match &cyclic {
+            Some((_, _, _, d)) => date_parts.push(("day".to_string(), format_day(f, *d as u32))),
+            None => date_parts.push(("day".to_string(), format_day(f, day))),
+        }
     }
 
     if !date_parts.is_empty() {
         for (i, (ty, val)) in date_parts.iter().enumerate() {
-            if i > 0 {
+            // The relatedYear/yearName/literal(年) group is joined without
+            // separators.
+            if i > 0 && ty != "yearName" && ty != "literal" {
                 parts.push(("literal".to_string(), "/".to_string()));
             }
             parts.push((ty.clone(), val.clone()));
