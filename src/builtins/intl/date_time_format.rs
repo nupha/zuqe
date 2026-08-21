@@ -33,9 +33,13 @@ pub struct DateTimeFormatData {
     pub(crate) hour: Option<DateField>,
     pub(crate) minute: Option<DateField>,
     pub(crate) second: Option<DateField>,
+    pub(crate) fractional_second_digits: Option<u8>,
     pub(crate) hour12: Option<bool>,
     pub(crate) hour_cycle: Option<&'static str>,
     pub(crate) time_zone: String,
+    /// True when no `timeZone` option was given: format in the host-local
+    /// zone (like `Date`), instead of the reported "UTC" fallback.
+    pub(crate) time_zone_is_local: bool,
     pub(crate) time_zone_name: Option<&'static str>,
     pub(crate) calendar: String,
     pub(crate) numbering_system: String,
@@ -131,9 +135,11 @@ pub(crate) fn build_date_time_format_data(
         hour: None,
         minute: None,
         second: None,
+        fractional_second_digits: None,
         hour12: None,
         hour_cycle: None,
         time_zone: "UTC".to_string(),
+        time_zone_is_local: true,
         time_zone_name: None,
         calendar: "gregory".to_string(),
         numbering_system: "latn".to_string(),
@@ -239,6 +245,14 @@ pub(crate) fn build_date_time_format_data(
         data.second = parse_time_field(ctx, second)?;
     }
     let fsd = date_format.get_property_str(ctx, "fractionalSecondDigits")?;
+    if !fsd.is_undefined() {
+        // Per spec: ToNumber, then an integer 1..=3 is required.
+        let n = fsd.to_number(ctx)?.to_f64();
+        if !matches!(n, 1.0 | 2.0 | 3.0) {
+            return Err(ctx.throw_range_error("Invalid fractionalSecondDigits value"));
+        }
+        data.fractional_second_digits = Some(n as u8);
+    }
     let day_period = date_format.get_property_str(ctx, "dayPeriod")?;
     let tzn = date_format.get_property_str(ctx, "timeZoneName")?;
     let has_date_component = !weekday.is_undefined()
@@ -391,6 +405,7 @@ pub(crate) fn build_date_time_format_data(
     // timeZone: accept IANA names (containing "/"), UTC/GMT, and offset
     // notations; reject empty, non-ASCII, and legacy 3-letter abbreviations.
     let tz = date_format.get_property_str(ctx, "timeZone")?;
+    data.time_zone_is_local = tz.is_undefined();
     if !tz.is_undefined() {
         let s = to_utf8_string(ctx, tz)?;
         if !is_valid_time_zone(&s) {
@@ -647,8 +662,13 @@ pub(crate) fn format_date(
     let secs = (ms_clip / 1000.0).trunc() as i64;
     let millis = (ms_clip - (secs as f64 * 1000.0)) as i64;
     // Apply the (offset) time zone: `+HH:MM` means local time = UTC + offset.
-    // IANA names are not resolved; they fall back to UTC.
-    let offset_secs = time_zone_offset_seconds(&this.time_zone);
+    // IANA names are not resolved; they fall back to UTC. With no explicit
+    // timeZone option, use the host-local zone like `Date` does.
+    let offset_secs = if this.time_zone_is_local {
+        -(crate::builtins::date::get_timezone_offset(secs * 1000)) as i64 * 60
+    } else {
+        time_zone_offset_seconds(&this.time_zone)
+    };
     let local_secs = secs + offset_secs;
 
     let mut out = String::new();
@@ -720,17 +740,23 @@ pub(crate) fn format_date(
         if let Some(f) = this.hour {
             t.push_str(&format_two(f, h12));
         }
-        if let Some(f) = this.minute {
+        if let Some(_f) = this.minute {
             if !t.is_empty() {
                 t.push(':');
             }
-            t.push_str(&format_two(f, m));
+            // CLDR time patterns always render minutes/seconds 2-digit.
+            t.push_str(&format!("{:02}", m));
         }
-        if let Some(f) = this.second {
+        if let Some(_f) = this.second {
             if !t.is_empty() {
                 t.push(':');
             }
-            t.push_str(&format_two(f, s));
+            t.push_str(&format!("{:02}", s));
+            if let Some(fsd) = this.fractional_second_digits {
+                t.push(fraction_separator(&this.numbering_system));
+                let frac = millis / 10_i64.pow(3 - fsd as u32);
+                t.push_str(&format!("{:0width$}", frac, width = fsd as usize));
+            }
         }
         t.push_str(suffix);
         if !parts.is_empty() && !t.is_empty() {
@@ -738,7 +764,14 @@ pub(crate) fn format_date(
         }
         out.push_str(&t);
     }
+    let out = super::number_format::translate_digits(&out, &this.numbering_system);
     Ok(out)
+}
+
+/// Decimal separator used when rendering fractional seconds: U+066B for the
+/// Arabic-Indic digits, ASCII '.' elsewhere.
+fn fraction_separator(ns: &str) -> char {
+    if ns == "arab" { '\u{066b}' } else { '.' }
 }
 
 /// Parse a time zone into total offset seconds from UTC. Handles offset
@@ -994,6 +1027,61 @@ fn js_date_time_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext)
     Ok(values_to_array(ctx, parts)?)
 }
 
+fn js_date_time_format_format_range_to_parts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let this_obj = cc
+        .this()
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
+    let this = this_obj
+        .payload()
+        .intl_date_time_format()
+        .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
+    let (x, y) = (cc.arg(0), cc.arg(1));
+    if x.is_undefined() || y.is_undefined() {
+        return Err(ctx.throw_type_error("formatRangeToParts requires two arguments"));
+    }
+    for v in [x, y] {
+        let ms = v.to_number(ctx)?.to_f64();
+        if ms.is_nan() || ms.is_infinite() || !(-8.64e15..=8.64e15).contains(&ms) {
+            return Err(ctx.throw_range_error("Invalid time value"));
+        }
+    }
+    let fields1 = format_fields(ctx, this, x, true)?;
+    let fields2 = format_fields(ctx, this, y, true)?;
+
+    // Merge the two part lists: a common prefix is "shared", the diverging
+    // remainder is attributed to its own range.
+    let mut merged: Vec<(String, String, &'static str)> = Vec::new();
+    let mut i = 0;
+    while i < fields1.len() && i < fields2.len() && fields1[i] == fields2[i] {
+        merged.push((fields1[i].0.clone(), fields1[i].1.clone(), "shared"));
+        i += 1;
+    }
+    for (ty, val) in &fields1[i..] {
+        merged.push((ty.clone(), val.clone(), "startRange"));
+    }
+    let has_split = (!fields1[i..].is_empty()) && (!fields2[i..].is_empty());
+    if has_split {
+        merged.push(("literal".to_string(), " \u{2013} ".to_string(), "shared"));
+    }
+    for (ty, val) in &fields2[i..] {
+        merged.push((ty.clone(), val.clone(), "endRange"));
+    }
+
+    let mut parts = Vec::new();
+    for (ty, val, source) in merged {
+        let mut o = ctx.create_base_object()?;
+        let _t = make_str(ctx, ty.as_bytes().to_vec())?;
+        o.set_property_str(ctx, "type", _t)?;
+        let _v = make_str(ctx, val.into_bytes())?;
+        o.set_property_str(ctx, "value", _v)?;
+        let _s = make_str(ctx, source.as_bytes().to_vec())?;
+        o.set_property_str(ctx, "source", _s)?;
+        parts.push(o.into());
+    }
+    Ok(values_to_array(ctx, parts)?)
+}
+
 /// Produce `(type, value)` parts for a date/time value, mirroring
 /// `format_date` but splitting each component into its own part with literal
 /// separators between them.
@@ -1015,7 +1103,12 @@ fn format_fields(
     let ms_clip = if ms_clip == 0.0 { 0.0 } else { ms_clip };
     let secs = (ms_clip / 1000.0).trunc() as i64;
     let millis = (ms_clip - (secs as f64 * 1000.0)) as i64;
-    let local_secs = secs + time_zone_offset_seconds(&this.time_zone);
+    let offset_secs = if this.time_zone_is_local {
+        -(crate::builtins::date::get_timezone_offset(secs * 1000)) as i64 * 60
+    } else {
+        time_zone_offset_seconds(&this.time_zone)
+    };
+    let local_secs = secs + offset_secs;
 
     let mut parts: Vec<(String, String)> = Vec::new();
     let mut date_parts: Vec<(String, String)> = Vec::new();
@@ -1107,17 +1200,29 @@ fn format_fields(
         if let Some(f) = this.hour {
             time_parts.push(("hour".to_string(), format_two(f, h12)));
         }
-        if let Some(f) = this.minute {
+        if let Some(_f) = this.minute {
             if !time_parts.is_empty() {
                 parts.push(("literal".to_string(), ":".to_string()));
             }
-            time_parts.push(("minute".to_string(), format_two(f, m)));
+            // CLDR time patterns always render minutes/seconds 2-digit.
+            time_parts.push(("minute".to_string(), format!("{:02}", m)));
         }
-        if let Some(f) = this.second {
+        if let Some(_f) = this.second {
             if !time_parts.is_empty() {
                 parts.push(("literal".to_string(), ":".to_string()));
             }
-            time_parts.push(("second".to_string(), format_two(f, s)));
+            time_parts.push(("second".to_string(), format!("{:02}", s)));
+            if let Some(fsd) = this.fractional_second_digits {
+                parts.push((
+                    "literal".to_string(),
+                    fraction_separator(&this.numbering_system).to_string(),
+                ));
+                let frac = millis / 10_i64.pow(3 - fsd as u32);
+                time_parts.push((
+                    "fractionalSecondDigits".to_string(),
+                    format!("{:0width$}", frac, width = fsd as usize),
+                ));
+            }
         }
         for (ty, val) in time_parts {
             parts.push((ty, val));
@@ -1125,6 +1230,9 @@ fn format_fields(
         if !suffix.is_empty() {
             parts.push(("literal".to_string(), suffix.trim().to_string()));
         }
+    }
+    for (_, val) in parts.iter_mut() {
+        *val = super::number_format::translate_digits(val, &this.numbering_system);
     }
     Ok(parts)
 }
@@ -1210,6 +1318,12 @@ fn set_option_field(
 const js_date_time_format_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("format", Some(js_date_time_format_format_getter), None, 0),
     FieldDef::FUNC("formatToParts", 1, js_date_time_format_format_to_parts, 0),
+    FieldDef::FUNC(
+        "formatRangeToParts",
+        2,
+        js_date_time_format_format_range_to_parts,
+        0,
+    ),
     FieldDef::FUNC(
         "resolvedOptions",
         0,

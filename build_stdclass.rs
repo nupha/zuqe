@@ -57,6 +57,8 @@ enum PayloadKey {
     #[cfg(feature = "intl402")]
     IntlDateTimeFormat,
     #[cfg(feature = "intl402")]
+    IntlDurationFormat,
+    #[cfg(feature = "intl402")]
     IntlDisplayNames,
     #[cfg(feature = "intl402")]
     IntlListFormat,
@@ -122,6 +124,8 @@ impl PayloadKey {
             #[cfg(feature = "intl402")]
             PayloadKey::IntlDateTimeFormat => "intl_date_time_format",
             #[cfg(feature = "intl402")]
+            PayloadKey::IntlDurationFormat => "intl_duration_format",
+            #[cfg(feature = "intl402")]
             PayloadKey::IntlDisplayNames => "intl_display_names",
             #[cfg(feature = "intl402")]
             PayloadKey::IntlListFormat => "intl_list_format",
@@ -186,6 +190,11 @@ static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|
     m.insert(
         PayloadKey::IntlDateTimeFormat,
         "Box<crate::builtins::intl::date_time_format::DateTimeFormatData>",
+    );
+    #[cfg(feature = "intl402")]
+    m.insert(
+        PayloadKey::IntlDurationFormat,
+        "Box<crate::builtins::intl::duration_format::DurationFormatData>",
     );
     #[cfg(feature = "intl402")]
     m.insert(
@@ -757,6 +766,12 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
         "INTL_DATE_TIME_FORMAT",
         "crate::builtins::intl::date_time_format::CLASS_DEF_DATE_TIME_FORMAT",
         PayloadKey::IntlDateTimeFormat,
+    ),
+    #[cfg(feature = "intl402")]
+    ClassInfo::class_def(
+        "INTL_DURATION_FORMAT",
+        "crate::builtins::intl::duration_format::CLASS_DEF_DURATION_FORMAT",
+        PayloadKey::IntlDurationFormat,
     ),
     #[cfg(feature = "intl402")]
     ClassInfo::class_def(

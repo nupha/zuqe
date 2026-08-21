@@ -160,7 +160,7 @@ fn timestamp_to_fields(tm_val: i64, is_local: bool) -> Option<[i64; 9]> {
 
 // OS dependent. d = argv[0] is in ms from 1970. Return the difference
 // between UTC time and local time 'd' in minutes
-fn get_timezone_offset(time: i64) -> i32 {
+pub(crate) fn get_timezone_offset(time: i64) -> i32 {
     let time = time / 1000; // convert to seconds
 
     #[cfg(target_pointer_width = "32")]

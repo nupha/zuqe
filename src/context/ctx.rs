@@ -485,6 +485,7 @@ impl<'c> ScopedContext<'c> {
             use_classes.extend_from_slice(&[
                 crate::JS_CLASS_INTL_COLLATOR,
                 crate::JS_CLASS_INTL_DATE_TIME_FORMAT,
+                crate::JS_CLASS_INTL_DURATION_FORMAT,
                 crate::JS_CLASS_INTL_DISPLAY_NAMES,
                 crate::JS_CLASS_INTL_LIST_FORMAT,
                 crate::JS_CLASS_INTL_LOCALE,

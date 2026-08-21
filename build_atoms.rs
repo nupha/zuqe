@@ -259,6 +259,8 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     #[cfg(feature = "intl402")]
     "DateTimeFormat",
     #[cfg(feature = "intl402")]
+    "DurationFormat",
+    #[cfg(feature = "intl402")]
     "ListFormat",
     #[cfg(feature = "intl402")]
     "Locale",

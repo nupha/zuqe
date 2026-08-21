@@ -398,8 +398,9 @@ pub(crate) fn locale_extension_value(locale: &Locale, key: &str) -> Option<Strin
 fn supported_extension_value(key: &str, lang: &str, value: &str) -> bool {
     match key {
         "co" => {
-            // "search" is always supported (ECMA-402 §15.2.2 step 12).
-            value == "search" || supported_collations(lang).contains(&value)
+            // "standard"/"search" are reserved types, never treated as
+            // supported tailoring values (ECMA-402 §10.2.3).
+            supported_collations(lang).contains(&value)
         }
         "nu" => {
             // A `-u-nu` value must be a known CLDR numbering-system type.

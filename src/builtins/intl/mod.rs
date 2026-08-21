@@ -10,6 +10,7 @@ pub(crate) mod collator;
 pub(crate) mod common;
 pub(crate) mod date_time_format;
 pub(crate) mod display_names;
+pub(crate) mod duration_format;
 pub(crate) mod list_format;
 pub(crate) mod locale;
 pub(crate) mod number_format;
@@ -63,6 +64,7 @@ pub(crate) fn js_intl_init(ctx: &mut ScopedContext) -> Result<Object, i32> {
     let classes: &[(&str, crate::ClassID)] = &[
         ("Collator", crate::JS_CLASS_INTL_COLLATOR),
         ("DateTimeFormat", crate::JS_CLASS_INTL_DATE_TIME_FORMAT),
+        ("DurationFormat", crate::JS_CLASS_INTL_DURATION_FORMAT),
         ("DisplayNames", crate::JS_CLASS_INTL_DISPLAY_NAMES),
         ("ListFormat", crate::JS_CLASS_INTL_LIST_FORMAT),
         ("Locale", crate::JS_CLASS_INTL_LOCALE),

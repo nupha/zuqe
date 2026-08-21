@@ -3,7 +3,10 @@
 
 //! ECMA-402 `Intl.Collator` (§9).
 
-use icu::locale::{Locale, extensions::unicode::{Key, Value}};
+use icu::locale::{
+    Locale,
+    extensions::unicode::{Key, Value},
+};
 
 use crate::{
     Atom, ClassCtorDef, ClassDef, ScopedContext,
@@ -200,13 +203,23 @@ pub(crate) fn build_collator_data(
         // otherwise enable Shifted handling).
         opts.alternate_handling = Some(AlternateHandling::NonIgnorable);
     }
+    // Original `-u-co` extension value, captured before the search-usage
+    // emulation below may overwrite it for the ICU preferences.
+    let ext_collation = "co"
+        .parse::<Key>()
+        .ok()
+        .and_then(|k| locale.extensions.unicode.keywords.get(&k))
+        .map(|v| v.to_string());
     // Start from the locale's own collation preferences (language tailoring,
     // `-u-co` collation type, `-u-kn`/`-u-kf`), then override with the explicit
     // JS options which take precedence.
-    // ECMA-402 §15.2.2 step 12: search usage forces collation "search".
     if usage == "search" {
+        // CLDR's German search collation follows DIN 5007-1 (phonebook)
+        // matching; ICU4X ships no `de+search` tailoring, so emulate it via
+        // phonebk. Other languages use the plain search type.
+        let co_val = if lang == "de" { "phonebk" } else { "search" };
         if let Ok(co_key) = "co".parse::<Key>() {
-            if let Ok(co_val) = Value::try_from_str("search") {
+            if let Ok(co_val) = Value::try_from_str(co_val) {
                 locale.extensions.unicode.keywords.set(co_key, co_val);
             }
         }
@@ -228,31 +241,21 @@ pub(crate) fn build_collator_data(
 
     // Effective collation for `resolvedOptions.collation`: the `-u-co`
     // extension value if present and supported, else the explicit `collation`
-    // option if supported, else "default".
-    // ECMA-402 §15.2.2 step 12: search usage forces collation "search".
+    // option if supported, else "default". "search"/"standard" are reserved
+    // types and never reported.
     let lang = locale.id.language.to_string();
-    let collation = if usage == "search" {
-        "search".to_string()
+    let collation = if let Some(opt) = collation_option
+        && supported_collation(&lang, opt)
+        && opt != "standard"
+    {
+        opt.to_string()
+    } else if let Some(ext) = &ext_collation
+        && supported_collation(&lang, ext)
+        && ext != "standard"
+    {
+        ext.clone()
     } else {
-        let co_key = "co".parse::<Key>().ok();
-        let ext_collation = co_key
-            .and_then(|k| locale.extensions.unicode.keywords.get(&k))
-            .map(|v| v.to_string());
-        // A supported explicit `collation` option wins over the extension value;
-        // otherwise the supported extension value is used; else "default".
-        if let Some(opt) = collation_option
-            && supported_collation(&lang, opt)
-            && opt != "standard"
-        {
-            opt.to_string()
-        } else if let Some(ext) = &ext_collation
-            && supported_collation(&lang, ext)
-            && ext != "standard"
-        {
-            ext.clone()
-        } else {
-            "default".to_string()
-        }
+        "default".to_string()
     };
     // `collation` is a static string (either a leaked `collation_option` or a
     // leaked extension value).
