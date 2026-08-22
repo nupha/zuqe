@@ -380,6 +380,18 @@ pub(crate) fn js_object_assign(ctx: &mut ScopedContext, cc: CallContext) -> JSRe
 pub(crate) fn js_object_seal(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let freeze = cc.magic() == 1;
     let mut obj = cc.arg(0);
+
+    if freeze
+        && let Some(ta) = obj.as_object_TypedArray()
+        && !ta.is_detached()
+    {
+        // SetIntegrityLevel(frozen): a TypedArray backed by a resizable buffer,
+        // or with non-zero length, cannot be frozen.
+        if ta.payload().array_buffer().payload().is_resizable() || ta.length() > 0 {
+            return Err(ctx.throw_type_error("cannot freeze a typed array"));
+        }
+    }
+
     obj.seal(ctx, freeze)?;
     Ok(obj)
 }
