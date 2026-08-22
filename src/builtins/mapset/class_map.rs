@@ -448,6 +448,11 @@ fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i3
         IntOrFloat::Int64(i) => i as f64,
         IntOrFloat::Float64(f) => f,
     };
+    // Per GetSetRecord: a size that coerces to NaN (undefined, NaN itself,
+    // non-numeric string, ...) is a TypeError.
+    if size.is_nan() {
+        return Err(ctx.throw_type_error("GetSetRecord: size must be a number"));
+    }
 
     // 2. Get has (GetMethod: required, throws if missing or not callable)
     let has_val = val.get_property(ctx, Atom::CONST_has)?;
