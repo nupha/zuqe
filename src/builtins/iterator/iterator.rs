@@ -216,7 +216,13 @@ fn js_iterator_concat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 ctx.throw_type_error("Iterator.concat requires all arguments to be objects")
             );
         }
+        // GetMethod(item, %Symbol.iterator%): undefined/null or any other
+        // non-callable value is a TypeError.
         let method = item.get_property(ctx, Atom::CONST_Symbol_iterator)?;
+        if method.is_undefined_or_null() {
+            return Err(ctx.throw_type_error("iterable has no iterator method"));
+        }
+        method.ensure_callable(ctx)?;
         values.push((item, method));
     }
 
@@ -278,23 +284,6 @@ fn js_iterator_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 // Iterator.zip()
 // =========================================================================
 
-/// GetIteratorFlattenable (ES 27.1.3.1)
-fn get_iterator_flattenable(ctx: &mut ScopedContext, item: JSValue) -> JSResult {
-    if item.is_string() {
-        let method = item.get_property(ctx, Atom::CONST_Symbol_iterator)?;
-        return method.call(ctx, item, &[]);
-    }
-    if let Some(o) = item.as_object() {
-        let method = o.get_property(ctx, Atom::CONST_Symbol_iterator)?;
-        if !method.is_undefined_or_null() {
-            return method.call(ctx, item, &[]);
-        }
-        // Duck-type: use directly if it has .next
-        return Ok(item);
-    }
-    Err(ctx.throw_type_error("not an object"))
-}
-
 /// GetIterator (ES 27.1.3.3) — requires [Symbol.iterator]
 fn get_iterator(ctx: &mut ScopedContext, item: JSValue) -> Result<(JSValue, JSValue), i32> {
     let method = item.get_property(ctx, Atom::CONST_Symbol_iterator)?;
@@ -335,8 +324,15 @@ fn close_entries_reverse(ctx: &mut ScopedContext, entries: &[(JSValue, JSValue)]
     }
 }
 
-/// Parse mode and padding from zip options object
+/// GetOptionsObject + parse mode/padding from zip options object.
+/// `options` must be undefined or an object; `mode` must be exactly one of
+/// the three strings (no coercion); `padding` (longest mode) must be
+/// undefined or an object.
 fn parse_zip_options(ctx: &mut ScopedContext, options: JSValue) -> Result<(u8, JSValue), i32> {
+    if !options.is_undefined() && !options.is_object() {
+        return Err(ctx.throw_type_error("options must be an object"));
+    }
+
     let obj = match options.as_object() {
         Some(o) => o,
         None => return Ok((0, JSValue::UNDEFINED)),
@@ -347,21 +343,36 @@ fn parse_zip_options(ctx: &mut ScopedContext, options: JSValue) -> Result<(u8, J
         return Ok((0, JSValue::UNDEFINED));
     }
 
-    let mode_atom = mode_val.to_atom(ctx)?;
-    let s = Atom::from_str(ctx, "shortest")?;
-    let l = Atom::from_str(ctx, "longest")?;
-    let strict = Atom::from_str(ctx, "strict")?;
-
-    if mode_atom == l {
-        let padding = obj.get_property_str(ctx, "padding")?;
-        Ok((1, padding))
-    } else if mode_atom == s {
-        Ok((0, JSValue::UNDEFINED))
-    } else if mode_atom == strict {
-        Ok((2, JSValue::UNDEFINED))
+    // Primitive string comparison only: a String wrapper or an object with
+    // toString/valueOf/Symbol.toPrimitive is a TypeError without coercion.
+    let mode = if let Some(s) = mode_val.as_string(false) {
+        if s.eq_str("shortest") {
+            0
+        } else if s.eq_str("longest") {
+            1
+        } else if s.eq_str("strict") {
+            2
+        } else {
+            return Err(ctx.throw_type_error(
+                "Iterator.zip mode must be 'shortest', 'strict', or 'longest'",
+            ));
+        }
     } else {
-        Err(ctx.throw_range_error("Iterator.zip mode must be 'shortest', 'strict', or 'longest'"))
-    }
+        return Err(ctx.throw_type_error(
+            "Iterator.zip mode must be 'shortest', 'strict', or 'longest'",
+        ));
+    };
+
+    let padding = if mode == 1 {
+        let p = obj.get_property_str(ctx, "padding")?;
+        if !p.is_undefined() && !p.is_object() {
+            return Err(ctx.throw_type_error("padding must be an object"));
+        }
+        p
+    } else {
+        JSValue::UNDEFINED
+    };
+    Ok((mode, padding))
 }
 
 fn js_iterator_zip(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -372,10 +383,15 @@ fn js_iterator_zip(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         JSValue::UNDEFINED
     };
 
+    // Step 1: iterables must be an object (checked before reading options).
+    if !iterables.is_object() {
+        return Err(ctx.throw_type_error("iterables must be an object"));
+    }
+
     let (mode, padding) = parse_zip_options(ctx, options)?;
 
-    // Get outer iterator from iterables via GetIteratorFlattenable (reject-strings)
-    let outer = get_iterator_flattenable(ctx, iterables)?;
+    // GetIteratorFlattenable (reject-strings) over iterables
+    let outer = get_iterator_flattenable_reject_strings(ctx, iterables)?;
     let outer_obj = outer.ensure_object(ctx)?;
     let outer_next = outer_obj.get_property(ctx, Atom::CONST_next)?;
 
@@ -507,6 +523,11 @@ fn js_iterator_zipKeyed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     } else {
         JSValue::UNDEFINED
     };
+
+    // Step 1: iterables must be an object (checked before reading options).
+    if !iterables.is_object() {
+        return Err(ctx.throw_type_error("iterables must be an object"));
+    }
 
     let (mode, padding) = parse_zip_options(ctx, options)?;
 

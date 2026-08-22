@@ -979,7 +979,11 @@ pub(super) fn regexp_exec(
 ) -> Result<Option<Object>, i32> {
     if let Some(o) = regexp.as_object() {
         let exec = o.get_property(ctx, Atom::CONST_exec)?;
-        if !exec.match_native_callback(Callback::Func(js_regexp_exec), 0) {
+        // RegExpExec: only a *callable* custom `exec` bypasses the builtin
+        // matcher; non-callable (incl. undefined/null) falls back to it.
+        if !exec.match_native_callback(Callback::Func(js_regexp_exec), 0)
+            && exec.is_callable()
+        {
             // call method function
             let s = JSValue::make_string(str);
             let ret = exec.call(ctx, regexp, std::slice::from_ref(&s))?;

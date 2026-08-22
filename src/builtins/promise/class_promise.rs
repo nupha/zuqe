@@ -689,6 +689,14 @@ fn js_promise_try(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     match cc.arg(0).call(ctx, JSValue::UNDEFINED, fn_args) {
         Ok(val) => {
+            // PromiseResolve(C, val): a promise already built by C is
+            // returned as-is, not re-wrapped.
+            if let Some(p) = val.as_object_Promise() {
+                let ctor = p.get_property(ctx, Atom::CONST_constructor)?;
+                if ctor.is_same(this) {
+                    return Ok(val);
+                }
+            }
             resolving_funcs[0].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&val))?;
         }
         Err(_) => {

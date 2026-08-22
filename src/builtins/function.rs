@@ -49,14 +49,24 @@ fn js_function_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let p = unsafe { this_val.as_object_unchecked() };
 
+    let mut native_presented = false;
     let func_kind = if let Some(func) = p.payload().bc_function() {
         let bc = func.bytecode();
-        if let Some(debug) = bc.debug.as_ref()
-            && let Some(s) = debug.source.as_deref()
-        {
-            return ctx.create_string_from_str(s).map(JSValue::make_string);
+        if let Some(debug) = bc.debug.as_ref() {
+            // JS-implemented built-ins present as plain native functions to
+            // toString (the NativeFunction grammar has no async/* accessor).
+            native_presented = ["<Array.fromAsync>"]
+                .iter()
+                .any(|n| Atom::from_str(ctx, n).is_ok_and(|a| a == debug.filename));
+            if !native_presented && let Some(s) = debug.source.as_deref() {
+                return ctx.create_string_from_str(s).map(JSValue::make_string);
+            }
         }
-        bc.func_kind()
+        if native_presented {
+            FunctionKind::Normal
+        } else {
+            bc.func_kind()
+        }
     } else {
         FunctionKind::Normal
     };

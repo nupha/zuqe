@@ -812,6 +812,13 @@ impl TypedArray {
     ) -> Result<Self, i32> {
         self.ensure_attached(ctx)?;
 
+        // InitializeTypedArrayFromTypedArray: an out-of-bounds view (fixed
+        // length beyond the resized buffer, or start offset past its end)
+        // cannot be cloned.
+        if self.payload().is_out_of_bounds() {
+            return Err(ctx.throw_type_error("out of bounds"));
+        }
+
         let count = self.length();
         let size_log2 = Self::SIZE_LOG2(class_id as _);
         let new_buf = ArrayBuffer::create(ctx, false, count << size_log2)?;
@@ -823,36 +830,8 @@ impl TypedArray {
         let mut new_ta = Self::create_from(ctx, new_target, new_buf.into(), 0, count, class_id)?;
 
         // copy data from src_ta to new_ta
-        let same_content_type = matches!(
-            (self.class_id(), class_id),
-            (
-                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY,
-                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY
-            ) | (
-                JS_CLASS_INT8_ARRAY
-                    | JS_CLASS_UINT8C_ARRAY
-                    | JS_CLASS_UINT8_ARRAY
-                    | JS_CLASS_INT16_ARRAY
-                    | JS_CLASS_UINT16_ARRAY
-                    | JS_CLASS_INT32_ARRAY
-                    | JS_CLASS_UINT32_ARRAY
-                    | JS_CLASS_FLOAT16_ARRAY
-                    | JS_CLASS_FLOAT32_ARRAY
-                    | JS_CLASS_FLOAT64_ARRAY,
-                JS_CLASS_INT8_ARRAY
-                    | JS_CLASS_UINT8C_ARRAY
-                    | JS_CLASS_UINT8_ARRAY
-                    | JS_CLASS_INT16_ARRAY
-                    | JS_CLASS_UINT16_ARRAY
-                    | JS_CLASS_INT32_ARRAY
-                    | JS_CLASS_UINT32_ARRAY
-                    | JS_CLASS_FLOAT16_ARRAY
-                    | JS_CLASS_FLOAT32_ARRAY
-                    | JS_CLASS_FLOAT64_ARRAY
-            )
-        );
-        if same_content_type && Self::SIZE_LOG2(self.class_id()) == size_log2 {
-            // fast path for same element size and content type: copy bytes
+        if self.class_id() == class_id {
+            // fast path: identical element type, raw byte copy
             let src_ta = self.payload();
             src_ta.with_bytes(|src| {
                 new_ta.with_bytes_mut(|dst| unsafe {
@@ -864,7 +843,8 @@ impl TypedArray {
                 });
             });
         } else {
-            // slow path: get then set as props (throws for BigInt↔Number mixes)
+            // slow path: get then set as props (converts values; throws for
+            // BigInt↔Number mixes)
             for i in 0..count {
                 let val = self.get_property_u32(ctx, i as u32)?;
                 new_ta.set_property_u32(ctx, i as u32, val)?;

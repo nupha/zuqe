@@ -64,15 +64,21 @@ fn js_iterator_wrap_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         .iterator_wrap()
         .ok_or_else(|| ctx.throw_type_error("not an Iterator Wrap"))?;
 
+    // GetMethod(iterator, "return")
     let return_method = wrap
         .obj
         .get_property(ctx, crate::atom::Atom::CONST_return)?;
-    if !return_method.is_undefined_or_null() {
-        let result = return_method.call(ctx, wrap.obj.into(), &[cc.arg(0)])?;
-        return make_iterator_next_result(ctx, result, true);
+    if return_method.is_undefined_or_null() {
+        return make_iterator_next_result(ctx, JSValue::UNDEFINED, true);
     }
+    return_method.ensure_callable(ctx)?;
 
-    make_iterator_next_result(ctx, cc.arg(0), true)
+    // Return the base iterator's own return() result as-is (not re-wrapped)
+    let result = return_method.call(ctx, wrap.obj.into(), &[])?;
+    if result.as_object().is_none() {
+        return Err(ctx.throw_type_error("iterator return method must return an object"));
+    }
+    Ok(result)
 }
 
 pub(crate) const js_iterator_wrap_proto_funcs: &[FieldDef] = &[

@@ -865,39 +865,29 @@ fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
         let shift = TypedArray::SIZE_LOG2(src.class_id());
 
+        // Spec copies element-by-element (read-then-write), so when both views
+        // share the same backing store the destination observes earlier writes.
+        // Only disjoint stores may use the bulk-copy fast path.
+        let same_store =
+            src.array_buffer().payload().data().id() == dst.array_buffer().payload().data().id();
+
         if copy_count > 0
+            && !same_store
             && src.class_id() == dst.class_id()
             && (start + copy_count) <= current_len as usize
             && dst.capacity() >= copy_count
             && src.capacity() >= start + copy_count
         {
             // fast path: no shrink/overlap, raw copy is safe
-            if src.array_buffer().payload().data().id() == dst.array_buffer().payload().data().id()
-            {
-                // src, dst are in same memory chunk
-                let src_ptr = src.with_bytes(|b| b.as_ptr());
-
-                dst.with_bytes_mut(|buf| unsafe {
-                    // may have overwrite
-                    let mut src_ptr = src_ptr.add(start << shift);
-                    let mut dst_ptr = buf.as_mut_ptr();
-                    for _ in 0..copy_count << shift {
-                        *dst_ptr = *src_ptr;
-                        src_ptr = src_ptr.add(1);
-                        dst_ptr = dst_ptr.add(1);
-                    }
+            src.with_bytes(|src_buf| {
+                dst.with_bytes_mut(|dst_buf| unsafe {
+                    std::ptr::copy(
+                        src_buf.as_ptr().add(start << shift),
+                        dst_buf.as_mut_ptr(),
+                        copy_count << shift,
+                    );
                 });
-            } else {
-                src.with_bytes(|src_buf| {
-                    dst.with_bytes_mut(|dst_buf| unsafe {
-                        std::ptr::copy(
-                            src_buf.as_ptr().add(start << shift),
-                            dst_buf.as_mut_ptr(),
-                            copy_count << shift,
-                        );
-                    });
-                });
-            }
+            });
         } else if copy_count > 0 {
             // slow path using property access so OOB reads become `undefined`
             for n in 0..copy_count {

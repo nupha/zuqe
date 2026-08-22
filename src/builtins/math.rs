@@ -179,6 +179,199 @@ pub fn js_math_random(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     Ok(JSValue::make_float(unsafe { u.d } - 1.0))
 }
 
+/// Math.sumPrecise (ES2026): exact summation of Number values, correctly
+/// rounded once at the end.
+///
+/// Shewchuk exact-addition partials plus a "biased" overflow partial
+/// (conceptually scaled by 2**1024), ported from the proposal's reference
+/// implementation; non-finite values follow the spec's state machine.
+fn js_math_sumprecise(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    if !cc.arg(0).is_object() {
+        return Err(ctx.throw_type_error("Math.sumPrecise requires an iterable"));
+    }
+
+    // twosum with |x| >= |y|: x + y == hi + lo exactly
+    #[inline]
+    fn twosum(x: f64, y: f64) -> (f64, f64) {
+        let hi = x + y;
+        (hi, y - (hi - x))
+    }
+
+    const TWO_POW_1023: f64 = f64::from_bits(2046 << 52);
+    const MAX_ULP_HALF: f64 = f64::from_bits(1993 << 52); // 2**970
+
+    enum St {
+        MinusZero,
+        Finite,
+        PlusInf,
+        MinusInf,
+        NotANumber,
+    }
+
+    let mut st = St::MinusZero;
+    let mut partials: Vec<f64> = Vec::new();
+    // overflow counter, conceptually scaled by 2**1024
+    let mut overflow: i64 = 0;
+
+    for item in cc.arg(0).iter(ctx)? {
+        let val = item?;
+        if !val.is_number() {
+            return Err(ctx.throw_type_error("Math.sumPrecise requires Number values"));
+        }
+        let mut x = val.to_number(ctx)?.to_f64();
+
+        match st {
+            St::NotANumber => {}
+            St::PlusInf => {
+                if x == f64::NEG_INFINITY {
+                    st = St::NotANumber;
+                }
+            }
+            St::MinusInf => {
+                if x == f64::INFINITY {
+                    st = St::NotANumber;
+                }
+            }
+            St::MinusZero | St::Finite => {
+                if x.is_nan() {
+                    st = St::NotANumber;
+                } else if x == f64::INFINITY {
+                    st = St::PlusInf;
+                } else if x == f64::NEG_INFINITY {
+                    st = St::MinusInf;
+                } else {
+                    // any non-minus-zero element flips the state to finite
+                    if !(x == 0.0 && x.is_sign_negative()) {
+                        st = St::Finite;
+                    }
+                    // merge x into the non-overlapping partial sums
+                    let mut used = 0usize;
+                    for m in 0..partials.len() {
+                        let mut y = partials[m];
+                        if x.abs() < y.abs() {
+                            std::mem::swap(&mut x, &mut y);
+                        }
+                        let (mut hi, lo0) = twosum(x, y);
+                        let mut lo = lo0;
+                        if hi.abs() == f64::INFINITY {
+                            // exact sum exceeds a double: peel off 2**1024
+                            // into the biased overflow counter and retry
+                            let sign: f64 = if hi == f64::INFINITY { 1.0 } else { -1.0 };
+                            overflow += sign as i64;
+                            if overflow.abs() >= 1i64 << 53 {
+                                return Err(ctx.throw_range_error("Math.sumPrecise overflow"));
+                            }
+                            x = (x - sign * TWO_POW_1023) - sign * TWO_POW_1023;
+                            if x.abs() < y.abs() {
+                                std::mem::swap(&mut x, &mut y);
+                            }
+                            let t = twosum(x, y);
+                            hi = t.0;
+                            lo = t.1;
+                        }
+                        if lo != 0.0 {
+                            partials[used] = lo;
+                            used += 1;
+                        }
+                        x = hi;
+                    }
+                    partials.truncate(used);
+                    if x != 0.0 {
+                        partials.push(x);
+                    }
+                }
+            }
+        }
+    }
+
+    match st {
+        St::NotANumber => Ok(JSValue::make_float(f64::NAN)),
+        St::PlusInf => Ok(JSValue::make_float(f64::INFINITY)),
+        St::MinusInf => Ok(JSValue::make_float(f64::NEG_INFINITY)),
+        St::MinusZero => Ok(JSValue::make_float(-0.0)),
+        St::Finite => {
+            // combine the partials, rounding once at the end
+            let mut n: isize = partials.len() as isize - 1;
+            let mut hi;
+            let mut lo;
+
+            if overflow != 0 {
+                let next = if n >= 0 { partials[n as usize] } else { 0.0 };
+                n -= 1;
+                if overflow.abs() > 1
+                    || (overflow > 0 && next > 0.0)
+                    || (overflow < 0 && next < 0.0)
+                {
+                    return Ok(JSValue::make_float(if overflow > 0 {
+                        f64::INFINITY
+                    } else {
+                        f64::NEG_INFINITY
+                    }));
+                }
+                let t = twosum(overflow as f64 * TWO_POW_1023, next / 2.0);
+                hi = t.0;
+                lo = t.1 * 2.0;
+                if (2.0 * hi).abs() == f64::INFINITY {
+                    // rounding at the top of the double range: only a single
+                    // opposite-signed tiny remainder can keep it finite
+                    if hi > 0.0 {
+                        if hi == TWO_POW_1023
+                            && lo == -MAX_ULP_HALF
+                            && n >= 0
+                            && partials[n as usize] < 0.0
+                        {
+                            return Ok(JSValue::make_float(f64::MAX));
+                        }
+                        return Ok(JSValue::make_float(f64::INFINITY));
+                    } else if hi == -TWO_POW_1023
+                        && lo == MAX_ULP_HALF
+                        && n >= 0
+                        && partials[n as usize] > 0.0
+                    {
+                        return Ok(JSValue::make_float(-f64::MAX));
+                    } else {
+                        return Ok(JSValue::make_float(f64::NEG_INFINITY));
+                    }
+                }
+                if lo != 0.0 {
+                    partials[(n + 1) as usize] = lo;
+                    n += 1;
+                    lo = 0.0;
+                }
+                hi *= 2.0;
+            } else {
+                hi = 0.0;
+                lo = 0.0;
+            }
+
+            while n >= 0 {
+                let y = partials[n as usize];
+                n -= 1;
+                let t = twosum(hi, y);
+                hi = t.0;
+                lo = t.1;
+                if lo != 0.0 {
+                    break;
+                }
+            }
+
+            // half-ULP roundoff: peek one more partial to break the tie
+            if n >= 0
+                && ((lo < 0.0 && partials[n as usize] < 0.0)
+                    || (lo > 0.0 && partials[n as usize] > 0.0))
+            {
+                let y = lo * 2.0;
+                let x = hi + y;
+                if y == x - hi {
+                    hi = x;
+                }
+            }
+
+            Ok(JSValue::make_float(hi))
+        }
+    }
+}
+
 pub const js_math_funcs: &[FieldDef] = &[
     FieldDef::FUNC("min", 2, js_math_min_max, 0),
     FieldDef::FUNC("max", 2, js_math_min_max, 1),
@@ -238,6 +431,7 @@ pub const js_math_funcs: &[FieldDef] = &[
     FieldDef::CALL_FF("cbrt", 1, f64::cbrt, 0),
     FieldDef::FUNC("hypot", 2, js_math_hypot, 0),
     FieldDef::FUNC("random", 0, js_math_random, 0),
+    FieldDef::FUNC("sumPrecise", 1, js_math_sumprecise, 0),
     FieldDef::CALL_FF("fround", 1, |a: f64| -> f64 { (a as f32) as f64 }, 0),
     FieldDef::CALL_FF("f16round", 1, |a: f64| -> f64 { math_f16round(a) }, 0),
     FieldDef::FUNC("imul", 2, js_math_imul, 0),
