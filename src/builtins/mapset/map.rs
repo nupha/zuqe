@@ -7,6 +7,7 @@ use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
     JS_CLASS_MAP_ITERATOR, JS_CLASS_SET_ITERATOR,
+    builtins::weakref::can_be_held_weakly,
     class::ClassID,
     context::{ContextImpl, ScopedContext},
     object::{MapSet, Object, ObjectImpl, ObjectPayload},
@@ -151,7 +152,10 @@ impl JSMapState {
     ) -> Result<bool, i32> {
         let key = MapPair::normalize_key(key);
 
-        if self.is_weak && !key.is_object() {
+        // Weak collections accept objects and non-registered symbols
+        // (CanBeHeldWeakly). Symbol keys are stored as strong pairs since
+        // symbols are never collected.
+        if self.is_weak && !key.is_object() && !can_be_held_weakly(key) {
             return Err(ctx.throw_type_error_not_an_object());
         }
 
@@ -160,9 +164,10 @@ impl JSMapState {
         let idx = if let Some(lst) = self.lut.get(&hash) {
             lst.iter().find_map(|i| match self.slots.get_mut(*i) {
                 Some(MapPair::Weak { key: k, value: v }) => {
-                    debug_assert!(self.is_weak);
+                    // A non-object (symbol) lookup key never matches an
+                    // object-keyed weak slot.
                     let Some(o) = key.as_object() else {
-                        unreachable!()
+                        return None;
                     };
                     k.upgrade(ctx.rt().gc_heap()).and_then(|k| {
                         if Object(k.into_raw()) == o {
@@ -174,7 +179,6 @@ impl JSMapState {
                     })
                 }
                 Some(MapPair::Strong { key: k, value: v }) => {
-                    debug_assert!(!self.is_weak);
                     if key.is_same0(*k) {
                         *v = value;
                         Some(*i)
@@ -190,13 +194,13 @@ impl JSMapState {
 
         if idx.is_none() {
             // key not found, insert
-            let kv = if self.is_weak {
-                MapPair::Weak {
-                    key: key.as_object().unwrap().downgrade(),
+            let kv = match key.as_object() {
+                // object key in a weak collection: held weakly
+                Some(o) if self.is_weak => MapPair::Weak {
+                    key: o.downgrade(),
                     value,
-                }
-            } else {
-                MapPair::Strong { key, value }
+                },
+                _ => MapPair::Strong { key, value },
             };
 
             self.slots.push(kv);
@@ -207,7 +211,9 @@ impl JSMapState {
                 .and_modify(|lst| {
                     lst.push(idx);
                 })
-                .insert_entry(vec![idx]);
+                // NOTE: must not replace the list on hash collision
+                // (e.g. distinct Symbols sharing a description hash).
+                .or_insert_with(|| vec![idx]);
 
             Ok(true)
         } else {
@@ -267,8 +273,13 @@ impl JSMapState {
                     }
                 }
                 Some(MapPair::Weak { key: k, .. }) => {
+                    // A non-object (symbol) lookup key never matches an
+                    // object-keyed weak slot.
+                    let Some(lookup_obj) = key.as_object() else {
+                        return true;
+                    };
                     if let Some(k) = k.upgrade(ctx.rt_ptr().gc_heap()) {
-                        if Object(k.into_raw()) == unsafe { key.as_object_unchecked() } {
+                        if Object(k.into_raw()) == lookup_obj {
                             self.slots[*i] = MapPair::Removed;
                             self.remove_count += 1;
                             false
@@ -322,9 +333,9 @@ impl JSMapState {
                         true
                     }
                 }
-                Some(MapPair::Strong { .. }) => {
-                    unreachable!();
-                }
+                // Weak collections may hold strong (symbol) pairs; never
+                // collected, so always keep them.
+                Some(MapPair::Strong { .. }) => true,
                 _ => false,
             });
             lst.is_empty()

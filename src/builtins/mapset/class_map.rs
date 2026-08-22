@@ -9,6 +9,7 @@ use crate::{
         common::SPECIES_FIELD,
         iterator::{JSIteratorKindEnum, iterator_step},
         mapset::MapSet,
+        weakref::can_be_held_weakly,
     },
     class::ClassID,
     error::JSResult,
@@ -135,7 +136,7 @@ pub(crate) fn js_map_getOrInsert(ctx: &mut ScopedContext, cc: CallContext) -> JS
     let key = MapPair::normalize_key(cc.arg(0));
 
     // For WeakMap, validate key can be held weakly before any callback invocation
-    if class_offset == 2 && !key.is_object() {
+    if class_offset == 2 && !can_be_held_weakly(key) {
         return Err(ctx.throw_type_error_not_an_object());
     }
 
@@ -159,10 +160,11 @@ pub(crate) fn js_map_getOrInsert(ctx: &mut ScopedContext, cc: CallContext) -> JS
     let mut this_mut = cc.this();
     let s = get_jsmap_state_mut(&mut this_mut, class_id, ctx)?;
 
-    if s.upsert(ctx, key, value)? && s.is_weak() {
-        key.as_object()
-            .unwrap()
-            .add_back_ref(cc.this().as_object().unwrap().downgrade());
+    if s.upsert(ctx, key, value)?
+        && s.is_weak()
+        && let Some(mut key_obj) = key.as_object()
+    {
+        key_obj.add_back_ref(cc.this().as_object().unwrap().downgrade());
     }
     let _ = s;
 
@@ -187,7 +189,7 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let s = get_jsmap_state_mut(&mut this, JS_CLASS_MAP + magic as ClassID, ctx)?;
 
-    if s.is_weak() && !key.is_object() {
+    if s.is_weak() && !can_be_held_weakly(key) {
         return Err(ctx.throw_type_error_not_an_object());
     }
 
@@ -198,11 +200,12 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     if s.upsert(ctx, key, map_val)? {
-        // inserted pair: make back ref for key object if is weak
-        if s.is_weak() {
-            key.as_object()
-                .unwrap()
-                .add_back_ref(cc.this().as_object().unwrap().downgrade());
+        // inserted pair: make back ref for key object if is weak (symbol
+        // keys are never collected, so they need no back ref)
+        if s.is_weak()
+            && let Some(mut key_obj) = key.as_object()
+        {
+            key_obj.add_back_ref(cc.this().as_object().unwrap().downgrade());
         }
     }
 
@@ -228,10 +231,11 @@ fn js_map_delete(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if s.find(ctx, key).is_some() {
         s.remove(ctx, key);
 
-        if s.is_weak() {
-            key.as_object()
-                .unwrap()
-                .remove_back_ref(ctx.rt(), this.as_object().unwrap());
+        // only object keys have back refs (symbol keys are never collected)
+        if s.is_weak()
+            && let Some(mut key_obj) = key.as_object()
+        {
+            key_obj.remove_back_ref(ctx.rt(), this.as_object().unwrap());
         }
         Ok(JSValue::TRUE)
     } else {

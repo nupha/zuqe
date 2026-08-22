@@ -100,7 +100,7 @@ pub(crate) static CLASS_DEF_WEAKREF: ClassDef = ClassDef::builtin(
 //
 /// Per ES2027 §9.13 CanBeHeldWeakly: Objects and non-registered Symbols are valid.
 /// Registered symbols (Symbol.for()) are rejected because KeyForSymbol(arg) is not undefined.
-fn can_be_held_weakly(val: JSValue) -> bool {
+pub(crate) fn can_be_held_weakly(val: JSValue) -> bool {
     if val.as_object().is_some() {
         return true;
     }
