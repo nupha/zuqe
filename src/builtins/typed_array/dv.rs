@@ -16,8 +16,11 @@ pub struct DataViewPayload {
     pub(super) buffer: ArrayBuffer,
     /// start offset in ArrayBuffer
     pub(super) offset: u32,
-    /// number of bytes from ArrayBuffer
+    /// number of bytes from ArrayBuffer; unused when `length_tracked`.
     pub(super) byte_length: u32,
+    /// `[[ByteLength]]` is `auto`: created without an explicit byteLength
+    /// argument over a resizable buffer; length follows the buffer.
+    pub(super) length_tracked: bool,
 }
 
 impl GcTrace for DataViewPayload {
@@ -29,19 +32,22 @@ impl GcTrace for DataViewPayload {
 impl DataViewPayload {
     /// create typed array payload with underlying array buffer `buffer`,
     /// offset in array buffer and type array element count.
-    fn new(buffer: ArrayBuffer, offset: usize, len: usize) -> Box<Self> {
+    fn new(buffer: ArrayBuffer, offset: usize, len: usize, length_tracked: bool) -> Box<Self> {
         // the buffer may already be detached: argument coercion in the
         // constructor can run user code. DataView::create() throws right
         // after instance creation, and every accessor re-checks detachment
         // before touching the bytes.
         debug_assert!(
-            buffer.payload().is_detached() || offset + len <= buffer.payload().byte_length()
+            buffer.payload().is_detached()
+                || length_tracked
+                || offset + len <= buffer.payload().byte_length()
         );
 
         Box::new(Self {
             buffer,
             offset: offset as u32,
             byte_length: len as u32,
+            length_tracked,
         })
     }
 
@@ -63,31 +69,47 @@ impl DataViewPayload {
         self.array_buffer().payload().ensure_attached(ctx)
     }
 
-    #[inline(always)]
-    pub const fn byte_length(&self) -> usize {
-        self.byte_length as _
-    }
-
     /// start offset in the underlying ArrayBuffer.
     #[inline(always)]
     pub const fn byte_offset(&self) -> usize {
         self.offset as _
     }
 
-    /// Whether the view's range extends past the buffer's *current* byte
-    /// length. Only possible when the underlying buffer is resizable and has
-    /// been shrunk. Per the spec such a DataView is "out of bounds": its
-    /// accessors and the byteLength/byteOffset getters throw a TypeError.
-    #[inline(always)]
+    /// IsViewOutOfBounds (§25.3.1.4): true when the buffer is detached or the
+    /// view's start/end extends past the buffer's *current* byte length. For
+    /// auto views the end always coincides with the buffer end.
     pub fn is_out_of_bounds(&self) -> bool {
-        let buf_len = self.array_buffer().payload().byte_length();
-        self.offset as usize + self.byte_length as usize > buf_len
+        let ab = self.array_buffer();
+        let abuf = ab.payload();
+        if abuf.is_detached() {
+            return true;
+        }
+
+        let buf_len = abuf.byte_length();
+        let start = self.offset as usize;
+        let end = if self.length_tracked {
+            buf_len
+        } else {
+            start + self.byte_length as usize
+        };
+        start > buf_len || end > buf_len
+    }
+
+    /// GetViewByteLength (§25.3.1.3): the stored length for fixed-size views,
+    /// `buffer.byteLength - offset` for auto (length-tracking) views.
+    /// Caller must first rule out the out-of-bounds state.
+    pub fn view_byte_length(&self) -> usize {
+        if self.length_tracked {
+            self.array_buffer().payload().byte_length() - self.offset as usize
+        } else {
+            self.byte_length as usize
+        }
     }
 
     /// run closure with underlaying bytes of typed array.
     pub fn with_bytes<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
         let base = self.offset as usize;
-        let len = self.byte_length as usize;
+        let len = self.view_byte_length();
         self.array_buffer()
             .payload()
             .with_bytes(|buf| f(&buf[base..base + len]))
@@ -96,7 +118,7 @@ impl DataViewPayload {
     /// run closure with underlaying bytes of typed array.
     pub fn with_bytes_mut<R>(&mut self, f: impl FnOnce(&mut [u8]) -> R) -> R {
         let base = self.offset as usize;
-        let len = self.byte_length as usize;
+        let len = self.view_byte_length();
         self.array_buffer()
             .payload_mut()
             .with_bytes_mut(|buf| f(&mut buf[base..base + len]))
@@ -105,27 +127,43 @@ impl DataViewPayload {
 
 impl DataView {
     /// create a DataView with ArrayBuffer, byte offset and byte length.
-    /// `offset`/`length` must have been validated by the caller. The buffer
-    /// may already be detached (the byteLength argument coercion can run
-    /// user code) — per ES §25.3.2.1 this is only caught here, after
-    /// instance creation.
+    /// `length_tracked` marks an `auto` ([[ByteLength]]) view whose length
+    /// follows the buffer. `offset`/`length` must have been validated by the
+    /// caller. The buffer may already be detached (the byteLength argument
+    /// coercion can run user code) — per ES §25.3.2.1 this is only caught
+    /// here, after instance creation.
     pub(crate) fn create(
         ctx: &mut ScopedContext,
         ctor: JSValue,
         array_buffer: ArrayBuffer,
         offset: usize,
-        length: usize,
+        byte_length: usize,
+        length_tracked: bool,
     ) -> Result<Self, i32> {
         let o = ctx
             .create_instance_with_ctor(
                 ctor,
-                ObjectPayload::DATAVIEW(DataViewPayload::new(array_buffer, offset, length)),
+                ObjectPayload::DATAVIEW(DataViewPayload::new(
+                    array_buffer,
+                    offset,
+                    byte_length,
+                    length_tracked,
+                )),
             )
             .map_err(|_| -1)?;
 
-        // the buffer could have been detached by the byteLength argument
-        // coercion, or in create_instance_with_ctor() reading the prototype
+        // §25.3.2.1 steps 11-14: reading `newTarget.prototype` can run user
+        // code that detaches or resizes the buffer; re-check detach and
+        // bounds against fresh state. The half-initialized instance is
+        // discarded when these throw, exactly like in the spec algorithm.
         array_buffer.payload().ensure_attached(ctx)?;
+        let buf_len = array_buffer.payload().byte_length();
+        if offset > buf_len {
+            return Err(ctx.throw_range_error("invalid byteOffset"));
+        }
+        if !length_tracked && offset + byte_length > buf_len {
+            return Err(ctx.throw_range_error("invalid byteLength"));
+        }
 
         Ok(Self(o.0))
     }
@@ -156,7 +194,7 @@ impl DataView {
         if self.is_detached() {
             0
         } else {
-            self.payload().byte_length()
+            self.payload().view_byte_length()
         }
     }
 }

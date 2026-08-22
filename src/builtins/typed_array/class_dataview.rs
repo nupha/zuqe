@@ -21,26 +21,29 @@ use super::{
 };
 
 pub(super) fn js_dataview_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    // ES §25.3.2.1
     let Some(buffer) = cc.arg(0).as_object_ArrayBuffer() else {
         return Err(ctx.throw_type_error_invalid_class(JS_CLASS_ARRAY_BUFFER));
     };
 
-    // ES §25.3.2.1: ToIndex may run user code that detaches the buffer,
+    // step 3: ToIndex may run user code that detaches the buffer,
     // so the detach check comes right after the byteOffset conversion
     let offset = cc.arg(1).to_index(ctx)? as usize;
     buffer.ensure_attached(ctx)?;
 
-    // the buffer length is captured *before* the byteLength argument is
-    // converted; a detach during that conversion is only caught after
-    // instance creation (in DataView::create)
+    // steps 5-6
     let buffer_len = buffer.payload().byte_length();
     if offset > buffer_len {
         return Err(ctx.throw_range_error("invalid byteOffset"));
     }
 
-    let length = if !cc.arg(2).is_undefined() {
+    // steps 7-9: [[ByteLength]] is `auto` when the length argument is omitted
+    // and the viewed buffer is resizable (length-tracking view).
+    let has_len_arg = !cc.arg(2).is_undefined();
+    let length_tracked = !has_len_arg && buffer.payload().is_resizable();
+    let byte_length = if has_len_arg {
         let l = cc.arg(2).to_index(ctx)? as usize;
-        if l > buffer_len - offset {
+        if offset + l > buffer_len {
             return Err(ctx.throw_range_error("invalid byteLength"));
         }
         l
@@ -48,7 +51,9 @@ pub(super) fn js_dataview_constructor(ctx: &mut ScopedContext, cc: CallContext) 
         buffer_len - offset
     };
 
-    DataView::create(ctx, cc.this(), buffer, offset, length).map(|o| o.into())
+    // steps 10-14: instance creation reads `newTarget.prototype`, which may
+    // run user code that resizes/detaches the buffer — create() re-validates.
+    DataView::create(ctx, cc.this(), buffer, offset, byte_length, length_tracked).map(|o| o.into())
 }
 
 fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -74,14 +79,13 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     abuf.ensure_attached(ctx)?;
 
     let dv = dataview.payload();
-    if pos + size > dv.byte_length() {
-        return Err(ctx.throw_range_error("out of bound"));
-    }
-    // Resizable buffer: the view's recorded range can extend past the
-    // buffer's *current* length after a shrink. Per GetViewValue this is a
-    // TypeError (not the RangeError above).
+    // GetViewValue: the out-of-bounds TypeError is checked before the
+    // RangeError below.
     if dv.is_out_of_bounds() {
         return Err(ctx.throw_type_error("DataView is out of bounds"));
+    }
+    if pos + size > dv.view_byte_length() {
+        return Err(ctx.throw_range_error("out of bound"));
     }
 
     dv.with_bytes(|buf| unsafe {
@@ -247,13 +251,13 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     dv.ensure_attached(ctx)?;
-    if pos + size > dv.byte_length() {
-        return Err(ctx.throw_range_error("out of bound"));
-    }
-    // Resizable buffer: throw a TypeError when the view is out of bounds
-    // relative to the buffer's *current* length (see GetViewValue).
+    // SetViewValue: the out-of-bounds TypeError is checked before the
+    // RangeError below.
     if dv.is_out_of_bounds() {
         return Err(ctx.throw_type_error("DataView is out of bounds"));
+    }
+    if pos + size > dv.view_byte_length() {
+        return Err(ctx.throw_range_error("out of bound"));
     }
 
     let dv_mut: &mut DataViewPayload = this.class_payload_mut(ctx, JS_CLASS_DATAVIEW)?;
@@ -310,7 +314,7 @@ fn js_dataview_getter(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 if p.is_out_of_bounds() {
                     return Err(ctx.throw_type_error("DataView is out of bounds"));
                 }
-                Ok(JSValue::from(p.byte_length() as i32))
+                Ok(JSValue::from(p.view_byte_length() as i32))
             }
             TA_GET_BYTE_OFFSET => {
                 dv.ensure_attached(ctx)?;
