@@ -6,6 +6,7 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
     context::ScopedContext,
     eval::EvalType,
+    stack_frame::ExecMode,
     utils::{M2, read_from_ptr},
 };
 
@@ -73,7 +74,73 @@ impl FunctionDef {
 
                     mark_eval_captured_variables(self, scope as _);
 
-                    push_vec_u8(&mut bc_out, op);
+                    // TCO: `eval(...) + return` (possibly separated by labels/
+                    // line_nums, e.g. ??/&&/||) → tail_eval. At runtime a
+                    // resolved value that isn't %eval% becomes a proper tail
+                    // call; %eval% still runs as direct eval in place.
+                    // PTC applies only in strict mode code (ES IsInTailPosition)
+                    let mut scan_line_num = line_num;
+                    let mut found_return = false;
+                    if OPTIMIZE && self.attrs.exec_mode.contains(ExecMode::STRICT) {
+                        let mut scan = pos_next;
+                        while scan < bc_buf_len {
+                            let scan_op = unsafe { *bc_buf_ptr.add(scan) };
+                            let scan_len = opcode_info_intermediate(scan_op).size as usize;
+                            if scan + scan_len > bc_buf_len {
+                                break;
+                            }
+                            match scan_op {
+                                opcodes::op_line_num => {
+                                    scan_line_num = unsafe {
+                                        read_from_ptr::<i32>(bc_buf_ptr.add(scan + 1))
+                                    };
+                                    scan += scan_len;
+                                }
+                                opcodes::op_label | opcodes::OP_nip_catch => {
+                                    scan += scan_len;
+                                }
+                                opcodes::OP_gosub => {
+                                    // A gosub to a real try-finally body must run
+                                    // after the call: not tail position. An empty
+                                    // finally region is a no-op indirection.
+                                    let label_id = unsafe {
+                                        read_from_ptr::<u32>(bc_buf_ptr.add(scan + 1))
+                                    };
+                                    if self
+                                        .code_match(
+                                            self.label_slots[label_id as usize].pos as _,
+                                            &[OpCode::RET as i32],
+                                        )
+                                        .is_some()
+                                    {
+                                        scan += scan_len;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                opcodes::OP_return | opcodes::OP_return_undef => {
+                                    found_return = true;
+                                    break;
+                                }
+                                _ => break,
+                            }
+                        }
+                    }
+
+                    if found_return {
+                        if scan_line_num >= 0 && scan_line_num != line_num {
+                            line_num = scan_line_num;
+                            self.line_number_slots_cap += 1;
+                            push_vec_u8(&mut bc_out, OpCodeTemp::LINE_NUM as u8);
+                            push_vec_u32(&mut bc_out, line_num as u32);
+                            push_vec_u32(&mut bc_out, 0); // line_pos: not available in resolve
+                        }
+                        self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
+
+                        push_vec_u8(&mut bc_out, opcodes::OP_tail_eval);
+                    } else {
+                        push_vec_u8(&mut bc_out, op);
+                    }
                     push_vec_u16(&mut bc_out, call_argc);
                     push_vec_u16(&mut bc_out, (self.scopes[scope as usize].first + 1) as _);
                 }
@@ -405,8 +472,10 @@ impl FunctionDef {
                     //   call f, n  +  return/return_undef  →  tail_call f, n
                     //   call_method f, n  +  return/return_undef  →  tail_call_method f, n
                     // Also handles labels between call and return (e.g. ??, &&, ||):
-                    //   call f, n  +  [label/line_num]*  +  return  →  tail_call f, n  +  [label]*  +  return
-                    if OPTIMIZE {
+                    //   call f, n  +  [label/line_num]*  +  return  →  tail_call f, n
+                    //   + [label]* + return
+                    // PTC applies only in strict mode code (ES IsInTailPosition)
+                    if OPTIMIZE && self.attrs.exec_mode.contains(ExecMode::STRICT) {
                         let argc = unsafe { read_from_ptr::<u16>(bc_buf_ptr.add(pos + 1)) };
                         // Try 1: direct match (call + return, no intervening opcodes)
                         let mut tco_ok = false;

@@ -192,7 +192,14 @@ impl FunctionDef {
                     // detect and transform tail calls
                     let argc = unsafe { read_from_ptr::<u16>(bc_ptr.add(pos + 1)) };
 
-                    if let Some(m) = self.code_match(pos_next, &[OpCode::RETURN as i32]) {
+                    // PTC applies only in strict mode code (ES IsInTailPosition)
+                    let tail_m = if self.attrs.exec_mode.contains(ExecMode::STRICT) {
+                        self.code_match(pos_next, &[OpCode::RETURN as i32])
+                    } else {
+                        None
+                    };
+
+                    if let Some(m) = tail_m {
                         if m.line_num >= 0 {
                             line_num = m.line_num as _;
                         }

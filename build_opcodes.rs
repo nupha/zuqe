@@ -120,6 +120,7 @@ static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
         DEF!("throw", 1, 1, 0, "NONE", false, Never),
         DEF!("throw_error", 6, 0, 0, "ATOM_U8", false, Never),
         DEF!("eval", 5, 1, 1, "NPOP_U16", false, Always),
+        DEF!("tail_eval", 5, 1, 0, "NPOP_U16", false, Always),
         DEF!("apply_eval", 3, 2, 1, "U16", false, Always),
         DEF!("regexp", 1, 2, 1, "NONE", false, Always),
         DEF!("get_super", 1, 1, 1, "NONE", false, Never),

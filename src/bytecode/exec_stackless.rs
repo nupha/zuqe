@@ -1880,7 +1880,7 @@ impl Bytecode {
                     // ═══════════════════════════════════════════════════
                     // Eval
                     // ═══════════════════════════════════════════════════
-                    OpCode::EVAL => {
+                    OpCode::EVAL | OpCode::TAIL_EVAL => {
                         let call_argc = PC_FETCH!(u16) as i32;
                         let scope_idx = PC_FETCH!(u16) as i32 - 1;
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
@@ -1925,6 +1925,21 @@ impl Bytecode {
                                     let args_slice = unsafe {
                                         std::slice::from_raw_parts(call_argv, call_argc as usize)
                                     };
+
+                                    // TAIL_EVAL: the eval call is in tail position
+                                    // (`return eval(...)`), so replace the current
+                                    // frame instead of pushing one. Cross-realm tail
+                                    // calls skip TCO (same reason as TAIL_CALL).
+                                    if unlikely(opcode == OpCode::TAIL_EVAL)
+                                        && bc.realm() == realm_scope.ctx_ptr
+                                    {
+                                        break ExecAction::TailCall {
+                                            callee_bc: bc,
+                                            callee_func_obj: bfun.into(),
+                                            args: args_slice.to_vec(),
+                                            this_obj: JSValue::UNDEFINED,
+                                        };
+                                    }
 
                                     // Treat as a normal non-tail call: push a fresh callee
                                     // frame via build_callee_frame. We must NOT use TailCall

@@ -152,6 +152,7 @@ impl FunctionDef {
             match op {
                 opcodes::OP_tail_call
                 | opcodes::OP_tail_call_method
+                | opcodes::OP_tail_eval
                 | opcodes::OP_return
                 | opcodes::OP_return_undef
                 | opcodes::OP_return_async
