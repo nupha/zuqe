@@ -223,6 +223,12 @@ fn js_typed_array_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 pub const js_typed_array_base_funcs: &[FieldDef] = &[
     FieldDef::FUNC("from", 1, js_typed_array_from, 0),
     FieldDef::FUNC("of", 0, js_typed_array_of, 0),
+    SPECIES_FIELD,
+];
+
+// Base64/hex methods are only defined on Uint8Array itself (not on
+// %TypedArray% nor other TypedArray subclasses).
+pub const js_uint8array_base_funcs: &[FieldDef] = &[
     FieldDef::FUNC(
         "fromBase64",
         1,
@@ -230,7 +236,28 @@ pub const js_typed_array_base_funcs: &[FieldDef] = &[
         0,
     ),
     FieldDef::FUNC("fromHex", 1, super::base64hex::js_uint8array_fromHex, 0),
-    SPECIES_FIELD,
+];
+
+pub const js_uint8array_proto_funcs: &[FieldDef] = &[
+    FieldDef::FUNC(
+        "toBase64",
+        0,
+        super::base64hex::js_uint8array_proto_toBase64,
+        0,
+    ),
+    FieldDef::FUNC("toHex", 0, super::base64hex::js_uint8array_proto_toHex, 0),
+    FieldDef::FUNC(
+        "setFromBase64",
+        1,
+        super::base64hex::js_uint8array_proto_setFromBase64,
+        0,
+    ),
+    FieldDef::FUNC(
+        "setFromHex",
+        1,
+        super::base64hex::js_uint8array_proto_setFromHex,
+        0,
+    ),
 ];
 
 //
@@ -1911,24 +1938,5 @@ pub const js_typed_array_base_proto_funcs: &[FieldDef] = &[
         1,
         js_typed_array_indexOf,
         special_includes as i16,
-    ),
-    FieldDef::FUNC(
-        "toBase64",
-        0,
-        super::base64hex::js_uint8array_proto_toBase64,
-        0,
-    ),
-    FieldDef::FUNC("toHex", 0, super::base64hex::js_uint8array_proto_toHex, 0),
-    FieldDef::FUNC(
-        "setFromBase64",
-        1,
-        super::base64hex::js_uint8array_proto_setFromBase64,
-        0,
-    ),
-    FieldDef::FUNC(
-        "setFromHex",
-        1,
-        super::base64hex::js_uint8array_proto_setFromHex,
-        0,
     ),
 ];

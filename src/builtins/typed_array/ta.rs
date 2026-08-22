@@ -24,7 +24,7 @@ use crate::{
 
 use super::{
     js_typed_array_base_constructor, js_typed_array_base_funcs, js_typed_array_base_proto_funcs,
-    js_typed_array_constructor,
+    js_typed_array_constructor, js_uint8array_base_funcs, js_uint8array_proto_funcs,
 };
 
 pub const JS_TYPED_ARRAY_COUNT: usize =
@@ -319,13 +319,15 @@ impl TypedArray {
             )?
             .into();
             ctx.bind_ctor_proto(ta_ctor, ta_proto)?;
-            // Install static and prototype methods directly on the variant
-            // constructor / prototype so they are own properties (required by
-            // the spec and by test262 descriptor checks). The base
-            // TypedArray.prototype / func_proto already carry them, but as
-            // inherited (non-own) members.
-            ta_ctor.install_fields(ctx, js_typed_array_base_funcs)?;
-            ta_proto.install_fields(ctx, js_typed_array_base_proto_funcs)?;
+            // Per spec, concrete TypedArray constructors/prototypes define only
+            // BYTES_PER_ELEMENT (plus constructor/prototype wiring) themselves;
+            // all other statics/methods are inherited from %TypedArray% /
+            // %TypedArray%.prototype. Uint8Array additionally owns its
+            // base64/hex methods.
+            if cid == JS_CLASS_UINT8_ARRAY {
+                ta_ctor.install_fields(ctx, js_uint8array_base_funcs)?;
+                ta_proto.install_fields(ctx, js_uint8array_proto_funcs)?;
+            }
             ta_ctor.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::from(nby), 0)?;
             ctx.class_slots[cid as usize].ctor = Some(ta_ctor);
 
