@@ -108,9 +108,12 @@ pub(crate) fn js_intl_init(ctx: &mut ScopedContext) -> Result<Object, i32> {
 /// locales that are actually supported (e.g. excluding `zxx`, "no linguistic
 /// content").
 fn js_intl_supported_locales_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    // Validate the `localeMatcher` option (ECMA-402 §8.2.2 step 5).
+    // Validate the `localeMatcher` option (ECMA-402 §8.2.2 step 5):
+    // SupportedLocales applies ToObject(options) unless undefined, so `null`
+    // throws TypeError while primitives are wrapped (their `localeMatcher`
+    // read still walks the prototype chain).
     let options = cc.arg(1);
-    if options.is_object() {
+    if !options.is_undefined() {
         let obj = options.objectify(ctx)?;
         let matcher = obj.get_property_str(ctx, "localeMatcher")?;
         if !matcher.is_undefined() {
