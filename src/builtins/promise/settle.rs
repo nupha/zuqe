@@ -299,11 +299,11 @@ impl Promise {
         let self_node = self.gc_node_ptr();
         let rt = ctx.rt_mut();
         if let Some(idx) = rt
-            .pending_promises
+            .gc_pending_promises
             .iter()
             .position(|p| p.gc_node_ptr() == self_node)
         {
-            rt.pending_promises.remove(idx);
+            rt.gc_pending_promises.swap_remove(idx);
         }
 
         ctx.gc_heap_mut().bind_value(self.gc_node_ptr(), &value); // write barrier

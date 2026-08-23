@@ -391,6 +391,7 @@ impl AsyncState {
         args: &[JSValue],
     ) -> Result<Self, i32> {
         let inner = AsyncStateImpl::new(ctx.into(), resolvings, bytecode_func, this_obj, args)?;
+
         let a_state: AsyncState = ctx
             .alloc_local(inner)
             .map_err(|_| ctx.throw_out_of_memory())?
@@ -399,6 +400,12 @@ impl AsyncState {
         // Backref link is no longer needed: in the arena model, GC tracing
         // handles async frames through AsyncStateImpl.trace() (for Suspended)
         // and StackFrameArena.trace() (for Active), independently.
+        //
+        // The state escapes its allocating scope at the first suspend, so
+        // scope-local protection ends there. Root it on the runtime until
+        // completion — promise-reaction trace edges alone left a GC-timing
+        // window where a still-resumable state was collected (UAF).
+        ctx.rt_mut().gc_pending_async_states.push(a_state);
 
         Ok(a_state)
     }

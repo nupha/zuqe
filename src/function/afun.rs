@@ -140,6 +140,18 @@ impl AsyncState {
         let ret = self.resume(ctx);
 
         if self.is_completed {
+            // Completed — drop the runtime root added in AsyncState::new so
+            // finished states don't accumulate (identity = node pointer).
+            let node = self.gc_node_ptr();
+            let rt = ctx.rt_mut();
+            if let Some(idx) = rt
+                .gc_pending_async_states
+                .iter()
+                .position(|s| s.gc_node_ptr() == node)
+            {
+                rt.gc_pending_async_states.swap_remove(idx);
+            }
+
             match ret {
                 Ok(val) => {
                     // Normal function return - resolve

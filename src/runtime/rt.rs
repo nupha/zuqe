@@ -142,8 +142,14 @@ pub struct RuntimeImpl {
     /// gc request flag
     pub(crate) gc_req: bool,
 
-    /// Pending Promises that must survive GC even if no user code holds a reference.
-    pub(crate) pending_promises: Vec<Promise>,
+    /// Rooted pending Promises that must survive GC even if no user code holds a reference.
+    pub(crate) gc_pending_promises: Vec<Promise>,
+    /// Rooted pending async-function execution states. An AsyncState escapes its
+    /// allocating scope at the first suspend; rooting it here (added on
+    /// creation, removed at completion in `AsyncState::execute`) guarantees
+    /// the resumable state survives GC regardless of promise-reaction edges.
+    pub(crate) gc_pending_async_states: Vec<crate::function::AsyncState>,
+
     #[deprecated]
     pub(crate) host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
     #[deprecated]
@@ -231,7 +237,8 @@ impl RuntimeImpl {
             gc_alloc_check_interval: GC_ALLOC_CHECK_INTERVAL,
             gc_user_trace: Vec::new(),
             gc_trace_fns: Vec::new(),
-            pending_promises: Vec::new(),
+            gc_pending_promises: Vec::new(),
+            gc_pending_async_states: Vec::new(),
 
             interrupt_handler: None,
 

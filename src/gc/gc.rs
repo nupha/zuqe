@@ -152,8 +152,19 @@ impl RuntimeImpl {
             // trace all pending Promises — they must survive GC even when no
             // user code holds a reference, otherwise their settle callbacks
             // (PromiseReaction handlers) are lost.
-            for p in self.pending_promises.iter() {
+            for p in self.gc_pending_promises.iter() {
                 p.trace(&mut gcx);
+            }
+
+            // trace rooted async-function states. An AsyncState escapes its
+            // allocating scope as soon as the async function first suspends;
+            // relying solely on trace edges through promise reactions left a
+            // GC-timing window where the state (and its suspended frame) was
+            // collected while still resumable ("bad node" / recycled-object
+            // crashes under connection-storm workloads). States are added on
+            // creation and removed at completion (AsyncState::execute).
+            for s in self.gc_pending_async_states.iter() {
+                s.trace(&mut gcx);
             }
 
             // trace error value
