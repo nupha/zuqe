@@ -20,10 +20,10 @@ use super::common::{
 
 #[derive(Debug)]
 pub struct RelativeTimeFormatData {
-    pub locale: Locale,
-    pub style: RelStyle,
-    pub numeric: RelNumeric,
-    pub numbering_system: String,
+    pub(crate) locale: Locale,
+    pub(crate) style: RelStyle,
+    pub(crate) numeric: RelNumeric,
+    pub(crate) numbering_system: String,
 }
 
 impl GcTrace for RelativeTimeFormatData {

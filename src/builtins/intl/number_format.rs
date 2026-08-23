@@ -900,7 +900,7 @@ fn format_with_significant(
 
     let neg = n.is_sign_negative();
     let mag = n.abs();
-    let mut s = format_shortest(mag);
+    let s = format_shortest(mag);
     let exp = mag.log10().floor() as i32;
 
     // Reassemble into an "all-digits + scale" form: digits is the full digit

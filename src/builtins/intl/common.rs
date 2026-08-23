@@ -287,24 +287,6 @@ fn default_locale() -> Result<Locale, i32> {
     Ok("en-US".parse().unwrap())
 }
 
-/// Create a new ordinary object for a spec "Record"/resolvedOptions result and
-/// define a data property on it using CreateDataProperty semantics (so a
-/// tainted `Object.prototype` setter is not invoked).
-pub(crate) fn new_record_object(ctx: &mut ScopedContext) -> Result<crate::object::Object, i32> {
-    ctx.create_base_object()
-}
-
-/// Define `name` = `val` on `o` with CreateDataProperty semantics.
-pub(crate) fn record_set(
-    ctx: &mut ScopedContext,
-    o: &mut crate::object::Object,
-    name: &str,
-    val: JSValue,
-) -> Result<(), i32> {
-    o.define_property_value_str(ctx, name, val, 0)?;
-    Ok(())
-}
-
 /// Collation types supported by each (language, region) for the `u-co` Unicode
 /// extension key. ECMA-402 ResolveLocale only keeps an extension key in the
 /// resolved locale when its value is supported by the chosen locale.
