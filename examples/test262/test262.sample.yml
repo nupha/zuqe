@@ -8,6 +8,10 @@ base_path: "/path/to/test262"
 # edition preset to run; must name an entry in `presets:` below.
 preset: ES2024
 
+# test suite to run: "262" (ECMA-262 tests only, the default), "402"
+# (intl402 only) or "all". An explicit `tests:` whitelist bypasses this.
+suite: 262
+
 # test scripts whitelist.
 # glob paths to select test scripts, empty means all.
 tests: []

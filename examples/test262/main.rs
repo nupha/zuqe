@@ -54,6 +54,9 @@ pub struct Negative {
 pub struct AppConfig {
     pub base_path: Option<String>,
     pub out_path: Option<String>,
+    /// Test suite selector: `262` (ECMA-262 tests only; the default), `402`
+    /// (intl402 only) or `all`. See `Suite`.
+    pub suite: Option<String>,
     pub tests: Option<Vec<String>>,
     pub exclude_tests: Option<Vec<String>>,
     pub exclude_features: Option<Vec<String>>,
@@ -65,52 +68,90 @@ pub struct AppConfig {
     pub log: Option<String>,
 }
 
+/// Which specification's tests the default collection covers.
+///
+/// The suite only shapes the *default* file range; an explicit `tests:`
+/// whitelist (config key or positional arguments) replaces it wholesale and
+/// bypasses suite shaping. Feature gating (preset ladder + exclude_features)
+/// is orthogonal and applies in every suite.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Suite {
+    /// Everything, including `intl402`.
+    All,
+    /// ECMA-262 only: `intl402/**` and `staging/intl402/**` are excluded.
+    Es262,
+    /// ECMA-402 only: just `intl402/**` (staging/intl402 stays subject to the
+    /// user's own `exclude_tests`).
+    Es402,
+}
+
+impl Suite {
+    /// Default glob list and extra exclude patterns (relative to `<base>/test`)
+    /// used when no explicit whitelist is given.
+    fn defaults(self) -> (&'static [&'static str], &'static [&'static str]) {
+        match self {
+            Suite::All => (&["**/*.js"], &[]),
+            Suite::Es262 => (
+                &["**/*.js"],
+                &["intl402/**/*.js", "staging/intl402/**/*.js"],
+            ),
+            Suite::Es402 => (&["intl402/**/*.js"], &[]),
+        }
+    }
+
+    /// Short label for reports.
+    fn label(self) -> &'static str {
+        match self {
+            Suite::All => "all",
+            Suite::Es262 => "262",
+            Suite::Es402 => "402",
+        }
+    }
+}
+
+/// Parse a suite name as written in the config (`suite:`) or `--suite`.
+fn parse_suite(s: &str) -> Option<Suite> {
+    match s {
+        "all" => Some(Suite::All),
+        "262" => Some(Suite::Es262),
+        "402" => Some(Suite::Es402),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Parser)]
 #[command(version, about = "Run test262 with edition presets")]
 pub struct Args {
-    /// config file (default: test262.yml in the current directory). All example
-    /// flags must follow `cargo run --example test262 --` so cargo does not
-    /// intercept them.
-    #[arg(long = "config", default_value_t = String::from("test262.yml"))]
+    /// Config file (default: test262.yml)
+    #[arg(long = "config", value_name = "FILE", default_value_t = String::from("test262.yml"))]
     pub config_file: String,
 
-    /// Edition preset to run; must name an entry in the config's `presets:`
-    /// If `--preset` is omitted, the `preset:` setting from the config file is
-    /// used; when a `features` whitelist is given (see `--features`) the preset
-    /// is ignored and the run is reported as preset `USER`. If neither a preset
-    /// nor a features whitelist is set, the runner errors out.
+    /// Edition preset to run; falls back to the config's `preset:`
     #[arg(long)]
     pub preset: Option<String>,
 
-    /// Feature(s) to test (repeatable or comma-separated), e.g.
-    /// --features iterator-helpers,set-methods. Merged with the config's
-    /// `features:` list. When given, only tests declaring at least one of these
-    /// features run and the preset is reported as `USER`.
-    #[arg(long = "features", value_delimiter = ',')]
+    /// Test suite: 262 (ECMA-262 only, default), 402 (intl402 only), all
+    #[arg(long)]
+    pub suite: Option<String>,
+
+    /// Only run tests using these features (comma-separated); reports as USER
+    #[arg(long = "features", value_name = "LIST", value_delimiter = ',')]
     pub features: Vec<String>,
 
-    /// Exclude an additional feature (repeatable), e.g. --exclude-feature Temporal
-    #[arg(long = "exclude-feature")]
+    /// Skip tests requiring this feature (repeatable)
+    #[arg(long = "exclude-feature", value_name = "FEATURE")]
     pub exclude_features: Vec<String>,
 
-    /// Specific test file(s) or glob(s) to run; overrides `tests` in the config.
+    /// Test files or globs to run; overrides the config's `tests:`
     #[arg(trailing_var_arg = true)]
     pub test_files: Vec<String>,
 
-    /// Path to a JSONL error log produced by a previous run. When given, only
-    /// the scripts listed in that file are re-run (the config's `tests`/`preset`
-    /// script filtering is ignored), and the file is rewritten in place with the
-    /// current failures (the previous file is backed up to `<name>-last.jsonl`).
-    #[arg(long = "error-file")]
+    /// Re-run only the failures listed in this JSONL file; rewrites it in place
+    #[arg(long = "error-file", value_name = "FILE")]
     pub error_file: Option<String>,
 
-    /// Log file that records the relative script path *before* each test runs.
-    /// Useful when the runner crashes mid-run: because the line is written (and
-    /// flushed) before the test executes, the last line of this file is exactly
-    /// the script that was running when it crashed — no need to re-run to find
-    /// it. Under `panic = "abort"` builds a panic hook cannot help (the process
-    /// aborts with no unwinding), so this on-disk record is the reliable way.
-    #[arg(long = "log-file")]
+    /// Record each script path before it runs; pinpoints the culprit on crash
+    #[arg(long = "log-file", value_name = "FILE")]
     pub log_file: Option<String>,
 }
 
@@ -120,6 +161,9 @@ pub struct Args {
 pub fn apply_cli_overrides(cfg: &mut AppConfig, args: &Args) {
     if let Some(preset) = args.preset.clone() {
         cfg.preset = Some(preset);
+    }
+    if let Some(suite) = args.suite.clone() {
+        cfg.suite = Some(suite);
     }
     if !args.test_files.is_empty() {
         cfg.tests = Some(args.test_files.clone());
@@ -180,6 +224,13 @@ pub fn validate_config(cfg: &AppConfig, presets: &[PresetDef], require_preset: b
             available_presets(presets)
         );
         std::process::exit(1);
+    }
+
+    if let Some(suite) = cfg.suite.as_deref() {
+        if parse_suite(suite).is_none() {
+            eprintln!("error: unknown suite '{suite}'. valid suites: all, 262, 402");
+            std::process::exit(1);
+        }
     }
 
     // `base_path` / `out_path`, if set, must be existing directories.
@@ -353,8 +404,28 @@ async fn main_impl() {
         for item in skip_tests {
             let pat = base_path.join(format!("./test/{item}"));
             for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
-                let fname = fname.unwrap();
-                exclude_tests.insert(fname);
+                exclude_tests.insert(fname.unwrap());
+            }
+        }
+    }
+
+    // Resolve the suite (CLI > config > default `262`). It only shapes the
+    // default collection below; an explicit `tests:` whitelist bypasses it.
+    let suite = match app_cfg.suite.as_deref() {
+        Some(s) => parse_suite(s).expect("suite validated"),
+        None => Suite::Es262,
+    };
+    let (default_globs, suite_excludes) = suite.defaults();
+
+    // An explicit whitelist exists when the config's `tests:` key or the CLI
+    // positional arguments name any script; then the suite stays a no-op.
+    let explicit_tests =
+        !args.test_files.is_empty() || app_cfg.tests.as_ref().is_some_and(|t| !t.is_empty());
+    if !explicit_tests {
+        for item in suite_excludes.iter() {
+            let pat = base_path.join(format!("./test/{item}"));
+            for fname in glob::glob(pat.to_str().unwrap()).unwrap() {
+                exclude_tests.insert(fname.unwrap());
             }
         }
     }
@@ -378,12 +449,12 @@ async fn main_impl() {
         args.test_files.clone()
     } else if let Some(tests) = app_cfg.tests.take() {
         if tests.is_empty() {
-            vec!["**/*.js".to_string()]
+            default_globs.iter().map(|s| s.to_string()).collect()
         } else {
             tests
         }
     } else {
-        vec!["**/*.js".to_string()]
+        default_globs.iter().map(|s| s.to_string()).collect()
     };
 
     // Build the list of (full_path, relative_path) scripts to run.
@@ -486,9 +557,13 @@ async fn main_impl() {
     } else if dec.user_features.is_some() {
         // Explicit features whitelist: the run is driven by the user's list,
         // not by an edition preset.
-        "USER".to_string()
+        format!("USER [suite {}]", suite.label())
     } else {
-        app_cfg.preset.clone().unwrap_or_else(|| "N/A".to_string())
+        format!(
+            "{} [suite {}]",
+            app_cfg.preset.clone().unwrap_or_else(|| "N/A".to_string()),
+            suite.label()
+        )
     };
     let feature_list: Option<Vec<String>> = if is_error_update {
         None
