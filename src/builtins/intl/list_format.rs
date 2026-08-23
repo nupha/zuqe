@@ -27,7 +27,7 @@ impl GcTrace for ListFormatData {
     fn trace(&self, _tr: &mut GcTraceCtx) {}
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum ListStyle {
     Long,
     Short,
@@ -123,26 +123,57 @@ fn join_list(
     if list.len() == 1 {
         return Ok(list[0].clone());
     }
-    if list.len() == 2 {
-        return Ok(match (this.style, &this.list_type) {
-            (ListStyle::Narrow, _) => format!("{} & {}", list[0], list[1]),
-            _ => match this.list_type {
-                ListType::Conjunction => format!("{} and {}", list[0], list[1]),
-                ListType::Disjunction => format!("{} or {}", list[0], list[1]),
-                ListType::Unit => format!("{} {}", list[0], list[1]),
-            },
-        });
+    let mut out = String::new();
+    for (i, s) in list.iter().enumerate() {
+        if i > 0 {
+            out.push_str(join_separator(this.style, this.list_type, i, list.len()));
+        }
+        out.push_str(s);
     }
-    let last = &list[list.len() - 1];
-    let joined = list[..list.len() - 1].join(", ");
-    Ok(match (this.style, &this.list_type) {
-        (ListStyle::Narrow, _) => format!("{} & {}", joined, last),
-        _ => match this.list_type {
-            ListType::Conjunction => format!("{}, and {}", joined, last),
-            ListType::Disjunction => format!("{}, or {}", joined, last),
-            ListType::Unit => format!("{}, {}", joined, last),
-        },
-    })
+    Ok(out)
+}
+
+/// Separator before element `index` of `len` elements. Narrow lists join the
+/// final pair with "&" (CLDR-style); unit lists separate with ",".
+pub(crate) fn join_separator(
+    style: ListStyle,
+    list_type: ListType,
+    index: usize,
+    len: usize,
+) -> &'static str {
+    let last = index + 1 == len;
+    if style == ListStyle::Narrow {
+        return if last {
+            " & "
+        } else {
+            ", "
+        };
+    }
+    match list_type {
+        ListType::Unit => ", ",
+        ListType::Conjunction => {
+            if last {
+                if len == 2 {
+                    " and "
+                } else {
+                    ", and "
+                }
+            } else {
+                ", "
+            }
+        }
+        ListType::Disjunction => {
+            if last {
+                if len == 2 {
+                    " or "
+                } else {
+                    ", or "
+                }
+            } else {
+                ", "
+            }
+        }
+    }
 }
 
 fn js_list_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -160,23 +191,14 @@ fn js_list_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext) -> J
         return Ok(values_to_array(ctx, parts)?);
     }
     for i in 0..list.len() {
-        parts.push(make_part(ctx, "element", &list[i])?);
-        if i < list.len() - 1 {
-            let literal = literal_for(ctx, this)?;
+        if i > 0 {
+            let literal =
+                join_separator(this.style, this.list_type, i, list.len()).to_string();
             parts.push(make_part(ctx, "literal", &literal)?);
         }
+        parts.push(make_part(ctx, "element", &list[i])?);
     }
     Ok(values_to_array(ctx, parts)?)
-}
-
-fn literal_for(ctx: &mut ScopedContext, this: &ListFormatData) -> Result<String, i32> {
-    let _ = ctx;
-    Ok(match this.list_type {
-        ListType::Conjunction => ", ",
-        ListType::Disjunction => ", ",
-        ListType::Unit => ", ",
-    }
-    .to_string())
 }
 
 fn make_part(ctx: &mut ScopedContext, kind: &str, value: &str) -> Result<JSValue, i32> {

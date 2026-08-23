@@ -39,6 +39,9 @@ pub struct NumberFormatData {
     pub(crate) decimal_sep: char,
     pub(crate) percent_space: bool,
     pub(crate) grouping_indian: bool,
+    pub(crate) unit_display: &'static str,
+    pub(crate) sign_display: SignDisplay,
+    pub(crate) rounding_mode: RoundingMode,
 }
 
 impl GcTrace for NumberFormatData {
@@ -60,6 +63,20 @@ pub(crate) enum Style {
     Percent,
     Currency,
     Unit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum SignDisplay {
+    Auto,
+    Never,
+    Always,
+    ExceptZero,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum RoundingMode {
+    HalfExpand,
+    Trunc,
 }
 
 pub(crate) static CLASS_DEF_NUMBER_FORMAT: ClassDef = ClassDef::builtin(
@@ -132,6 +149,9 @@ pub(crate) fn build_number_format_data(
         decimal_sep,
         percent_space,
         grouping_indian,
+        unit_display: "long",
+        sign_display: SignDisplay::Auto,
+        rounding_mode: RoundingMode::HalfExpand,
     };
 
     if !options.is_undefined() {
@@ -198,6 +218,61 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
         )
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
+}
+
+/// Build `NumberFormatData` directly (no JS option plumbing) for internal
+/// users such as `DurationFormat`, which spec-constructs fresh NumberFormat
+/// instances per unit.
+pub(crate) fn build_nf_data(
+    ctx: &mut ScopedContext,
+    locale: &Locale,
+    numbering_system: &str,
+    min_integer_digits: i32,
+    min_frac: i32,
+    max_frac: i32,
+    sign_never: bool,
+    use_grouping: bool,
+    trunc: bool,
+    unit: Option<(&str, &'static str)>,
+) -> Result<NumberFormatData, i32> {
+    let formatter = DecimalFormatter::try_new(locale.clone().into(), Default::default())
+        .map_err(|_| ctx.throw_range_error("Unable to load locale data"))?;
+    let (grouping_sep, decimal_sep, percent_space, grouping_indian) = locale_separators(locale);
+    Ok(NumberFormatData {
+        locale: locale.clone(),
+        formatter,
+        min_fraction_digits: min_frac.max(0),
+        max_fraction_digits: max_frac.max(0),
+        min_significant_digits: None,
+        max_significant_digits: None,
+        min_integer_digits,
+        notation: Notation::Standard,
+        style: if unit.is_some() {
+            Style::Unit
+        } else {
+            Style::Decimal
+        },
+        currency: None,
+        currency_display: "symbol",
+        unit: unit.map(|(u, _)| u.to_string()),
+        unit_display: unit.map(|(_, d)| d).unwrap_or("long"),
+        numbering_system: numbering_system.to_string(),
+        use_grouping,
+        grouping_sep,
+        decimal_sep,
+        percent_space,
+        grouping_indian,
+        sign_display: if sign_never {
+            SignDisplay::Never
+        } else {
+            SignDisplay::Auto
+        },
+        rounding_mode: if trunc {
+            RoundingMode::Trunc
+        } else {
+            RoundingMode::HalfExpand
+        },
+    })
 }
 
 fn apply_options(
@@ -298,6 +373,44 @@ fn apply_options(
         }
     } else {
         data.unit = None;
+    }
+
+    // unitDisplay: long | short | narrow
+    let unit_display = obj.get_property_str(ctx, "unitDisplay")?;
+    if !unit_display.is_undefined() {
+        let s = to_utf8_string(ctx, unit_display)?;
+        data.unit_display = match s.as_str() {
+            "long" => "long",
+            "short" => "short",
+            "narrow" => "narrow",
+            _ => return Err(ctx.throw_range_error("Invalid unitDisplay value")),
+        };
+    }
+
+    // signDisplay: auto | never | always | exceptZero
+    let sign_display = obj.get_property_str(ctx, "signDisplay")?;
+    if !sign_display.is_undefined() {
+        let s = to_utf8_string(ctx, sign_display)?;
+        data.sign_display = match s.as_str() {
+            "auto" => SignDisplay::Auto,
+            "never" => SignDisplay::Never,
+            "always" => SignDisplay::Always,
+            "exceptZero" => SignDisplay::ExceptZero,
+            _ => return Err(ctx.throw_range_error("Invalid signDisplay value")),
+        };
+    }
+
+    // roundingMode: only "trunc" changes behavior; other spec names are
+    // accepted and fall back to the default half-expand rounding.
+    let rounding_mode = obj.get_property_str(ctx, "roundingMode")?;
+    if !rounding_mode.is_undefined() {
+        let s = to_utf8_string(ctx, rounding_mode)?;
+        data.rounding_mode = match s.as_str() {
+            "trunc" => RoundingMode::Trunc,
+            "ceil" | "floor" | "expand" | "contract" | "halfExpand" | "halfCeil"
+            | "halfFloor" | "halfTrunc" | "halfEven" => RoundingMode::HalfExpand,
+            _ => return Err(ctx.throw_range_error("Invalid roundingMode value")),
+        };
     }
 
     // minimumIntegerDigits: integer in [1, 21].
@@ -454,7 +567,7 @@ fn round_significant(digits: &str, sig: usize) -> String {
     let next = digits.as_bytes()[sig];
     let mut keep = keep.to_string();
     if next >= b'5' {
-        // Increment the kept digits (may carry, e.g. 9999 -> 10000).
+        // Increment the kept digits (may carry, e.g. 9999 -> 10000)..
         let chars: Vec<u8> = keep.bytes().collect();
         let mut result = Vec::with_capacity(chars.len());
         let mut carry = 1;
@@ -559,6 +672,8 @@ pub(crate) fn format_value(
         let digits = digits.trim_start_matches('-');
         let mut s = format_bigint_digits(ctx, this, negative, digits)?;
         append_percent_suffix(this, &mut s);
+        apply_sign_display(this, &mut s);
+        append_unit_suffix(this, &mut s);
         if this.numbering_system != "latn" {
             s = translate_digits(&s, &this.numbering_system);
         }
@@ -571,13 +686,20 @@ pub(crate) fn format_value(
 }
 
 /// Format an already-converted `f64` value (no further coercion).
-fn format_f64(ctx: &mut ScopedContext, this: &NumberFormatData, n: f64) -> Result<String, i32> {
+pub(crate) fn format_f64(ctx: &mut ScopedContext, this: &NumberFormatData, n: f64) -> Result<String, i32> {
     if n.is_nan() {
         return Ok("NaN".to_string());
     }
     if n.is_infinite() {
         return Ok(if n > 0.0 { "∞" } else { "-∞" }.to_string());
     }
+
+    // signDisplay auto/never/exceptZero render -0 without a sign.
+    let n = if n == 0.0 && this.sign_display != SignDisplay::Always {
+        0.0
+    } else {
+        n
+    };
 
     // Percent style scales by 100.
     let scaled = match this.style {
@@ -600,8 +722,13 @@ fn format_f64(ctx: &mut ScopedContext, this: &NumberFormatData, n: f64) -> Resul
             this.grouping_indian,
         )?
     } else {
-        // Round to fraction digits; pad to the *minimum* fraction digits.
-        let rounded = round_to_fraction(scaled, this.min_fraction_digits, this.max_fraction_digits);
+        // Trunc mode skips numeric rounding; format_fixed then caps the
+        // fraction digit string (a truncation) instead of rounding it.
+        let rounded = if this.rounding_mode == RoundingMode::Trunc {
+            scaled
+        } else {
+            round_to_fraction(scaled, this.min_fraction_digits, this.max_fraction_digits)
+        };
         format_fixed(
             ctx,
             rounded,
@@ -616,10 +743,102 @@ fn format_f64(ctx: &mut ScopedContext, this: &NumberFormatData, n: f64) -> Resul
     };
 
     append_percent_suffix(this, &mut s);
+    apply_sign_display(this, &mut s);
+    append_unit_suffix(this, &mut s);
     if this.numbering_system != "latn" {
         s = translate_digits(&s, &this.numbering_system);
     }
     Ok(s)
+}
+
+/// Apply the signDisplay policy to a formatted numeric string.
+fn apply_sign_display(this: &NumberFormatData, s: &mut String) {
+    match this.sign_display {
+        SignDisplay::Never => {
+            if s.starts_with('-') {
+                s.remove(0);
+            }
+        }
+        SignDisplay::Always | SignDisplay::ExceptZero => {
+            if !s.starts_with('-') && !s.is_empty() {
+                s.insert(0, '+');
+            }
+        }
+        SignDisplay::Auto => {}
+    }
+}
+
+/// Localized display name for a unit (`unitDisplay` style); CLDR en data for
+/// the duration units, other units fall back to the raw unit id.
+fn unit_display_name(unit: &str, display: &str, singular: bool) -> String {
+    let short: &str = match unit {
+        "year" => "yr",
+        "month" => "mo",
+        "week" => "wk",
+        "day" => "day",
+        "hour" => "hr",
+        "minute" => "min",
+        "second" => "sec",
+        "millisecond" => "ms",
+        "microsecond" => "μs",
+        "nanosecond" => "ns",
+        other => return other.to_string(),
+    };
+    let narrow: &str = match unit {
+        "year" => "y",
+        "month" => "m",
+        "week" => "w",
+        "day" => "d",
+        "hour" => "h",
+        "minute" => "m",
+        "second" => "s",
+        "millisecond" => "ms",
+        "microsecond" => "μs",
+        "nanosecond" => "ns",
+        other => return other.to_string(),
+    };
+    match display {
+        // "day" is the only short form with a distinct English plural.
+        "short" => {
+            if unit == "day" && !singular {
+                "days".to_string()
+            } else {
+                short.to_string()
+            }
+        }
+        "narrow" => narrow.to_string(),
+        // long: regular English plurals.
+        _ => {
+            let mut s = unit.to_string();
+            if !singular && !s.ends_with('s') {
+                s.push('s');
+            }
+            s
+        }
+    }
+}
+
+/// Append the localized unit name for `style: "unit"` formatting.
+fn append_unit_suffix(this: &NumberFormatData, s: &mut String) {
+    if !matches!(this.style, Style::Unit) {
+        return;
+    }
+    let Some(u) = &this.unit else {
+        return;
+    };
+    // Singular iff the formatted magnitude is exactly 1.
+    let core: String = s
+        .trim_start_matches('-')
+        .chars()
+        .filter(|c| *c != this.grouping_sep)
+        .collect();
+    let name = unit_display_name(u, this.unit_display, core == "1");
+    // Space-separated unit names in most languages; CJK/Thai attach directly.
+    let lang = this.locale.id.language.to_string();
+    if !matches!(lang.as_str(), "ja" | "zh" | "ko" | "th" | "lo" | "my") {
+        s.push(' ');
+    }
+    s.push_str(&name);
 }
 
 /// Replace ASCII digits in `s` with the digits of the given numbering system.
@@ -908,7 +1127,7 @@ fn format_with_significant(
     grouping_indian: bool,
 ) -> Result<String, i32> {
     // Format the value as its shortest round-trip decimal, then round to `max`
-    // significant digits and pad to `min` — all in decimal-string space (this
+    // // significant digits and pad to `min` - all in decimal-string space (this
     // avoids f64 division errors on large values).
     if n == 0.0 {
         // "0" padded to `min` significant digits (preserve the -0 sign).
@@ -962,7 +1181,7 @@ fn format_with_significant(
                 }
             }
             if carry {
-                // Rounding carried past the top digit (e.g. 9999… → 10000…).
+                // Rounding carried past the top digit (e.g. 9999... -> 10000...).
                 digits.insert(0, '1');
                 int_len += 1;
             }
