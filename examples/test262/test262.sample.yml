@@ -27,6 +27,7 @@ presets:
         "__proto__",
         "__getter__",
         "__setter__",
+        "caller",
       ]
   - ES2015:
       [
@@ -92,6 +93,7 @@ presets:
         "String.prototype.includes",
         "String.prototype.endsWith",
         "tail-call-optimization",
+        "u180e",
       ]
   - ES2016: ["Array.prototype.includes", "exponentiation"]
   - ES2017: ["async-functions", "SharedArrayBuffer", "Atomics"]
@@ -134,6 +136,8 @@ presets:
         "Promise.allSettled",
         "String.prototype.matchAll",
         "Symbol.matchAll",
+        "for-in-order",
+        "proxy-missing-checks",
       ]
   - ES2021:
       [
@@ -144,6 +148,7 @@ presets:
         "Promise.any",
         "String.prototype.replaceAll",
         "WeakRef",
+        "align-detached-buffer-semantics-with-web-reality",
       ]
   - ES2022:
       [
@@ -167,41 +172,44 @@ presets:
   - ES2023:
       [
         "array-find-from-last",
-        "Atomics.waitAsync",
         "change-array-by-copy",
         "hashbang",
-        "String.prototype.isWellFormed",
-        "String.prototype.toWellFormed",
         "symbols-as-weakmap-keys",
       ]
   - ES2024:
       [
-        "Array.fromAsync",
         "array-grouping",
         "arraybuffer-transfer",
-        "Float16Array",
+        "Atomics.waitAsync",
         "promise-with-resolvers",
         "regexp-v-flag",
         "resizable-arraybuffer",
-        "set-methods",
-        "uint8array-base64",
+        "String.prototype.isWellFormed",
+        "String.prototype.toWellFormed",
       ]
   - ES2025:
       [
+        "Float16Array",
+        "import-attributes",
         "iterator-helpers",
         "json-modules",
-        "json-parse-with-source",
         "promise-try",
         "RegExp.escape",
+        "regexp-duplicate-named-groups",
         "regexp-modifiers",
+        "set-methods",
       ]
   - ES2026:
       [
+        "Array.fromAsync",
         "Error.isError",
         "iterator-sequencing",
-        "joint-iteration",
+        "json-parse-with-source",
         "Math.sumPrecise",
+        "uint8array-base64",
+        "upsert",
       ]
+  - ES2027: ["Atomics.pause", "explicit-resource-management", "joint-iteration"]
 
 # Features excluded: stage-X proposals or not implemented by zuqe
 exclude_features:

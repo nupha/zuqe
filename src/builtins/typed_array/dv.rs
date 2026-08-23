@@ -69,6 +69,11 @@ impl DataViewPayload {
         self.array_buffer().payload().ensure_attached(ctx)
     }
 
+    #[inline(always)]
+    pub fn byte_length(&self) -> usize {
+        self.byte_length as _
+    }
+
     /// start offset in the underlying ArrayBuffer.
     #[inline(always)]
     pub const fn byte_offset(&self) -> usize {
