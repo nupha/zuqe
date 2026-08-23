@@ -60,6 +60,9 @@ pub struct AppConfig {
     pub tests: Option<Vec<String>>,
     pub exclude_tests: Option<Vec<String>>,
     pub exclude_features: Option<Vec<String>>,
+    /// Allowed ECMA-402 features for suite 402 (whitelist). Absent or empty =
+    /// unrestricted; overridden by the `--intl` flag.
+    pub intl: Option<Vec<String>>,
     pub features: Option<Vec<String>>,
     pub preset: Option<String>,
     /// Ordered edition presets; each entry inherits the features of every
@@ -142,6 +145,10 @@ pub struct Args {
     #[arg(long = "exclude-feature", value_name = "FEATURE")]
     pub exclude_features: Vec<String>,
 
+    /// Allowed ECMA-402 features for suite 402 (overrides config `intl:`)
+    #[arg(long, value_name = "LIST", value_delimiter = ',')]
+    pub intl: Vec<String>,
+
     /// Test files or globs to run; overrides the config's `tests:`
     #[arg(trailing_var_arg = true)]
     pub test_files: Vec<String>,
@@ -173,6 +180,9 @@ pub fn apply_cli_overrides(cfg: &mut AppConfig, args: &Args) {
             Some(list) => list.extend(args.exclude_features.iter().cloned()),
             None => cfg.exclude_features = Some(args.exclude_features.clone()),
         }
+    }
+    if !args.intl.is_empty() {
+        cfg.intl = Some(args.intl.clone());
     }
     if !args.features.is_empty() {
         match cfg.features.as_mut() {
@@ -357,7 +367,15 @@ async fn main_impl() {
     let preset_list: Vec<PresetDef> = app_cfg.presets.take().unwrap_or_default();
     validate_config(&app_cfg, &preset_list, forced.is_none());
 
-    let dec = if forced.is_some() {
+    // Resolve the suite (CLI > config > default `262`). It shapes the default
+    // collection below (an explicit `tests:` whitelist bypasses it) and, for
+    // suite 402, pins the edition gate open.
+    let suite = match app_cfg.suite.as_deref() {
+        Some(s) => parse_suite(s).expect("suite validated"),
+        None => Suite::Es262,
+    };
+
+    let mut dec = if forced.is_some() {
         // Re-run mode: run exactly the listed scripts, no preset/feature filtering.
         let (_, max_index) = build_feature_edition(&preset_list);
         Decisions {
@@ -367,11 +385,25 @@ async fn main_impl() {
             max_index,
             strict: false,
             exclude: HashSet::new(),
+            intl_allowed: None,
             user_features: None,
         }
     } else {
         resolve_decisions(&app_cfg, preset_list)
     };
+
+    // Suite 402: ECMA-402 features belong to no ECMA-262 edition, so the
+    // edition gate is pinned fully open and the `intl:` whitelist governs
+    // them instead; the preset ladder only governs the 262/all sweeps.
+    if suite == Suite::Es402 {
+        dec.selected_index = dec.max_index;
+        dec.strict = false;
+        dec.intl_allowed = app_cfg
+            .intl
+            .as_ref()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.iter().cloned().collect());
+    }
 
     // `base_path` was already validated as an existing directory in
     // `validate_config`; here we just resolve it (or fall back to CWD).
@@ -409,12 +441,6 @@ async fn main_impl() {
         }
     }
 
-    // Resolve the suite (CLI > config > default `262`). It only shapes the
-    // default collection below; an explicit `tests:` whitelist bypasses it.
-    let suite = match app_cfg.suite.as_deref() {
-        Some(s) => parse_suite(s).expect("suite validated"),
-        None => Suite::Es262,
-    };
     let (default_globs, suite_excludes) = suite.defaults();
 
     // An explicit whitelist exists when the config's `tests:` key or the CLI

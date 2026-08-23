@@ -26,6 +26,7 @@ cargo run --example test262 -- --preset ES2025
 | `--suite <SUITE>` | Which spec's tests to collect: `262` (ECMA-262 only, **default**), `402` (`intl402/**` only), `all`. |
 | `--features <LIST>` | Comma-separated feature whitelist. Runs only tests declaring one of them; reports as preset `USER`. Overrides `exclude_features` for the listed names. Not needed for suite `402`. |
 | `--exclude-feature <F>` | Skip tests requiring this feature. Repeatable. Merged into the config's `exclude_features:`. |
+| `--intl <LIST>` | Allowed ECMA-402 features for suite `402` (comma-separated whitelist). Overrides the config's `intl:`. |
 | `[TEST_FILES]...` | Test files or globs, relative to `<base_path>/test/`. Replaces the config's `tests:` and bypasses `--suite` shaping. |
 | `--error-file <FILE>` | Re-run only the failures listed in this JSONL file, then rewrite it in place (previous copy saved as `<FILE>-last.jsonl`). All other filtering is ignored. Default when absent: `test262-errors.jsonl` receives current failures. |
 | `--log-file <FILE>` | Writes each script path before it runs. After a crash, the last line is the culprit. Essential for release builds (`panic = "abort"`); debug builds print it via panic hook instead. |
@@ -36,8 +37,13 @@ cargo run --example test262 -- --preset ES2025
   strictly newer edition than the selected preset, or is listed in
   `exclude_features`.
 - Features not named in any preset (stage-3 proposals, ECMA-402 flags) count as
-  "newest edition": they run only under the latest preset.
-- Tests with no `features:` frontmatter always run in preset mode.
+  "newest edition": they run only under the latest preset — except under suite
+  `402`, where they are ruled by the `intl:` whitelist instead.
+- Suite `402` whitelist rule: a test is skipped when it declares any
+  ECMA-402/proposal feature that is not listed in `intl:` (`--intl` overrides).
+  Untagged baseline tests always run. Absent/empty `intl:` = unrestricted.
+- Tests with no `features:` frontmatter always run in non-strict preset mode
+  (and in suite `402`); strict mode (`NAME!`) skips them.
 - Strict mode (`--preset NAME!`): runs only tests having at least one feature
   newly introduced in exactly that edition.
 - USER mode (`--features`): runs only tests declaring at least one whitelisted
@@ -60,6 +66,8 @@ presets:                        # ordered; each entry inherits all earlier ones
   - ES2026: ["Error.isError", "upsert"]
 features: []                    # non-empty => USER mode
 exclude_features: ["Temporal"]  # always skipped, every suite/preset
+intl: ["Intl.Segmenter"]        # allowed ECMA-402 features for suite 402
+                                # (absent/empty = unrestricted)
 ```
 
 Rules:
@@ -72,8 +80,9 @@ Rules:
   <https://github.com/tc39/proposals/blob/main/finished-proposals.md>
   ("Expected Publication Year").
 - ECMA-402 (`Intl.*`, `canonical-tz`) does not belong to any ECMA-262 edition
-  and is never gated by presets: run it via `--suite 402` and block
-  unimplemented flags through `exclude_features`.
+  and is never gated by presets: run it via `--suite 402` and select allowed
+  flags with `intl:` / `--intl` (`exclude_features` still blocks globally,
+  every suite).
 
 ## Suites
 
@@ -90,12 +99,14 @@ entirely; suite then has no effect on which files are gathered.
 
 - Suites `262` and `all` run the ECMA-262 conformance sweep: this is where the
   `preset:` ladder applies. It decides which edition's tests run.
-- Suite `402` runs ECMA-402 and needs **no** `features:` whitelist
-  configuration. Baseline intl402 tests run automatically; unimplemented
-  `Intl.*` flags are blocked through `exclude_features:` alone.
-- `Intl.*` flags themselves have no edition; pair suite `402` with the latest
-  preset. An old preset would skip any test tagged with newer-edition or
-  unmapped features — including `Intl.*` ones.
+- Suite `402` runs ECMA-402 and is gated by the `intl:` whitelist (config) or
+  `--intl` (CLI): tests tagged only with non-whitelisted `Intl.*` features are
+  skipped; untagged baseline tests always run; the preset plays no role.
+  Unimplemented `Intl.*` flags can alternatively be blocked globally through
+  `exclude_features:`.
+- `Intl.*` flags themselves have no edition: under suite `402` the edition
+  gate is pinned open, so the preset value does not affect which intl402 tests
+  run.
 
 ## Recipes
 
@@ -114,6 +125,9 @@ cargo run --example test262 -- -- built-ins/Array/**
 
 # Check one feature across suites
 cargo run --example test262 -- --features iterator-helpers
+
+# Quick-check a single Intl feature (suite 402)
+cargo run --example test262 -- --suite 402 --intl Intl.Segmenter
 
 # Iterate on failures: fix, re-run just those, repeat
 cargo run --example test262 -- --error-file test262-errors.jsonl

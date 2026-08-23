@@ -56,6 +56,9 @@ pub struct Decisions {
     pub strict: bool,
     /// Features that are always skipped.
     pub exclude: HashSet<String>,
+    /// Suite-402 whitelist for features outside every preset (ECMA-402 and
+    /// proposal flags). `None` = unrestricted (also outside suite 402).
+    pub intl_allowed: Option<HashSet<String>>,
     /// Explicit feature whitelist (`features:` in the config or `--features`).
     /// When set, only tests declaring at least one of these features run, the
     /// edition gate is bypassed, and the run is reported as preset `USER`.
@@ -149,6 +152,7 @@ pub fn resolve_decisions(cfg: &AppConfig, presets: Vec<PresetDef>) -> Decisions 
         max_index,
         strict,
         exclude,
+        intl_allowed: None,
         user_features,
     }
 }
@@ -195,6 +199,14 @@ pub fn should_skip_test(features: Option<&[String]>, dec: &Decisions) -> bool {
         if edition > dec.selected_index {
             return true;
         }
+        // Suite 402: features outside every preset (ECMA-402 and proposal
+        // flags) are governed by the `intl:` whitelist, when one is set.
+        if let Some(allowed) = &dec.intl_allowed
+            && !dec.feature_edition.contains_key(f)
+            && !allowed.contains(f)
+        {
+            return true;
+        }
     }
     if dec.strict
         && !features.iter().any(|f| {
@@ -237,6 +249,9 @@ pub fn enabled_features(dec: &Decisions) -> Vec<String> {
     };
 
     feats.retain(|f| !dec.exclude.contains(f));
+    if let Some(allowed) = &dec.intl_allowed {
+        feats.retain(|f| allowed.contains(f));
+    }
     feats.sort();
     feats.dedup();
     feats

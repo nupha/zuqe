@@ -215,6 +215,34 @@ presets:
       ]
   - ES2027: ["Atomics.pause", "explicit-resource-management", "joint-iteration"]
 
+# Allowed ECMA-402 features for `--suite 402` (whitelist). Absent or empty =
+# unrestricted; overridden by the CLI flag `--intl`. Tests tagged only with
+# non-whitelisted Intl features are skipped; untagged baseline tests always
+# run. Published-standard flags first; proposal-stage flags are commented out
+# (i.e. disallowed while the whitelist is active).
+intl: [
+    "canonical-tz",
+    "intl-normative-optional",
+    "Intl-enumeration",
+    "Intl.DateTimeFormat-datetimestyle",
+    "Intl.DateTimeFormat-dayPeriod",
+    "Intl.DateTimeFormat-extend-timezonename",
+    "Intl.DateTimeFormat-formatRange",
+    "Intl.DateTimeFormat-fractionalSecondDigits",
+    "Intl.DisplayNames",
+    "Intl.DisplayNames-v2",
+    "Intl.DurationFormat",
+    "Intl.ListFormat",
+    "Intl.Locale",
+    "Intl.NumberFormat-unified",
+    "Intl.RelativeTimeFormat",
+    "Intl.Segmenter",
+    # --- proposals, not yet part of a published ECMA-402 ---
+    # "Intl.Era-monthcode",
+    # "Intl.Locale-info",
+    # "Intl.NumberFormat-v3",
+  ]
+
 # Features excluded: stage-X proposals or not implemented by zuqe
 exclude_features:
   [
