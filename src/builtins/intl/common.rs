@@ -393,8 +393,19 @@ fn supported_extension_value(key: &str, lang: &str, value: &str) -> bool {
     }
 }
 
+/// Canonicalize a calendar id alias (UTS 35 key type aliases) to its
+/// canonical form.
+pub(crate) fn canonicalize_calendar_id(s: &str) -> &str {
+    match s {
+        "islamicc" => "islamic-civil",
+        "gregorian" => "gregory",
+        "ethiopic-amete-alem" => "ethioaa",
+        other => other,
+    }
+}
+
 /// Known CLDR calendar (ca) types.
-fn supported_calendars() -> &'static [&'static str] {
+pub(crate) fn supported_calendars() -> &'static [&'static str] {
     &[
         "buddhist",
         "chinese",
@@ -414,13 +425,16 @@ fn supported_calendars() -> &'static [&'static str] {
         "japanese",
         "persian",
         "roc",
+        // Aliases (canonicalized by `canonicalize_calendar_id`); kept here so
+        // `-u-ca-gregorian`-style extensions resolve, but filtered out of
+        // `Intl.supportedValuesOf("calendar")`.
         "gregorian",
         "islamicc",
     ]
 }
 
 /// Known CLDR numbering-system types (subset of the bcp47 `nu` type values).
-fn supported_numbering_systems() -> &'static [&'static str] {
+pub(crate) fn supported_numbering_systems() -> &'static [&'static str] {
     &[
         "latn", "arab", "arabext", "armn", "armnlow", "beng", "cakm", "cham", "deva", "ethi",
         "fullwide", "geor", "grek", "greklow", "gujr", "guru", "hanidays", "hans", "hansfin",
@@ -459,3 +473,102 @@ pub(crate) fn supported_extension_key_value(key: &str, value: &str) -> bool {
         _ => true,
     }
 }
+
+/// CLDR collation types supported by `Intl.Collator` (excludes the reserved
+/// "standard"/"search"). Mirrors `supported_collations()` per-language data;
+/// used by `Intl.supportedValuesOf("collation")` and Locale option validation.
+pub(crate) const SUPPORTED_COLLATION_TYPES: &[&str] =
+    &["emoji", "eor", "gb2312", "pinyin", "phonebk", "stroke", "zhuyin"];
+
+/// Sanctioned simple unit identifiers (UTS 35), for
+/// `Intl.supportedValuesOf("unit")`.
+pub(crate) const SUPPORTED_UNITS: &[&str] = &[
+    "acre", "bit", "byte", "celsius", "centimeter", "day", "degree", "fahrenheit",
+    "fluid-ounce", "foot", "gallon", "gigabit", "gigabyte", "gram", "hectare", "hour", "inch",
+    "kilobit", "kilobyte", "kilogram", "kilometer", "liter", "megabit", "megabyte", "meter",
+    "microsecond", "mile", "mile-scandinavian", "milliliter", "millimeter", "millisecond",
+    "minute", "month", "nanosecond", "ounce", "percent", "petabyte", "pound", "second",
+    "stone", "terabit", "terabyte", "week", "yard", "year",
+];
+
+/// Currencies with known display data: (ISO 4217 code, en name). Drives both
+/// `Intl.supportedValuesOf("currency")` and `Intl.DisplayNames` currency
+/// lookup so the two stay consistent.
+// ponytail: static snapshot of common ISO 4217 codes; extend when needed
+pub(crate) const SUPPORTED_CURRENCIES: &[(&str, &str)] = &[
+    ("AED", "UAE Dirham"),
+    ("ARS", "Argentine Peso"),
+    ("AUD", "Australian Dollar"),
+    ("BGN", "Bulgarian Lev"),
+    ("BHD", "Bahraini Dinar"),
+    ("BRL", "Brazilian Real"),
+    ("CAD", "Canadian Dollar"),
+    ("CHF", "Swiss Franc"),
+    ("CLP", "Chilean Peso"),
+    ("CNY", "Chinese Yuan"),
+    ("COP", "Colombian Peso"),
+    ("CZK", "Czech Koruna"),
+    ("DKK", "Danish Krone"),
+    ("EGP", "Egyptian Pound"),
+    ("EUR", "Euro"),
+    ("GBP", "British Pound"),
+    ("HKD", "Hong Kong Dollar"),
+    ("HUF", "Hungarian Forint"),
+    ("IDR", "Indonesian Rupiah"),
+    ("ILS", "Israeli New Shekel"),
+    ("INR", "Indian Rupee"),
+    ("ISK", "Icelandic Krona"),
+    ("JPY", "Japanese Yen"),
+    ("KRW", "South Korean Won"),
+    ("KWD", "Kuwaiti Dinar"),
+    ("MAD", "Moroccan Dirham"),
+    ("MXN", "Mexican Peso"),
+    ("MYR", "Malaysian Ringgit"),
+    ("NGN", "Nigerian Naira"),
+    ("NOK", "Norwegian Krone"),
+    ("NZD", "New Zealand Dollar"),
+    ("PHP", "Philippine Peso"),
+    ("PKR", "Pakistani Rupee"),
+    ("PLN", "Polish Zloty"),
+    ("QAR", "Qatari Riyal"),
+    ("RON", "Romanian Leu"),
+    ("RUB", "Russian Ruble"),
+    ("SAR", "Saudi Riyal"),
+    ("SEK", "Swedish Krona"),
+    ("SGD", "Singapore Dollar"),
+    ("THB", "Thai Baht"),
+    ("TRY", "Turkish Lira"),
+    ("TWD", "New Taiwan Dollar"),
+    ("UAH", "Ukrainian Hryvnia"),
+    ("USD", "US Dollar"),
+    ("VND", "Vietnamese Dong"),
+    ("ZAR", "South African Rand"),
+];
+
+/// Canonical IANA time zone identifiers, for
+/// `Intl.supportedValuesOf("timeZone")`. Must include the non-continental
+/// `Etc/GMT±n` zones and `UTC`; every entry must round-trip through
+/// `Intl.DateTimeFormat`.
+// ponytail: static zone list; ICU4X compiled data cannot enumerate tzdb
+pub(crate) const SUPPORTED_TIME_ZONES: &[&str] = &[
+    "Africa/Abidjan", "Africa/Accra", "Africa/Cairo", "Africa/Johannesburg", "Africa/Lagos",
+    "Africa/Nairobi", "America/Anchorage", "America/Argentina/Buenos_Aires", "America/Bogota",
+    "America/Chicago", "America/Denver", "America/Detroit", "America/Halifax",
+    "America/Lima", "America/Los_Angeles", "America/Mexico_City", "America/New_York",
+    "America/Phoenix", "America/Santiago", "America/Sao_Paulo", "America/Toronto",
+    "America/Vancouver", "Asia/Baghdad", "Asia/Bangkok", "Asia/Dhaka", "Asia/Dubai",
+    "Asia/Hong_Kong", "Asia/Jerusalem", "Asia/Kolkata", "Asia/Kuala_Lumpur", "Asia/Manila",
+    "Asia/Seoul", "Asia/Shanghai", "Asia/Singapore", "Asia/Taipei", "Asia/Tehran",
+    "Asia/Tokyo", "Atlantic/Azores", "Atlantic/Reykjavik", "Australia/Adelaide",
+    "Australia/Brisbane", "Australia/Melbourne", "Australia/Perth", "Australia/Sydney",
+    "Etc/GMT+1", "Etc/GMT+10", "Etc/GMT+11", "Etc/GMT+12", "Etc/GMT+2", "Etc/GMT+3",
+    "Etc/GMT+4", "Etc/GMT+5", "Etc/GMT+6", "Etc/GMT+7", "Etc/GMT+8", "Etc/GMT+9",
+    "Etc/GMT-1", "Etc/GMT-10", "Etc/GMT-11", "Etc/GMT-12", "Etc/GMT-13", "Etc/GMT-14",
+    "Etc/GMT-2", "Etc/GMT-3", "Etc/GMT-4", "Etc/GMT-5", "Etc/GMT-6", "Etc/GMT-7",
+    "Etc/GMT-8", "Etc/GMT-9", "Europe/Amsterdam", "Europe/Athens", "Europe/Berlin",
+    "Europe/Brussels", "Europe/Bucharest", "Europe/Budapest", "Europe/Copenhagen",
+    "Europe/Dublin", "Europe/Helsinki", "Europe/Lisbon", "Europe/London", "Europe/Madrid",
+    "Europe/Moscow", "Europe/Oslo", "Europe/Paris", "Europe/Prague", "Europe/Rome",
+    "Europe/Stockholm", "Europe/Vienna", "Europe/Warsaw", "Europe/Zurich",
+    "Indian/Maldives", "Pacific/Auckland", "Pacific/Fiji", "Pacific/Honolulu", "UTC",
+];

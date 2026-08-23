@@ -464,10 +464,12 @@ pub(crate) fn build_date_time_format_data(
     // Effective calendar: explicit valid option > `ca` extension > gregory.
     // Calendar values are case-folded (e.g. ISO8601 → iso8601).
     let ca_ext = super::common::locale_extension_value(&data.locale, "ca");
-    data.calendar = if let Some(opt) = ca_static {
+    data.calendar =     if let Some(opt) = ca_static {
         let lower = opt.to_ascii_lowercase();
-        if super::common::supported_extension_key_value("ca", &lower) {
-            canonicalize_calendar(&lower).to_string()
+        // Canonicalize aliases first (islamicc → islamic-civil), then check.
+        let canon = canonicalize_calendar(&lower);
+        if super::common::supported_extension_key_value("ca", canon) {
+            canon.to_string()
         } else if let Some(ext) = ca_ext {
             canonicalize_calendar(&ext.to_ascii_lowercase()).to_string()
         } else {

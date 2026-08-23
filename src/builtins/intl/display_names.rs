@@ -21,6 +21,8 @@ pub struct DisplayNamesData {
     pub(crate) locale: Locale,
     pub(crate) style: DisplayStyle,
     pub(crate) display_type: DisplayType,
+    /// `fallback: "none"` → `of()` returns undefined for unknown codes.
+    pub(crate) fallback_none: bool,
 }
 
 impl GcTrace for DisplayNamesData {
@@ -60,6 +62,7 @@ pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallCont
         locale,
         style: DisplayStyle::Long,
         display_type: DisplayType::Language,
+        fallback_none: false,
     };
 
     if !options.is_undefined() {
@@ -86,6 +89,16 @@ pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallCont
                 _ => DisplayType::Language,
             };
         }
+        // fallback: "code" (default) | "none"
+        let fb = obj.get_property_str(ctx, "fallback")?;
+        if !fb.is_undefined() {
+            let s = to_utf8_string(ctx, fb)?;
+            match s.as_str() {
+                "code" => data.fallback_none = false,
+                "none" => data.fallback_none = true,
+                _ => return Err(ctx.throw_range_error("Invalid fallback value")),
+            }
+        }
     }
 
     let instance = ctx
@@ -107,27 +120,38 @@ fn js_display_names_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .intl_display_names()
         .ok_or_else(|| ctx.throw_type_error("not a DisplayNames"))?;
     let code = to_utf8_string(ctx, cc.arg(0))?;
-    let name = display_name(this, &code)?;
-    Ok(make_str(ctx, name.into_bytes())?)
-}
-
-fn display_name(this: &DisplayNamesData, code: &str) -> Result<String, i32> {
-    // Pragmatic fallback data; returns the code itself when no mapping exists.
-    let upper = code.to_uppercase();
-    match this.display_type {
-        DisplayType::Language => language_name(&this.locale, code),
-        DisplayType::Region => region_name(&upper),
-        DisplayType::Script => Ok(code.to_string()),
-        DisplayType::Currency => currency_name(&upper),
-        DisplayType::Calendar => Ok(code.to_string()),
-        DisplayType::DateTimeField => Ok(code.to_string()),
+    match display_name(this, &code)? {
+        Some(name) => Ok(make_str(ctx, name.into_bytes())?),
+        // fallback: "none" — unknown code yields undefined.
+        None => Ok(JSValue::UNDEFINED),
     }
 }
 
-fn language_name(locale: &Locale, code: &str) -> Result<String, i32> {
+/// `None` when the code has no data (honored per the `fallback` option).
+fn display_name(this: &DisplayNamesData, code: &str) -> Result<Option<String>, i32> {
+    let upper = code.to_uppercase();
+    let known = |s: String| Some(s);
+    let unknown = || {
+        if this.fallback_none {
+            None
+        } else {
+            Some(code.to_string())
+        }
+    };
+    Ok(match this.display_type {
+        DisplayType::Language => language_name(&this.locale, code).map(known).unwrap_or_else(unknown),
+        DisplayType::Region => region_name(&upper).map(known).unwrap_or_else(unknown),
+        DisplayType::Script => known(code.to_string()),
+        DisplayType::Currency => currency_name(&upper).map(known).unwrap_or_else(unknown),
+        DisplayType::Calendar => known(code.to_string()),
+        DisplayType::DateTimeField => known(code.to_string()),
+    })
+}
+
+fn language_name(locale: &Locale, code: &str) -> Option<String> {
     // en: English, zh: Chinese, ja: Japanese, de: German, fr: French, es: Spanish
     let _ = locale;
-    Ok(match code {
+    let name = match code {
         "en" => "English",
         "zh" => "Chinese",
         "ja" => "Japanese",
@@ -140,13 +164,13 @@ fn language_name(locale: &Locale, code: &str) -> Result<String, i32> {
         "it" => "Italian",
         "ko" => "Korean",
         "nl" => "Dutch",
-        _ => return Ok(code.to_string()),
-    }
-    .to_string())
+        _ => return None,
+    };
+    Some(name.to_string())
 }
 
-fn region_name(upper: &str) -> Result<String, i32> {
-    Ok(match upper {
+fn region_name(upper: &str) -> Option<String> {
+    let name = match upper {
         "US" => "United States",
         "CN" => "China",
         "JP" => "Japan",
@@ -158,21 +182,17 @@ fn region_name(upper: &str) -> Result<String, i32> {
         "CA" => "Canada",
         "IN" => "India",
         "BR" => "Brazil",
-        _ => return Ok(upper.to_string()),
-    }
-    .to_string())
+        _ => return None,
+    };
+    Some(name.to_string())
 }
 
-fn currency_name(upper: &str) -> Result<String, i32> {
-    Ok(match upper {
-        "USD" => "US Dollar",
-        "EUR" => "Euro",
-        "CNY" => "Chinese Yuan",
-        "JPY" => "Japanese Yen",
-        "GBP" => "British Pound",
-        _ => return Ok(upper.to_string()),
-    }
-    .to_string())
+/// Currency display names come from the shared ISO 4217 table.
+fn currency_name(upper: &str) -> Option<String> {
+    super::common::SUPPORTED_CURRENCIES
+        .iter()
+        .find(|(c, _)| *c == upper)
+        .map(|(_, n)| n.to_string())
 }
 
 fn js_display_names_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

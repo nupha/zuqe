@@ -32,6 +32,50 @@ fn js_intl_getCanonicalLocales(ctx: &mut ScopedContext, cc: CallContext) -> JSRe
     Ok(arr)
 }
 
+/// `Intl.supportedValuesOf(key)` (402 §9.4): the sorted list of values
+/// supported for the given key; RangeError for any other key.
+fn js_intl_supported_values_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    // ToString coercion (Symbol throws TypeError).
+    let key = to_utf8_string(ctx, cc.arg(0))?;
+    let values: &[&str] = match key.as_str() {
+        "calendar" => {
+            // Only canonical ids (aliases like `gregorian` are excluded).
+            let mut v: Vec<&str> = supported_calendars()
+                .iter()
+                .copied()
+                .filter(|c| canonicalize_calendar_id(c) == *c)
+                .collect();
+            v.sort_unstable();
+            let out: Vec<JSValue> = v
+                .iter()
+                .map(|s| make_str(ctx, s.as_bytes().to_vec()))
+                .collect::<Result<_, _>>()?;
+            return values_to_array(ctx, out);
+        }
+        "collation" => SUPPORTED_COLLATION_TYPES,
+        "currency" => {
+            let mut v: Vec<&str> = SUPPORTED_CURRENCIES.iter().map(|(c, _)| *c).collect();
+            v.sort_unstable();
+            let out: Vec<JSValue> = v
+                .iter()
+                .map(|s| make_str(ctx, s.as_bytes().to_vec()))
+                .collect::<Result<_, _>>()?;
+            return values_to_array(ctx, out);
+        }
+        "numberingSystem" => supported_numbering_systems(),
+        "timeZone" => SUPPORTED_TIME_ZONES,
+        "unit" => SUPPORTED_UNITS,
+        _ => return Err(ctx.throw_range_error("unsupported key")),
+    };
+    let mut sorted: Vec<&str> = values.to_vec();
+    sorted.sort_unstable();
+    let out: Vec<JSValue> = sorted
+        .iter()
+        .map(|s| make_str(ctx, s.as_bytes().to_vec()))
+        .collect::<Result<_, _>>()?;
+    values_to_array(ctx, out)
+}
+
 /// Build the `Intl` namespace object and install each constructor, including
 /// its static `supportedLocalesOf` method. Called during context setup.
 pub(crate) fn js_intl_init(ctx: &mut ScopedContext) -> Result<Object, i32> {
@@ -55,6 +99,20 @@ pub(crate) fn js_intl_init(ctx: &mut ScopedContext) -> Result<Object, i32> {
     intl.define_property_value_str(
         ctx,
         "getCanonicalLocales",
+        fn_obj.into(),
+        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+    )?;
+
+    // supportedValuesOf
+    let fn_obj = ctx.create_native_function(
+        Callback::Func(js_intl_supported_values_of),
+        "supportedValuesOf",
+        1,
+        0,
+    )?;
+    intl.define_property_value_str(
+        ctx,
+        "supportedValuesOf",
         fn_obj.into(),
         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
     )?;

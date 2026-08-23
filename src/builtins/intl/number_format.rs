@@ -32,6 +32,7 @@ pub struct NumberFormatData {
     pub(crate) style: Style,
     pub(crate) currency: Option<String>,
     pub(crate) currency_display: &'static str,
+    pub(crate) unit: Option<String>,
     pub(crate) numbering_system: String,
     pub(crate) use_grouping: bool,
     pub(crate) grouping_sep: char,
@@ -124,6 +125,7 @@ pub(crate) fn build_number_format_data(
         style: Style::Decimal,
         currency: None,
         currency_display: "symbol",
+        unit: None,
         numbering_system: "latn".to_string(),
         use_grouping: true,
         grouping_sep,
@@ -271,6 +273,31 @@ fn apply_options(
             "narrowSymbol" => data.currency_display = "narrowSymbol",
             _ => return Err(ctx.throw_range_error("Invalid currencyDisplay value")),
         }
+    }
+
+    // unit: validated whenever provided (sanctioned simple units and their
+    // `-per-` compounds); required when style is "unit".
+    let unit = obj.get_property_str(ctx, "unit")?;
+    let unit_str = if unit.is_undefined() {
+        None
+    } else {
+        Some(to_utf8_string(ctx, unit)?)
+    };
+    if let Some(u) = &unit_str {
+        let valid = super::common::SUPPORTED_UNITS.contains(&u.as_str())
+            || (u.contains("-per-")
+                && u.split("-per-").all(|p| super::common::SUPPORTED_UNITS.contains(&p)));
+        if !valid {
+            return Err(ctx.throw_range_error("Invalid unit value"));
+        }
+    }
+    if matches!(data.style, Style::Unit) {
+        match unit_str {
+            Some(u) => data.unit = Some(u),
+            None => return Err(ctx.throw_type_error("Unit style requires a unit")),
+        }
+    } else {
+        data.unit = None;
     }
 
     // minimumIntegerDigits: integer in [1, 21].
@@ -1184,6 +1211,10 @@ fn js_number_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
         o.define_property_value_str(ctx, "currency", _v3, JS_PROP_C_W_E)?;
         let _v4 = make_str(ctx, this.currency_display.as_bytes().to_vec())?;
         o.define_property_value_str(ctx, "currencyDisplay", _v4, JS_PROP_C_W_E)?;
+    }
+    if let Some(u) = &this.unit {
+        let _vu = make_str(ctx, u.clone().into_bytes())?;
+        o.define_property_value_str(ctx, "unit", _vu, JS_PROP_C_W_E)?;
     }
     Ok(o.into())
 }

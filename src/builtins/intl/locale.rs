@@ -81,7 +81,49 @@ fn apply_locale_options(
         }
     }
 
+    // Unicode extension keywords: per ECMA-402, Locale option values are
+    // validated against the BCP-47 `type` grammar (availability filtering is
+    // left to the individual constructors). Calendar aliases are canonicalized
+    // first (e.g. `islamicc` → `islamic-civil`).
+    let calendar = obj.get_property_str(ctx, "calendar")?;
+    if !calendar.is_undefined() {
+        let s = to_utf8_string(ctx, calendar)?;
+        if !super::number_format::is_valid_bcp47_type(&s) {
+            return Err(ctx.throw_range_error("Invalid calendar"));
+        }
+        let canon = super::common::canonicalize_calendar_id(&s);
+        set_unicode_keyword(&mut data.locale, "ca", canon)?;
+    }
+    let collation = obj.get_property_str(ctx, "collation")?;
+    if !collation.is_undefined() {
+        let s = to_utf8_string(ctx, collation)?;
+        if !super::number_format::is_valid_bcp47_type(&s) {
+            return Err(ctx.throw_range_error("Invalid collation"));
+        }
+        set_unicode_keyword(&mut data.locale, "co", &s)?;
+    }
+    let numbering_system = obj.get_property_str(ctx, "numberingSystem")?;
+    if !numbering_system.is_undefined() {
+        let s = to_utf8_string(ctx, numbering_system)?;
+        if !super::number_format::is_valid_bcp47_type(&s) {
+            return Err(ctx.throw_range_error("Invalid numberingSystem"));
+        }
+        set_unicode_keyword(&mut data.locale, "nu", &s)?;
+    }
+
     Ok(())
+}
+
+/// Set a Unicode extension keyword on the locale (e.g. `ca` → `-u-ca-...`).
+fn set_unicode_keyword(locale: &mut IcuLocale, key: &str, value: &str) -> Result<(), i32> {
+    use icu::locale::extensions::unicode::{Key, Value};
+    match (key.parse::<Key>(), Value::try_from_str(value)) {
+        (Ok(k), Ok(v)) => {
+            locale.extensions.unicode.keywords.set(k, v);
+            Ok(())
+        }
+        _ => Err(-1),
+    }
 }
 
 fn js_locale_getters(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -108,7 +150,22 @@ fn js_locale_getters(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             None => JSValue::UNDEFINED,
         },
         4 => make_str(ctx, l.to_string().into_bytes())?, // baseName
+        5 => keyword_getter(ctx, l, "ca")?,              // calendar
+        6 => keyword_getter(ctx, l, "co")?,              // collation
+        7 => keyword_getter(ctx, l, "nu")?,              // numberingSystem
         _ => unreachable!(),
+    })
+}
+
+/// Read a Unicode extension keyword from the locale (`None` → undefined).
+fn keyword_getter(
+    ctx: &mut ScopedContext,
+    l: &IcuLocale,
+    key: &str,
+) -> Result<JSValue, i32> {
+    Ok(match super::common::locale_extension_value(l, key) {
+        Some(v) => make_str(ctx, v.into_bytes())?,
+        None => JSValue::UNDEFINED,
     })
 }
 
@@ -118,6 +175,9 @@ const js_locale_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("script", Some(js_locale_getters), None, 2),
     FieldDef::GETSET("region", Some(js_locale_getters), None, 3),
     FieldDef::GETSET("baseName", Some(js_locale_getters), None, 4),
+    FieldDef::GETSET("calendar", Some(js_locale_getters), None, 5),
+    FieldDef::GETSET("collation", Some(js_locale_getters), None, 6),
+    FieldDef::GETSET("numberingSystem", Some(js_locale_getters), None, 7),
     FieldDef::FUNC("maximize", 0, js_locale_maximize, 0),
     FieldDef::FUNC("minimize", 0, js_locale_minimize, 0),
     FieldDef::STR("[Symbol.toStringTag]", "Intl.Locale", JS_PROP_CONFIGURABLE),
