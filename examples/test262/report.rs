@@ -202,6 +202,13 @@ pub fn write_report(
                         .map(|st| (f, st))
                 })
                 .collect();
+            // Also surface features exercised but not preset-enabled (e.g.
+            // `Intl.*` under suite 402): they ran, so they must be visible.
+            for (k, st) in feat_stats {
+                if st.0 > 0 && k != NO_FEATURE_KEY && !v.iter().any(|(n, _)| n == k) {
+                    v.push((k.clone(), *st));
+                }
+            }
             // Always surface feature-less tests so their failures are visible,
             // even though they are not part of the enabled-feature list.
             if let Some(st) = feat_stats.get(NO_FEATURE_KEY)
