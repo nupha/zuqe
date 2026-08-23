@@ -389,9 +389,7 @@ impl JSValue {
         ctx: &mut ScopedContext,
         is_async: bool,
     ) -> Result<Option<Object>, i32> {
-        if is_async
-            && let Some(method) = self.get_method(ctx, Atom::CONST_Symbol_asyncIterator)?
-        {
+        if is_async && let Some(method) = self.get_method(ctx, Atom::CONST_Symbol_asyncIterator)? {
             let v = method.call(ctx, *self, &[])?;
             return v.ensure_object(ctx).map(Some);
         }

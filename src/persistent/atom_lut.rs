@@ -76,7 +76,10 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                     BytecodeSerializeError::Encode("atom registration failed".into())
                 })?;
 
-                println!("atom: {atom:?}, {:?}", atom.descriptor(self.ctx.rt()).content().encode_utf8(false));
+                println!(
+                    "atom: {atom:?}, {:?}",
+                    atom.descriptor(self.ctx.rt()).content().encode_utf8(false)
+                );
                 debug_assert!(
                     atom.descriptor(self.ctx.rt()).content().len() == sref.content().len(),
                     "{:?}",

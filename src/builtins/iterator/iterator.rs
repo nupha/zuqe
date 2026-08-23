@@ -353,14 +353,13 @@ fn parse_zip_options(ctx: &mut ScopedContext, options: JSValue) -> Result<(u8, J
         } else if s.eq_str("strict") {
             2
         } else {
-            return Err(ctx.throw_type_error(
-                "Iterator.zip mode must be 'shortest', 'strict', or 'longest'",
-            ));
+            return Err(ctx
+                .throw_type_error("Iterator.zip mode must be 'shortest', 'strict', or 'longest'"));
         }
     } else {
-        return Err(ctx.throw_type_error(
-            "Iterator.zip mode must be 'shortest', 'strict', or 'longest'",
-        ));
+        return Err(
+            ctx.throw_type_error("Iterator.zip mode must be 'shortest', 'strict', or 'longest'")
+        );
     };
 
     let padding = if mode == 1 {

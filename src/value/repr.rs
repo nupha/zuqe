@@ -26,7 +26,6 @@ impl ObjectImpl {
                 // have no builtin tag; "[object BigInt]" comes from the
                 // prototype's own @@toStringTag, so non-string overrides fall
                 // back to "Object".
-
                 #[cfg(feature = "builtin_regexp")]
                 crate::JS_CLASS_REGEXP => {
                     ctx.rt().class_registry[crate::JS_CLASS_REGEXP as usize].name_atom

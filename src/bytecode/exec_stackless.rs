@@ -965,8 +965,8 @@ impl Bytecode {
                             let _ = realm_scope
                                 .throw_type_error("Cannot convert a BigInt value to a number");
                             break ExecAction::Exception;
-                        } else if let Ok(res) = UnaryOp::new(realm_scope, op1, true)
-                            .and_then(|unary| match opcode {
+                        } else if let Ok(res) =
+                            UnaryOp::new(realm_scope, op1, true).and_then(|unary| match opcode {
                                 OpCode::PLUS => unary.plus(realm_scope),
                                 OpCode::NEG => unary.neg(realm_scope),
                                 OpCode::INC => unary.inc(realm_scope),
@@ -1467,10 +1467,8 @@ impl Bytecode {
                         }
                     }
                     OpCode::NOT => {
-                        if let Ok(res) =
-                            UnaryOp::new_int(realm_scope, SP_VAL!(-1)).and_then(|unary| {
-                                unary.not(realm_scope)
-                            })
+                        if let Ok(res) = UnaryOp::new_int(realm_scope, SP_VAL!(-1))
+                            .and_then(|unary| unary.not(realm_scope))
                         {
                             SP_PUT!(-1, res);
                         } else {

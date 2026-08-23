@@ -92,7 +92,10 @@ impl JSValue {
     }
 
     /// Rebuild a previously [`dump`]ed value from its bytecode blob.
-    pub fn restore<'a, 'b>(ctx: &'a mut ScopedContext<'b>, buf: &'a [u8]) -> Result<JSValue, BytecodeSerializeError> {
+    pub fn restore<'a, 'b>(
+        ctx: &'a mut ScopedContext<'b>,
+        buf: &'a [u8],
+    ) -> Result<JSValue, BytecodeSerializeError> {
         let mut inp = DeserializeCtx::new(ctx, buf);
         let magic = inp.read_bytes(4)?;
         if &magic != BYTECODE_SERIALIZE_MAGIC {

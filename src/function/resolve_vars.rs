@@ -91,9 +91,8 @@ impl FunctionDef {
                             }
                             match scan_op {
                                 opcodes::op_line_num => {
-                                    scan_line_num = unsafe {
-                                        read_from_ptr::<i32>(bc_buf_ptr.add(scan + 1))
-                                    };
+                                    scan_line_num =
+                                        unsafe { read_from_ptr::<i32>(bc_buf_ptr.add(scan + 1)) };
                                     scan += scan_len;
                                 }
                                 opcodes::op_label | opcodes::OP_nip_catch => {
@@ -103,9 +102,8 @@ impl FunctionDef {
                                     // A gosub to a real try-finally body must run
                                     // after the call: not tail position. An empty
                                     // finally region is a no-op indirection.
-                                    let label_id = unsafe {
-                                        read_from_ptr::<u32>(bc_buf_ptr.add(scan + 1))
-                                    };
+                                    let label_id =
+                                        unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(scan + 1)) };
                                     if self
                                         .code_match(
                                             self.label_slots[label_id as usize].pos as _,
@@ -543,8 +541,9 @@ impl FunctionDef {
                                         // position. A gosub to an empty finally region
                                         // (catch-only try) is a no-op indirection and TCO
                                         // is safe (same test as the empty-finalizer removal).
-                                        let label_id =
-                                            unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(scan + 1)) };
+                                        let label_id = unsafe {
+                                            read_from_ptr::<u32>(bc_buf_ptr.add(scan + 1))
+                                        };
                                         if self
                                             .code_match(
                                                 self.label_slots[label_id as usize].pos as _,

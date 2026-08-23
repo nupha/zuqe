@@ -781,8 +781,19 @@ fn encode_for_regexp_escape(
     if cp == 0x2f
         || matches!(
             cp,
-            0x5e | 0x24 | 0x5c | 0x2e | 0x2a | 0x2b | 0x3f | 0x28 | 0x29 | 0x5b | 0x5d
-                | 0x7b | 0x7d | 0x7c
+            0x5e | 0x24
+                | 0x5c
+                | 0x2e
+                | 0x2a
+                | 0x2b
+                | 0x3f
+                | 0x28
+                | 0x29
+                | 0x5b
+                | 0x5d
+                | 0x7b
+                | 0x7d
+                | 0x7c
         )
     {
         buf.push_u8(b'\\')?;
@@ -803,11 +814,23 @@ fn encode_for_regexp_escape(
     // 3-5. other punctuators, WhiteSpace/LineTerminator, or lone surrogates.
     let other_punctuator = matches!(
         cp,
-        0x2c | 0x2d | 0x3d | 0x3c | 0x3e | 0x23 | 0x26 | 0x21 | 0x25 | 0x3a | 0x3b | 0x40
-            | 0x7e | 0x27 | 0x60 | 0x22
+        0x2c | 0x2d
+            | 0x3d
+            | 0x3c
+            | 0x3e
+            | 0x23
+            | 0x26
+            | 0x21
+            | 0x25
+            | 0x3a
+            | 0x3b
+            | 0x40
+            | 0x7e
+            | 0x27
+            | 0x60
+            | 0x22
     );
-    if other_punctuator || is_whitespace_or_lineterminator(cp) || (0xd800..=0xdfff).contains(&cp)
-    {
+    if other_punctuator || is_whitespace_or_lineterminator(cp) || (0xd800..=0xdfff).contains(&cp) {
         if cp <= 0xff {
             // `\xHH`
             push_hex_escape(buf, b'x', cp, 2)?;
@@ -830,8 +853,8 @@ fn encode_for_regexp_escape(
 fn is_whitespace_or_lineterminator(cp: u32) -> bool {
     matches!(
         cp,
-        0x0020 | 0x00a0 | 0x1680 | 0x2000..=0x200a | 0x2028 | 0x2029 | 0x202f | 0x205f
-            | 0x3000 | 0xfeff
+        0x0020 | 0x00a0 | 0x1680 | 0x2000
+            ..=0x200a | 0x2028 | 0x2029 | 0x202f | 0x205f | 0x3000 | 0xfeff
     )
 }
 
@@ -842,8 +865,8 @@ pub fn js_regexp_escape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(ctx.throw_type_error("RegExp.escape: argument is not a string"));
     };
 
-    let mut buf = StringBuf::with_capacity(s.len(), s.is_wide())
-        .map_err(|_| ctx.throw_out_of_memory())?;
+    let mut buf =
+        StringBuf::with_capacity(s.len(), s.is_wide()).map_err(|_| ctx.throw_out_of_memory())?;
 
     let mut first = true;
     for (_, c) in s.content().chars() {
@@ -858,8 +881,7 @@ pub fn js_regexp_escape(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 || (0x41..=0x5a).contains(&cp)
                 || (0x61..=0x7a).contains(&cp))
         {
-            push_hex_escape(&mut buf, b'x', cp, 2)
-                .map_err(|_| ctx.throw_out_of_memory())?;
+            push_hex_escape(&mut buf, b'x', cp, 2).map_err(|_| ctx.throw_out_of_memory())?;
         } else {
             encode_for_regexp_escape(&mut buf, cp).map_err(|_| ctx.throw_out_of_memory())?;
         }
@@ -981,9 +1003,7 @@ pub(super) fn regexp_exec(
         let exec = o.get_property(ctx, Atom::CONST_exec)?;
         // RegExpExec: only a *callable* custom `exec` bypasses the builtin
         // matcher; non-callable (incl. undefined/null) falls back to it.
-        if !exec.match_native_callback(Callback::Func(js_regexp_exec), 0)
-            && exec.is_callable()
-        {
+        if !exec.match_native_callback(Callback::Func(js_regexp_exec), 0) && exec.is_callable() {
             // call method function
             let s = JSValue::make_string(str);
             let ret = exec.call(ctx, regexp, std::slice::from_ref(&s))?;

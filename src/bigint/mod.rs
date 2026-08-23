@@ -17,7 +17,7 @@ mod convert;
 mod ops;
 
 pub(crate) use convert::{
-    from_f64, from_i64, from_u64, f64_integer_to_limbs, parse_str, string_to_bigint,
+    f64_integer_to_limbs, from_f64, from_i64, from_u64, parse_str, string_to_bigint,
     string_to_bigint_decimal, to_bigint64, to_biguint64, to_f64, to_i64_exact, to_string_radix,
 };
 pub(crate) use ops::{MAX_BIGINT_BITS, divmod_mag, shl_mag};
@@ -26,11 +26,7 @@ use std::ptr::NonNull;
 
 use gc_lite::{GcHead, GcRef, GcTrace, GcTraceCtx};
 
-use crate::{
-    context::ScopedContext,
-    error::Exception,
-    gc::gc::GC_TYPE_REGISTRY,
-};
+use crate::{context::ScopedContext, error::Exception, gc::gc::GC_TYPE_REGISTRY};
 
 /// sign-magnitude arbitrary-precision integer.
 pub struct BigIntImpl {
@@ -262,7 +258,10 @@ mod tests {
         assert_eq!(impl_of(false, vec![0xff]).bit_length(), 8);
         assert_eq!(impl_of(false, vec![0, 1]).bit_length(), 65);
         assert_eq!(impl_of(false, vec![0, 0, 1]).bit_length(), 129);
-        assert_eq!(impl_of(false, vec![0xff, 0, 1 << 40]).bit_length(), 128 + 41);
+        assert_eq!(
+            impl_of(false, vec![0xff, 0, 1 << 40]).bit_length(),
+            128 + 41
+        );
     }
 
     #[test]

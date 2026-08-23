@@ -158,11 +158,7 @@ pub(crate) fn js_object_getset_lookup(ctx: &mut ScopedContext, cc: CallContext) 
     loop {
         if let Some(desc) = obj.get_own_property(ctx, atom)? {
             return Ok(if desc.flags & JS_PROP_GETSET != 0 {
-                if is_setter {
-                    desc.setter
-                } else {
-                    desc.getter
-                }
+                if is_setter { desc.setter } else { desc.getter }
             } else {
                 JSValue::UNDEFINED
             });

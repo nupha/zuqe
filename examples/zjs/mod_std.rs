@@ -4,8 +4,8 @@
 use std::{cell::Cell, process::ExitCode};
 
 use zuqe::{
-    CallContext, EvalFlags, EvalName, EvalType, Exception, FieldDef, JS_PROP_ENUMERABLE,
-    JSResult, JSValue, ScopedContext,
+    CallContext, EvalFlags, EvalName, EvalType, Exception, FieldDef, JS_PROP_ENUMERABLE, JSResult,
+    JSValue, ScopedContext,
 };
 
 use crate::{

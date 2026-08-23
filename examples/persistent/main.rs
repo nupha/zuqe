@@ -639,7 +639,11 @@ async fn check_native_direct(name: &str, expect: i32) -> bool {
                 println!("[FAIL] {name}: restored native is not callable");
                 return false;
             }
-            match back.call(&mut s, JSValue::UNDEFINED, &[JSValue::from(40), JSValue::from(2)]) {
+            match back.call(
+                &mut s,
+                JSValue::UNDEFINED,
+                &[JSValue::from(40), JSValue::from(2)],
+            ) {
                 Ok(r) => match r.to_number(&mut s) {
                     Ok(n) => n.to_i32() == expect,
                     Err(_) => {
@@ -679,7 +683,8 @@ async fn check_native_missing(name: &str) -> bool {
             let gobj = s.global_obj();
             gobj.get_property_str(&mut s, "myAdd").expect("read myAdd")
         });
-        ctx1.with_root_scope(|mut s| JSValue::dump(&mut s, native)).expect("serialize native")
+        ctx1.with_root_scope(|mut s| JSValue::dump(&mut s, native))
+            .expect("serialize native")
     };
     std::fs::write(&path, &blob).expect("write blob to file");
 
@@ -689,7 +694,10 @@ async fn check_native_missing(name: &str) -> bool {
         let mut ctx2 = mk_ctx!(&mut rt2); // deliberately does NOT register myAdd
         ctx2.with_root_scope(|mut s| match JSValue::restore(&mut s, &blob) {
             Err(e) => (true, format!("restore rejected: {e:?}")),
-            Ok(v) => (false, format!("restore unexpectedly succeeded: {}", repr(&mut s, v))),
+            Ok(v) => (
+                false,
+                format!("restore unexpectedly succeeded: {}", repr(&mut s, v)),
+            ),
         })
     };
     let _ = std::fs::remove_file(&path);
@@ -803,7 +811,8 @@ async fn check_native_capture_missing(name: &str) -> bool {
                 return false;
             }
         };
-        ctx1.with_root_scope(|mut s| JSValue::dump(&mut s, val1)).expect("serialize")
+        ctx1.with_root_scope(|mut s| JSValue::dump(&mut s, val1))
+            .expect("serialize")
     };
     std::fs::write(&path, &blob).expect("write blob to file");
 
@@ -813,7 +822,10 @@ async fn check_native_capture_missing(name: &str) -> bool {
         let mut ctx2 = mk_ctx!(&mut rt2); // no myAdd on purpose
         ctx2.with_root_scope(|mut s| match JSValue::restore(&mut s, &blob) {
             Err(e) => (true, format!("restore rejected: {e:?}")),
-            Ok(v) => (false, format!("restore unexpectedly succeeded: {}", repr(&mut s, v))),
+            Ok(v) => (
+                false,
+                format!("restore unexpectedly succeeded: {}", repr(&mut s, v)),
+            ),
         })
     };
     let _ = std::fs::remove_file(&path);
@@ -838,7 +850,7 @@ async fn check_roundtrip_js(name: &str, script: &str, check_js: &str, expect: &s
             .eval_wait(
                 &mut rt1,
                 script.as_bytes(),
-&EvalName::BaseUrl(repl.clone()),
+                &EvalName::BaseUrl(repl.clone()),
                 EvalType::Global,
                 EvalFlags::empty(),
             )
@@ -1174,91 +1186,79 @@ async fn main() -> ExitCode {
         "__v(5)",
         "15",
     )
-    .await
-        as i32;
+    .await as i32;
     failed += !check_roundtrip_js(
         "rest params",
         "(function(...args){ return args.length })",
         "__v(1,2,3)",
         "3",
     )
-    .await
-        as i32;
-    failed += !check_roundtrip_js("arrow function", "((x)=>{ return x*3 })", "__v(5)", "15")
-        .await
-        as i32;
+    .await as i32;
+    failed +=
+        !check_roundtrip_js("arrow function", "((x)=>{ return x*3 })", "__v(5)", "15").await as i32;
     failed += !check_roundtrip_js(
         "nested closure chain",
         "function f(){let a=1; return function(){let b=2; return function(){return a+b}};} f()()",
         "__v()",
         "3",
     )
-    .await
-        as i32;
+    .await as i32;
     failed += !check_roundtrip_js(
         "string consts",
         "(function(){ return 'ab' + 'cd' })",
         "__v()",
         "abcd",
     )
-    .await
-        as i32;
+    .await as i32;
     failed += !check_roundtrip_js(
         "global const capture",
         "const c = 42; (function(){ return c })",
         "__v()",
         "42",
     )
-    .await
-        as i32;
+    .await as i32;
     failed += !check_roundtrip_js(
         "this binding",
         "(function(){ return this.v })",
         "__v.call({v: 99})",
         "99",
     )
-    .await
-        as i32;
+    .await as i32;
     failed += !check_roundtrip_js(
         "name and length",
         "(function myFunc(a,b){ return a+b })",
         "__v.name + '/' + __v.length",
         "myFunc/2",
     )
-    .await
-        as i32;
+    .await as i32;
     failed += !check_roundtrip_js(
         "global builtin JSON",
         "(function(){ return JSON.stringify({a: 1}) })",
         "__v()",
         r#"{"a":1}"#,
     )
-    .await
-        as i32;
+    .await as i32;
     failed += !check_roundtrip_js(
         "captured function value",
         "let add = (a,b)=>a+b; (function(){ return add(2,3) })",
         "__v()",
         "5",
     )
-    .await
-        as i32;
+    .await as i32;
     failed += !check_roundtrip_js(
         "cyclic object capture",
         "let o = {}; o.self = o; (function(){ return o })",
         "__v().self === __v()",
         "true",
     )
-    .await
-        as i32;
+    .await as i32;
     failed += !check_roundtrip_js(
         "generator function",
         "(function* g(){ yield 1; yield 2 })",
         "String(__v().next().value)",
         "1",
     )
-    .await
-        as i32;
+    .await as i32;
 
     // module edge cases (cross-runtime namespace reload)
     let mod_dir = std::env::temp_dir().join("zhuque_persist_mod");
@@ -1268,8 +1268,8 @@ async fn main() -> ExitCode {
         "export function add(a,b){return a+b}\nexport const BASE = 10;\n",
     )
     .expect("write dep.mjs");
-    let mod_base = zuqe::path_to_url(&mod_dir.join("mod.mjs").to_string_lossy())
-        .expect("mod.mjs url");
+    let mod_base =
+        zuqe::path_to_url(&mod_dir.join("mod.mjs").to_string_lossy()).expect("mod.mjs url");
 
     failed += !check_module_roundtrip_js(
         "module stateful closure",
@@ -1291,8 +1291,7 @@ async fn main() -> ExitCode {
         "String(__v.f(1)) + ',' + String(__v.sum)",
         "16,15",
     )
-    .await
-        as i32;
+    .await as i32;
     failed += !check_module_roundtrip_js(
         "module re-export",
         "import { add, BASE } from './dep.mjs';\n\
@@ -1302,15 +1301,14 @@ async fn main() -> ExitCode {
         "String(__v.f(2,3)) + ',' + String(__v.base)",
         "5,10",
     )
-    .await
-        as i32;
+    .await as i32;
     let _ = std::fs::remove_dir_all(&mod_dir);
 
     // 閳ユ柡鈧柡鈧柡鈧柡鈧?native function persistence 閳ユ柡鈧柡鈧柡鈧柡鈧?    failed += !check_native_direct("native function value round-trip", 42).await as i32;
     failed += !check_native_missing("native function missing on target").await as i32;
     failed += !check_native_capture("closure capturing native", 42).await as i32;
-    failed += !check_native_capture_missing("closure capturing native missing on target").await
-        as i32;
+    failed +=
+        !check_native_capture_missing("closure capturing native missing on target").await as i32;
 
     if failed > 0 {
         println!("\n{failed} new edge-case checks FAILED");

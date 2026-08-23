@@ -16,7 +16,7 @@ use crate::{
 };
 
 use super::{
-    TA_GET_BUFFER, TA_GET_BYTE_LENGTH, TA_GET_BYTE_OFFSET, DataView, TypedArray,
+    DataView, TA_GET_BUFFER, TA_GET_BYTE_LENGTH, TA_GET_BYTE_OFFSET, TypedArray,
     dv::DataViewPayload,
 };
 

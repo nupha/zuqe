@@ -310,8 +310,7 @@ impl ModuleDef {
                 // (native ones have no bytecode to read it lazily). Skip when
                 // already set (main entry / dynamic import) to keep a single
                 // call per module and preserve the `main` flag.
-                if cur_module.meta_obj.is_none()
-                    && cur_module.set_import_meta(ctx, false).is_err()
+                if cur_module.meta_obj.is_none() && cur_module.set_import_meta(ctx, false).is_err()
                 {
                     result = Err(ctx.take_exception().to_value(ctx));
                     break;

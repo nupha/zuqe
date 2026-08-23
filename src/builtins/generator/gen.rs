@@ -11,7 +11,7 @@ use crate::{
         AsyncState, BytecodeFunction, CallContext, FieldDef, FunctionKind, IteratorState,
         NativeFunction,
     },
-    object::{JS_PROP_CONFIGURABLE, GeneratorFunction, ObjectPayload},
+    object::{GeneratorFunction, JS_PROP_CONFIGURABLE, ObjectPayload},
     value::JSValue,
 };
 

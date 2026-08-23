@@ -282,12 +282,12 @@ impl JSValue {
         flag: ToNumberHintEnum,
     ) -> Result<NumValue, i32> {
         match self.tag() {
-            crate::JSValueTag::Int | crate::JSValueTag::Bool => {
-                Ok(NumValue::Float(IntOrFloat::Int64(self.payload_i32().into())))
+            crate::JSValueTag::Int | crate::JSValueTag::Bool => Ok(NumValue::Float(
+                IntOrFloat::Int64(self.payload_i32().into()),
+            )),
+            crate::JSValueTag::Float64 => {
+                Ok(NumValue::Float(unsafe { self.as_float_unchecked().into() }))
             }
-            crate::JSValueTag::Float64 => Ok(NumValue::Float(unsafe {
-                self.as_float_unchecked().into()
-            })),
             crate::JSValueTag::Null => Ok(NumValue::Float(IntOrFloat::Int64(0))),
             crate::JSValueTag::Undefined => Ok(NumValue::Float(if undefined_is_nan {
                 IntOrFloat::Float64(f64::NAN)

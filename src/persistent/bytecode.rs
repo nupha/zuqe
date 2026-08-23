@@ -486,10 +486,9 @@ impl Bytecode {
             }
         }
 
-        let gc_ref: GcRef<BytecodeImpl> = inp
-            .ctx
-            .alloc_local(bc_impl)
-            .map_err(|_| BytecodeSerializeError::InvalidValue("cannot alloc BytecodeImpl".into()))?;
+        let gc_ref: GcRef<BytecodeImpl> = inp.ctx.alloc_local(bc_impl).map_err(|_| {
+            BytecodeSerializeError::InvalidValue("cannot alloc BytecodeImpl".into())
+        })?;
         Ok(Bytecode::from(gc_ref))
     }
 }
