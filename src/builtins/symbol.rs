@@ -129,6 +129,18 @@ pub const js_symbol_funcs: &[FieldDef] = &[
     FieldDef::FUNC("keyFor", 1, js_symbol_keyFor, 0),
 ];
 
+/// Recipe for builtin authors: a Symbol value is used as a property key by
+/// converting it to its atom and passing that to the ordinary property ops —
+///
+/// ```ignore
+/// let key = sym.to_atom(ctx)?;                       // symbol -> key
+/// obj.define_property_value(ctx, key, val, flags)?;  // [[DefineOwnProperty]]
+/// let v = obj.get_property_value(ctx, sym)?;         // [[Get]] (MOP-observable)
+/// ```
+///
+/// `to_atom` returns the *existing* interned atom for the symbol's descriptor,
+/// so every use of the same Symbol value maps to the same property.
+
 pub(crate) static CLASS_DEF_SYMBOL: ClassDef = ClassDef::builtin(
     crate::Atom::CONST_Symbol,
     js_symbol_proto_funcs,
@@ -138,3 +150,58 @@ pub(crate) static CLASS_DEF_SYMBOL: ClassDef = ClassDef::builtin(
             .expose_to_global(),
     ),
 );
+
+#[cfg(test)]
+mod symbol_key_tests {
+    //! Locks in the builtin-facing symbol-key property recipe: a runtime
+    //! Symbol value converts to its interned key atom and works through the
+    //! ordinary define/get paths (the mechanism ECMA-402's FallbackSymbol
+    //! and the well-known symbols rely on).
+
+    use crate::{
+        atom::AtomKind,
+        object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
+        Context, Runtime, ScopedContext, JSValue,
+    };
+
+    fn make_named_symbol(cx: &mut ScopedContext) -> JSValue {
+        let desc = cx.create_string_from_utf8(b"IntlLegacyConstructedSymbol".to_vec()).ok();
+        cx.create_symbol(desc, AtomKind::Symbol).unwrap()
+    }
+
+    #[test]
+    fn symbol_key_define_get_roundtrip() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(|cx| ScopedContext::ECMA_CONTEXT_SETUP(cx))
+            .unwrap();
+
+        ctx.with_root_scope(|mut cx| {
+            let s1 = make_named_symbol(&mut cx);
+            let s2 = make_named_symbol(&mut cx);
+
+            // Same description, distinct identities (Symbol() semantics).
+            let k1 = s1.to_atom(&mut cx).unwrap();
+            let k2 = s2.to_atom(&mut cx).unwrap();
+            assert_ne!(k1, k2, "same-description symbols must stay distinct");
+
+            let mut obj = cx.create_base_object().unwrap();
+
+            // Define via atom, read back via the symbol JSValue.
+            obj.define_property_value(
+                &mut cx,
+                k1,
+                JSValue::from(true),
+                JS_PROP_C_W_E | JS_PROP_CONFIGURABLE,
+            )
+            .unwrap();
+
+            let got = obj.get_property_value(&mut cx, s1).unwrap();
+            assert!(got.as_bool() == Some(true), "read back through same symbol");
+
+            // The other identity must not see the property.
+            let other = obj.get_property_value(&mut cx, s2).unwrap();
+            assert!(other.is_undefined(), "distinct symbol must miss");
+        });
+    }
+}
