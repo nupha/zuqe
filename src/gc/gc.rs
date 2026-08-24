@@ -135,12 +135,6 @@ impl RuntimeImpl {
             self.frame_arena.trace(&mut gcx);
             // mark trampoline virtual frames (caller bytecodes not in arena prev chain).
             // Currently always null; will be wired when trampoline integration is complete.
-            let vframes_ptr = self.active_trampoline_vframes;
-            if !vframes_ptr.is_null() {
-                // SAFETY: vframes_ptr is non-null only during trampoline execution.
-                // Iteration requires length metadata; this will be expanded when
-                // the trampoline stores its virtual frame slice.
-            }
             // Double-trace active trampoline frame's func_obj (belt-and-suspenders
             // with arena trace: covers the race window between arena state update
             // and trampoline iteration when GC triggers).

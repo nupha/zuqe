@@ -20,7 +20,7 @@ use crate::{
     module::{ModuleLoadFn, ModuleNormalizeFn},
     object::Promise,
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
-    stack_frame::{ExecMode, FrameIndex, StackFrameArena, VirtualFrame},
+    stack_frame::{ExecMode, FrameIndex, StackFrameArena},
     utils::js_get_stack_pointer,
     value::JSValue,
 };
@@ -84,11 +84,6 @@ pub struct RuntimeImpl {
     /// Current frame being executed by the trampoline, set before each
     /// iteration. Used by GC to double-trace the active frame's func_obj.
     pub(crate) active_frame_index: FrameIndex,
-    /// Trampoline virtual call stack pointer, set before each trampoline
-    /// iteration and cleared afterward. GC uses this to trace caller
-    /// bytecodes that are not reachable through arena heads alone.
-    /// SAFETY: Only valid during trampoline execution; null otherwise.
-    pub(crate) active_trampoline_vframes: *const VirtualFrame,
 
     /// current exception
     pub(super) cur_exception: Exception,
@@ -205,7 +200,6 @@ impl RuntimeImpl {
             shape_registry: ShapeRegistry::new(),
 
             frame_arena: StackFrameArena::with_capacity(arena_cap),
-            active_trampoline_vframes: std::ptr::null::<VirtualFrame>(),
             active_frame_index: FrameIndex::NULL,
 
             module_load_opaque: std::ptr::null_mut(),
