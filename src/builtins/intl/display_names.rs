@@ -15,8 +15,8 @@ use crate::{
 };
 
 use super::common::{
-    get_options_object, get_string_option, locale_to_string, make_str, observable_proto_get,
-    require_new_target, resolve_locale, to_utf8_string,
+    get_options_object, get_string_option, locale_to_string, make_str, require_new_target,
+    resolve_locale, to_utf8_string,
 };
 
 #[derive(Debug)]
@@ -63,10 +63,6 @@ pub(crate) static CLASS_DEF_DISPLAY_NAMES: ClassDef = ClassDef::builtin(
 pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     require_new_target(ctx, cc.this())?;
 
-    // OrdinaryCreateFromConstructor reads new_target.prototype BEFORE any
-    // option processing — a poisoned prototype getter must win over
-    // option errors (test262 ctor-custom-get-prototype-poison-throws).
-    observable_proto_get(ctx, cc.this())?;
     let locale = resolve_locale(ctx, cc.arg(0))?;
     let options = get_options_object(ctx, cc.arg(1))?;
 

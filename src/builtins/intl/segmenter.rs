@@ -60,10 +60,7 @@ pub(crate) fn js_segmenter_constructor(ctx: &mut ScopedContext, cc: CallContext)
     if new_target.is_undefined() {
         return Err(ctx.throw_type_error("Intl.Segmenter must be called with 'new'"));
     }
-    // OrdinaryCreateFromConstructor: reading new_target.prototype is
-    // observable and must precede any argument/option validation.
-    super::common::observable_proto_get(ctx, new_target)?;
-
+    
     let locale = resolve_segmenter_locale(ctx, cc.arg(0))?;
     let options = cc.arg(1);
 

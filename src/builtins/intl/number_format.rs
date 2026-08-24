@@ -245,14 +245,11 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
             .transpose()?
             .unwrap_or(false);
         if derived {
-            return super::common::attach_fallback(ctx, this_v, instance);
+            return super::common::attach_fallback(ctx, new_target, instance);
         }
         return Ok(instance);
     }
 
-    // OrdinaryCreateFromConstructor: reading new_target.prototype is
-    // observable and must precede any argument/option validation.
-    super::common::observable_proto_get(ctx, new_target)?;
     let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
 
     let instance = ctx

@@ -42,10 +42,7 @@ pub(crate) static CLASS_DEF_PLURAL_RULES: ClassDef = ClassDef::builtin(
 
 pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
-    // OrdinaryCreateFromConstructor: reading new_target.prototype is
-    // observable and must precede any argument/option validation.
-    super::common::observable_proto_get(ctx, new_target)?;
-    let locale = resolve_locale(ctx, cc.arg(0))?;
+       let locale = resolve_locale(ctx, cc.arg(0))?;
     let options = cc.arg(1);
 
     let obj = if options.is_undefined() {

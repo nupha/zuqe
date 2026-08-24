@@ -393,10 +393,7 @@ fn is_locale_instance(v: &JSValue) -> bool {
 /// `newTarget.prototype` getter before any option processing.  The spec
 /// executes this unconditionally; builtins that support legacy calling
 /// (Normative Optional) should call it only in the *constructed* path.
-pub(crate) fn observable_proto_get(
-    ctx: &mut ScopedContext,
-    new_target: JSValue,
-) -> Result<(), i32> {
+fn observable_proto_get(ctx: &mut ScopedContext, new_target: JSValue) -> Result<(), i32> {
     if let Some(o) = new_target.as_object() {
         let _ = o.get_property(ctx, crate::Atom::CONST_prototype)?;
     }

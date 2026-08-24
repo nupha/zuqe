@@ -58,10 +58,6 @@ pub(crate) fn js_relative_time_format_constructor(
     ctx: &mut ScopedContext,
     cc: CallContext,
 ) -> JSResult {
-    // OrdinaryCreateFromConstructor: reading new_target.prototype is
-    // observable and must precede any argument/option validation.
-    super::common::observable_proto_get(ctx, cc.this())?;
-
     require_new_target(ctx, cc.this())?;
     let locale = resolve_locale(ctx, cc.arg(0))?;
     // RTF uses legacy ToObject semantics: primitives are wrapped, only

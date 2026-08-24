@@ -126,10 +126,6 @@ pub(crate) fn js_date_time_format_constructor(
         return Ok(instance);
     }
 
-    // OrdinaryCreateFromConstructor: reading new_target.prototype is
-    // observable and must precede any argument/option validation.
-    super::common::observable_proto_get(ctx, new_target)?;
-
     let data = build_date_time_format_data(ctx, cc.arg(0), cc.arg(1), DateTimeDefaults::Standard)?;
     let instance = ctx
         .create_instance_with_ctor(

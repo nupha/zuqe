@@ -234,9 +234,6 @@ fn js_duration_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
     if new_target.is_undefined() {
         return Err(ctx.throw_type_error("Intl.DurationFormat must be called with 'new'"));
     }
-    // OrdinaryCreateFromConstructor: reading new_target.prototype is
-    // observable and must precede any argument/option validation.
-    super::common::observable_proto_get(ctx, cc.this())?;
 
     let locale = resolve_locale(ctx, cc.arg(0))?;
     let options = cc.arg(1);
