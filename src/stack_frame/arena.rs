@@ -15,7 +15,25 @@ use crate::{
 
 /// Bump-allocator frame storage.
 pub(crate) struct StackFrameArena {
-    pub(crate) frames: Vec<StackFrame>,
+    /// MUST stay `Vec<Box<StackFrame>>` — never downgrade to `Vec<StackFrame>`.
+    ///
+    /// `execute_with_arena` (exec_stackless.rs) caches `&mut frame.cur_sp_offset`
+    /// / `cur_pc_offset` as raw pointers across its whole interpretation loop,
+    /// and that loop makes native calls (CALL → NativeFunction::class_call →
+    /// alloc_frame → push). A plain `Vec<StackFrame>` reallocs on growth,
+    /// moving every element and leaving those cached pointers — plus any
+    /// `frame()/frame_mut()` reference held across a call — dangling. The
+    /// stale writes then corrupt freed memory reused by GC nodes and frames,
+    /// surfacing far away as "bad node" panics, recycled-callback TypeErrors
+    /// ("not a function") and finalize_partition index aborts. ASAN pinned
+    /// this exact chain: UAF read in execute_with_arena, freed by Vec::push →
+    /// grow_one → realloc.
+    ///
+    /// Box indirection gives per-frame address stability regardless of Vec
+    /// growth; the extra dereference is negligible next to bytecode dispatch.
+    #[allow(clippy::vec_box)]
+    pub(crate) frames: Vec<Box<StackFrame>>,
+
     pub(crate) data: Box<[JSValue]>,
     pub(crate) data_used: usize,
     pub(crate) suspended_count: usize,
@@ -165,7 +183,7 @@ impl StackFrameArena {
             }
         };
 
-        self.frames.push(StackFrame {
+        self.frames.push(Box::new(StackFrame {
             prev: FrameIndex::NULL,
             depth: 0,
             state: FrameState::Active,
@@ -179,7 +197,7 @@ impl StackFrameArena {
             arg_count: 0,
             var_base_offset: 0,
             var_count: 0,
-        });
+        }));
 
         Ok(idx)
     }
@@ -258,7 +276,7 @@ impl StackFrameArena {
     /// allocation failed).
     #[inline(always)]
     pub(crate) fn try_frame(&self, idx: FrameIndex) -> Option<&StackFrame> {
-        self.frames.get(idx.0 as usize)
+        self.frames.get(idx.0 as usize).map(|b| &**b)
     }
 
     #[inline(always)]
@@ -383,7 +401,7 @@ impl StackFrameArena {
             self.var_ref_map.insert(new_idx, frame.var_refs);
         }
 
-        self.frames.push(frame.frame);
+        self.frames.push(Box::new(frame.frame));
         new_idx
     }
 

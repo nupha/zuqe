@@ -140,18 +140,11 @@ impl AsyncState {
         let ret = self.resume(ctx);
 
         if self.is_completed {
-            // Completed — drop the runtime root added in AsyncState::new so
-            // finished states don't accumulate (identity = node pointer).
-            let node = self.gc_node_ptr();
-            let rt = ctx.rt_mut();
-            if let Some(idx) = rt
-                .gc_pending_async_states
-                .iter()
-                .position(|s| s.gc_node_ptr() == node)
-            {
-                rt.gc_pending_async_states.swap_remove(idx);
-            }
-
+            // Settle the outer promise FIRST — resolving may queue reaction
+            // jobs whose execution allocates and can trigger GC. The state
+            // must stay rooted until all of that JS has finished running;
+            // removing the root before these calls left the executing state
+            // unprotected (UAF under allocation-heavy workloads).
             match ret {
                 Ok(val) => {
                     // Normal function return - resolve
@@ -169,6 +162,18 @@ impl AsyncState {
                         std::slice::from_ref(&err_val),
                     );
                 }
+            }
+
+            // Completed — drop the runtime root added in AsyncState::new so
+            // finished states don't accumulate (identity = node pointer).
+            let node = self.gc_node_ptr();
+            let rt = ctx.rt_mut();
+            if let Some(idx) = rt
+                .gc_pending_async_states
+                .iter()
+                .position(|s| s.gc_node_ptr() == node)
+            {
+                rt.gc_pending_async_states.swap_remove(idx);
             }
         } else {
             // Retrieve value at stack top with GC protection.
