@@ -285,6 +285,14 @@ fn js_plural_rules_resolved_options(ctx: &mut ScopedContext, cc: CallContext) ->
         },
     )?;
     o.define_property_value_str(ctx, "type", type_str, JS_PROP_C_W_E)?;
+
+    // Spec table order: notation precedes the digit options.
+    let _vn = make_str(ctx, this.notation.as_bytes().to_vec())?;
+    o.define_property_value_str(ctx, "notation", _vn, JS_PROP_C_W_E)?;
+    if let Some(cd) = this.compact_display {
+        let _vcd = make_str(ctx, cd.as_bytes().to_vec())?;
+        o.define_property_value_str(ctx, "compactDisplay", _vcd, JS_PROP_C_W_E)?;
+    }
     o.define_property_value_str(
         ctx,
         "minimumIntegerDigits",
@@ -318,13 +326,6 @@ fn js_plural_rules_resolved_options(ctx: &mut ScopedContext, cc: CallContext) ->
             JSValue::from(mx as i32),
             JS_PROP_C_W_E,
         )?;
-    }
-    // notation / compactDisplay.
-    let _vn = make_str(ctx, this.notation.as_bytes().to_vec())?;
-    o.define_property_value_str(ctx, "notation", _vn, JS_PROP_C_W_E)?;
-    if let Some(cd) = this.compact_display {
-        let _vcd = make_str(ctx, cd.as_bytes().to_vec())?;
-        o.define_property_value_str(ctx, "compactDisplay", _vcd, JS_PROP_C_W_E)?;
     }
     // pluralCategories.
     let mut all = this

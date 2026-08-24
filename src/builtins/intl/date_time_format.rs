@@ -517,10 +517,6 @@ fn is_valid_time_zone(s: &str) -> bool {
     if s.is_empty() || !s.is_ascii() {
         return false;
     }
-    let upper = s.to_ascii_uppercase();
-    if upper == "UTC" || upper == "GMT" || s.starts_with("Etc/") {
-        return true;
-    }
     if s.starts_with('+') || s.starts_with('-') {
         // Offset notation: ±HH, ±HHMM, ±HH:MM.
         let body = &s[1..];
@@ -551,19 +547,24 @@ fn is_valid_time_zone(s: &str) -> bool {
         let mm: u32 = mm_s.parse().unwrap_or(99);
         return hh <= 23 && mm <= 59;
     }
-    if s.contains('/') {
-        return true;
-    }
-    false
+    lookup_time_zone(s).is_some()
 }
 
-/// Canonicalize a time zone identifier: UTC/GMT → "UTC", offsets → ±HH:MM.
+/// Case-insensitive lookup of a named identifier against the IANA table
+/// (Zone + Link names); returns the canonical spelling.
+fn lookup_time_zone(s: &str) -> Option<&'static str> {
+    let lower = s.to_ascii_lowercase();
+    super::tz_table::IANA_TIME_ZONES
+        .binary_search_by(|probe| probe.to_ascii_lowercase().cmp(&lower))
+        .ok()
+        .map(|i| super::tz_table::IANA_TIME_ZONES[i])
+}
+
+/// Canonicalize a time zone identifier: offsets → ±HH:MM; named identifiers
+/// resolve case-insensitively to their canonical IANA spelling ("GMT" stays
+/// "GMT"; only the exact UTC spellings fold to "UTC").
 fn canonicalize_time_zone(s: &str) -> String {
-    let upper = s.to_ascii_uppercase();
-    if upper == "UTC" || upper == "GMT" {
-        return "UTC".to_string();
-    }
-    if (s.starts_with('+') || s.starts_with('-'))
+    if s.starts_with('+') || s.starts_with('-')
         && s.chars()
             .all(|c| c.is_ascii_digit() || c == '+' || c == '-' || c == ':')
     {
@@ -580,7 +581,7 @@ fn canonicalize_time_zone(s: &str) -> String {
         }
         return format!("{}{}:{}", sign, hh, mm);
     }
-    s.to_string()
+    lookup_time_zone(s).unwrap_or(s).to_string()
 }
 
 fn parse_field(ctx: &mut ScopedContext, v: JSValue) -> Result<Option<DateField>, i32> {

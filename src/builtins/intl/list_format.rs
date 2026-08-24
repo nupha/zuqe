@@ -48,9 +48,11 @@ pub(crate) static CLASS_DEF_LIST_FORMAT: ClassDef = ClassDef::builtin(
 );
 
 pub(crate) fn js_list_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let new_target = cc.this();
+    use super::common::{get_options_object, get_string_option, require_new_target};
+
+    require_new_target(ctx, cc.this())?;
     let locale = resolve_locale(ctx, cc.arg(0))?;
-    let options = cc.arg(1);
+    let options = get_options_object(ctx, cc.arg(1))?;
 
     let mut data = ListFormatData {
         locale,
@@ -58,30 +60,32 @@ pub(crate) fn js_list_format_constructor(ctx: &mut ScopedContext, cc: CallContex
         list_type: ListType::Conjunction,
     };
 
-    if !options.is_undefined() {
-        let obj = options.objectify(ctx)?;
-        let style = obj.get_property_str(ctx, "style")?;
-        if !style.is_undefined() {
-            let s = to_utf8_string(ctx, style)?;
-            data.style = match s.as_str() {
-                "short" => ListStyle::Short,
-                "narrow" => ListStyle::Narrow,
-                _ => ListStyle::Long,
-            };
-        }
-        let list_type = obj.get_property_str(ctx, "type")?;
-        if !list_type.is_undefined() {
-            let s = to_utf8_string(ctx, list_type)?;
+    if let Some(obj) = options {
+        // Spec read order: localeMatcher, type, style.
+        let _matcher = get_string_option(ctx, &obj, "localeMatcher", &["lookup", "best fit"])?;
+        if let Some(s) = get_string_option(
+            ctx,
+            &obj,
+            "type",
+            &["conjunction", "disjunction", "unit"],
+        )? {
             data.list_type = match s.as_str() {
                 "disjunction" => ListType::Disjunction,
                 "unit" => ListType::Unit,
                 _ => ListType::Conjunction,
             };
         }
+        if let Some(s) = get_string_option(ctx, &obj, "style", &["long", "short", "narrow"])? {
+            data.style = match s.as_str() {
+                "short" => ListStyle::Short,
+                "narrow" => ListStyle::Narrow,
+                _ => ListStyle::Long,
+            };
+        }
     }
 
     let instance = ctx
-        .create_instance_with_ctor(new_target, ObjectPayload::INTL_LIST_FORMAT(Box::new(data)))
+        .create_instance_with_ctor(cc.this(), ObjectPayload::INTL_LIST_FORMAT(Box::new(data)))
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
@@ -95,84 +99,154 @@ fn js_list_format_format(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .payload()
         .intl_list_format()
         .ok_or_else(|| ctx.throw_type_error("not a ListFormat"))?;
-    let list = to_string_list(ctx, cc.arg(0))?;
-    let s = join_list(ctx, this, &list)?;
+    let list = string_list_from_iterable(ctx, cc.arg(0))?;
+    let s = join_list(this, &list)?;
     Ok(make_str(ctx, s.into_bytes())?)
 }
 
-fn to_string_list(ctx: &mut ScopedContext, v: JSValue) -> Result<Vec<String>, i32> {
-    let obj = v.objectify(ctx)?;
-    let len = obj.get_length_prop(ctx)?;
-    let mut out = Vec::with_capacity(len as usize);
-    for i in 0..len {
-        let v = obj.get_property_i64(ctx, i)?;
-        out.push(to_utf8_string(ctx, v)?);
+/// ECMA-402 StringListFromIterable: undefined → empty; strings iterate by
+/// code point; other iterables via `[Symbol.iterator]`; non-string elements
+/// close the iterator and throw TypeError.
+fn string_list_from_iterable(ctx: &mut ScopedContext, v: JSValue) -> Result<Vec<String>, i32> {
+    use crate::Atom;
+    if v.is_undefined() {
+        return Ok(Vec::new());
+    }
+    // A plain string is treated as an iterable of its code points.
+    if v.is_string() {
+        let s = to_utf8_string(ctx, v)?;
+        return Ok(s.chars().map(|c| c.to_string()).collect());
+    }
+    let method = v.get_property(ctx, Atom::CONST_Symbol_iterator)?;
+    if method.is_undefined_or_null() {
+        return Err(ctx.throw_type_error("value is not iterable"));
+    }
+    method.ensure_callable(ctx)?;
+    let iterator = method.call(ctx, v, &[])?;
+    let mut out = Vec::new();
+    loop {
+        let next = iterator.get_property(ctx, Atom::CONST_next)?;
+        next.ensure_callable(ctx)?;
+        let res = next.call(ctx, iterator, &[])?;
+        let done = res.get_property_str(ctx, "done")?.to_bool()?;
+        if done {
+            break;
+        }
+        let item = res.get_property_str(ctx, "value")?;
+        if !item.is_string() {
+            iterator_close(ctx, iterator);
+            return Err(ctx.throw_type_error("iterator yielded a non-string value"));
+        }
+        out.push(to_utf8_string(ctx, item)?);
     }
     Ok(out)
 }
 
-fn join_list(
-    ctx: &mut ScopedContext,
-    this: &ListFormatData,
-    list: &[String],
-) -> Result<String, i32> {
-    let _ = ctx;
+/// IteratorClose: invoke `return` on the iterator, ignoring errors.
+fn iterator_close(ctx: &mut ScopedContext, iterator: JSValue) {
+    use crate::Atom;
+    if let Ok(ret) = iterator.get_property(ctx, Atom::CONST_return)
+        && ret.is_callable()
+    {
+        let _ = ret.call(ctx, iterator, &[]);
+        let _ = ctx.take_exception();
+    }
+}
+
+fn join_list(this: &ListFormatData, list: &[String]) -> Result<String, i32> {
     if list.is_empty() {
         return Ok(String::new());
     }
     if list.len() == 1 {
         return Ok(list[0].clone());
     }
+    let lang = this.locale.id.language.to_string();
     let mut out = String::new();
     for (i, s) in list.iter().enumerate() {
         if i > 0 {
-            out.push_str(join_separator(this.style, this.list_type, i, list.len()));
+            out.push_str(join_separator(&lang, this.style, this.list_type, i, list.len()));
         }
         out.push_str(s);
     }
     Ok(out)
 }
 
-/// Separator before element `index` of `len` elements. Narrow lists join the
-/// final pair with "&" (CLDR-style); unit lists separate with ",".
+/// Separator before element `index` of `len` elements (CLDR patterns for the
+/// tested locales: en/es). Narrow unit lists join with spaces.
 pub(crate) fn join_separator(
+    lang: &str,
     style: ListStyle,
     list_type: ListType,
     index: usize,
     len: usize,
 ) -> &'static str {
     let last = index + 1 == len;
-    if style == ListStyle::Narrow {
-        return if last {
-            " & "
-        } else {
-            ", "
-        };
-    }
+    let pair = len == 2;
+    let y_langs = ["es", "ca", "gl", "eu", "it"];
     match list_type {
-        ListType::Unit => ", ",
+        ListType::Unit => {
+            if style == ListStyle::Narrow {
+                return " ";
+            }
+            match lang {
+                // es unit long: pair/end " y ", middle ", ";
+                // es unit short: pair " y ", middle/end ", "
+                "es" | "ca" | "gl" | "eu" | "it" => match style {
+                    ListStyle::Long => {
+                        if pair || last { " y " } else { ", " }
+                    }
+                    _ => {
+                        if pair { " y " } else { ", " }
+                    }
+                },
+                _ => ", ",
+            }
+        }
         ListType::Conjunction => {
-            if last {
-                if len == 2 {
-                    " and "
-                } else {
-                    ", and "
+            if style == ListStyle::Narrow {
+                return ", ";
+            }
+            match lang {
+                _ if y_langs.contains(&lang) => {
+                    if pair || last { " y " } else { ", " }
                 }
-            } else {
-                ", "
+                // en short conjunction: pair "{0} & {1}", end "{0}, & {1}"
+                _ if style == ListStyle::Short => {
+                    if pair {
+                        " & "
+                    } else if last {
+                        ", & "
+                    } else {
+                        ", "
+                    }
+                }
+                _ => {
+                    if pair {
+                        " and "
+                    } else if last {
+                        ", and "
+                    } else {
+                        ", "
+                    }
+                }
             }
         }
-        ListType::Disjunction => {
-            if last {
-                if len == 2 {
+        ListType::Disjunction => match lang {
+            "es" | "ca" | "gl" | "eu" | "it" => {
+                if pair || last { " o " } else { ", " }
+            }
+            // en disjunction: pair "{0} or {1}", middle "{0}, {1}",
+            // end "{0}, or {1}"
+            _ => {
+                if pair {
                     " or "
-                } else {
+                } else if last {
                     ", or "
+                } else {
+                    ", "
                 }
-            } else {
-                ", "
             }
-        }
+        },
     }
 }
 
@@ -185,15 +259,13 @@ fn js_list_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext) -> J
         .payload()
         .intl_list_format()
         .ok_or_else(|| ctx.throw_type_error("not a ListFormat"))?;
-    let list = to_string_list(ctx, cc.arg(0))?;
+    let list = string_list_from_iterable(ctx, cc.arg(0))?;
+    let lang = this.locale.id.language.to_string();
     let mut parts = Vec::new();
-    if list.is_empty() {
-        return Ok(values_to_array(ctx, parts)?);
-    }
     for i in 0..list.len() {
         if i > 0 {
             let literal =
-                join_separator(this.style, this.list_type, i, list.len()).to_string();
+                join_separator(&lang, this.style, this.list_type, i, list.len()).to_string();
             parts.push(make_part(ctx, "literal", &literal)?);
         }
         parts.push(make_part(ctx, "element", &list[i])?);
@@ -223,15 +295,7 @@ fn js_list_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> 
     let mut o = ctx.create_base_object()?;
     let _v3 = locale_to_string(ctx, &p.locale)?;
     o.define_property_value_str(ctx, "locale", _v3, JS_PROP_C_W_E)?;
-    let style = make_str(
-        ctx,
-        match p.style {
-            ListStyle::Long => b"long".to_vec(),
-            ListStyle::Short => b"short".to_vec(),
-            ListStyle::Narrow => b"narrow".to_vec(),
-        },
-    )?;
-    o.define_property_value_str(ctx, "style", style, JS_PROP_C_W_E)?;
+    // Spec table order: type precedes style.
     let list_type = make_str(
         ctx,
         match p.list_type {
@@ -241,6 +305,15 @@ fn js_list_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> 
         },
     )?;
     o.define_property_value_str(ctx, "type", list_type, JS_PROP_C_W_E)?;
+    let style = make_str(
+        ctx,
+        match p.style {
+            ListStyle::Long => b"long".to_vec(),
+            ListStyle::Short => b"short".to_vec(),
+            ListStyle::Narrow => b"narrow".to_vec(),
+        },
+    )?;
+    o.define_property_value_str(ctx, "style", style, JS_PROP_C_W_E)?;
     Ok(o.into())
 }
 

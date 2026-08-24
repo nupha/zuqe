@@ -23,6 +23,10 @@ pub struct DisplayNamesData {
     pub(crate) display_type: DisplayType,
     /// `fallback: "none"` → `of()` returns undefined for unknown codes.
     pub(crate) fallback_none: bool,
+    /// Resolved `fallback` option ("code" | "none"), reported verbatim.
+    pub(crate) fallback_str: &'static str,
+    /// Resolved `languageDisplay` option ("dialect" | "standard").
+    pub(crate) language_display: &'static str,
 }
 
 impl GcTrace for DisplayNamesData {
@@ -50,60 +54,84 @@ pub(crate) enum DisplayType {
 pub(crate) static CLASS_DEF_DISPLAY_NAMES: ClassDef = ClassDef::builtin(
     Atom::CONST_DisplayNames,
     js_display_names_proto_funcs,
-    Some(ClassCtorDef::new(js_display_names_constructor, 0, true)),
+    Some(ClassCtorDef::new(js_display_names_constructor, 2, true)),
 );
 
 pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let new_target = cc.this();
+    use super::common::{get_options_object, get_string_option, require_new_target};
+    require_new_target(ctx, cc.this())?;
     let locale = resolve_locale(ctx, cc.arg(0))?;
-    let options = cc.arg(1);
+    let options = get_options_object(ctx, cc.arg(1))?;
 
     let mut data = DisplayNamesData {
         locale,
         style: DisplayStyle::Long,
         display_type: DisplayType::Language,
         fallback_none: false,
+        fallback_str: "code",
+        language_display: "dialect",
     };
 
-    if !options.is_undefined() {
-        let obj = options.objectify(ctx)?;
-        let style = obj.get_property_str(ctx, "style")?;
-        if !style.is_undefined() {
-            let s = to_utf8_string(ctx, style)?;
-            data.style = match s.as_str() {
-                "narrow" => DisplayStyle::Narrow,
-                "short" => DisplayStyle::Short,
-                "abbreviated" => DisplayStyle::Abbreviated,
-                _ => DisplayStyle::Long,
-            };
-        }
-        let t = obj.get_property_str(ctx, "type")?;
-        if !t.is_undefined() {
-            let s = to_utf8_string(ctx, t)?;
-            data.display_type = match s.as_str() {
-                "region" => DisplayType::Region,
-                "script" => DisplayType::Script,
-                "currency" => DisplayType::Currency,
-                "calendar" => DisplayType::Calendar,
-                "dateTimeField" => DisplayType::DateTimeField,
-                _ => DisplayType::Language,
-            };
-        }
-        // fallback: "code" (default) | "none"
-        let fb = obj.get_property_str(ctx, "fallback")?;
-        if !fb.is_undefined() {
-            let s = to_utf8_string(ctx, fb)?;
-            match s.as_str() {
-                "code" => data.fallback_none = false,
-                "none" => data.fallback_none = true,
-                _ => return Err(ctx.throw_range_error("Invalid fallback value")),
-            }
-        }
+    // The `type` option is REQUIRED even when the whole options object is
+    // absent/undefined.
+    let mut style_opt = None;
+    let mut fallback_opt = None;
+    let mut lang_display_opt = None;
+    let mut type_opt = None;
+    if let Some(obj) = options {
+        // Spec read order: localeMatcher, style, type, fallback, languageDisplay.
+        let _matcher = get_string_option(ctx, &obj, "localeMatcher", &["lookup", "best fit"])?;
+        style_opt = get_string_option(
+            ctx,
+            &obj,
+            "style",
+            &["narrow", "short", "long", "abbreviated"],
+        )?;
+        type_opt = get_string_option(
+            ctx,
+            &obj,
+            "type",
+            &[
+                "language",
+                "region",
+                "script",
+                "currency",
+                "calendar",
+                "dateTimeField",
+            ],
+        )?;
+        fallback_opt = get_string_option(ctx, &obj, "fallback", &["code", "none"])?;
+        lang_display_opt =
+            get_string_option(ctx, &obj, "languageDisplay", &["dialect", "standard"])?;
+    }
+    let t = type_opt.ok_or_else(|| ctx.throw_type_error("type option is required"))?;
+    data.display_type = match t.as_str() {
+        "region" => DisplayType::Region,
+        "script" => DisplayType::Script,
+        "currency" => DisplayType::Currency,
+        "calendar" => DisplayType::Calendar,
+        "dateTimeField" => DisplayType::DateTimeField,
+        _ => DisplayType::Language,
+    };
+    if let Some(s) = style_opt {
+        data.style = match s.as_str() {
+            "narrow" => DisplayStyle::Narrow,
+            "short" => DisplayStyle::Short,
+            "abbreviated" => DisplayStyle::Abbreviated,
+            _ => DisplayStyle::Long,
+        };
+    }
+    if let Some(s) = fallback_opt {
+        data.fallback_none = s == "none";
+        data.fallback_str = if s == "none" { "none" } else { "code" };
+    }
+    if let Some(s) = lang_display_opt {
+        data.language_display = if s == "standard" { "standard" } else { "dialect" };
     }
 
     let instance = ctx
         .create_instance_with_ctor(
-            new_target,
+            cc.this(),
             ObjectPayload::INTL_DISPLAY_NAMES(Box::new(data)),
         )
         .map_err(|_| -1)?;
@@ -120,10 +148,64 @@ fn js_display_names_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .intl_display_names()
         .ok_or_else(|| ctx.throw_type_error("not a DisplayNames"))?;
     let code = to_utf8_string(ctx, cc.arg(0))?;
-    match display_name(this, &code)? {
+    let canon = canonical_code_for(ctx, this, &code)?;
+    match display_name(this, canon.as_deref().unwrap_or(&code))? {
         Some(name) => Ok(make_str(ctx, name.into_bytes())?),
         // fallback: "none" — unknown code yields undefined.
         None => Ok(JSValue::UNDEFINED),
+    }
+}
+
+/// CanonicalCodeForDisplayNames: validate + normalize `code` per the instance's
+/// type. RangeError for malformed codes; `None` when the code is well-formed
+/// but has no display data.
+fn canonical_code_for(
+    ctx: &mut ScopedContext,
+    this: &DisplayNamesData,
+    code: &str,
+) -> Result<Option<String>, i32> {
+    let is_ascii_alpha = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphabetic());
+    match this.display_type {
+        DisplayType::Language => {
+            // Engines reject attribute-shaped u-sections here (`en-u-hebrew`).
+            if !super::common::is_structurally_valid_language_tag_allow_attrs(code, false) {
+                return Err(ctx.throw_range_error("Invalid language tag"));
+            }
+            Ok(super::common::canonicalize_locale_string(ctx, code)?)
+        }
+        DisplayType::Region => {
+            let ok = (code.len() == 2 && is_ascii_alpha(code))
+                || (code.len() == 3 && code.bytes().all(|b| b.is_ascii_digit()));
+            if !ok {
+                return Err(ctx.throw_range_error("Invalid region code"));
+            }
+            Ok(Some(code.to_uppercase()))
+        }
+        DisplayType::Script => {
+            if code.len() != 4 || !is_ascii_alpha(code) {
+                return Err(ctx.throw_range_error("Invalid script code"));
+            }
+            let mut c = code.to_lowercase();
+            c[..1].make_ascii_uppercase();
+            Ok(Some(c))
+        }
+        DisplayType::Currency => {
+            if code.len() != 3 || !is_ascii_alpha(code) {
+                return Err(ctx.throw_range_error("Invalid currency code"));
+            }
+            Ok(Some(code.to_uppercase()))
+        }
+        DisplayType::Calendar => {
+            if !super::number_format::is_valid_bcp47_type(code) {
+                return Err(ctx.throw_range_error("Invalid calendar code"));
+            }
+            Ok(Some(code.to_lowercase()))
+        }
+        DisplayType::DateTimeField => match code {
+            "era" | "year" | "quarter" | "month" | "weekOfYear" | "weekday" | "day"
+            | "dayPeriod" | "hour" | "minute" | "second" | "timeZoneName" => Ok(Some(code.into())),
+            _ => Err(ctx.throw_range_error("Invalid dateTimeField code")),
+        },
     }
 }
 
@@ -230,9 +312,9 @@ fn js_display_names_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
         },
     )?;
     o.define_property_value_str(ctx, "type", _v5, JS_PROP_C_W_E)?;
-    let _v2 = make_str(ctx, b"code".to_vec())?;
+    let _v2 = make_str(ctx, p.fallback_str.as_bytes().to_vec())?;
     o.define_property_value_str(ctx, "fallback", _v2, JS_PROP_C_W_E)?;
-    let _v3 = make_str(ctx, b"dialect".to_vec())?;
+    let _v3 = make_str(ctx, p.language_display.as_bytes().to_vec())?;
     o.define_property_value_str(ctx, "languageDisplay", _v3, JS_PROP_C_W_E)?;
 
     Ok(o.into())

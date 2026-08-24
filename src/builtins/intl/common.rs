@@ -8,7 +8,7 @@ use icu::locale::{
     extensions::unicode::{Key, Value},
 };
 
-use crate::{Array, ScopedContext, value::JSValue};
+use crate::{Array, ScopedContext, object::Object, value::JSValue};
 
 /// Grandfathered BCP-47 tags that ICU4X rejects but which ECMA-402
 /// `IsStructurallyValidLanguageTag` accepts and canonicalises to themselves
@@ -25,12 +25,47 @@ const GRANDFATHERED_AS_IS: &[&str] = &[
     "sgn-CH-DE",
 ];
 
+/// Grandfathered tags with an RFC 5646 preferred-value mapping (checked
+/// case-insensitively when ICU4X cannot parse the original tag).
+const GRANDFATHERED_PREFERRED: &[(&str, &str)] = &[
+    ("art-lojban", "jbo"),
+    ("cel-gaulish", "xtg"),
+    ("zh-min-nan", "nan"),
+    ("en-GB-oed", "en-GB-oxendict"),
+    ("i-ami", "ami"),
+    ("i-bnn", "bnn"),
+    ("i-hak", "hak"),
+    ("i-klingon", "tlh"),
+    ("i-lux", "lb"),
+    ("i-navajo", "nv"),
+    ("i-pwn", "pwn"),
+    ("i-tao", "tao"),
+    ("i-tay", "tay"),
+    ("i-tsu", "tsu"),
+    ("sgn-BE-FR", "sfb"),
+    ("sgn-BE-NL", "vgt"),
+    ("sgn-CH-DE", "sgg"),
+];
+
 /// Canonicalize a single locale string into its canonical BCP-47 form, or
 /// return `None` if it cannot be parsed as a valid language tag.
 pub(crate) fn canonicalize_locale(
     _ctx: &mut ScopedContext,
     s: &str,
 ) -> Result<Option<Locale>, i32> {
+    // Irregular grandfathered tags (`i-klingon`, ...) are rejected outright;
+    // only regular-grammar tags proceed to the preferred-value mapping and
+    // ICU4X parsing below.
+    let lower = s.to_ascii_lowercase();
+    if !is_structurally_valid_language_tag(&lower) {
+        return Ok(None);
+    }
+    // RFC 5646 §2.2.1 grandfathered tags with a preferred-value mapping are
+    // replaced before parsing (`cel-gaulish` parses as a regular tag but must
+    // canonicalize to its preferred value).
+    if let Some((_, pref)) = GRANDFATHERED_PREFERRED.iter().find(|(g, _)| *g == lower) {
+        return canonicalize_locale(_ctx, pref);
+    }
     let mut loc: Locale = match s.parse() {
         Ok(l) => l,
         Err(_) => return Ok(None),
@@ -41,6 +76,139 @@ pub(crate) fn canonicalize_locale(
     // tfields/tvalues by their canonical forms using the bcp47 alias data.
     canonicalize_unicode_extensions(&mut loc);
     Ok(Some(loc))
+}
+/// ECMA-402 IsStructurallyValidLanguageTag (subset covering test262):
+/// subtag placement/shape, no duplicate variants or singletons, and `-u-`
+/// key/value alternation.
+///
+/// `allow_u_attrs` permits attribute-shaped (3-8 alnum) components before the
+/// first key in a `-u-` section (`und-u-attr` is valid per RFC 6497).
+// ponytail: DisplayNames rejects such attributes (engines disagree here); pass
+// allow_u_attrs=false there if a test ever demands the strict side.
+pub(crate) fn is_structurally_valid_language_tag_allow_attrs(
+    s: &str,
+    allow_u_attrs: bool,
+) -> bool {
+    let is_alpha = |x: &str| !x.is_empty() && x.bytes().all(|b| b.is_ascii_alphabetic());
+    let is_alnum = |x: &str| !x.is_empty() && x.bytes().all(|b| b.is_ascii_alphanumeric());
+    let parts: Vec<&str> = s.split('-').collect();
+    let lang = parts[0];
+    let lang_ok = ((lang.len() == 2 || lang.len() == 3) && is_alpha(lang))
+        || ((5..=8).contains(&lang.len())
+            && lang.as_bytes()[0].is_ascii_alphabetic()
+            && is_alnum(lang));
+    if !lang_ok {
+        return false;
+    }
+    let variant_ok = |p: &str| {
+        ((5..=8).contains(&p.len()) && is_alnum(p))
+            || (p.len() == 4 && p.as_bytes()[0].is_ascii_digit())
+    };
+    let mut script_seen = false;
+    let mut region_seen = false;
+    let mut variants: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut singletons: std::collections::HashSet<char> = std::collections::HashSet::new();
+    // Section state: ' ' base grammar, else the current singleton extension.
+    let mut section = ' ';
+    let mut u_expect_value = false;
+    let mut u_seen_key = false;
+    let mut u_any = false;
+    let mut section_empty = true;
+    let mut tlang_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for p in &parts[1..] {
+        if p.is_empty() {
+            return false;
+        }
+        // A one-character subtag starts a new singleton extension except at
+        // base level (where it may also be invalid), inside a private-use `x`
+        // section where 1-char components are legal, and inside a `u` section
+        // before its first component (`da-u-t-…` is invalid).
+        if section != 'x'
+            && p.len() == 1
+            && !p.bytes().next().is_some_and(|b| b.is_ascii_digit())
+            && !(section == 'u' && !u_any)
+        {
+            let c = p.chars().next().unwrap().to_ascii_lowercase();
+            // A singleton must be alphanumeric (`de-*` is invalid).
+            if !c.is_ascii_alphanumeric() || !singletons.insert(c) {
+                return false;
+            }
+            section = c;
+            u_expect_value = false;
+            u_seen_key = false;
+            u_any = false;
+            section_empty = true;
+            continue;
+        }
+        section_empty = false;
+        if section == 'u' {
+            u_any = true;
+        }
+        match section {
+            ' ' => {
+                // Subtag order: language, script, region, variants. A script
+                // may only appear directly after the language.
+                if !script_seen && !region_seen && p.len() == 4 && is_alpha(p) {
+                    script_seen = true;
+                } else if !region_seen
+                    && ((p.len() == 2 && is_alpha(p))
+                        || (p.len() == 3 && p.bytes().all(|b| b.is_ascii_digit())))
+                {
+                    region_seen = true;
+                } else if variant_ok(p) && variants.insert(p.to_ascii_lowercase()) {
+                    // ok
+                } else {
+                    return false;
+                }
+            }
+            'u' => {
+                // Strict mode (DisplayNames): attributes/keys/values must
+                // alternate exactly, so attribute-shaped unknowns like
+                // `hebrew` are rejected. Lenient mode: any 2-8 alnum
+                // component sequence is accepted — CLDR types can span
+                // multiple hyphenated segments (`ca-islamic-civil`), which
+                // only canonicalization with bcp47 data can fully judge.
+                let is_lenient = allow_u_attrs;
+                if p.len() < 2 || p.len() > 8 || !is_alnum(p) {
+                    return false;
+                }
+                if !is_lenient {
+                    if p.len() == 2 {
+                        u_expect_value = true;
+                        u_seen_key = true;
+                    } else if u_expect_value {
+                        u_expect_value = false;
+                    } else {
+                        return false;
+                    }
+                }
+            }
+            't' => {
+                // Transform section: tlang subtags then field pairs; duplicate
+                // subtags are invalid (`de-t-en-emodeng-emodeng`).
+                let low = p.to_ascii_lowercase();
+                if !is_alnum(p) || !tlang_seen.insert(low) {
+                    return false;
+                }
+            }
+            _ => {
+                if !is_alnum(p) {
+                    return false;
+                }
+            }
+        }
+    }
+    // `-u-`, `-t-` and `-x-` sections require at least one component
+    // (`da-u`, `en-t`, `si-x`).
+    if section_empty && (section == 'u' || section == 't' || section == 'x') {
+        return false;
+    }
+    true
+}
+
+/// Wrapper using the default policy (attributes allowed).
+pub(crate) fn is_structurally_valid_language_tag(s: &str) -> bool {
+    is_structurally_valid_language_tag_allow_attrs(s, true)
 }
 
 /// Canonicalize a single tag string into its canonical BCP-47 string form, or
@@ -154,6 +322,50 @@ pub(crate) fn to_utf8_string(ctx: &mut ScopedContext, v: JSValue) -> Result<Stri
     Ok(s.content().encode_utf8(false).into_owned())
 }
 
+/// Every ECMA-402 constructor: TypeError when called without `new`.
+/// (In native constructors `cc.this()` carries the new.target.)
+pub(crate) fn require_new_target(ctx: &mut ScopedContext, new_target: JSValue) -> Result<(), i32> {
+    if new_target.is_undefined() {
+        return Err(ctx.throw_type_error("Intl constructor requires 'new'"));
+    }
+    Ok(())
+}
+
+/// ECMA-402 §9.2.10 GetOptionsObject: `None` for undefined, the object for
+/// objects, TypeError for anything else (null and primitives included).
+pub(crate) fn get_options_object(
+    ctx: &mut ScopedContext,
+    options: JSValue,
+) -> Result<Option<Object>, i32> {
+    if options.is_undefined() {
+        return Ok(None);
+    }
+    match options.as_object() {
+        Some(o) => Ok(Some(o)),
+        None => Err(ctx.throw_type_error("options must be an object")),
+    }
+}
+
+/// ECMA-402 GetOption (string type): read `property` from `options`, apply
+/// ToString, and throw RangeError when the value is not in `values` (empty
+/// list = no validation). Returns `None` when the property is absent.
+pub(crate) fn get_string_option(
+    ctx: &mut ScopedContext,
+    options: &Object,
+    property: &str,
+    values: &[&str],
+) -> Result<Option<String>, i32> {
+    let v = options.get_property_str(ctx, property)?;
+    if v.is_undefined() {
+        return Ok(None);
+    }
+    let s = to_utf8_string(ctx, v)?;
+    if !values.is_empty() && !values.contains(&s.as_str()) {
+        return Err(ctx.throw_range_error("Invalid option value"));
+    }
+    Ok(Some(s))
+}
+
 /// Canonicalize a single already-coerced tag string. Returns `Ok(Some(canonical))`
 /// on success, `Ok(None)` is never returned; an invalid tag throws a `RangeError`.
 fn canonicalize_tag_string(
@@ -171,6 +383,14 @@ fn canonicalize_tag_string(
     Ok(())
 }
 
+/// True when `v` is an [[InitializedLocale]] object (an `Intl.Locale`).
+fn is_locale_instance(v: &JSValue) -> bool {
+    match v.as_object() {
+        Some(o) => o.payload().intl_locale().is_some(),
+        None => false,
+    }
+}
+
 /// ECMA-402 §8.2.1 `CanonicalizeLocaleList`: coerce `locales` to an array of
 /// canonical locale strings, deduplicated.
 pub(crate) fn canonicalize_locale_list(
@@ -181,14 +401,26 @@ pub(crate) fn canonicalize_locale_list(
     if locales.is_undefined() {
         return Ok(Array::from_values(ctx, Vec::new())?.into());
     }
-    // 3. If Type(locales) is String, treat it as a single-element list.
-    // 4. Else `ToObject(locales)` then iterate as an array-like.
     let mut out: Vec<JSValue> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    if locales.is_string() {
-        let tag = to_utf8_string(ctx, locales)?;
-        canonicalize_tag_string(ctx, &tag, &mut out, &mut seen)?;
+    let single = |ctx: &mut ScopedContext,
+                  tag_value: JSValue,
+                  out: &mut Vec<JSValue>,
+                  seen: &mut std::collections::HashSet<String>|
+     -> Result<(), i32> {
+        // An [[InitializedLocale]] object contributes its internal tag
+        // directly (its toString is not called).
+        let tag = match tag_value.as_object().map(|o| o.payload().intl_locale().map(|l| l.locale.to_string())) {
+            Some(Some(tag)) => tag,
+            _ => to_utf8_string(ctx, tag_value)?,
+        };
+        canonicalize_tag_string(ctx, &tag, out, seen)
+    };
+
+    // 3. A String or an Intl.Locale instance is a single-element list.
+    if locales.is_string() || is_locale_instance(&locales) {
+        single(ctx, locales, &mut out, &mut seen)?;
         return Ok(Array::from_values(ctx, out)?.into());
     }
 
@@ -208,8 +440,7 @@ pub(crate) fn canonicalize_locale_list(
         if !v.is_string() && !v.is_object() {
             return Err(ctx.throw_type_error("Invalid element of locales list"));
         }
-        let tag = to_utf8_string(ctx, v)?;
-        canonicalize_tag_string(ctx, &tag, &mut out, &mut seen)?;
+        single(ctx, v, &mut out, &mut seen)?;
     }
     Ok(Array::from_values(ctx, out)?.into())
 }
@@ -372,6 +603,20 @@ pub(crate) fn locale_extension_value(locale: &Locale, key: &str) -> Option<Strin
         let s = v.to_string();
         if s.is_empty() { "true".to_string() } else { s }
     })
+}
+
+/// Raw serialization of a Unicode extension keyword: a key-only keyword
+/// (`-u-kn`) yields `""`, not `"true"`.
+pub(crate) fn locale_extension_raw(locale: &Locale, key: &str) -> Option<String> {
+    let kw: icu::locale::extensions::unicode::Key = key.parse().ok()?;
+    Some(
+        locale
+            .extensions
+            .unicode
+            .keywords
+            .get(&kw)?
+            .to_string(),
+    )
 }
 
 /// Whether a Unicode extension value is supported for the given locale, for

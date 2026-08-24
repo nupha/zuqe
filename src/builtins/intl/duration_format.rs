@@ -570,10 +570,16 @@ fn partition(ctx: &mut ScopedContext, df: &DurationFormatData, rec: &[f64; 10]) 
 
         if value != 0.0 || opts.display != UDisplay::Auto || display_required {
             let sign_never = !sign_shown;
-            if sign_shown {
+            if value == 0.0 {
+                // Normalize negative zero; the first displayed unit of a
+                // negative duration re-applies it so auto shows "-0".
+                value = 0.0;
+                if sign_shown && duration_sign(*rec) < 0 {
+                    value = -0.0;
+                }
                 sign_shown = false;
-                // First displayed zero of a negative duration renders as -0
-                // (visually identical under signDisplay auto normalization).
+            } else if sign_shown {
+                sign_shown = false;
             }
             let numeric_like =
                 matches!(opts.style, UStyle::Numeric | UStyle::TwoDigit);
@@ -599,24 +605,29 @@ fn partition(ctx: &mut ScopedContext, df: &DurationFormatData, rec: &[f64; 10]) 
                     Some((SINGULAR[idx], disp))
                 },
             )?;
-            let s = super::number_format::format_f64(ctx, &nf, value)?;
-            let part = Part {
-                typ: "integer",
-                value: s,
-                unit: Some(SINGULAR[idx]),
-            };
+            // Mirror NumberFormat.formatToParts: numeric values may split
+            // into minusSign/integer/decimal/fraction parts; standalone units
+            // add a trailing unit part.
+            let nparts = super::number_format::format_parts(ctx, &nf, value)?;
             if need_sep {
                 groups.last_mut().unwrap().push(Part {
                     typ: "literal",
                     value: ":".to_string(),
                     unit: None,
                 });
-                groups.last_mut().unwrap().push(part);
             } else {
                 if numeric_like {
                     need_sep = true;
                 }
-                groups.push(vec![part]);
+                groups.push(Vec::new());
+            }
+            let target = groups.last_mut().unwrap();
+            for np in nparts {
+                target.push(Part {
+                    typ: np.typ,
+                    value: np.value,
+                    unit: Some(SINGULAR[idx]),
+                });
             }
         }
         if done {
@@ -634,11 +645,12 @@ fn partition(ctx: &mut ScopedContext, df: &DurationFormatData, rec: &[f64; 10]) 
     };
     let mut out: Vec<Part> = Vec::new();
     let n = groups.len();
+    let list_lang = df.locale.id.language.to_string();
     for (gi, g) in groups.into_iter().enumerate() {
         if gi > 0 {
             out.push(Part {
                 typ: "literal",
-                value: super::list_format::join_separator(list_style, super::list_format::ListType::Unit, gi, n).to_string(),
+                value: super::list_format::join_separator(&list_lang, list_style, super::list_format::ListType::Unit, gi, n).to_string(),
                 unit: None,
             });
         }

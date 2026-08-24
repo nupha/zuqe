@@ -17,6 +17,7 @@ pub(crate) mod number_format;
 pub(crate) mod plural_rules;
 pub(crate) mod relative_time_format;
 pub(crate) mod segmenter;
+mod tz_table;
 
 use crate::{
     Callback, JSValue, Object, context::ScopedContext, error::JSResult, function::CallContext,
