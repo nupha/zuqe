@@ -831,7 +831,7 @@ mod tests {
     fn divmod_randomized_small() {
         // cross-check divmod_mag against Python-verified integer arithmetic on
         // many random pairs spanning multiple limbs (exercises Knuth D).
-        with_ctx(|ctx| {
+        with_ctx(|_| {
             let mut seed: u64 = 0x1234_5678_9abc_def0;
             let mut next = move || {
                 seed = seed
@@ -1009,7 +1009,7 @@ mod tests {
     fn karatsuba_matches_schoolbook_randomized() {
         // Cross-check the Karatsuba path (large, balanced operands) against the
         // schoolbook fallback over many random pairs spanning 32+ limbs.
-        with_ctx(|ctx| {
+        with_ctx(|_| {
             let mut seed: u64 = 0xfeed_face_cafe_beef;
             let mut next = move || {
                 seed = seed
@@ -1033,7 +1033,7 @@ mod tests {
     fn karatsuba_unbalanced_falls_back_to_schoolbook() {
         // A 40×5 pair must not use Karatsuba (small operand below threshold)
         // and must still be correct.
-        with_ctx(|ctx| {
+        with_ctx(|_| {
             let a: Vec<u64> = vec![0xdead_beef_cafe_f00d; 40];
             let b: Vec<u64> = vec![0x1234_5678_9abc_def0; 5];
             let r = mul_mag(&a, &b);
@@ -1045,7 +1045,7 @@ mod tests {
     fn karatsuba_boundary_unbalance_still_correct() {
         // 128 = 4×32: still enters Karatsuba (the unbalance limit), with a1
         // empty after the split — exercises the z1 carry into the z2 region.
-        with_ctx(|ctx| {
+        with_ctx(|_| {
             let a: Vec<u64> = vec![0x0123_4567_89ab_cdef; 32];
             let b: Vec<u64> = (0..128u64)
                 .map(|i| i.wrapping_mul(0x9e3779b97f4a7c15))
