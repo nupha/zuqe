@@ -41,6 +41,12 @@ pub struct DateTimeFormatData {
     /// zone (like `Date`), instead of the reported "UTC" fallback.
     pub(crate) time_zone_is_local: bool,
     pub(crate) time_zone_name: Option<&'static str>,
+    /// dayPeriod option ("long" | "short" | "narrow").
+    pub(crate) day_period: Option<&'static str>,
+    /// dateStyle / timeStyle ("full" | "long" | "medium" | "short") when the
+    /// format uses shared patterns instead of explicit components.
+    pub(crate) date_style: Option<&'static str>,
+    pub(crate) time_style: Option<&'static str>,
     pub(crate) calendar: String,
     pub(crate) numbering_system: String,
 }
@@ -141,6 +147,9 @@ pub(crate) fn build_date_time_format_data(
         time_zone: "UTC".to_string(),
         time_zone_is_local: true,
         time_zone_name: None,
+        day_period: None,
+        date_style: None,
+        time_style: None,
         calendar: "gregory".to_string(),
         numbering_system: "latn".to_string(),
     };
@@ -162,99 +171,166 @@ pub(crate) fn build_date_time_format_data(
     }
 
     // calendar / numberingSystem must match the `type` BCP47 nonterminal.
+    // The string form is captured here once (a second ToString would be an
+    // extra observable call).
     let calendar = date_format.get_property_str(ctx, "calendar")?;
-    if !calendar.is_undefined() {
+    let calendar_str = if !calendar.is_undefined() {
         let s = to_utf8_string(ctx, calendar)?;
         if !is_valid_bcp47_type(&s) {
             return Err(ctx.throw_range_error("Invalid calendar value"));
         }
-    }
+        Some(s)
+    } else {
+        None
+    };
     let numbering_system = date_format.get_property_str(ctx, "numberingSystem")?;
-    if !numbering_system.is_undefined() {
+    let numbering_str = if !numbering_system.is_undefined() {
         let s = to_utf8_string(ctx, numbering_system)?;
         if !is_valid_bcp47_type(&s) {
             return Err(ctx.throw_range_error("Invalid numberingSystem value"));
         }
+        Some(s)
+    } else {
+        None
+    };
+
+    // hour12 / hourCycle validation (spec read order: right after the
+    // calendar/numberingSystem options).
+    let hour12 = date_format.get_property_str(ctx, "hour12")?;
+    if !hour12.is_undefined() {
+        data.hour12 = Some(hour12.to_bool()?);
+    }
+    let hour_cycle = date_format.get_property_str(ctx, "hourCycle")?;
+    if !hour_cycle.is_undefined() {
+        let s = to_utf8_string(ctx, hour_cycle)?;
+        data.hour_cycle = Some(match s.as_str() {
+            "h11" => "h11",
+            "h12" => "h12",
+            "h23" => "h23",
+            "h24" => "h24",
+            _ => return Err(ctx.throw_range_error("Invalid hourCycle value")),
+        });
+    } else {
+        // Fall back to the unicode `hc` extension.
+        data.hour_cycle = ext_hc;
     }
 
-    // When `options` is undefined, do not consult the (monkey-patchable)
-    // Object.prototype chain — use the spec defaults directly.
+    // timeZone.
+    let tz = date_format.get_property_str(ctx, "timeZone")?;
+    data.time_zone_is_local = tz.is_undefined();
+    if !tz.is_undefined() {
+        let s = to_utf8_string(ctx, tz)?;
+        if !is_valid_time_zone(&s) {
+            return Err(ctx.throw_range_error("Invalid time zone"));
+        }
+        data.time_zone = canonicalize_time_zone(&s);
+    }
+
+    // Each component is read and converted immediately (observable ToString
+    // order: weekday, era, year, month, day).
     let weekday = if options_undefined {
         JSValue::UNDEFINED
     } else {
         date_format.get_property_str(ctx, "weekday")?
     };
+    if !weekday.is_undefined() {
+        data.weekday = parse_field(ctx, weekday)?;
+    }
     let era = if options_undefined {
         JSValue::UNDEFINED
     } else {
         date_format.get_property_str(ctx, "era")?
     };
+    if !era.is_undefined() {
+        data.era = parse_field(ctx, era)?;
+    }
     let year = if options_undefined {
         JSValue::UNDEFINED
     } else {
         date_format.get_property_str(ctx, "year")?
     };
+    if !year.is_undefined() {
+        data.year = parse_field(ctx, year)?;
+    }
     let month = if options_undefined {
         JSValue::UNDEFINED
     } else {
         date_format.get_property_str(ctx, "month")?
     };
+    if !month.is_undefined() {
+        data.month = parse_field(ctx, month)?;
+    }
     let day = if options_undefined {
         JSValue::UNDEFINED
     } else {
         date_format.get_property_str(ctx, "day")?
     };
+    if !day.is_undefined() {
+        data.day = parse_field(ctx, day)?;
+    }
+
+    // dayPeriod: long | short | narrow.
+    let day_period = date_format.get_property_str(ctx, "dayPeriod")?;
+    if !day_period.is_undefined() {
+        let s = to_utf8_string(ctx, day_period)?;
+        data.day_period = Some(match s.as_str() {
+            "long" => "long",
+            "short" => "short",
+            "narrow" => "narrow",
+            _ => return Err(ctx.throw_range_error("Invalid dayPeriod value")),
+        });
+    }
+
     let hour = if options_undefined {
         JSValue::UNDEFINED
     } else {
         date_format.get_property_str(ctx, "hour")?
     };
+    if !hour.is_undefined() {
+        data.hour = parse_time_field(ctx, hour)?;
+    }
     let minute = if options_undefined {
         JSValue::UNDEFINED
     } else {
         date_format.get_property_str(ctx, "minute")?
     };
+    if !minute.is_undefined() {
+        data.minute = parse_time_field(ctx, minute)?;
+    }
     let second = if options_undefined {
         JSValue::UNDEFINED
     } else {
         date_format.get_property_str(ctx, "second")?
     };
-    // Only override the defaults when the corresponding option is present.
-    if !weekday.is_undefined() {
-        data.weekday = parse_field(ctx, weekday)?;
-    }
-    if !era.is_undefined() {
-        data.era = parse_field(ctx, era)?;
-    }
-    if !year.is_undefined() {
-        data.year = parse_field(ctx, year)?;
-    }
-    if !month.is_undefined() {
-        data.month = parse_field(ctx, month)?;
-    }
-    if !day.is_undefined() {
-        data.day = parse_field(ctx, day)?;
-    }
-    if !hour.is_undefined() {
-        data.hour = parse_time_field(ctx, hour)?;
-    }
-    if !minute.is_undefined() {
-        data.minute = parse_time_field(ctx, minute)?;
-    }
     if !second.is_undefined() {
         data.second = parse_time_field(ctx, second)?;
     }
     let fsd = date_format.get_property_str(ctx, "fractionalSecondDigits")?;
     if !fsd.is_undefined() {
-        // Per spec: ToNumber, then an integer 1..=3 is required.
+        // Per spec: ToNumber; the value must lie within 1..=3 (before
+        // flooring); the floored value is used.
         let n = fsd.to_number(ctx)?.to_f64();
-        if !matches!(n, 1.0 | 2.0 | 3.0) {
+        if !n.is_finite() || !(1.0..=3.0).contains(&n) {
             return Err(ctx.throw_range_error("Invalid fractionalSecondDigits value"));
         }
-        data.fractional_second_digits = Some(n as u8);
+        data.fractional_second_digits = Some(n.floor() as u8);
     }
-    let day_period = date_format.get_property_str(ctx, "dayPeriod")?;
+
+    // timeZoneName: short | long | shortOffset | longOffset | shortGeneric | longGeneric.
     let tzn = date_format.get_property_str(ctx, "timeZoneName")?;
+    if !tzn.is_undefined() {
+        let s = to_utf8_string(ctx, tzn)?;
+        match s.as_str() {
+            "short" | "long" | "shortOffset" | "longOffset" | "shortGeneric" | "longGeneric" => {}
+            _ => return Err(ctx.throw_range_error("Invalid timeZoneName value")),
+        }
+        data.time_zone_name = Some(match s.as_str() {
+            "short" => "short",
+            "long" => "long",
+            other => Box::leak(other.to_owned().into_boxed_str()) as &'static str,
+        });
+    }
+
     let has_date_component = !weekday.is_undefined()
         || !era.is_undefined()
         || !year.is_undefined()
@@ -266,6 +342,16 @@ pub(crate) fn build_date_time_format_data(
         || !fsd.is_undefined()
         || !day_period.is_undefined();
     let has_explicit_components = has_date_component || has_time_component || !tzn.is_undefined();
+
+    // formatMatcher: basic | best fit.
+    let fmt_matcher = date_format.get_property_str(ctx, "formatMatcher")?;
+    if !fmt_matcher.is_undefined() {
+        let s = to_utf8_string(ctx, fmt_matcher)?;
+        if s != "basic" && s != "best fit" {
+            return Err(ctx.throw_range_error("Invalid formatMatcher value"));
+        }
+    }
+
     // dateStyle / timeStyle (validated below); defaults only apply when neither
     // is present.
     let date_style = date_format.get_property_str(ctx, "dateStyle")?;
@@ -315,26 +401,6 @@ pub(crate) fn build_date_time_format_data(
         }
     }
 
-    // hour12 / hourCycle validation.
-    let hour12 = date_format.get_property_str(ctx, "hour12")?;
-    if !hour12.is_undefined() {
-        data.hour12 = Some(hour12.to_bool()?);
-    }
-    let hour_cycle = date_format.get_property_str(ctx, "hourCycle")?;
-    if !hour_cycle.is_undefined() {
-        let s = to_utf8_string(ctx, hour_cycle)?;
-        data.hour_cycle = Some(match s.as_str() {
-            "h11" => "h11",
-            "h12" => "h12",
-            "h23" => "h23",
-            "h24" => "h24",
-            _ => return Err(ctx.throw_range_error("Invalid hourCycle value")),
-        });
-    } else {
-        // Fall back to the unicode `hc` extension.
-        data.hour_cycle = ext_hc;
-    }
-
     // dateStyle / timeStyle. If either is set, explicit format components are
     // a TypeError conflict.
     if (!date_style.is_undefined() || !time_style.is_undefined()) && has_explicit_components {
@@ -342,15 +408,23 @@ pub(crate) fn build_date_time_format_data(
     }
     if !date_style.is_undefined() {
         let s = to_utf8_string(ctx, date_style)?;
-        if s != "full" && s != "long" && s != "medium" && s != "short" {
-            return Err(ctx.throw_range_error("Invalid dateStyle value"));
-        }
+        data.date_style = Some(match s.as_str() {
+            "full" => "full",
+            "long" => "long",
+            "medium" => "medium",
+            "short" => "short",
+            _ => return Err(ctx.throw_range_error("Invalid dateStyle value")),
+        });
     }
     if !time_style.is_undefined() {
         let s = to_utf8_string(ctx, time_style)?;
-        if s != "full" && s != "long" && s != "medium" && s != "short" {
-            return Err(ctx.throw_range_error("Invalid timeStyle value"));
-        }
+        data.time_style = Some(match s.as_str() {
+            "full" => "full",
+            "long" => "long",
+            "medium" => "medium",
+            "short" => "short",
+            _ => return Err(ctx.throw_range_error("Invalid timeStyle value")),
+        });
     }
 
     // Map dateStyle / timeStyle to the concrete component set.
@@ -369,7 +443,8 @@ pub(crate) fn build_date_time_format_data(
     if !time_style.is_undefined() {
         let s = to_utf8_string(ctx, time_style)?;
         match s.as_str() {
-            "full" | "long" => {
+            // CLDR en: medium time patterns include seconds; short does not.
+            "full" | "long" | "medium" => {
                 data.second = Some(DateField::Numeric);
             }
             _ => {}
@@ -378,55 +453,13 @@ pub(crate) fn build_date_time_format_data(
         data.minute = Some(DateField::Numeric);
     }
 
-    // formatMatcher: basic | best fit.
-    let fmt_matcher = date_format.get_property_str(ctx, "formatMatcher")?;
-    if !fmt_matcher.is_undefined() {
-        let s = to_utf8_string(ctx, fmt_matcher)?;
-        if s != "basic" && s != "best fit" {
-            return Err(ctx.throw_range_error("Invalid formatMatcher value"));
-        }
-    }
-
-    // timeZoneName: short | long | shortOffset | longOffset | shortGeneric | longGeneric.
-    let tz_name = date_format.get_property_str(ctx, "timeZoneName")?;
-    if !tz_name.is_undefined() {
-        let s = to_utf8_string(ctx, tz_name)?;
-        match s.as_str() {
-            "short" | "long" | "shortOffset" | "longOffset" | "shortGeneric" | "longGeneric" => {}
-            _ => return Err(ctx.throw_range_error("Invalid timeZoneName value")),
-        }
-        data.time_zone_name = Some(match s.as_str() {
-            "short" => "short",
-            "long" => "long",
-            _ => "short",
-        });
-    }
-
-    // timeZone: accept IANA names (containing "/"), UTC/GMT, and offset
-    // notations; reject empty, non-ASCII, and legacy 3-letter abbreviations.
-    let tz = date_format.get_property_str(ctx, "timeZone")?;
-    data.time_zone_is_local = tz.is_undefined();
-    if !tz.is_undefined() {
-        let s = to_utf8_string(ctx, tz)?;
-        if !is_valid_time_zone(&s) {
-            return Err(ctx.throw_range_error("Invalid time zone"));
-        }
-        data.time_zone = canonicalize_time_zone(&s);
-    }
+    // timeZoneName / timeZone were read above per spec getter order.
 
     // ECMA-402 ResolveLocale: strip the `hc`/`ca`/`nu` extension keys when an
     // explicit option overrides them or their value is unsupported; strip all
     // other `u`-extension keys (they are not relevant to DateTimeFormat).
-    let calendar_opt = if calendar.is_undefined() {
-        None
-    } else {
-        Some(to_utf8_string(ctx, calendar)?)
-    };
-    let numbering_opt = if numbering_system.is_undefined() {
-        None
-    } else {
-        Some(to_utf8_string(ctx, numbering_system)?)
-    };
+    let calendar_opt = calendar_str.clone();
+    let numbering_opt = numbering_str.clone();
     let hc_opt = if options_undefined {
         None
     } else if !hour12.is_undefined() {
@@ -647,132 +680,13 @@ pub(crate) fn format_date(
     v: JSValue,
     arg_provided: bool,
 ) -> Result<String, i32> {
-    // When `format`/`formatToParts` is called with no argument, use the
-    // current time (ECMA-402 `format`: "If date is not provided, let date be
-    // Call(%Date.now%, undefined)").
-    let ms = if arg_provided {
-        v.to_number(ctx)?.to_f64()
-    } else {
-        crate::builtins::date::Datetime::now().timestamp() as f64
-    };
-    // ECMA-402 TimeClip: NaN or outside ±8.64e15 ms throws RangeError.
-    if ms.is_nan() || ms.is_infinite() || ms < -8.64e15 || ms > 8.64e15 {
-        return Err(ctx.throw_range_error("Invalid time value"));
-    }
-    // TimeClip applies ToInteger (truncate toward zero, with -0 → +0).
-    let ms_clip = ms.trunc();
-    let ms_clip = if ms_clip == 0.0 { 0.0 } else { ms_clip };
-    let secs = (ms_clip / 1000.0).trunc() as i64;
-    let millis = (ms_clip - (secs as f64 * 1000.0)) as i64;
-    // Apply the (offset) time zone: `+HH:MM` means local time = UTC + offset.
-    // IANA names are not resolved; they fall back to UTC. With no explicit
-    // timeZone option, use the host-local zone like `Date` does.
-    let offset_secs = if this.time_zone_is_local {
-        -(crate::builtins::date::get_timezone_offset(secs * 1000)) as i64 * 60
-    } else {
-        time_zone_offset_seconds(&this.time_zone)
-    };
-    let local_secs = secs + offset_secs;
-
-    let mut out = String::new();
-
-    if let Some(weekday) = this.weekday {
-        let wd = weekday_name(weekday, weekday_index(local_secs));
-        out.push_str(&wd);
-    }
-    let year = year_from_epoch(local_secs);
-    let month = month_from_epoch(local_secs);
-    let day = day_from_epoch(local_secs);
-
-    let cyclic = if is_cyclic_calendar(&this.calendar)
-        && (this.year.is_some() || this.month.is_some() || this.day.is_some())
-    {
-        Some(cyclic_date_parts(local_secs))
-    } else {
-        None
-    };
-
-    let mut parts: Vec<String> = Vec::new();
-    if this.era.is_some() {
-        parts.push(if year <= 0 { "BC" } else { "AD" }.to_string());
-    }
-    if let Some(f) = this.year {
-        match &cyclic {
-            Some((rel, name, _, _)) => parts.push(format!("{rel}{name}年")),
-            None => parts.push(format_year(f, year)),
-        }
-    }
-    if let Some(f) = this.month {
-        match &cyclic {
-            Some((_, _, m, _)) => parts.push(format_lunar_month(f, *m)),
-            None => parts.push(format_month(f, month)),
-        }
-    }
-    if let Some(f) = this.day {
-        match &cyclic {
-            Some((_, _, _, d)) => parts.push(format_day(f, *d as u32)),
-            None => parts.push(format_day(f, day)),
-        }
-    }
-    out.push_str(&parts.join("/"));
-
-    if this.hour.is_some() || this.minute.is_some() || this.second.is_some() {
-        let (h, m, s) = time_from_epoch(local_secs, millis);
-        let use_12h = match this.hour12 {
-            Some(v) => v,
-            None => match this.hour_cycle {
-                Some("h11") | Some("h12") => true,
-                Some("h23") | Some("h24") => false,
-                _ => this.locale.id.language.to_string() != "ja",
-            },
-        };
-        let (h12, suffix) = if use_12h {
-            if h == 0 {
-                (12, " AM")
-            } else if h < 12 {
-                (h, " AM")
-            } else if h == 12 {
-                (12, " PM")
-            } else {
-                (h - 12, " PM")
-            }
-        } else {
-            (h, "")
-        };
-        let mut t = String::new();
-        if let Some(f) = this.hour {
-            t.push_str(&format_two(f, h12));
-        }
-        if let Some(_f) = this.minute {
-            if !t.is_empty() {
-                t.push(':');
-            }
-            // CLDR time patterns always render minutes/seconds 2-digit.
-            t.push_str(&format!("{:02}", m));
-        }
-        if let Some(_f) = this.second {
-            if !t.is_empty() {
-                t.push(':');
-            }
-            t.push_str(&format!("{:02}", s));
-            if let Some(fsd) = this.fractional_second_digits {
-                t.push(fraction_separator(&this.numbering_system));
-                let frac = millis / 10_i64.pow(3 - fsd as u32);
-                t.push_str(&format!("{:0width$}", frac, width = fsd as usize));
-            }
-        }
-        t.push_str(suffix);
-        if !parts.is_empty() && !t.is_empty() {
-            out.push(' ');
-        }
-        out.push_str(&t);
-    }
-    let out = super::number_format::translate_digits(&out, &this.numbering_system);
-    Ok(out)
+    // All formatting routes through the typed-parts pipeline so `format`,
+    // `formatToParts` and `formatRange` stay consistent.
+    let parts = format_fields(ctx, this, v, arg_provided)?;
+    let s: String = parts.into_iter().map(|(_, val)| val).collect();
+    Ok(s)
 }
 
-/// Decimal separator used when rendering fractional seconds: U+066B for the
-/// Arabic-Indic digits, ASCII '.' elsewhere.
 fn fraction_separator(ns: &str) -> char {
     if ns == "arab" { '\u{066b}' } else { '.' }
 }
@@ -1030,6 +944,109 @@ fn js_date_time_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext)
     Ok(values_to_array(ctx, parts)?)
 }
 
+
+/// CLDR-style interval merge. Identical values collapse to a fully shared
+/// list. An all-numeric (or absent) date, a year difference, or any time
+/// difference duplicates both sides. Otherwise (mixed skeletons) the fields
+/// before the greatest differing date field are shared, that field appears
+/// on both sides around the separator, and later fields ("', '", year) are a
+/// shared suffix.
+fn merge_range_parts(
+    this: &DateTimeFormatData,
+    f1: &[(String, String)],
+    f2: &[(String, String)],
+) -> Vec<(String, String, &'static str)> {
+    if f1 == f2 {
+        return f1
+            .iter()
+            .map(|(ty, val)| (ty.clone(), val.clone(), "shared"))
+            .collect();
+    }
+    let val_of = |ps: &[(String, String)], ty: &str| -> Option<String> {
+        ps.iter()
+            .find(|(t, _)| t == ty)
+            .map(|(_, v)| v.clone())
+    };
+    let has_date = this.year.is_some() || this.month.is_some() || this.day.is_some();
+    let atomic = matches!(
+        (this.year, this.month, this.day),
+        (
+            Some(DateField::Numeric),
+            Some(DateField::Numeric),
+            Some(DateField::Numeric)
+        )
+    );
+    let year_differs = val_of(f1, "year") != val_of(f2, "year");
+    let month_differs = val_of(f1, "month") != val_of(f2, "month");
+    let day_differs = val_of(f1, "day") != val_of(f2, "day");
+
+    let full = !has_date
+        || atomic
+        || year_differs
+        || this.hour.is_some()
+        || this.minute.is_some()
+        || this.second.is_some()
+        || !(month_differs || day_differs);
+
+    let mut out: Vec<(String, String, &'static str)> = Vec::new();
+    let sep = ("literal".to_string(), " \u{2013} ".to_string());
+    if full {
+        for (ty, val) in f1 {
+            out.push((ty.clone(), val.clone(), "startRange"));
+        }
+        out.push((sep.0, sep.1, "shared"));
+        for (ty, val) in f2 {
+            out.push((ty.clone(), val.clone(), "endRange"));
+        }
+        return out;
+    }
+
+    // Greatest differing date field: "month" or "day".
+    let gty = if month_differs { "month" } else { "day" };
+    let g1 = f1.iter().position(|(t, _)| t == gty).unwrap_or(0);
+    let g2 = f2.iter().position(|(t, _)| t == gty).unwrap_or(0);
+    // The year's separator literal (", ") belongs to the shared suffix.
+    let pre_year_end = |ps: &[(String, String)]| -> usize {
+        match ps.iter().rposition(|(t, _)| t == "year") {
+            Some(y) if y > 0 && ps[y - 1].0 == "literal" => y - 1,
+            Some(y) => y,
+            None => ps.len(),
+        }
+    };
+    let pye1 = pre_year_end(f1);
+    let pye2 = pre_year_end(f2);
+
+    if month_differs {
+        // Nothing before the month; month+day split, year suffix shared.
+        for (ty, val) in &f1[..pye1] {
+            out.push((ty.clone(), val.clone(), "startRange"));
+        }
+        out.push((sep.0, sep.1, "shared"));
+        for (ty, val) in &f2[..pye2] {
+            out.push((ty.clone(), val.clone(), "endRange"));
+        }
+        for (ty, val) in &f2[pye2..] {
+            out.push((ty.clone(), val.clone(), "shared"));
+        }
+    } else {
+        // Day differs: month prefix shared, day splits, tail shared.
+        for (ty, val) in &f1[..g1] {
+            out.push((ty.clone(), val.clone(), "shared"));
+        }
+        for (ty, val) in &f1[g1..pye1] {
+            out.push((ty.clone(), val.clone(), "startRange"));
+        }
+        out.push((sep.0, sep.1, "shared"));
+        for (ty, val) in &f2[g2..pye2] {
+            out.push((ty.clone(), val.clone(), "endRange"));
+        }
+        for (ty, val) in &f2[pye2..] {
+            out.push((ty.clone(), val.clone(), "shared"));
+        }
+    }
+    out
+}
+
 fn js_date_time_format_format_range_to_parts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this_obj = cc
         .this()
@@ -1051,25 +1068,7 @@ fn js_date_time_format_format_range_to_parts(ctx: &mut ScopedContext, cc: CallCo
     }
     let fields1 = format_fields(ctx, this, x, true)?;
     let fields2 = format_fields(ctx, this, y, true)?;
-
-    // Merge the two part lists: a common prefix is "shared", the diverging
-    // remainder is attributed to its own range.
-    let mut merged: Vec<(String, String, &'static str)> = Vec::new();
-    let mut i = 0;
-    while i < fields1.len() && i < fields2.len() && fields1[i] == fields2[i] {
-        merged.push((fields1[i].0.clone(), fields1[i].1.clone(), "shared"));
-        i += 1;
-    }
-    for (ty, val) in &fields1[i..] {
-        merged.push((ty.clone(), val.clone(), "startRange"));
-    }
-    let has_split = (!fields1[i..].is_empty()) && (!fields2[i..].is_empty());
-    if has_split {
-        merged.push(("literal".to_string(), " \u{2013} ".to_string(), "shared"));
-    }
-    for (ty, val) in &fields2[i..] {
-        merged.push((ty.clone(), val.clone(), "endRange"));
-    }
+    let merged = merge_range_parts(this, &fields1, &fields2);
 
     let mut parts = Vec::new();
     for (ty, val, source) in merged {
@@ -1083,6 +1082,32 @@ fn js_date_time_format_format_range_to_parts(ctx: &mut ScopedContext, cc: CallCo
         parts.push(o.into());
     }
     Ok(values_to_array(ctx, parts)?)
+}
+
+fn js_date_time_format_format_range(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let this_obj = cc
+        .this()
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
+    let this = this_obj
+        .payload()
+        .intl_date_time_format()
+        .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
+    let (x, y) = (cc.arg(0), cc.arg(1));
+    if x.is_undefined() || y.is_undefined() {
+        return Err(ctx.throw_type_error("formatRange requires two arguments"));
+    }
+    for v in [x, y] {
+        let ms = v.to_number(ctx)?.to_f64();
+        if ms.is_nan() || ms.is_infinite() || !(-8.64e15..=8.64e15).contains(&ms) {
+            return Err(ctx.throw_range_error("Invalid time value"));
+        }
+    }
+    let f1 = format_fields(ctx, this, x, true)?;
+    let f2 = format_fields(ctx, this, y, true)?;
+    let merged = merge_range_parts(this, &f1, &f2);
+    let s: String = merged.into_iter().map(|(_, v, _)| v).collect();
+    make_str(ctx, s.into_bytes())
 }
 
 /// Produce `(type, value)` parts for a date/time value, mirroring
@@ -1114,6 +1139,7 @@ fn format_fields(
     let local_secs = secs + offset_secs;
 
     let mut parts: Vec<(String, String)> = Vec::new();
+
     let mut date_parts: Vec<(String, String)> = Vec::new();
     if let Some(weekday) = this.weekday {
         date_parts.push((
@@ -1160,19 +1186,137 @@ fn format_fields(
         }
     }
 
-    if !date_parts.is_empty() {
-        for (i, (ty, val)) in date_parts.iter().enumerate() {
-            // The relatedYear/yearName/literal(年) group is joined without
-            // separators.
-            if i > 0 && ty != "yearName" && ty != "literal" {
-                parts.push(("literal".to_string(), "/".to_string()));
+    // dateStyle renders a fixed en pattern instead of component joins.
+    let mut rendered_date = false;
+    if let Some(ds) = this.date_style {
+        match ds {
+            "full" => {
+                parts.push((
+                    "weekday".to_string(),
+                    weekday_name(DateField::Long, weekday_index(local_secs)),
+                ));
+                parts.push(("literal".to_string(), ", ".to_string()));
+                parts.push(("month".to_string(), month_names_long()[(month - 1) as usize].to_string()));
+                parts.push(("literal".to_string(), " ".to_string()));
+                parts.push(("day".to_string(), day.to_string()));
+                parts.push(("literal".to_string(), ", ".to_string()));
+                parts.push(("year".to_string(), year.to_string()));
             }
-            parts.push((ty.clone(), val.clone()));
+            "long" | "medium" => {
+                let mon = if ds == "long" {
+                    month_names_long()[(month - 1) as usize]
+                } else {
+                    month_names_short()[(month - 1) as usize]
+                };
+                parts.push(("month".to_string(), mon.to_string()));
+                parts.push(("literal".to_string(), " ".to_string()));
+                parts.push(("day".to_string(), day.to_string()));
+                parts.push(("literal".to_string(), ", ".to_string()));
+                parts.push(("year".to_string(), year.to_string()));
+            }
+            _ => {
+                // short: M/D/YY
+                let yy = (year % 100).abs();
+                parts.push(("month".to_string(), month.to_string()));
+                parts.push(("literal".to_string(), "/".to_string()));
+                parts.push(("day".to_string(), day.to_string()));
+                parts.push(("literal".to_string(), "/".to_string()));
+                parts.push(("year".to_string(), format!("{:02}", yy)));
+            }
+        }
+        rendered_date = true;
+    }
+
+    if !rendered_date && !date_parts.is_empty() {
+        // Locale-aware ordering and separators: ja/zh write year-first; most
+        // locales use month-day-year. Textual months separate with spaces
+        // and a comma before the year; numeric skeletons use "/".
+        let has_cyclic = cyclic.is_some();
+        if has_cyclic {
+            for (i, (ty, val)) in date_parts.iter().enumerate() {
+                if i > 0 && ty != "yearName" && ty != "literal" {
+                    parts.push(("literal".to_string(), "/".to_string()));
+                }
+                parts.push((ty.clone(), val.clone()));
+            }
+        } else {
+            let lang_s = this.locale.id.language.to_string();
+            let ymd_first = matches!(lang_s.as_str(), "ja" | "zh" | "yue" | "ko");
+            let text_month =
+                matches!(this.month, Some(DateField::Long) | Some(DateField::Short));
+            let mut take = |ty: &str| -> Option<(String, String)> {
+                date_parts
+                    .iter()
+                    .position(|(t, _)| t == ty)
+                    .map(|i| date_parts.remove(i))
+            };
+            let weekday_e = take("weekday");
+            let era_e = take("era");
+            let year_e = take("year");
+            let month_e = take("month");
+            let day_e = take("day");
+
+            let mut seq: Vec<(String, String)> = Vec::new();
+            let mut push_sep = |seq: &mut Vec<(String, String)>, sep: &str| {
+                seq.push(("literal".to_string(), sep.to_string()));
+            };
+            if let Some(w) = weekday_e {
+                seq.push(w);
+            }
+            if let Some(e) = era_e {
+                if !seq.is_empty() {
+                    push_sep(&mut seq, " ");
+                }
+                seq.push(e);
+            }
+            if ymd_first {
+                if let Some(y) = year_e {
+                    seq.push(y);
+                }
+                if let Some(m) = month_e {
+                    if !seq.is_empty() { push_sep(&mut seq, "/"); }
+                    seq.push(m);
+                }
+                if let Some(d) = day_e {
+                    if !seq.is_empty() { push_sep(&mut seq, "/"); }
+                    seq.push(d);
+                }
+            } else {
+                if let Some(m) = month_e {
+                    seq.push(m);
+                }
+                if let Some(d) = day_e {
+                    if !seq.is_empty() {
+                        push_sep(&mut seq, if text_month { " " } else { "/" });
+                    }
+                    seq.push(d);
+                }
+                if let Some(y) = year_e {
+                    if !seq.is_empty() {
+                        push_sep(&mut seq, if text_month { ", " } else { "/" });
+                    }
+                    seq.push(y);
+                }
+            }
+            for (ty, val) in seq {
+                parts.push((ty, val));
+            }
         }
     }
 
-    if this.hour.is_some() || this.minute.is_some() || this.second.is_some() {
+    let has_time_fields = this.hour.is_some() || this.minute.is_some() || this.second.is_some();
+    let day_period_only = this.hour.is_none()
+        && this.minute.is_none()
+        && this.second.is_none()
+        && this.day_period.is_some();
+    if has_time_fields || day_period_only {
         let (h, m, s) = time_from_epoch(local_secs, millis);
+        if day_period_only {
+            // Only a day period was requested: it is the entire output.
+            let text = day_period_text(this.day_period.unwrap(), h);
+            parts.push(("dayPeriod".to_string(), text.to_string()));
+            return Ok(parts);
+        }
         // Use the locale's default 12-hour cycle (h12 for most, h11 for ja)
         // when no explicit hour12 / hourCycle is given.
         let use_12h = match this.hour12 {
@@ -1197,7 +1341,12 @@ fn format_fields(
             (h, "")
         };
         if !parts.is_empty() {
-            parts.push(("literal".to_string(), " ".to_string()));
+            let sep = if this.date_style.is_some() && this.time_style.is_some() {
+                ", "
+            } else {
+                " "
+            };
+            parts.push(("literal".to_string(), sep.to_string()));
         }
         let mut time_parts: Vec<(String, String)> = Vec::new();
         if let Some(f) = this.hour {
@@ -1205,24 +1354,24 @@ fn format_fields(
         }
         if let Some(_f) = this.minute {
             if !time_parts.is_empty() {
-                parts.push(("literal".to_string(), ":".to_string()));
+                time_parts.push(("literal".to_string(), ":".to_string()));
             }
             // CLDR time patterns always render minutes/seconds 2-digit.
             time_parts.push(("minute".to_string(), format!("{:02}", m)));
         }
         if let Some(_f) = this.second {
             if !time_parts.is_empty() {
-                parts.push(("literal".to_string(), ":".to_string()));
+                time_parts.push(("literal".to_string(), ":".to_string()));
             }
             time_parts.push(("second".to_string(), format!("{:02}", s)));
             if let Some(fsd) = this.fractional_second_digits {
-                parts.push((
+                time_parts.push((
                     "literal".to_string(),
                     fraction_separator(&this.numbering_system).to_string(),
                 ));
                 let frac = millis / 10_i64.pow(3 - fsd as u32);
                 time_parts.push((
-                    "fractionalSecondDigits".to_string(),
+                    "fractionalSecond".to_string(),
                     format!("{:0width$}", frac, width = fsd as usize),
                 ));
             }
@@ -1230,14 +1379,58 @@ fn format_fields(
         for (ty, val) in time_parts {
             parts.push((ty, val));
         }
-        if !suffix.is_empty() {
-            parts.push(("literal".to_string(), suffix.trim().to_string()));
+        let uses_day_period =
+            this.day_period.is_some() || this.time_style.is_some();
+        if uses_day_period && this.hour.is_some() && use_12h {
+            // A day period replaces the AM/PM marker when requested.
+            parts.push(("literal".to_string(), " ".to_string()));
+            let text = if this.day_period.is_some() {
+                day_period_text(this.day_period.unwrap(), h)
+            } else if h < 12 {
+                "AM"
+            } else {
+                "PM"
+            };
+            parts.push(("dayPeriod".to_string(), text.to_string()));
+        } else if !suffix.is_empty() && this.hour.is_some() {
+            // CLDR renders the marker as a separate space + period part.
+            parts.push(("literal".to_string(), " ".to_string()));
+            parts.push(("dayPeriod".to_string(), suffix.trim().to_string()));
+        }
+        // timeStyle full/long append the zone name.
+        if this.time_style.is_some()
+            && matches!(this.time_style.as_deref(), Some("full") | Some("long"))
+        {
+            let name = if this.time_zone == "UTC" {
+                if this.time_style == Some("full") {
+                    "Coordinated Universal Time"
+                } else {
+                    "UTC"
+                }
+            } else {
+                "UTC"
+            };
+            parts.push(("literal".to_string(), " ".to_string()));
+            parts.push(("timeZoneName".to_string(), name.to_string()));
         }
     }
     for (_, val) in parts.iter_mut() {
         *val = super::number_format::translate_digits(val, &this.numbering_system);
     }
     Ok(parts)
+}
+
+/// CLDR en day-period text for a 0..23 hour. Long and short share the same
+/// phrasing; narrow abbreviates only "noon".
+fn day_period_text(style: &str, h: i64) -> &'static str {
+    let noon = if style == "narrow" { "n" } else { "noon" };
+    match h {
+        12 => noon,
+        6..=11 => "in the morning",
+        13..=17 => "in the afternoon",
+        18..=20 => "in the evening",
+        _ => "at night",
+    }
 }
 
 fn js_date_time_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -1284,12 +1477,32 @@ fn js_date_time_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext
     set_option_field(ctx, &mut o, "year", this.year)?;
     set_option_field(ctx, &mut o, "month", this.month)?;
     set_option_field(ctx, &mut o, "day", this.day)?;
+    if let Some(dp) = this.day_period {
+        let _vdp = make_str(ctx, dp.as_bytes().to_vec())?;
+        o.define_property_value_str(ctx, "dayPeriod", _vdp, JS_PROP_C_W_E)?;
+    }
     set_option_field(ctx, &mut o, "hour", this.hour)?;
     set_option_field(ctx, &mut o, "minute", this.minute)?;
     set_option_field(ctx, &mut o, "second", this.second)?;
+    if let Some(fsd) = this.fractional_second_digits {
+        o.define_property_value_str(
+            ctx,
+            "fractionalSecondDigits",
+            JSValue::from(fsd as i32),
+            JS_PROP_C_W_E,
+        )?;
+    }
     if let Some(tzn) = this.time_zone_name {
         let _vtzn = make_str(ctx, tzn.as_bytes().to_vec())?;
         o.define_property_value_str(ctx, "timeZoneName", _vtzn, JS_PROP_C_W_E)?;
+    }
+    if let Some(ds) = this.date_style {
+        let _vds = make_str(ctx, ds.as_bytes().to_vec())?;
+        o.define_property_value_str(ctx, "dateStyle", _vds, JS_PROP_C_W_E)?;
+    }
+    if let Some(ts) = this.time_style {
+        let _vts = make_str(ctx, ts.as_bytes().to_vec())?;
+        o.define_property_value_str(ctx, "timeStyle", _vts, JS_PROP_C_W_E)?;
     }
     Ok(o.into())
 }
@@ -1321,6 +1534,7 @@ fn set_option_field(
 const js_date_time_format_proto_funcs: &[FieldDef] = &[
     FieldDef::GETSET("format", Some(js_date_time_format_format_getter), None, 0),
     FieldDef::FUNC("formatToParts", 1, js_date_time_format_format_to_parts, 0),
+    FieldDef::FUNC("formatRange", 2, js_date_time_format_format_range, 0),
     FieldDef::FUNC(
         "formatRangeToParts",
         2,
