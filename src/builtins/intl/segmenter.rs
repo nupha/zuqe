@@ -55,10 +55,15 @@ const D_ITERATOR: usize = 4; // iterator object (branding)
 
 pub(crate) fn js_segmenter_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
+
     // ECMA-402 §16 step 1: NewTarget must be defined.
     if new_target.is_undefined() {
         return Err(ctx.throw_type_error("Intl.Segmenter must be called with 'new'"));
     }
+    // OrdinaryCreateFromConstructor: reading new_target.prototype is
+    // observable and must precede any argument/option validation.
+    super::common::observable_proto_get(ctx, new_target)?;
+
     let locale = resolve_segmenter_locale(ctx, cc.arg(0))?;
     let options = cc.arg(1);
 
@@ -116,19 +121,18 @@ fn get_string_option(
 /// module. Full ISO-639-1 code list.
 // ponytail: static availability table; derive from CLDR if coverage gaps show up
 const AVAILABLE_LANGUAGES: &[&str] = &[
-    "aa", "ab", "af", "ak", "am", "ar", "as", "av", "ay", "az", "ba", "be", "bg", "bi", "bm",
-    "bn", "bo", "br", "bs", "ca", "ce", "ch", "co", "cr", "cs", "cu", "cv", "cy", "da", "de",
-    "dv", "dz", "ee", "el", "en", "eo", "es", "et", "eu", "fa", "ff", "fi", "fj", "fo", "fr",
-    "fy", "ga", "gd", "gl", "gn", "gu", "gv", "ha", "he", "hi", "ho", "hr", "ht", "hu", "hy",
-    "hz", "ia", "id", "ie", "ig", "ii", "ik", "io", "is", "it", "iu", "ja", "jv", "ka", "kg",
-    "ki", "kj", "kk", "kl", "km", "kn", "ko", "kr", "ks", "ku", "kv", "kw", "ky", "la", "lb",
-    "lg", "li", "ln", "lo", "lt", "lu", "lv", "mg", "mh", "mi", "mk", "ml", "mn", "mr", "ms",
-    "mt", "my", "na", "nb", "nd", "ne", "ng", "nl", "nn", "no", "nr", "nv", "ny", "oc", "oj",
-    "om", "or", "os", "pa", "pi", "pl", "ps", "pt", "qu", "rm", "rn", "ro", "ru", "rw", "sa",
-    "sc", "sd", "se", "sg", "si", "sk", "sl", "sm", "sn", "so", "sq", "sr", "ss", "st", "su",
-    "sv", "sw", "ta", "te", "tg", "th", "ti", "tk", "tl", "tn", "to", "tr", "ts", "tt", "tw",
-    "ty", "ug", "uk", "ur", "uz", "ve", "vi", "vo", "wa", "wo", "xh", "yi", "yo", "za", "zh",
-    "zu",
+    "aa", "ab", "af", "ak", "am", "ar", "as", "av", "ay", "az", "ba", "be", "bg", "bi", "bm", "bn",
+    "bo", "br", "bs", "ca", "ce", "ch", "co", "cr", "cs", "cu", "cv", "cy", "da", "de", "dv", "dz",
+    "ee", "el", "en", "eo", "es", "et", "eu", "fa", "ff", "fi", "fj", "fo", "fr", "fy", "ga", "gd",
+    "gl", "gn", "gu", "gv", "ha", "he", "hi", "ho", "hr", "ht", "hu", "hy", "hz", "ia", "id", "ie",
+    "ig", "ii", "ik", "io", "is", "it", "iu", "ja", "jv", "ka", "kg", "ki", "kj", "kk", "kl", "km",
+    "kn", "ko", "kr", "ks", "ku", "kv", "kw", "ky", "la", "lb", "lg", "li", "ln", "lo", "lt", "lu",
+    "lv", "mg", "mh", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my", "na", "nb", "nd", "ne", "ng",
+    "nl", "nn", "no", "nr", "nv", "ny", "oc", "oj", "om", "or", "os", "pa", "pi", "pl", "ps", "pt",
+    "qu", "rm", "rn", "ro", "ru", "rw", "sa", "sc", "sd", "se", "sg", "si", "sk", "sl", "sm", "sn",
+    "so", "sq", "sr", "ss", "st", "su", "sv", "sw", "ta", "te", "tg", "th", "ti", "tk", "tl", "tn",
+    "to", "tr", "ts", "tt", "tw", "ty", "ug", "uk", "ur", "uz", "ve", "vi", "vo", "wa", "wo", "xh",
+    "yi", "yo", "za", "zh", "zu",
 ];
 
 /// Resolve the effective Segmenter locale: first requested locale whose
@@ -361,16 +365,21 @@ fn create_segment_record(
     let v_seg = ctx.create_string_with_buf(crate::string::StringBuf::Utf16(
         units[seg.start_u..seg.end_u].to_vec(),
     ))?;
+    o.define_property_value_str(ctx, "segment", JSValue::make_string(v_seg), JS_PROP_C_W_E)?;
     o.define_property_value_str(
         ctx,
-        "segment",
-        JSValue::make_string(v_seg),
+        "index",
+        JSValue::from(seg.start_u as i32),
         JS_PROP_C_W_E,
     )?;
-    o.define_property_value_str(ctx, "index", JSValue::from(seg.start_u as i32), JS_PROP_C_W_E)?;
     o.define_property_value_str(ctx, "input", input_val, JS_PROP_C_W_E)?;
     if granularity == SegmentGranularity::Word {
-        o.define_property_value_str(ctx, "isWordLike", JSValue::from(seg.word_like), JS_PROP_C_W_E)?;
+        o.define_property_value_str(
+            ctx,
+            "isWordLike",
+            JSValue::from(seg.word_like),
+            JS_PROP_C_W_E,
+        )?;
     }
     Ok(o.into())
 }

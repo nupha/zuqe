@@ -14,7 +14,10 @@ use crate::{
     value::JSValue,
 };
 
-use super::common::{locale_to_string, make_str, resolve_locale, to_utf8_string, values_to_array};
+use super::common::{
+    get_options_object, get_string_option, locale_to_string, make_str, observable_proto_get,
+    require_new_target, resolve_locale, to_utf8_string, values_to_array,
+};
 
 #[derive(Debug)]
 pub struct ListFormatData {
@@ -48,7 +51,9 @@ pub(crate) static CLASS_DEF_LIST_FORMAT: ClassDef = ClassDef::builtin(
 );
 
 pub(crate) fn js_list_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    use super::common::{get_options_object, get_string_option, require_new_target};
+    // OrdinaryCreateFromConstructor: reading new_target.prototype is
+    // observable and must precede any argument/option validation.
+    observable_proto_get(ctx, cc.this())?;
 
     require_new_target(ctx, cc.this())?;
     let locale = resolve_locale(ctx, cc.arg(0))?;
@@ -63,12 +68,9 @@ pub(crate) fn js_list_format_constructor(ctx: &mut ScopedContext, cc: CallContex
     if let Some(obj) = options {
         // Spec read order: localeMatcher, type, style.
         let _matcher = get_string_option(ctx, &obj, "localeMatcher", &["lookup", "best fit"])?;
-        if let Some(s) = get_string_option(
-            ctx,
-            &obj,
-            "type",
-            &["conjunction", "disjunction", "unit"],
-        )? {
+        if let Some(s) =
+            get_string_option(ctx, &obj, "type", &["conjunction", "disjunction", "unit"])?
+        {
             data.list_type = match s.as_str() {
                 "disjunction" => ListType::Disjunction,
                 "unit" => ListType::Unit,
@@ -164,7 +166,13 @@ fn join_list(this: &ListFormatData, list: &[String]) -> Result<String, i32> {
     let mut out = String::new();
     for (i, s) in list.iter().enumerate() {
         if i > 0 {
-            out.push_str(join_separator(&lang, this.style, this.list_type, i, list.len()));
+            out.push_str(join_separator(
+                &lang,
+                this.style,
+                this.list_type,
+                i,
+                list.len(),
+            ));
         }
         out.push_str(s);
     }
@@ -193,10 +201,18 @@ pub(crate) fn join_separator(
                 // es unit short: pair " y ", middle/end ", "
                 "es" | "ca" | "gl" | "eu" | "it" => match style {
                     ListStyle::Long => {
-                        if pair || last { " y " } else { ", " }
+                        if pair || last {
+                            " y "
+                        } else {
+                            ", "
+                        }
                     }
                     _ => {
-                        if pair { " y " } else { ", " }
+                        if pair {
+                            " y "
+                        } else {
+                            ", "
+                        }
                     }
                 },
                 _ => ", ",
@@ -208,7 +224,11 @@ pub(crate) fn join_separator(
             }
             match lang {
                 _ if y_langs.contains(&lang) => {
-                    if pair || last { " y " } else { ", " }
+                    if pair || last {
+                        " y "
+                    } else {
+                        ", "
+                    }
                 }
                 // en short conjunction: pair "{0} & {1}", end "{0}, & {1}"
                 _ if style == ListStyle::Short => {
@@ -233,7 +253,11 @@ pub(crate) fn join_separator(
         }
         ListType::Disjunction => match lang {
             "es" | "ca" | "gl" | "eu" | "it" => {
-                if pair || last { " o " } else { ", " }
+                if pair || last {
+                    " o "
+                } else {
+                    ", "
+                }
             }
             // en disjunction: pair "{0} or {1}", middle "{0}, {1}",
             // end "{0}, or {1}"

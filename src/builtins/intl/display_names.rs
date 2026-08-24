@@ -14,7 +14,10 @@ use crate::{
     value::JSValue,
 };
 
-use super::common::{locale_to_string, make_str, resolve_locale, to_utf8_string};
+use super::common::{
+    get_options_object, get_string_option, locale_to_string, make_str, observable_proto_get,
+    require_new_target, resolve_locale, to_utf8_string,
+};
 
 #[derive(Debug)]
 pub struct DisplayNamesData {
@@ -58,15 +61,12 @@ pub(crate) static CLASS_DEF_DISPLAY_NAMES: ClassDef = ClassDef::builtin(
 );
 
 pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    use super::common::{get_options_object, get_string_option, require_new_target};
     require_new_target(ctx, cc.this())?;
 
     // OrdinaryCreateFromConstructor reads new_target.prototype BEFORE any
     // option processing — a poisoned prototype getter must win over
     // option errors (test262 ctor-custom-get-prototype-poison-throws).
-    if let Some(o) = cc.this().as_object() {
-        let _ = o.get_property(ctx, crate::Atom::CONST_prototype)?;
-    }
+    observable_proto_get(ctx, cc.this())?;
     let locale = resolve_locale(ctx, cc.arg(0))?;
     let options = get_options_object(ctx, cc.arg(1))?;
 
@@ -133,13 +133,16 @@ pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallCont
         data.fallback_str = if s == "none" { "none" } else { "code" };
     }
     if let Some(s) = lang_display_opt {
-        data.language_display = if s == "standard" { "standard" } else { "dialect" };
+        data.language_display = if s == "standard" {
+            "standard"
+        } else {
+            "dialect"
+        };
     }
 
-    let instance = match ctx.create_instance_with_ctor(
-        cc.this(),
-        ObjectPayload::INTL_DISPLAY_NAMES(Box::new(data)),
-    ) {
+    let instance = match ctx
+        .create_instance_with_ctor(cc.this(), ObjectPayload::INTL_DISPLAY_NAMES(Box::new(data)))
+    {
         Ok(o) => o,
         // create_instance_with_ctor swallows JS exceptions thrown while
         // reading `new_target.prototype` (e.g. a poisoned getter). Re-throw
@@ -234,7 +237,9 @@ fn display_name(this: &DisplayNamesData, code: &str) -> Result<Option<String>, i
         }
     };
     Ok(match this.display_type {
-        DisplayType::Language => language_name(&this.locale, code).map(known).unwrap_or_else(unknown),
+        DisplayType::Language => language_name(&this.locale, code)
+            .map(known)
+            .unwrap_or_else(unknown),
         DisplayType::Region => region_name(&upper).map(known).unwrap_or_else(unknown),
         DisplayType::Script => known(code.to_string()),
         DisplayType::Currency => currency_name(&upper).map(known).unwrap_or_else(unknown),

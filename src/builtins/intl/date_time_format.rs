@@ -112,9 +112,11 @@ pub(crate) fn js_date_time_format_constructor(
             .as_object()
             .map(|o| {
                 let proto = o.prototype(ctx)?;
-                Ok::<bool, i32>(proto
-                    .zip(ctx.class_proto(crate::JS_CLASS_INTL_DATE_TIME_FORMAT))
-                    .is_some_and(|(a, b)| a == b))
+                Ok::<bool, i32>(
+                    proto
+                        .zip(ctx.class_proto(crate::JS_CLASS_INTL_DATE_TIME_FORMAT))
+                        .is_some_and(|(a, b)| a == b),
+                )
             })
             .transpose()?
             .unwrap_or(false);
@@ -123,6 +125,10 @@ pub(crate) fn js_date_time_format_constructor(
         }
         return Ok(instance);
     }
+
+    // OrdinaryCreateFromConstructor: reading new_target.prototype is
+    // observable and must precede any argument/option validation.
+    super::common::observable_proto_get(ctx, new_target)?;
 
     let data = build_date_time_format_data(ctx, cc.arg(0), cc.arg(1), DateTimeDefaults::Standard)?;
     let instance = ctx
@@ -1288,7 +1294,7 @@ fn format_fields(
             let day_e = take("day");
 
             let mut seq: Vec<(String, String)> = Vec::new();
-            let mut push_sep = |seq: &mut Vec<(String, String)>, sep: &str| {
+            let push_sep = |seq: &mut Vec<(String, String)>, sep: &str| {
                 seq.push(("literal".to_string(), sep.to_string()));
             };
             if let Some(w) = weekday_e {

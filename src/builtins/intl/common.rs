@@ -389,6 +389,20 @@ fn is_locale_instance(v: &JSValue) -> bool {
     }
 }
 
+/// ECMA-402 OrdinaryCreateFromConstructor (§10.1.13): observe the
+/// `newTarget.prototype` getter before any option processing.  The spec
+/// executes this unconditionally; builtins that support legacy calling
+/// (Normative Optional) should call it only in the *constructed* path.
+pub(crate) fn observable_proto_get(
+    ctx: &mut ScopedContext,
+    new_target: JSValue,
+) -> Result<(), i32> {
+    if let Some(o) = new_target.as_object() {
+        let _ = o.get_property(ctx, crate::Atom::CONST_prototype)?;
+    }
+    Ok(())
+}
+
 /// ECMA-402 §8.2.1 `CanonicalizeLocaleList`: coerce `locales` to an array of
 /// canonical locale strings, deduplicated.
 pub(crate) fn canonicalize_locale_list(

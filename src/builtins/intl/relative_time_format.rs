@@ -58,6 +58,10 @@ pub(crate) fn js_relative_time_format_constructor(
     ctx: &mut ScopedContext,
     cc: CallContext,
 ) -> JSResult {
+    // OrdinaryCreateFromConstructor: reading new_target.prototype is
+    // observable and must precede any argument/option validation.
+    super::common::observable_proto_get(ctx, cc.this())?;
+
     require_new_target(ctx, cc.this())?;
     let locale = resolve_locale(ctx, cc.arg(0))?;
     // RTF uses legacy ToObject semantics: primitives are wrapped, only
@@ -211,7 +215,10 @@ fn partition_relative_time(
 
     // Numeric "auto" idioms (CLDR patterns for en; other locales fall back).
     let lang = this.locale.id.language.to_string();
-    if matches!(this.numeric, RelNumeric::Auto) && n.fract() == 0.0 && n.abs() <= 1.0 && lang == "en"
+    if matches!(this.numeric, RelNumeric::Auto)
+        && n.fract() == 0.0
+        && n.abs() <= 1.0
+        && lang == "en"
     {
         let i = n as i64;
         let phrase = match (singular, i) {
@@ -428,8 +435,7 @@ fn render_number_parts(
 
     let chars: Vec<char> = int_digits.chars().collect();
     let group_len = chars.len();
-    let use_grouping =
-        group_len > 4 || (group_len == 4 && !min_group2);
+    let use_grouping = group_len > 4 || (group_len == 4 && !min_group2);
     let mut parts = Vec::new();
     let mut chunk_start = 0usize;
     while chunk_start < group_len {

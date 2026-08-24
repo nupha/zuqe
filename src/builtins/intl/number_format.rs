@@ -218,9 +218,11 @@ pub(crate) fn build_number_format_data(
 }
 
 pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let new_target = cc.this();
+
     // ECMA-402 normative optional: called without `new` (see the DateTimeFormat
     // constructor for the receiver/inner-instance mechanics).
-    if !cc.this().is_callable() {
+    if !new_target.is_callable() {
         let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
         let instance = ctx
             .create_instance_with_ctor(
@@ -230,8 +232,7 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
             .map_err(|_| -1)?
             .into();
 
-        let this_v = cc.this();
-        let derived = this_v
+        let derived = new_target
             .as_object()
             .map(|o| {
                 let proto = o.prototype(ctx)?;
@@ -248,7 +249,10 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
         }
         return Ok(instance);
     }
-    let new_target = cc.this();
+
+    // OrdinaryCreateFromConstructor: reading new_target.prototype is
+    // observable and must precede any argument/option validation.
+    super::common::observable_proto_get(ctx, new_target)?;
     let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
 
     let instance = ctx

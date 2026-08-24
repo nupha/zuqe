@@ -298,6 +298,9 @@ fn supported_collation(lang: &str, collation: &str) -> bool {
 
 pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
+    // OrdinaryCreateFromConstructor: reading new_target.prototype is
+    // observable and must precede any argument/option validation.
+    super::common::observable_proto_get(ctx, new_target)?;
     let data = build_collator_data(ctx, cc.arg(0), cc.arg(1))?;
     let instance = ctx
         .create_instance_with_ctor(new_target, ObjectPayload::INTL_COLLATOR(Box::new(data)))

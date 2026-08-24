@@ -54,7 +54,7 @@ pub struct DurationFormatData {
     pub(crate) numbering_system: String,
     pub(crate) base_style: BStyle,
     // Table order: years..nanoseconds.
-    pub(crate) units: [UnitOpts; 10],
+    units: [UnitOpts; 10],
     pub(crate) fractional_digits: Option<i32>,
 }
 
@@ -153,10 +153,7 @@ fn get_option_string(
 
 /// GetNumberOption(options, "fractionalDigits", 0, 9) with an undefined
 /// default.
-fn get_fractional_digits(
-    ctx: &mut ScopedContext,
-    obj: &crate::Object,
-) -> Result<Option<i32>, i32> {
+fn get_fractional_digits(ctx: &mut ScopedContext, obj: &crate::Object) -> Result<Option<i32>, i32> {
     let v = obj.get_property_str(ctx, "fractionalDigits")?;
     if v.is_undefined() {
         return Ok(None);
@@ -211,8 +208,7 @@ fn get_unit_options(
         }
     };
 
-    let display_v =
-        get_option_string(ctx, obj, &format!("{}Display", unit), &["auto", "always"])?;
+    let display_v = get_option_string(ctx, obj, &format!("{}Display", unit), &["auto", "always"])?;
     let display = match display_v.as_deref() {
         Some("always") => UDisplay::Always,
         Some("auto") => UDisplay::Auto,
@@ -227,9 +223,7 @@ fn get_unit_options(
         }
     }
     let mut style = style;
-    if matches!(prev, Some(UStyle::Numeric) | Some(UStyle::TwoDigit))
-        && (5..=6).contains(&idx)
-    {
+    if matches!(prev, Some(UStyle::Numeric) | Some(UStyle::TwoDigit)) && (5..=6).contains(&idx) {
         style = UStyle::TwoDigit;
     }
     Ok((style, display))
@@ -240,6 +234,10 @@ fn js_duration_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
     if new_target.is_undefined() {
         return Err(ctx.throw_type_error("Intl.DurationFormat must be called with 'new'"));
     }
+    // OrdinaryCreateFromConstructor: reading new_target.prototype is
+    // observable and must precede any argument/option validation.
+    super::common::observable_proto_get(ctx, cc.this())?;
+
     let locale = resolve_locale(ctx, cc.arg(0))?;
     let options = cc.arg(1);
     let has_options = !options.is_undefined();
@@ -259,20 +257,16 @@ fn js_duration_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
             }
         }
 
-        let base_style = match get_option_string(
-            ctx,
-            &obj,
-            "style",
-            &["long", "short", "narrow", "digital"],
-        )? {
-            Some(s) => match s.as_str() {
-                "long" => BStyle::Long,
-                "narrow" => BStyle::Narrow,
-                "digital" => BStyle::Digital,
-                _ => BStyle::Short,
-            },
-            None => BStyle::Short,
-        };
+        let base_style =
+            match get_option_string(ctx, &obj, "style", &["long", "short", "narrow", "digital"])? {
+                Some(s) => match s.as_str() {
+                    "long" => BStyle::Long,
+                    "narrow" => BStyle::Narrow,
+                    "digital" => BStyle::Digital,
+                    _ => BStyle::Short,
+                },
+                None => BStyle::Short,
+            };
 
         let mut units = [UnitOpts {
             style: UStyle::Short,
@@ -328,8 +322,7 @@ impl DurationFormatData {
     fn with_numbering_system(mut self, ns_opt: Option<&str>) -> Self {
         let nu_static: Option<&'static str> =
             ns_opt.map(|s| Box::leak(s.to_owned().into_boxed_str()) as &'static str);
-        self.locale =
-            super::common::resolve_locale_keys(self.locale, &[("nu", nu_static)]);
+        self.locale = super::common::resolve_locale_keys(self.locale, &[("nu", nu_static)]);
         let nu_ext = super::common::locale_extension_value(&self.locale, "nu");
         self.numbering_system = if let Some(opt) = nu_static {
             if super::common::supported_extension_key_value("nu", opt) {
@@ -516,12 +509,7 @@ fn combined_fractional(rec: &[f64; 10], level_idx: usize) -> f64 {
         7 => 6,
         _ => 3,
     };
-    let mults: [i128; 4] = [
-        1_000_000_000,
-        1_000_000,
-        1_000,
-        1,
-    ];
+    let mults: [i128; 4] = [1_000_000_000, 1_000_000, 1_000, 1];
     let mut total: i128 = 0;
     for k in (level_idx - 6)..4 {
         total += rec[6 + k] as i128 * mults[k];
@@ -539,7 +527,11 @@ fn combined_fractional(rec: &[f64; 10], level_idx: usize) -> f64 {
 
 /// PartitionDurationFormatPattern (test262 revision: no "fractional" style;
 /// sub-second numeric fields merge upward into the preceding unit).
-fn partition(ctx: &mut ScopedContext, df: &DurationFormatData, rec: &[f64; 10]) -> Result<Vec<Part>, i32> {
+fn partition(
+    ctx: &mut ScopedContext,
+    df: &DurationFormatData,
+    rec: &[f64; 10],
+) -> Result<Vec<Part>, i32> {
     let mut groups: Vec<Vec<Part>> = Vec::new();
     let mut need_sep = false;
     let mut sign_shown = true;
@@ -565,8 +557,7 @@ fn partition(ctx: &mut ScopedContext, df: &DurationFormatData, rec: &[f64; 10]) 
         // Display zero minutes when a following seconds part will show.
         let display_required = idx == 5
             && need_sep
-            && (df.units[6].display == UDisplay::Always
-                || rec[6..10].iter().any(|&v| v != 0.0));
+            && (df.units[6].display == UDisplay::Always || rec[6..10].iter().any(|&v| v != 0.0));
 
         if value != 0.0 || opts.display != UDisplay::Auto || display_required {
             let sign_never = !sign_shown;
@@ -581,8 +572,7 @@ fn partition(ctx: &mut ScopedContext, df: &DurationFormatData, rec: &[f64; 10]) 
             } else if sign_shown {
                 sign_shown = false;
             }
-            let numeric_like =
-                matches!(opts.style, UStyle::Numeric | UStyle::TwoDigit);
+            let numeric_like = matches!(opts.style, UStyle::Numeric | UStyle::TwoDigit);
             let nf = super::number_format::build_nf_data(
                 ctx,
                 &df.locale,
@@ -650,7 +640,14 @@ fn partition(ctx: &mut ScopedContext, df: &DurationFormatData, rec: &[f64; 10]) 
         if gi > 0 {
             out.push(Part {
                 typ: "literal",
-                value: super::list_format::join_separator(&list_lang, list_style, super::list_format::ListType::Unit, gi, n).to_string(),
+                value: super::list_format::join_separator(
+                    &list_lang,
+                    list_style,
+                    super::list_format::ListType::Unit,
+                    gi,
+                    n,
+                )
+                .to_string(),
                 unit: None,
             });
         }
