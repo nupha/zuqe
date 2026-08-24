@@ -202,6 +202,37 @@ rt.gc_set_trace_handler(|gcx| {
 - The trace fn must cover **all** GC-node fields of the variable; trace every `JSValue`
   unconditionally.
 
+### Rule 3 — raw pointers into `Vec` storage: element addresses move on growth (rare)
+
+Unlike Rules 1–2 this is **not** a tracing problem, and it is **rare**: safe Rust's borrow
+checker already rejects most of it. It only arises when `unsafe` raw pointers bypass borrows —
+so guard against it exclusively where raw pointers are involved.
+
+A `Vec` relocates **all** of its elements to a fresh allocation when it grows. A raw pointer
+into an element (`&mut v[i].field as *mut _`, `v.as_ptr()`, a cached `NonNull`, …) dangles as
+soon as any `push` grows the vector — even though the `Vec` itself is still alive. Unlike
+Rules 1–2 the failure mode is not "a node was collected while referenced" but **live memory
+being stomped through the dangling pointer**, which corrupts whatever reuses that memory —
+often GC nodes — so the symptoms surface far away from the cause.
+
+Real-world case: `StackFrameArena::frames: Vec<StackFrame>` grew via `alloc_frame → push`
+whenever a native call allocated a callee frame, while `execute_with_arena` cached
+`&mut frame.cur_sp_offset` / `cur_pc_offset` as raw pointers across its whole interpretation
+loop. The stale writes corrupted freed memory later reused by GC nodes — surfacing far from
+the cause as gc-lite `bad node` panics, recycled-callback TypeErrors (`not a function`), and
+index-out-of-bounds aborts during runtime teardown.
+
+**Prevention** (only relevant when raw pointers are involved):
+
+- Never cache an element pointer of a growable `Vec` across a call that may `push` to it;
+  re-derive it from the index after every mutation.
+- If element-address stability is actually required, store `Vec<Box<T>>` — `Box` gives
+  per-element stability independent of vector growth (see `StackFrameArena::frames`).
+- Distant, shape-shifting corruption (bad nodes, wrong-callback TypeErrors, teardown bounds
+  aborts) is the signature of this class. Run the reproducer under ASAN
+  (`RUSTFLAGS="-Zsanitizer=address"` + nightly); the very first offending access is reported
+  with both the use stack and the free stack.
+
 ### Review checklist
 
 **Rule 1 (class payload)**
@@ -215,6 +246,13 @@ rt.gc_set_trace_handler(|gcx| {
 - [ ] Any `thread_local!` holding GC nodes?
 - [ ] If yes — is there a matching trace fn that covers every GC field?
 - [ ] Is it registered in `gc_set_trace_handler` on every thread/runtime that holds it?
+
+**Rule 3 (raw pointers into `Vec` storage)**
+
+- [ ] Is any raw pointer / reference into a `Vec` element cached across calls?
+- [ ] Can those calls grow the `Vec` (`push`/`insert` → realloc)?
+- [ ] If element-address stability is needed — is the storage `Vec<Box<T>>`, or are the
+      pointers re-derived after every mutation?
 
 ## Customized GC tracer
 
