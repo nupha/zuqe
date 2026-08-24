@@ -60,6 +60,13 @@ pub(crate) static CLASS_DEF_DISPLAY_NAMES: ClassDef = ClassDef::builtin(
 pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     use super::common::{get_options_object, get_string_option, require_new_target};
     require_new_target(ctx, cc.this())?;
+
+    // OrdinaryCreateFromConstructor reads new_target.prototype BEFORE any
+    // option processing — a poisoned prototype getter must win over
+    // option errors (test262 ctor-custom-get-prototype-poison-throws).
+    if let Some(o) = cc.this().as_object() {
+        let _ = o.get_property(ctx, crate::Atom::CONST_prototype)?;
+    }
     let locale = resolve_locale(ctx, cc.arg(0))?;
     let options = get_options_object(ctx, cc.arg(1))?;
 
@@ -129,12 +136,18 @@ pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallCont
         data.language_display = if s == "standard" { "standard" } else { "dialect" };
     }
 
-    let instance = ctx
-        .create_instance_with_ctor(
-            cc.this(),
-            ObjectPayload::INTL_DISPLAY_NAMES(Box::new(data)),
-        )
-        .map_err(|_| -1)?;
+    let instance = match ctx.create_instance_with_ctor(
+        cc.this(),
+        ObjectPayload::INTL_DISPLAY_NAMES(Box::new(data)),
+    ) {
+        Ok(o) => o,
+        // create_instance_with_ctor swallows JS exceptions thrown while
+        // reading `new_target.prototype` (e.g. a poisoned getter). Re-throw
+        // the pending exception instead of a generic failure.
+        Err(_) => {
+            return Err(ctx.throw_type_error("cannot construct DisplayNames"));
+        }
+    };
     Ok(JSValue::from(instance))
 }
 

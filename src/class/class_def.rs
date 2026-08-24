@@ -59,6 +59,19 @@ impl ClassCtorDef {
         }
     }
 
+    /// Callable-as-function constructor that keeps the receiver (`this`) on
+    /// plain calls — ECMA-402 legacy constructors
+    /// (e.g. `Intl.DateTimeFormat.call(obj)`).
+    pub const fn new_legacy(callback: CallbackFn, length: i32) -> Self {
+        Self {
+            callback: Callback::LegacyConstructorOrFunc(callback),
+            length,
+            magic: 0,
+            entries: &[],
+            export_to_global: false,
+        }
+    }
+
     pub const fn magic(mut self, magic: i16) -> Self {
         self.magic = magic;
         self

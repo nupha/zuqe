@@ -36,6 +36,10 @@ pub enum Callback {
     Setter(SetterFn),
     Constructor(CallbackFn),
     ConstructorOrFunc(CallbackFn),
+    /// Like `ConstructorOrFunc`, but a plain call keeps the receiver in
+    /// `this` instead of forcing it to undefined (ECMA-402 legacy
+    /// constructors, e.g. `Intl.DateTimeFormat.call(obj)`).
+    LegacyConstructorOrFunc(CallbackFn),
     IteratorNext(IteratorFn),
 
     FF(JSCFunctionFF),
@@ -50,6 +54,9 @@ impl PartialEq for Callback {
             (Self::Setter(a), Self::Setter(b)) => std::ptr::fn_addr_eq(*a, *b),
             (Self::Constructor(a), Self::Constructor(b)) => std::ptr::fn_addr_eq(*a, *b),
             (Self::ConstructorOrFunc(a), Self::ConstructorOrFunc(b)) => {
+                std::ptr::fn_addr_eq(*a, *b)
+            }
+            (Self::LegacyConstructorOrFunc(a), Self::LegacyConstructorOrFunc(b)) => {
                 std::ptr::fn_addr_eq(*a, *b)
             }
             (Self::IteratorNext(a), Self::IteratorNext(b)) => std::ptr::fn_addr_eq(*a, *b),
@@ -130,6 +137,11 @@ impl NFuncPayload {
                     if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                         cc.set_this(JSValue::UNDEFINED); // set this_value to undefined
                     }
+                    f(cx, cc)
+                }
+                Callback::LegacyConstructorOrFunc(f) => {
+                    // Constructed: `this` is new_target. Plain call: keep the
+                    // receiver (possibly undefined) for the legacy path.
                     f(cx, cc)
                 }
 
@@ -351,7 +363,9 @@ impl NativeFunction {
 
         if matches!(
             callback,
-            Callback::Constructor(_) | Callback::ConstructorOrFunc(_)
+            Callback::Constructor(_)
+                | Callback::ConstructorOrFunc(_)
+                | Callback::LegacyConstructorOrFunc(_)
         ) {
             func_obj.set_flag_constructor(true);
         }

@@ -87,6 +87,12 @@ pub struct ContextImpl {
     /// Its stack_id identifies which scope stack this context uses.
     /// Dropped in ContextImpl::drop before releasing the scope stack.
     pub(crate) gc_top_scope: Option<gc_lite::GcScope<'static>>,
+
+    /// Per-realm interned symbols ([`ScopedContext::realm_symbol`]):
+    /// description -> symbol JSValue. Traced; identity is scoped to this
+    /// realm, matching ECMA "per-realm well-known symbol" semantics
+    /// (e.g. %Intl%.[[FallbackSymbol]]).
+    pub(crate) realm_symbols: Vec<(String, JSValue)>,
 }
 
 impl GcTrace for ContextImpl {
@@ -125,6 +131,8 @@ impl GcTrace for ContextImpl {
 
         self.polling_jobs.iter().for_each(|x| x.trace(gcx));
         self.oneshot_jobs.iter().for_each(|x| x.trace(gcx));
+
+        self.realm_symbols.iter().for_each(|(_, v)| v.trace(gcx));
     }
 }
 
@@ -186,6 +194,8 @@ impl ContextImpl {
             polling_jobs: VecDeque::new(),
             oneshot_jobs: VecDeque::new(),
             tick_handlers: Vec::new(),
+
+            realm_symbols: Vec::new(),
 
             gc_top_scope: None,
         };

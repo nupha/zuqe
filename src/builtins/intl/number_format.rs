@@ -86,7 +86,7 @@ pub(crate) enum RoundingMode {
 pub(crate) static CLASS_DEF_NUMBER_FORMAT: ClassDef = ClassDef::builtin(
     Atom::CONST_NumberFormat,
     js_number_format_proto_funcs,
-    Some(ClassCtorDef::new(js_number_format_constructor, 0, true)),
+    Some(ClassCtorDef::new_legacy(js_number_format_constructor, 0)),
 );
 
 /// Validate a BCP-47 `type`-like value: `3*8alphanum *("-" (3*8alphanum))`.
@@ -218,6 +218,36 @@ pub(crate) fn build_number_format_data(
 }
 
 pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    // ECMA-402 normative optional: called without `new` (see the DateTimeFormat
+    // constructor for the receiver/inner-instance mechanics).
+    if !cc.this().is_callable() {
+        let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
+        let instance = ctx
+            .create_instance_with_ctor(
+                JSValue::UNDEFINED,
+                ObjectPayload::INTL_NUMBER_FORMAT(Box::new(data)),
+            )
+            .map_err(|_| -1)?
+            .into();
+
+        let this_v = cc.this();
+        let derived = this_v
+            .as_object()
+            .map(|o| {
+                let proto = o.prototype(ctx)?;
+                Ok::<bool, i32>(
+                    proto
+                        .zip(ctx.class_proto(crate::JS_CLASS_INTL_NUMBER_FORMAT))
+                        .is_some_and(|(a, b)| a == b),
+                )
+            })
+            .transpose()?
+            .unwrap_or(false);
+        if derived {
+            return super::common::attach_fallback(ctx, this_v, instance);
+        }
+        return Ok(instance);
+    }
     let new_target = cc.this();
     let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
 
@@ -384,7 +414,8 @@ fn apply_options(
     if let Some(u) = &unit_str {
         let valid = super::common::SUPPORTED_UNITS.contains(&u.as_str())
             || (u.contains("-per-")
-                && u.split("-per-").all(|p| super::common::SUPPORTED_UNITS.contains(&p)));
+                && u.split("-per-")
+                    .all(|p| super::common::SUPPORTED_UNITS.contains(&p)));
         if !valid {
             return Err(ctx.throw_range_error("Invalid unit value"));
         }
@@ -430,8 +461,8 @@ fn apply_options(
         let s = to_utf8_string(ctx, rounding_mode)?;
         data.rounding_mode = match s.as_str() {
             "trunc" => RoundingMode::Trunc,
-            "ceil" | "floor" | "expand" | "contract" | "halfExpand" | "halfCeil"
-            | "halfFloor" | "halfTrunc" | "halfEven" => RoundingMode::HalfExpand,
+            "ceil" | "floor" | "expand" | "contract" | "halfExpand" | "halfCeil" | "halfFloor"
+            | "halfTrunc" | "halfEven" => RoundingMode::HalfExpand,
             _ => return Err(ctx.throw_range_error("Invalid roundingMode value")),
         };
     }
@@ -563,10 +594,7 @@ fn apply_options(
 /// Accessor getter for `NumberFormat.prototype.format`: returns a bound
 /// function that formats with the receiver instance.
 fn js_number_format_format_getter(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this_val = cc.this();
-    if !is_number_format(&this_val) {
-        return Err(ctx.throw_type_error("not a NumberFormat"));
-    }
+    let this_val = super::common::unwrap_fallback(ctx, cc.this(), &|v| is_number_format(v))?;
     // The bound `format` function is anonymous (name is the empty string).
     make_bound_method(ctx, this_val, js_number_format_format_bound, "", 1)
 }
@@ -747,15 +775,27 @@ fn digits_to_parts(this: &NumberFormatData, s: &str) -> Vec<NPart> {
     for c in s.chars() {
         if c == this.decimal_sep {
             if !run.is_empty() {
-                out.push(NPart { typ: "integer", value: std::mem::take(&mut run) });
+                out.push(NPart {
+                    typ: "integer",
+                    value: std::mem::take(&mut run),
+                });
             }
-            out.push(NPart { typ: "decimal", value: c.to_string() });
+            out.push(NPart {
+                typ: "decimal",
+                value: c.to_string(),
+            });
             seen_decimal = true;
         } else if c == this.grouping_sep {
             if !run.is_empty() {
-                out.push(NPart { typ: "integer", value: std::mem::take(&mut run) });
+                out.push(NPart {
+                    typ: "integer",
+                    value: std::mem::take(&mut run),
+                });
             }
-            out.push(NPart { typ: "group", value: c.to_string() });
+            out.push(NPart {
+                typ: "group",
+                value: c.to_string(),
+            });
         } else {
             run.push(c);
         }
@@ -785,9 +825,15 @@ pub(crate) fn format_parts(
         };
         let mut out = Vec::new();
         if matches!(this.sign_display, SignDisplay::Always) {
-            out.push(NPart { typ: "plusSign", value: "+".to_string() });
+            out.push(NPart {
+                typ: "plusSign",
+                value: "+".to_string(),
+            });
         }
-        out.push(NPart { typ: "nan", value: text.to_string() });
+        out.push(NPart {
+            typ: "nan",
+            value: text.to_string(),
+        });
         return Ok(out);
     }
     if n.is_infinite() {
@@ -796,7 +842,10 @@ pub(crate) fn format_parts(
             SignDisplay::Never => {}
             SignDisplay::Auto => {
                 if n < 0.0 {
-                    out.push(NPart { typ: "minusSign", value: "-".to_string() });
+                    out.push(NPart {
+                        typ: "minusSign",
+                        value: "-".to_string(),
+                    });
                 }
             }
             _ => {
@@ -843,7 +892,11 @@ pub(crate) fn format_parts(
     let mut num_parts: Vec<NPart> = match this.notation {
         Notation::Scientific | Notation::Engineering => {
             let engineering = matches!(this.notation, Notation::Engineering);
-            let mut exp = if mag > 0.0 { mag.log10().floor() as i32 } else { 0 };
+            let mut exp = if mag > 0.0 {
+                mag.log10().floor() as i32
+            } else {
+                0
+            };
             if engineering {
                 exp -= exp.rem_euclid(3);
             }
@@ -908,7 +961,8 @@ pub(crate) fn format_parts(
             let rounded = round_to_fraction(scaled, 0, max_frac);
             // Below the smallest compact entry the value renders plain;
             // grouping follows the locale (CJK locales keep it off here).
-            let grouped = chosen.is_none() && this.use_grouping
+            let grouped = chosen.is_none()
+                && this.use_grouping
                 && !matches!(lang.as_str(), "ja" | "zh" | "yue");
             let body = format_fixed(
                 ctx,
@@ -918,16 +972,26 @@ pub(crate) fn format_parts(
                 grouped,
                 this.grouping_sep,
                 this.decimal_sep,
-                if chosen.is_some() { 1 } else { this.min_integer_digits },
+                if chosen.is_some() {
+                    1
+                } else {
+                    this.min_integer_digits
+                },
                 this.grouping_indian,
                 this.min_group2,
             )?;
             let mut parts = digits_to_parts(this, &body);
             if let Some((_, sep, text)) = chosen {
                 if !sep.is_empty() {
-                    parts.push(NPart { typ: "literal", value: sep.to_string() });
+                    parts.push(NPart {
+                        typ: "literal",
+                        value: sep.to_string(),
+                    });
                 }
-                parts.push(NPart { typ: "compact", value: text.to_string() });
+                parts.push(NPart {
+                    typ: "compact",
+                    value: text.to_string(),
+                });
             }
             parts
         }
@@ -943,8 +1007,8 @@ pub(crate) fn format_parts(
             let body = if let (Some(min), Some(max)) =
                 (this.min_significant_digits, this.max_significant_digits)
             {
-                let grouped =
-                    this.use_grouping && !(this.min_group2 && scaled_abs >= 1000.0 && scaled_abs < 10000.0);
+                let grouped = this.use_grouping
+                    && !(this.min_group2 && scaled_abs >= 1000.0 && scaled_abs < 10000.0);
                 format_with_significant(
                     ctx,
                     scaled_abs,
@@ -992,9 +1056,12 @@ pub(crate) fn format_parts(
     let mut paren_wrap = false;
     let acct = this.style == Style::Currency && this.currency_sign == "accounting";
     let paren_locale = accounting_uses_parens(&lang);
-    let sign_negative = if acct && paren_locale { eff_negative } else { negative };
-    let except_zero_suppressed =
-        matches!(this.sign_display, SignDisplay::ExceptZero) && eff_zero;
+    let sign_negative = if acct && paren_locale {
+        eff_negative
+    } else {
+        negative
+    };
+    let except_zero_suppressed = matches!(this.sign_display, SignDisplay::ExceptZero) && eff_zero;
     if acct
         && negative
         && !except_zero_suppressed
@@ -1026,57 +1093,99 @@ pub(crate) fn format_parts(
     let mut cur_pre: Vec<NPart> = Vec::new();
     let mut post: Vec<NPart> = Vec::new();
 
-    if this.style == Style::Unit && let Some(u) = &this.unit {
+    if this.style == Style::Unit
+        && let Some(u) = &this.unit
+    {
         let joined: String = num_parts.iter().map(|p| p.value.as_str()).collect();
         let core: String = joined.chars().filter(|c| c.is_ascii_digit()).collect();
         let singular = core == "1";
         if u == "kilometer-per-hour" {
-            let (prefix, name, space) =
-                kilometer_per_hour_name(&lang, this.unit_display, singular);
+            let (prefix, name, space) = kilometer_per_hour_name(&lang, this.unit_display, singular);
             if let Some((pfx, psep)) = prefix {
-                pre.push(NPart { typ: "unit", value: pfx.to_string() });
+                pre.push(NPart {
+                    typ: "unit",
+                    value: pfx.to_string(),
+                });
                 if !psep.is_empty() {
-                    pre.push(NPart { typ: "literal", value: psep.to_string() });
+                    pre.push(NPart {
+                        typ: "literal",
+                        value: psep.to_string(),
+                    });
                 }
             }
             if space {
-                post.push(NPart { typ: "literal", value: " ".to_string() });
+                post.push(NPart {
+                    typ: "literal",
+                    value: " ".to_string(),
+                });
             }
-            post.push(NPart { typ: "unit", value: name });
+            post.push(NPart {
+                typ: "unit",
+                value: name,
+            });
         } else if u == "percent" {
             // CLDR en: unit "percent" long is "{0} percent"; short/narrow
             // attach the sign directly.
             match this.unit_display {
                 "long" => {
-                    post.push(NPart { typ: "literal", value: " ".to_string() });
-                    post.push(NPart { typ: "unit", value: "percent".to_string() });
+                    post.push(NPart {
+                        typ: "literal",
+                        value: " ".to_string(),
+                    });
+                    post.push(NPart {
+                        typ: "unit",
+                        value: "percent".to_string(),
+                    });
                 }
                 _ => {
-                    post.push(NPart { typ: "unit", value: "%".to_string() });
+                    post.push(NPart {
+                        typ: "unit",
+                        value: "%".to_string(),
+                    });
                 }
             }
         } else {
             let name = unit_display_name(u, this.unit_display, singular);
             let cjk = matches!(lang.as_str(), "ja" | "zh" | "ko" | "th" | "lo" | "my");
             if !cjk {
-                post.push(NPart { typ: "literal", value: " ".to_string() });
+                post.push(NPart {
+                    typ: "literal",
+                    value: " ".to_string(),
+                });
             }
-            post.push(NPart { typ: "unit", value: name });
+            post.push(NPart {
+                typ: "unit",
+                value: name,
+            });
         }
     }
 
     if this.style == Style::Percent {
-        post.push(NPart { typ: "percentSign", value: "%".to_string() });
+        post.push(NPart {
+            typ: "percentSign",
+            value: "%".to_string(),
+        });
     }
 
-    if this.style == Style::Currency && let Some(c) = &this.currency {
+    if this.style == Style::Currency
+        && let Some(c) = &this.currency
+    {
         let sym = currency_symbol(&lang, c, this.currency_display);
         if currency_symbol_is_prefix(&lang) {
-            cur_pre.push(NPart { typ: "currency", value: sym });
+            cur_pre.push(NPart {
+                typ: "currency",
+                value: sym,
+            });
         } else {
             // CLDR suffix patterns use a no-break space ("987,00\u{a0}$").
-            post.push(NPart { typ: "literal", value: "\u{a0}".to_string() });
-            post.push(NPart { typ: "currency", value: sym });
+            post.push(NPart {
+                typ: "literal",
+                value: "\u{a0}".to_string(),
+            });
+            post.push(NPart {
+                typ: "currency",
+                value: sym,
+            });
         }
     }
 
@@ -1085,14 +1194,26 @@ pub(crate) fn format_parts(
     out.extend(pre);
     if let Some(sv) = sign_val {
         let typ = if sv == "-" { "minusSign" } else { "plusSign" };
-        out.push(NPart { typ, value: sv.to_string() });
+        out.push(NPart {
+            typ,
+            value: sv.to_string(),
+        });
     }
     out.extend(cur_pre);
     out.append(&mut num_parts);
     out.extend(post);
     if paren_wrap {
-        out.insert(0, NPart { typ: "literal", value: "(".to_string() });
-        out.push(NPart { typ: "literal", value: ")".to_string() });
+        out.insert(
+            0,
+            NPart {
+                typ: "literal",
+                value: "(".to_string(),
+            },
+        );
+        out.push(NPart {
+            typ: "literal",
+            value: ")".to_string(),
+        });
     }
     Ok(out)
 }
@@ -1141,12 +1262,7 @@ pub(crate) struct NPart {
 // ponytail: hand-written CLDR snapshot for the locales test262 exercises;
 // swap to a real compact-decimal formatter when ICU4X ships one
 fn compact_entries(lang: &str, long: bool) -> &'static [(i32, &'static str, &'static str)] {
-    const K: &[(i32, &str, &str)] = &[
-        (3, "", "K"),
-        (6, "", "M"),
-        (9, "", "B"),
-        (12, "", "T"),
-    ];
+    const K: &[(i32, &str, &str)] = &[(3, "", "K"), (6, "", "M"), (9, "", "B"), (12, "", "T")];
     const K_LONG: &[(i32, &str, &str)] = &[
         (3, " ", "thousand"),
         (6, " ", "million"),
@@ -1232,7 +1348,10 @@ fn kilometer_per_hour_name(
 /// Currency symbol placement: true when the locale writes the symbol before
 /// the number ("$987.00"); false for suffix styles ("987,00 $").
 fn currency_symbol_is_prefix(lang: &str) -> bool {
-    !matches!(lang, "de" | "fr" | "es" | "it" | "nl" | "sv" | "fi" | "pl" | "ru")
+    !matches!(
+        lang,
+        "de" | "fr" | "es" | "it" | "nl" | "sv" | "fi" | "pl" | "ru"
+    )
 }
 
 /// Accounting-style negatives wrap the amount in parentheses (CLDR patterns
@@ -1270,7 +1389,6 @@ fn currency_symbol(lang: &str, code: &str, display: &str) -> String {
         _ => code.to_string(),
     }
 }
-
 
 /// Localized display name for a unit (`unitDisplay` style); CLDR en data for
 /// the duration units, other units fall back to the raw unit id.
@@ -1821,10 +1939,10 @@ fn expand_exponent(s: &str) -> String {
 /// `Intl.NumberFormat.prototype.formatToParts(value)`: returns an array of
 /// `{ type, value }` parts that concatenate to the formatted result.
 fn js_number_format_formatToParts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this_obj = cc
-        .this()
+    let this_v = super::common::unwrap_fallback(ctx, cc.this(), &|v| is_number_format(v))?;
+    let this_obj = this_v
         .as_object()
-        .ok_or_else(|| ctx.throw_type_error("not a NumberFormat"))?;
+        .ok_or_else(|| ctx.throw_internal_error("unreachable"))?;
     let this = this_obj
         .payload()
         .intl_number_format()
@@ -1834,7 +1952,10 @@ fn js_number_format_formatToParts(ctx: &mut ScopedContext, cc: CallContext) -> J
     let nparts: Vec<NPart> = if value.is_bigint() {
         // BigInt formatting has no part splitting; emit a single merged part.
         let s = format_value(ctx, this, value)?;
-        vec![NPart { typ: "integer", value: s }]
+        vec![NPart {
+            typ: "integer",
+            value: s,
+        }]
     } else {
         // ToNumber must be applied exactly once (per spec step 4).
         let n = value.to_number(ctx)?.to_f64();
@@ -1855,10 +1976,10 @@ fn js_number_format_formatToParts(ctx: &mut ScopedContext, cc: CallContext) -> J
 }
 
 fn js_number_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this_obj = cc
-        .this()
+    let this_v = super::common::unwrap_fallback(ctx, cc.this(), &|v| is_number_format(v))?;
+    let this_obj = this_v
         .as_object()
-        .ok_or_else(|| ctx.throw_type_error("not a NumberFormat"))?;
+        .ok_or_else(|| ctx.throw_internal_error("unreachable"))?;
     let this = this_obj
         .payload()
         .intl_number_format()
@@ -1954,7 +2075,10 @@ fn js_number_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
         },
     )?;
     o.define_property_value_str(ctx, "notation", notation, JS_PROP_C_W_E)?;
-    if matches!(this.notation, Notation::CompactShort | Notation::CompactLong) {
+    if matches!(
+        this.notation,
+        Notation::CompactShort | Notation::CompactLong
+    ) {
         let cd = make_str(
             ctx,
             match this.notation {

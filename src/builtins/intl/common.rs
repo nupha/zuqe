@@ -8,7 +8,7 @@ use icu::locale::{
     extensions::unicode::{Key, Value},
 };
 
-use crate::{Array, ScopedContext, object::Object, value::JSValue};
+use crate::{Array, ScopedContext, error::JSResult, object::Object, value::JSValue};
 
 /// Grandfathered BCP-47 tags that ICU4X rejects but which ECMA-402
 /// `IsStructurallyValidLanguageTag` accepts and canonicalises to themselves
@@ -77,6 +77,7 @@ pub(crate) fn canonicalize_locale(
     canonicalize_unicode_extensions(&mut loc);
     Ok(Some(loc))
 }
+
 /// ECMA-402 IsStructurallyValidLanguageTag (subset covering test262):
 /// subtag placement/shape, no duplicate variants or singletons, and `-u-`
 /// key/value alternation.
@@ -85,10 +86,7 @@ pub(crate) fn canonicalize_locale(
 /// first key in a `-u-` section (`und-u-attr` is valid per RFC 6497).
 // ponytail: DisplayNames rejects such attributes (engines disagree here); pass
 // allow_u_attrs=false there if a test ever demands the strict side.
-pub(crate) fn is_structurally_valid_language_tag_allow_attrs(
-    s: &str,
-    allow_u_attrs: bool,
-) -> bool {
+pub(crate) fn is_structurally_valid_language_tag_allow_attrs(s: &str, allow_u_attrs: bool) -> bool {
     let is_alpha = |x: &str| !x.is_empty() && x.bytes().all(|b| b.is_ascii_alphabetic());
     let is_alnum = |x: &str| !x.is_empty() && x.bytes().all(|b| b.is_ascii_alphanumeric());
     let parts: Vec<&str> = s.split('-').collect();
@@ -411,7 +409,10 @@ pub(crate) fn canonicalize_locale_list(
      -> Result<(), i32> {
         // An [[InitializedLocale]] object contributes its internal tag
         // directly (its toString is not called).
-        let tag = match tag_value.as_object().map(|o| o.payload().intl_locale().map(|l| l.locale.to_string())) {
+        let tag = match tag_value
+            .as_object()
+            .map(|o| o.payload().intl_locale().map(|l| l.locale.to_string()))
+        {
             Some(Some(tag)) => tag,
             _ => to_utf8_string(ctx, tag_value)?,
         };
@@ -609,14 +610,7 @@ pub(crate) fn locale_extension_value(locale: &Locale, key: &str) -> Option<Strin
 /// (`-u-kn`) yields `""`, not `"true"`.
 pub(crate) fn locale_extension_raw(locale: &Locale, key: &str) -> Option<String> {
     let kw: icu::locale::extensions::unicode::Key = key.parse().ok()?;
-    Some(
-        locale
-            .extensions
-            .unicode
-            .keywords
-            .get(&kw)?
-            .to_string(),
-    )
+    Some(locale.extensions.unicode.keywords.get(&kw)?.to_string())
 }
 
 /// Whether a Unicode extension value is supported for the given locale, for
@@ -722,18 +716,58 @@ pub(crate) fn supported_extension_key_value(key: &str, value: &str) -> bool {
 /// CLDR collation types supported by `Intl.Collator` (excludes the reserved
 /// "standard"/"search"). Mirrors `supported_collations()` per-language data;
 /// used by `Intl.supportedValuesOf("collation")` and Locale option validation.
-pub(crate) const SUPPORTED_COLLATION_TYPES: &[&str] =
-    &["emoji", "eor", "gb2312", "pinyin", "phonebk", "stroke", "zhuyin"];
+pub(crate) const SUPPORTED_COLLATION_TYPES: &[&str] = &[
+    "emoji", "eor", "gb2312", "pinyin", "phonebk", "stroke", "zhuyin",
+];
 
 /// Sanctioned simple unit identifiers (UTS 35), for
 /// `Intl.supportedValuesOf("unit")`.
 pub(crate) const SUPPORTED_UNITS: &[&str] = &[
-    "acre", "bit", "byte", "celsius", "centimeter", "day", "degree", "fahrenheit",
-    "fluid-ounce", "foot", "gallon", "gigabit", "gigabyte", "gram", "hectare", "hour", "inch",
-    "kilobit", "kilobyte", "kilogram", "kilometer", "liter", "megabit", "megabyte", "meter",
-    "microsecond", "mile", "mile-scandinavian", "milliliter", "millimeter", "millisecond",
-    "minute", "month", "nanosecond", "ounce", "percent", "petabyte", "pound", "second",
-    "stone", "terabit", "terabyte", "week", "yard", "year",
+    "acre",
+    "bit",
+    "byte",
+    "celsius",
+    "centimeter",
+    "day",
+    "degree",
+    "fahrenheit",
+    "fluid-ounce",
+    "foot",
+    "gallon",
+    "gigabit",
+    "gigabyte",
+    "gram",
+    "hectare",
+    "hour",
+    "inch",
+    "kilobit",
+    "kilobyte",
+    "kilogram",
+    "kilometer",
+    "liter",
+    "megabit",
+    "megabyte",
+    "meter",
+    "microsecond",
+    "mile",
+    "mile-scandinavian",
+    "milliliter",
+    "millimeter",
+    "millisecond",
+    "minute",
+    "month",
+    "nanosecond",
+    "ounce",
+    "percent",
+    "petabyte",
+    "pound",
+    "second",
+    "stone",
+    "terabit",
+    "terabyte",
+    "week",
+    "yard",
+    "year",
 ];
 
 /// Currencies with known display data: (ISO 4217 code, en name). Drives both
@@ -796,24 +830,149 @@ pub(crate) const SUPPORTED_CURRENCIES: &[(&str, &str)] = &[
 /// `Intl.DateTimeFormat`.
 // ponytail: static zone list; ICU4X compiled data cannot enumerate tzdb
 pub(crate) const SUPPORTED_TIME_ZONES: &[&str] = &[
-    "Africa/Abidjan", "Africa/Accra", "Africa/Cairo", "Africa/Johannesburg", "Africa/Lagos",
-    "Africa/Nairobi", "America/Anchorage", "America/Argentina/Buenos_Aires", "America/Bogota",
-    "America/Chicago", "America/Denver", "America/Detroit", "America/Halifax",
-    "America/Lima", "America/Los_Angeles", "America/Mexico_City", "America/New_York",
-    "America/Phoenix", "America/Santiago", "America/Sao_Paulo", "America/Toronto",
-    "America/Vancouver", "Asia/Baghdad", "Asia/Bangkok", "Asia/Dhaka", "Asia/Dubai",
-    "Asia/Hong_Kong", "Asia/Jerusalem", "Asia/Kolkata", "Asia/Kuala_Lumpur", "Asia/Manila",
-    "Asia/Seoul", "Asia/Shanghai", "Asia/Singapore", "Asia/Taipei", "Asia/Tehran",
-    "Asia/Tokyo", "Atlantic/Azores", "Atlantic/Reykjavik", "Australia/Adelaide",
-    "Australia/Brisbane", "Australia/Melbourne", "Australia/Perth", "Australia/Sydney",
-    "Etc/GMT+1", "Etc/GMT+10", "Etc/GMT+11", "Etc/GMT+12", "Etc/GMT+2", "Etc/GMT+3",
-    "Etc/GMT+4", "Etc/GMT+5", "Etc/GMT+6", "Etc/GMT+7", "Etc/GMT+8", "Etc/GMT+9",
-    "Etc/GMT-1", "Etc/GMT-10", "Etc/GMT-11", "Etc/GMT-12", "Etc/GMT-13", "Etc/GMT-14",
-    "Etc/GMT-2", "Etc/GMT-3", "Etc/GMT-4", "Etc/GMT-5", "Etc/GMT-6", "Etc/GMT-7",
-    "Etc/GMT-8", "Etc/GMT-9", "Europe/Amsterdam", "Europe/Athens", "Europe/Berlin",
-    "Europe/Brussels", "Europe/Bucharest", "Europe/Budapest", "Europe/Copenhagen",
-    "Europe/Dublin", "Europe/Helsinki", "Europe/Lisbon", "Europe/London", "Europe/Madrid",
-    "Europe/Moscow", "Europe/Oslo", "Europe/Paris", "Europe/Prague", "Europe/Rome",
-    "Europe/Stockholm", "Europe/Vienna", "Europe/Warsaw", "Europe/Zurich",
-    "Indian/Maldives", "Pacific/Auckland", "Pacific/Fiji", "Pacific/Honolulu", "UTC",
+    "Africa/Abidjan",
+    "Africa/Accra",
+    "Africa/Cairo",
+    "Africa/Johannesburg",
+    "Africa/Lagos",
+    "Africa/Nairobi",
+    "America/Anchorage",
+    "America/Argentina/Buenos_Aires",
+    "America/Bogota",
+    "America/Chicago",
+    "America/Denver",
+    "America/Detroit",
+    "America/Halifax",
+    "America/Lima",
+    "America/Los_Angeles",
+    "America/Mexico_City",
+    "America/New_York",
+    "America/Phoenix",
+    "America/Santiago",
+    "America/Sao_Paulo",
+    "America/Toronto",
+    "America/Vancouver",
+    "Asia/Baghdad",
+    "Asia/Bangkok",
+    "Asia/Dhaka",
+    "Asia/Dubai",
+    "Asia/Hong_Kong",
+    "Asia/Jerusalem",
+    "Asia/Kolkata",
+    "Asia/Kuala_Lumpur",
+    "Asia/Manila",
+    "Asia/Seoul",
+    "Asia/Shanghai",
+    "Asia/Singapore",
+    "Asia/Taipei",
+    "Asia/Tehran",
+    "Asia/Tokyo",
+    "Atlantic/Azores",
+    "Atlantic/Reykjavik",
+    "Australia/Adelaide",
+    "Australia/Brisbane",
+    "Australia/Melbourne",
+    "Australia/Perth",
+    "Australia/Sydney",
+    "Etc/GMT+1",
+    "Etc/GMT+10",
+    "Etc/GMT+11",
+    "Etc/GMT+12",
+    "Etc/GMT+2",
+    "Etc/GMT+3",
+    "Etc/GMT+4",
+    "Etc/GMT+5",
+    "Etc/GMT+6",
+    "Etc/GMT+7",
+    "Etc/GMT+8",
+    "Etc/GMT+9",
+    "Etc/GMT-1",
+    "Etc/GMT-10",
+    "Etc/GMT-11",
+    "Etc/GMT-12",
+    "Etc/GMT-13",
+    "Etc/GMT-14",
+    "Etc/GMT-2",
+    "Etc/GMT-3",
+    "Etc/GMT-4",
+    "Etc/GMT-5",
+    "Etc/GMT-6",
+    "Etc/GMT-7",
+    "Etc/GMT-8",
+    "Etc/GMT-9",
+    "Europe/Amsterdam",
+    "Europe/Athens",
+    "Europe/Berlin",
+    "Europe/Brussels",
+    "Europe/Bucharest",
+    "Europe/Budapest",
+    "Europe/Copenhagen",
+    "Europe/Dublin",
+    "Europe/Helsinki",
+    "Europe/Lisbon",
+    "Europe/London",
+    "Europe/Madrid",
+    "Europe/Moscow",
+    "Europe/Oslo",
+    "Europe/Paris",
+    "Europe/Prague",
+    "Europe/Rome",
+    "Europe/Stockholm",
+    "Europe/Vienna",
+    "Europe/Warsaw",
+    "Europe/Zurich",
+    "Indian/Maldives",
+    "Pacific/Auckland",
+    "Pacific/Fiji",
+    "Pacific/Honolulu",
+    "UTC",
 ];
+
+/// Description of the ECMA-402 fallback marker symbol
+/// (`%Intl%.[[FallbackSymbol]]`), shared by the legacy-construction paths of
+/// DateTimeFormat and NumberFormat.
+pub(crate) const FALLBACK_SYMBOL_DESC: &str = "IntlLegacyConstructedSymbol";
+
+/// ECMA-402 UnwrapXxx: return `v` when it carries the internal slot
+/// (`branded`); otherwise, if `v` is an object, follow the realm fallback
+/// symbol property once (ordinary [[Get]] — Proxy traps observe it) and
+/// accept that value when branded.
+pub(crate) fn unwrap_fallback(
+    ctx: &mut ScopedContext,
+    v: JSValue,
+    branded: &impl Fn(&JSValue) -> bool,
+) -> JSResult {
+    if branded(&v) {
+        return Ok(v);
+    }
+    let Some(obj) = v.as_object() else {
+        return Err(ctx.throw_type_error("method requires a matching receiver"));
+    };
+    let marker = ctx.create_realm_symbol(FALLBACK_SYMBOL_DESC)?;
+    let inner = obj.get_property_value(ctx, marker)?;
+    if branded(&inner) {
+        Ok(inner)
+    } else {
+        Err(ctx.throw_type_error("method requires a matching receiver"))
+    }
+}
+
+/// Legacy-construction tail (ECMA-402 normative optional): attach `inner` on
+/// `receiver` under the realm fallback symbol with frozen attributes, and
+/// return what the constructor must yield — the receiver itself for object
+/// receivers (identity is asserted by test262), `inner` otherwise.
+pub(crate) fn attach_fallback(
+    ctx: &mut ScopedContext,
+    receiver: JSValue,
+    inner: JSValue,
+) -> JSResult {
+    let Some(obj) = receiver.as_object() else {
+        return Ok(inner);
+    };
+    let marker = ctx.create_realm_symbol(FALLBACK_SYMBOL_DESC)?;
+    let key = marker.to_atom(ctx)?;
+    // { writable: false, enumerable: false, configurable: false }
+    let mut obj = obj;
+    obj.define_property_value(ctx, key, inner, 0)?;
+    Ok(receiver)
+}

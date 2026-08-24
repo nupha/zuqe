@@ -87,6 +87,7 @@ impl<'c> ScopedContext<'c> {
                 return Err(payload);
             }
         } else {
+            eprintln!("[DBG ciwct] Err(payload) taken (pending exc not inspected)");
             return Err(payload);
         };
 

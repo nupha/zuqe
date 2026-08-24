@@ -67,7 +67,7 @@ pub(crate) enum DateField {
 pub(crate) static CLASS_DEF_DATE_TIME_FORMAT: ClassDef = ClassDef::builtin(
     Atom::CONST_DateTimeFormat,
     js_date_time_format_proto_funcs,
-    Some(ClassCtorDef::new(js_date_time_format_constructor, 0, true)),
+    Some(ClassCtorDef::new_legacy(js_date_time_format_constructor, 0)),
 );
 
 /// Default components to apply when none are explicitly requested, used by the
@@ -90,6 +90,40 @@ pub(crate) fn js_date_time_format_constructor(
     cc: CallContext,
 ) -> JSResult {
     let new_target = cc.this();
+
+    // ECMA-402 normative optional: called without `new`.
+    //
+    // - receiver derives from %DateTimeFormat.prototype%: attach the real
+    //   instance under the realm fallback symbol and return the receiver
+    //   itself (identity asserted by test262).
+    // - any other receiver: ignored entirely — a fresh instance is returned.
+    if !new_target.is_callable() {
+        let data =
+            build_date_time_format_data(ctx, cc.arg(0), cc.arg(1), DateTimeDefaults::Standard)?;
+        let instance = ctx
+            .create_instance_with_ctor(
+                JSValue::UNDEFINED,
+                ObjectPayload::INTL_DATE_TIME_FORMAT(Box::new(data)),
+            )
+            .map_err(|_| -1)?
+            .into();
+
+        let derived = new_target
+            .as_object()
+            .map(|o| {
+                let proto = o.prototype(ctx)?;
+                Ok::<bool, i32>(proto
+                    .zip(ctx.class_proto(crate::JS_CLASS_INTL_DATE_TIME_FORMAT))
+                    .is_some_and(|(a, b)| a == b))
+            })
+            .transpose()?
+            .unwrap_or(false);
+        if derived {
+            return super::common::attach_fallback(ctx, new_target, instance);
+        }
+        return Ok(instance);
+    }
+
     let data = build_date_time_format_data(ctx, cc.arg(0), cc.arg(1), DateTimeDefaults::Standard)?;
     let instance = ctx
         .create_instance_with_ctor(
@@ -497,7 +531,7 @@ pub(crate) fn build_date_time_format_data(
     // Effective calendar: explicit valid option > `ca` extension > gregory.
     // Calendar values are case-folded (e.g. ISO8601 → iso8601).
     let ca_ext = super::common::locale_extension_value(&data.locale, "ca");
-    data.calendar =     if let Some(opt) = ca_static {
+    data.calendar = if let Some(opt) = ca_static {
         let lower = opt.to_ascii_lowercase();
         // Canonicalize aliases first (islamicc → islamic-civil), then check.
         let canon = canonicalize_calendar(&lower);
@@ -597,9 +631,10 @@ fn lookup_time_zone(s: &str) -> Option<&'static str> {
 /// resolve case-insensitively to their canonical IANA spelling ("GMT" stays
 /// "GMT"; only the exact UTC spellings fold to "UTC").
 fn canonicalize_time_zone(s: &str) -> String {
-    if s.starts_with('+') || s.starts_with('-')
-        && s.chars()
-            .all(|c| c.is_ascii_digit() || c == '+' || c == '-' || c == ':')
+    if s.starts_with('+')
+        || s.starts_with('-')
+            && s.chars()
+                .all(|c| c.is_ascii_digit() || c == '+' || c == '-' || c == ':')
     {
         let (sign, body) = (&s[..1], &s[1..]);
         let digits: String = body.chars().filter(|c| *c != ':').collect();
@@ -646,10 +681,7 @@ fn parse_time_field(ctx: &mut ScopedContext, v: JSValue) -> Result<Option<DateFi
 }
 
 fn js_date_time_format_format_getter(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this_val = cc.this();
-    if !is_date_time_format(&this_val) {
-        return Err(ctx.throw_type_error("not a DateTimeFormat"));
-    }
+    let this_val = super::common::unwrap_fallback(ctx, cc.this(), &|v| is_date_time_format(v))?;
     // The bound `format` function is anonymous (name is the empty string).
     make_bound_method(ctx, this_val, js_date_time_format_format_bound, "", 1)
 }
@@ -921,10 +953,10 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 fn js_date_time_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this_obj = cc
-        .this()
+    let this_v = super::common::unwrap_fallback(ctx, cc.this(), &|v| is_date_time_format(v))?;
+    let this_obj = this_v
         .as_object()
-        .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
+        .ok_or_else(|| ctx.throw_internal_error("unreachable"))?;
     let this = this_obj
         .payload()
         .intl_date_time_format()
@@ -944,7 +976,6 @@ fn js_date_time_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext)
     Ok(values_to_array(ctx, parts)?)
 }
 
-
 /// CLDR-style interval merge. Identical values collapse to a fully shared
 /// list. An all-numeric (or absent) date, a year difference, or any time
 /// difference duplicates both sides. Otherwise (mixed skeletons) the fields
@@ -963,9 +994,7 @@ fn merge_range_parts(
             .collect();
     }
     let val_of = |ps: &[(String, String)], ty: &str| -> Option<String> {
-        ps.iter()
-            .find(|(t, _)| t == ty)
-            .map(|(_, v)| v.clone())
+        ps.iter().find(|(t, _)| t == ty).map(|(_, v)| v.clone())
     };
     let has_date = this.year.is_some() || this.month.is_some() || this.day.is_some();
     let atomic = matches!(
@@ -1048,10 +1077,10 @@ fn merge_range_parts(
 }
 
 fn js_date_time_format_format_range_to_parts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this_obj = cc
-        .this()
+    let this_v = super::common::unwrap_fallback(ctx, cc.this(), &|v| is_date_time_format(v))?;
+    let this_obj = this_v
         .as_object()
-        .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
+        .ok_or_else(|| ctx.throw_internal_error("unreachable"))?;
     let this = this_obj
         .payload()
         .intl_date_time_format()
@@ -1085,10 +1114,10 @@ fn js_date_time_format_format_range_to_parts(ctx: &mut ScopedContext, cc: CallCo
 }
 
 fn js_date_time_format_format_range(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this_obj = cc
-        .this()
+    let this_v = super::common::unwrap_fallback(ctx, cc.this(), &|v| is_date_time_format(v))?;
+    let this_obj = this_v
         .as_object()
-        .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
+        .ok_or_else(|| ctx.throw_internal_error("unreachable"))?;
     let this = this_obj
         .payload()
         .intl_date_time_format()
@@ -1196,7 +1225,10 @@ fn format_fields(
                     weekday_name(DateField::Long, weekday_index(local_secs)),
                 ));
                 parts.push(("literal".to_string(), ", ".to_string()));
-                parts.push(("month".to_string(), month_names_long()[(month - 1) as usize].to_string()));
+                parts.push((
+                    "month".to_string(),
+                    month_names_long()[(month - 1) as usize].to_string(),
+                ));
                 parts.push(("literal".to_string(), " ".to_string()));
                 parts.push(("day".to_string(), day.to_string()));
                 parts.push(("literal".to_string(), ", ".to_string()));
@@ -1242,8 +1274,7 @@ fn format_fields(
         } else {
             let lang_s = this.locale.id.language.to_string();
             let ymd_first = matches!(lang_s.as_str(), "ja" | "zh" | "yue" | "ko");
-            let text_month =
-                matches!(this.month, Some(DateField::Long) | Some(DateField::Short));
+            let text_month = matches!(this.month, Some(DateField::Long) | Some(DateField::Short));
             let mut take = |ty: &str| -> Option<(String, String)> {
                 date_parts
                     .iter()
@@ -1274,11 +1305,15 @@ fn format_fields(
                     seq.push(y);
                 }
                 if let Some(m) = month_e {
-                    if !seq.is_empty() { push_sep(&mut seq, "/"); }
+                    if !seq.is_empty() {
+                        push_sep(&mut seq, "/");
+                    }
                     seq.push(m);
                 }
                 if let Some(d) = day_e {
-                    if !seq.is_empty() { push_sep(&mut seq, "/"); }
+                    if !seq.is_empty() {
+                        push_sep(&mut seq, "/");
+                    }
                     seq.push(d);
                 }
             } else {
@@ -1379,8 +1414,7 @@ fn format_fields(
         for (ty, val) in time_parts {
             parts.push((ty, val));
         }
-        let uses_day_period =
-            this.day_period.is_some() || this.time_style.is_some();
+        let uses_day_period = this.day_period.is_some() || this.time_style.is_some();
         if uses_day_period && this.hour.is_some() && use_12h {
             // A day period replaces the AM/PM marker when requested.
             parts.push(("literal".to_string(), " ".to_string()));
@@ -1434,10 +1468,10 @@ fn day_period_text(style: &str, h: i64) -> &'static str {
 }
 
 fn js_date_time_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let this_obj = cc
-        .this()
+    let this_v = super::common::unwrap_fallback(ctx, cc.this(), &|v| is_date_time_format(v))?;
+    let this_obj = this_v
         .as_object()
-        .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
+        .ok_or_else(|| ctx.throw_internal_error("unreachable"))?;
     let this = this_obj
         .payload()
         .intl_date_time_format()
