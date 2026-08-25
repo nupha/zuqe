@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-//! Shared helpers for the Intl implementation.
+use std::collections::HashSet;
 
 use icu::locale::{
     Locale, LocaleCanonicalizer,
@@ -98,21 +98,24 @@ pub(crate) fn is_structurally_valid_language_tag_allow_attrs(s: &str, allow_u_at
     if !lang_ok {
         return false;
     }
+
     let variant_ok = |p: &str| {
         ((5..=8).contains(&p.len()) && is_alnum(p))
             || (p.len() == 4 && p.as_bytes()[0].is_ascii_digit())
     };
+
     let mut script_seen = false;
     let mut region_seen = false;
-    let mut variants: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut singletons: std::collections::HashSet<char> = std::collections::HashSet::new();
+    let mut variants = HashSet::<String>::new();
+    let mut singletons = HashSet::<char>::new();
     // Section state: ' ' base grammar, else the current singleton extension.
     let mut section = ' ';
     let mut u_expect_value = false;
     let mut u_seen_key = false;
     let mut u_any = false;
     let mut section_empty = true;
-    let mut tlang_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut tlang_seen = HashSet::<String>::new();
+
     for p in &parts[1..] {
         if p.is_empty() {
             return false;

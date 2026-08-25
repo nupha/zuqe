@@ -248,7 +248,7 @@ impl Promise {
             is_handled: false,
         });
         let promise = Self(
-            ctx.create_instance_with_ctor(ctor, ObjectPayload::PROMISE(isa))
+            ctx.ordinary_create_from_constructor (ctor, ObjectPayload::PROMISE(isa))
                 .map_err(|_| -1)?
                 .0,
         );
@@ -370,7 +370,7 @@ impl Promise {
         job: impl Fn(&mut ScopedContext, Promise, &[JSValue; 2]) -> Result<JobState, i32> + 'static,
     ) -> Result<Self, i32> {
         let promise = Self(
-            ctx.create_instance_with_ctor(
+            ctx.ordinary_create_from_constructor (
                 JSValue::UNDEFINED,
                 ObjectPayload::PROMISE(Box::default()),
             )
@@ -711,7 +711,7 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
         return Ok(JSValue::UNDEFINED);
     }
 
-    let _ = cc.replace_data(0, JSValue::from(true));
+    let _ = cc.replace_data(0, JSValue::TRUE);
 
     let obj: JSValue = if resolve_type == PROMISE_MAGIC_allSettled {
         let mut ob = ctx.create_base_object()?;
@@ -768,5 +768,5 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
 
 pub(crate) fn js_promise_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let exec_func = cc.arg(0).ensure_callable(ctx)?;
-    Promise::create_with_executor(ctx, exec_func, cc.this()).map(|p| p.into())
+    Promise::create_with_executor(ctx, exec_func, cc.this()).map(JSValue::from)
 }
