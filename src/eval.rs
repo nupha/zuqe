@@ -49,7 +49,7 @@ impl EvalName {
     ///
     /// Module compilation requires a real URL as the module name / `import.meta.url`
     /// base; a `Name` (possibly a synthetic debug name) is not a valid module base.
-    fn as_base_url(&self) -> Option<&Url> {
+    const fn as_base_url(&self) -> Option<&Url> {
         match self {
             EvalName::BaseUrl(u) => Some(u),
             EvalName::Name(_) => None,
@@ -98,6 +98,33 @@ bitflags::bitflags! {
         /// compile script as root async function,
         /// so that top-level-await is allowed.
         const COMPILE_TO_ASYNC = 1 << 5;
+
+        /// Don't await the script's completion-value promise (node/bun-compatible
+        /// exit for Global-mode scripts).
+        ///
+        /// Purpose: controls whether `eval_wait` — after the event loop has
+        /// drained — keeps waiting for the script's completion-value promise
+        /// (the value of the last statement in Global mode) to settle.
+        /// It does NOT change event-loop liveness itself: timers, IO and other
+        /// polling jobs keep the loop alive in both modes.
+        ///
+        /// Unset (default, original aike behavior): if the completion value is
+        /// a pending promise, wait until it settles; its fulfillment value or
+        /// rejection reason determines the exit status. A never-settling
+        /// promise (e.g. a spec-level read/write deadlock) keeps the process
+        /// alive indefinitely — which makes such bugs visible instead of
+        /// silently truncating the run.
+        ///
+        /// Set: the completion-value promise is neither awaited nor observed;
+        /// the call returns as soon as the loop is idle, with
+        /// `ExitStatus::Value` carrying the raw ret_val. Matches node/bun:
+        /// a pending promise is not an active handle and does not keep the
+        /// process alive. Note a rejected completion value is then no longer
+        /// reported as a non-zero exit (unhandled-rejection gap).
+        ///
+        /// Module mode is unaffected by this flag: the top-level await promise
+        /// is always awaited (ESM language semantics; bun behaves the same).
+        const NO_AWAIT_RESULT = 1 << 6;
     }
 }
 
@@ -441,6 +468,16 @@ impl<'c> ScopedContext<'c> {
 
     /// Eval `source` script in `self` scope, wait till all microtasks are finished or execution is interrupted.
     /// Returns the event loop exit status with optional value.
+    ///
+    /// The completion value is observed unless `EvalFlags::NO_AWAIT_RESULT`
+    /// is set: a fulfilled completion value becomes `ExitStatus::Value`, a
+    /// rejected one becomes `ExitStatus::Exception`. A completion value still
+    /// pending when the loop drains never blocks exit here (node-like); with
+    /// `NO_AWAIT_RESULT` set a Global-script completion value is not even
+    /// observed — the raw ret_val is returned and its settlement does not
+    /// affect the exit status. Module entrypoints are exempt from the flag:
+    /// their top-level evaluation promise is always observed, mirroring the
+    /// async eval_wait.
     #[cfg(not(feature = "async_support"))]
     pub fn eval_wait(
         &mut self,
@@ -463,7 +500,17 @@ impl<'c> ScopedContext<'c> {
         // Note: ret_val should already be root or local node.
         debug_assert!(ret_val.gc_node().is_none_or(|h| h.is_root_or_local()));
 
-        let mut promise = crate::builtins::promise::Promise::try_from(ret_val).ok();
+        // NO_AWAIT_RESULT: the completion value of a Global script is neither
+        // awaited nor observed (see flag docs) — skip assessment entirely so
+        // its settlement cannot influence the exit status. Module entrypoints
+        // are exempt: their top-level evaluation promise is always observed,
+        // mirroring the async eval_wait.
+        let mut promise =
+            if eval_type == EvalType::Module || !flags.contains(EvalFlags::NO_AWAIT_RESULT) {
+                crate::builtins::promise::Promise::try_from(ret_val).ok()
+            } else {
+                None
+            };
         let mut result: ExitStatus = if let Some(p) = promise {
             match p.state() {
                 crate::builtins::promise::PromiseState::Fulfilled => {
@@ -546,6 +593,9 @@ impl<'c> Context<'c> {
 
     /// Eval `script` in `self` scope, wait till all microtasks are finished or execution is interrupted.
     /// Returns the event loop exit status with optional value.
+    ///
+    /// See [`ScopedContext::eval_wait`] for completion-value observation and
+    /// the `EvalFlags::NO_AWAIT_RESULT` opt-out.
     #[cfg(not(feature = "async_support"))]
     pub fn eval_wait(
         &mut self,
@@ -600,9 +650,19 @@ impl<'c> Context<'c> {
 
         // A module entrypoint evaluates to a Promise. Observe its settled state:
         // a top-level rejection is an uncaught error and must not be lost.
-        let promise_future = crate::builtins::promise::Promise::try_from(ret_val)
-            .ok()
-            .and_then(|p| p.into_future(&mut self.root_scope()).ok());
+        // For Global mode, ret_val is the script's completion value; unless
+        // NO_AWAIT_RESULT is set, a promise completion value is awaited after
+        // the loop drains (aike semantics: makes never-settling tails visible).
+        // With NO_AWAIT_RESULT it is ignored and the call returns as soon as
+        // the loop idles (node/bun-compatible exit for Global-mode scripts).
+        let promise_future =
+            if eval_type == EvalType::Module || !flags.contains(EvalFlags::NO_AWAIT_RESULT) {
+                crate::builtins::promise::Promise::try_from(ret_val)
+                    .ok()
+                    .and_then(|p| p.into_future(&mut self.root_scope()).ok())
+            } else {
+                None
+            };
 
         match promise_future {
             Some(fut) => {
