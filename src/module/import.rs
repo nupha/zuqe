@@ -37,13 +37,18 @@ impl GcTrace for ImportEntry {
 /// so that Proxy traps (ownKeys, get, getOwnPropertyDescriptor) fire
 /// before the call returns.
 fn extract_import_attrs(ctx: &mut ScopedContext, options: JSValue) -> JSResult {
-    if !options.is_object() {
+    if options.is_undefined() {
         return Ok(JSValue::UNDEFINED);
+    }
+
+    // ES §2.1.1.1 EvaluateImportCall step 10.a: Type(options) must be Object
+    if !options.is_object() {
+        return Err(ctx.throw_type_error("import() options must be an object or undefined"));
     }
 
     let attrs = match options.get_property_str(ctx, "with")? {
         v if v.is_object() => v,
-        v if v.is_undefined_or_null() => {
+        v if v.is_undefined() => {
             return Ok(JSValue::UNDEFINED);
         }
         _ => {
@@ -68,6 +73,10 @@ fn extract_import_attrs(ctx: &mut ScopedContext, options: JSValue) -> JSResult {
         }
         // Get the value (triggers Proxy get trap, may throw)
         let val = obj.get_property(ctx, pk.atom)?;
+        // ES §2.1.1.1 step 10.b.3.iii: import attribute values must be strings
+        if !val.is_string() {
+            return Err(ctx.throw_type_error("import attribute values must be strings"));
+        }
         plain_obj.define_property_value(ctx, pk.atom, val, JS_PROP_C_W_E)?;
     }
 

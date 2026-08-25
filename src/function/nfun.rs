@@ -130,35 +130,16 @@ impl NFuncPayload {
                     if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                         Err(cx.throw_type_error("must be called with new"))
                     } else {
-                        // ES262 OrdinaryCreateFromConstructor (§10.1.13):
-                        // observe newTarget.prototype before callback body.
-                        if let Some(o) = this_value.as_object() {
-                            let _ = o.get_property(cx, crate::Atom::CONST_prototype)?;
-                        }
                         f(cx, cc)
                     }
                 }
                 Callback::ConstructorOrFunc(f) => {
                     if flags & JS_CALL_FLAG_CONSTRUCTOR == 0 {
                         cc.set_this(JSValue::UNDEFINED); // set this_value to undefined
-                    } else {
-                        // ES262 OrdinaryCreateFromConstructor (§10.1.13):
-                        // observe newTarget.prototype before callback body.
-                        if let Some(o) = this_value.as_object() {
-                            let _ = o.get_property(cx, crate::Atom::CONST_prototype)?;
-                        }
                     }
                     f(cx, cc)
                 }
                 Callback::LegacyConstructorOrFunc(f) => {
-                    if flags & JS_CALL_FLAG_CONSTRUCTOR != 0 {
-                        // ES262 OrdinaryCreateFromConstructor (§10.1.13):
-                        // observe newTarget.prototype before callback body.
-                        if let Some(o) = this_value.as_object() {
-                            let _ = o.get_property(cx, crate::Atom::CONST_prototype)?;
-                        }
-                    }
-
                     // Constructed: `this` is new_target. Plain call: keep the
                     // receiver (possibly undefined) for the legacy path.
                     f(cx, cc)

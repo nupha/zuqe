@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, ops::Range, rc::Rc};
+use std::{cell::Cell, collections::HashMap, ops::Range, rc::Rc};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 use lre::{Regex, RegexFlags};
@@ -320,20 +320,27 @@ pub(super) fn make_regexp_capture_array(
 ) -> Result<(Array, usize), i32> {
     let mut items = alloc_fast_array_slots(ctx, range_and_name.len())?;
 
-    let mut indices: Option<(Vec<JSValue>, Option<Object>)> = if with_indices {
-        let mut lst = Vec::new();
-        lst.try_reserve(range_and_name.len())
-            .map_err(|_| ctx.throw_out_of_memory())?;
-        Some((lst, None))
-    } else {
-        None
-    };
-
     let prop_flags = JS_PROP_C_W_E | JS_PROP_THROW;
     let mut groups = JSValue::UNDEFINED;
 
     let mut start_index = 0;
     let mut last_index = 0;
+
+    // Collect unique names in source order and find their values.
+    // For duplicate named groups (ES2025), only the participating group's
+    // value is used; the key order follows first occurrence in source.
+    let mut name_values: Vec<(String, JSValue)> = Vec::new();
+    let mut name_map: HashMap<String, usize> = HashMap::new();
+
+    let mut indices_data: Option<(Vec<JSValue>, Vec<(String, JSValue)>, HashMap<String, usize>)> =
+        if with_indices {
+            let mut lst = Vec::new();
+            lst.try_reserve(range_and_name.len())
+                .map_err(|_| ctx.throw_out_of_memory())?;
+            Some((lst, Vec::new(), HashMap::new()))
+        } else {
+            None
+        };
 
     for (i, (range, name)) in range_and_name.iter().enumerate() {
         let substr: JSValue = if let Some(span) = range.clone() {
@@ -348,13 +355,18 @@ pub(super) fn make_regexp_capture_array(
         items.push(substr);
 
         if let Some(name) = name {
-            if groups.is_undefined() {
-                groups = ctx.create_base_object_with_proto(None)?.into();
+            if let Some(&idx) = name_map.get(name) {
+                // Duplicate name — update value only if this group participated
+                if range.is_some() {
+                    name_values[idx].1 = substr;
+                }
+            } else {
+                name_map.insert(name.clone(), name_values.len());
+                name_values.push((name.clone(), substr));
             }
-            groups.define_property_value_str(ctx, name, substr, prop_flags)?;
         }
 
-        if let Some((idxlst, idxgroup)) = &mut indices {
+        if let Some((idxlst, idx_name_values, idx_name_map)) = &mut indices_data {
             let idx = if let Some(r) = range {
                 Array::from_values(
                     ctx,
@@ -366,15 +378,25 @@ pub(super) fn make_regexp_capture_array(
             };
             idxlst.push(idx);
 
-            if let Some(n) = name {
-                if let Some(g) = idxgroup {
-                    g.define_property_value_str(ctx, n, idx, prop_flags)?;
+            if let Some(name) = name {
+                if let Some(&idx_pos) = idx_name_map.get(name) {
+                    // Duplicate name — update only if this group participated
+                    if range.is_some() {
+                        idx_name_values[idx_pos].1 = idx;
+                    }
                 } else {
-                    let mut g = ctx.create_base_object_with_proto(None)?;
-                    g.define_property_value_str(ctx, n, idx, prop_flags)?;
-                    idxgroup.replace(g);
+                    idx_name_map.insert(name.clone(), idx_name_values.len());
+                    idx_name_values.push((name.clone(), idx));
                 }
             }
+        }
+    }
+
+    // Build groups object in source order of first occurrence
+    if !name_values.is_empty() {
+        groups = ctx.create_base_object_with_proto(None)?.into();
+        for (name, val) in &name_values {
+            groups.define_property_value_str(ctx, name, val.clone(), prop_flags)?;
         }
     }
 
@@ -394,14 +416,22 @@ pub(super) fn make_regexp_capture_array(
     )?;
     res.define_property_value(ctx, Atom::CONST_groups, groups, prop_flags)?;
 
-    if let Some((idx_lst, idx_grp)) = indices {
+    if let Some((idx_lst, idx_name_values, _)) = indices_data {
         let mut indices = Array::from_values(ctx, idx_lst)?;
-        indices.define_property_value(
-            ctx,
-            Atom::CONST_groups,
-            idx_grp.map_or(JSValue::UNDEFINED, JSValue::from),
-            prop_flags,
-        )?;
+        if !idx_name_values.is_empty() {
+            let mut idxgrp = ctx.create_base_object_with_proto(None)?;
+            for (name, val) in &idx_name_values {
+                idxgrp.define_property_value_str(ctx, name, val.clone(), prop_flags)?;
+            }
+            indices.define_property_value(ctx, Atom::CONST_groups, idxgrp.into(), prop_flags)?;
+        } else {
+            indices.define_property_value(
+                ctx,
+                Atom::CONST_groups,
+                JSValue::UNDEFINED,
+                prop_flags,
+            )?;
+        }
         res.define_property_value(ctx, Atom::CONST_indices, indices.into(), prop_flags)?;
     }
 

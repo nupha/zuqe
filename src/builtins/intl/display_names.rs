@@ -63,6 +63,30 @@ pub(crate) static CLASS_DEF_DISPLAY_NAMES: ClassDef = ClassDef::builtin(
 pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     require_new_target(ctx, cc.this())?;
 
+    // ECMA-402 §17.3.1 step 2: OrdinaryCreateFromConstructor BEFORE
+    // argument validation — the prototype getter must fire before any
+    // ToObject / GetOption calls that may throw.
+    let default_data = DisplayNamesData {
+        locale: "und".parse().unwrap(),
+        style: DisplayStyle::Long,
+        display_type: DisplayType::Language,
+        fallback_none: false,
+        fallback_str: "code",
+        language_display: "dialect",
+    };
+    let mut instance = match ctx
+        .create_instance_with_ctor(cc.this(), ObjectPayload::INTL_DISPLAY_NAMES(Box::new(default_data)))
+    {
+        Ok(o) => o,
+        // create_instance_with_ctor may leave a pending JS exception when
+        // reading `new_target.prototype` fails (e.g. a poisoned getter).
+        // Propagate the pending exception.
+        Err(_) => {
+            return Err(-1);
+        }
+    };
+
+    // Step 3+: argument validation
     let locale = resolve_locale(ctx, cc.arg(0))?;
     let options = get_options_object(ctx, cc.arg(1))?;
 
@@ -136,17 +160,9 @@ pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallCont
         };
     }
 
-    let instance = match ctx
-        .create_instance_with_ctor(cc.this(), ObjectPayload::INTL_DISPLAY_NAMES(Box::new(data)))
-    {
-        Ok(o) => o,
-        // create_instance_with_ctor swallows JS exceptions thrown while
-        // reading `new_target.prototype` (e.g. a poisoned getter). Re-throw
-        // the pending exception instead of a generic failure.
-        Err(_) => {
-            return Err(ctx.throw_type_error("cannot construct DisplayNames"));
-        }
-    };
+    // Update the instance payload with validated data
+    *instance.payload_mut().intl_display_names_mut().ok_or_else(|| ctx.throw_type_error("not a DisplayNames"))? = data;
+
     Ok(JSValue::from(instance))
 }
 
