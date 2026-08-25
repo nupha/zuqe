@@ -251,7 +251,7 @@ impl ArrayBuffer {
         });
 
         // create array buffer or shared array buffer instance
-        ctx.create_instance_with_ctor(
+        ctx.ordinary_create_from_constructor(
             new_target,
             if !shared {
                 ObjectPayload::ARRAY_BUFFER(ab)
@@ -304,7 +304,7 @@ impl ArrayBuffer {
             opaque,
         });
         let mut obj = ctx
-            .create_instance_with_ctor(
+            .ordinary_create_from_constructor(
                 new_target,
                 if !shared {
                     ObjectPayload::ARRAY_BUFFER(isa)

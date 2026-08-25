@@ -305,7 +305,7 @@ fn js_duration_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
     };
 
     let instance = ctx
-        .create_instance_with_ctor(
+        .ordinary_create_from_constructor(
             new_target,
             ObjectPayload::INTL_DURATION_FORMAT(Box::new(data)),
         )

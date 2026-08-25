@@ -215,7 +215,7 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
         compact_display,
     };
     let instance = ctx
-        .create_instance_with_ctor(new_target, ObjectPayload::INTL_PLURAL_RULES(Box::new(data)))
+        .ordinary_create_from_constructor(new_target, ObjectPayload::INTL_PLURAL_RULES(Box::new(data)))
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }

@@ -23,7 +23,7 @@ pub(crate) fn js_object_constructor(ctx: &mut ScopedContext, cc: CallContext) ->
     let new_target = cc.this();
 
     if !new_target.is_undefined() && ctx.rt().current_function() != new_target {
-        ctx.create_instance_with_ctor(new_target, ObjectPayload::OBJECT)
+        ctx.ordinary_create_from_constructor(new_target, ObjectPayload::OBJECT)
             .map_err(|_| -1)
     } else {
         let v = cc.arg(0);

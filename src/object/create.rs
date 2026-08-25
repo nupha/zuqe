@@ -60,19 +60,19 @@ impl<'c> ScopedContext<'c> {
         self.create_instance_with_proto_payload(self.class_proto(payload.class_id()), payload)
     }
 
+    /// OrdinaryCreateFromConstructor:
     /// create instance applying constructor `ctor`, with `payload` data.
     /// new object's class is implied by `payload` kind.
     ///
     /// the `ctor` could be:
     /// - undefined: use the `payload` kind associated class prototype,
     /// - otherwise retrieve property `ctor.prototype` for prototype.
-    pub(crate) fn create_instance_with_ctor(
+    pub(crate) fn ordinary_create_from_constructor(
         &mut self,
         ctor: JSValue,
         payload: ObjectPayload,
     ) -> Result<Object, ObjectPayload> {
         let class_id = payload.class_id();
-
         let proto: Option<Object> = if ctor.is_undefined() {
             self.class_proto(class_id)
         } else if let Ok(p) = ctor.get_property(self, Atom::CONST_prototype) {
@@ -87,7 +87,6 @@ impl<'c> ScopedContext<'c> {
                 return Err(payload);
             }
         } else {
-            eprintln!("[DBG ciwct] Err(payload) taken (pending exc not inspected)");
             return Err(payload);
         };
 
@@ -114,7 +113,7 @@ impl<'c> ScopedContext<'c> {
             let _ = self.throw_internal_error("expect non-builtin class");
             Err(ObjectPayload::OTHER(OtherPayload::new(class_id, opaque)))
         } else {
-            self.create_instance_with_ctor(
+            self.ordinary_create_from_constructor(
                 new_target,
                 ObjectPayload::OTHER(OtherPayload::new(class_id, opaque)),
             )

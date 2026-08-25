@@ -125,7 +125,7 @@ pub(crate) fn js_relative_time_format_constructor(
     data.locale = super::common::resolve_locale_keys(data.locale, &[("nu", ns_static)]);
 
     let instance = ctx
-        .create_instance_with_ctor(
+        .ordinary_create_from_constructor(
             cc.this(),
             ObjectPayload::INTL_RELATIVE_TIME_FORMAT(Box::new(data)),
         )

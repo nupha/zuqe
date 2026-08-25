@@ -85,7 +85,7 @@ pub fn js_regexp_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         RegExpData::create(ctx, pattern, flags_str)?
     }));
     let mut obj = ctx
-        .create_instance_with_ctor(cc.this(), payload)
+        .ordinary_create_from_constructor(cc.this(), payload)
         .map_err(|_| -1)?;
 
     obj.define_property_value(

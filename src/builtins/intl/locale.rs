@@ -85,7 +85,7 @@ pub(crate) fn js_locale_constructor(ctx: &mut ScopedContext, cc: CallContext) ->
     }
 
     let instance = ctx
-        .create_instance_with_ctor(cc.this(), ObjectPayload::INTL_LOCALE(Box::new(data)))
+        .ordinary_create_from_constructor(cc.this(), ObjectPayload::INTL_LOCALE(Box::new(data)))
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
@@ -260,7 +260,7 @@ fn js_locale_maximize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         raw: this.raw.clone(),
     };
     let instance = ctx
-        .create_instance_with_ctor(cc.this(), ObjectPayload::INTL_LOCALE(Box::new(data)))
+        .ordinary_create_from_constructor(cc.this(), ObjectPayload::INTL_LOCALE(Box::new(data)))
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
@@ -283,7 +283,7 @@ fn js_locale_minimize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         raw: this.raw.clone(),
     };
     let instance = ctx
-        .create_instance_with_ctor(cc.this(), ObjectPayload::INTL_LOCALE(Box::new(data)))
+        .ordinary_create_from_constructor(cc.this(), ObjectPayload::INTL_LOCALE(Box::new(data)))
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }

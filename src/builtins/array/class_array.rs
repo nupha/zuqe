@@ -62,7 +62,15 @@ pub(crate) fn js_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
         (list, len)
     };
 
-    let mut arr = new_array_with_ctor(ctx, new_target, values)?;
+    let mut arr = Array::try_from(
+        ctx.ordinary_create_from_constructor(
+            new_target,
+            ObjectPayload::ARRAY(ArrayPayload::new(values)),
+        )
+        .map_err(|_| -1)?,
+    )
+    .unwrap();
+
     arr.set_length(ctx, len, true)?;
     Ok(arr.into())
 }
@@ -138,19 +146,6 @@ fn try_collect_values(
 ) -> Result<Vec<JSValue>, i32> {
     iter.try_collect::<Vec<_>>()
         .map_err(|_| ctx.throw_out_of_memory())
-}
-
-/// Create an Array instance honoring `new_target`'s prototype, seeded with
-/// `values`.
-fn new_array_with_ctor(
-    ctx: &mut ScopedContext,
-    new_target: JSValue,
-    values: Vec<JSValue>,
-) -> Result<Array, i32> {
-    let obj = ctx
-        .create_instance_with_ctor(new_target, ObjectPayload::ARRAY(ArrayPayload::new(values)))
-        .map_err(|_| -1)?;
-    Ok(Array::try_from(obj).unwrap())
 }
 
 /// Throw RangeError when `len` exceeds the maximum length a copy method

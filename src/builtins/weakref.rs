@@ -52,7 +52,7 @@ fn js_weakref_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     };
 
     let obj = ctx
-        .create_instance_with_ctor(
+        .ordinary_create_from_constructor(
             new_target,
             ObjectPayload::WEAKREF(Box::new(WeakRefData { target })),
         )
@@ -244,7 +244,7 @@ fn js_finrec_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     let obj = ctx
-        .create_instance_with_ctor(
+        .ordinary_create_from_constructor(
             new_target,
             ObjectPayload::FINALIZATION_REGISTRY(Box::new(data)),
         )

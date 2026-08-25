@@ -278,7 +278,7 @@ impl RegExp {
         re: Box<RegExpData>,
     ) -> Result<Self, i32> {
         let mut o = Self(
-            ctx.create_instance_with_ctor(ctor, ObjectPayload::REGEXP(re))
+            ctx.ordinary_create_from_constructor(ctor, ObjectPayload::REGEXP(re))
                 .map_err(|_| -1)?
                 .0,
         );

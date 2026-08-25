@@ -86,7 +86,7 @@ pub(crate) fn js_segmenter_constructor(ctx: &mut ScopedContext, cc: CallContext)
         granularity,
     };
     let instance = ctx
-        .create_instance_with_ctor(new_target, ObjectPayload::INTL_SEGMENTER(Box::new(data)))
+        .ordinary_create_from_constructor(new_target, ObjectPayload::INTL_SEGMENTER(Box::new(data)))
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }

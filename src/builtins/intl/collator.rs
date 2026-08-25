@@ -300,7 +300,7 @@ pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) 
     let new_target = cc.this();
     let data = build_collator_data(ctx, cc.arg(0), cc.arg(1))?;
     let instance = ctx
-        .create_instance_with_ctor(new_target, ObjectPayload::INTL_COLLATOR(Box::new(data)))
+        .ordinary_create_from_constructor(new_target, ObjectPayload::INTL_COLLATOR(Box::new(data)))
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }

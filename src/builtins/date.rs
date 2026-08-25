@@ -939,7 +939,7 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         // invoked as a function, returns toString()
         datetime_format(ctx, tm.into(), 0x13).map(JSValue::make_string)
     } else {
-        ctx.create_instance_with_ctor(new_target, ObjectPayload::DATE(tm))
+        ctx.ordinary_create_from_constructor(new_target, ObjectPayload::DATE(tm))
             .map(JSValue::from)
             .map_err(|_| -1)
     }

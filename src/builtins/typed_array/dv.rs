@@ -146,7 +146,7 @@ impl DataView {
         length_tracked: bool,
     ) -> Result<Self, i32> {
         let o = ctx
-            .create_instance_with_ctor(
+            .ordinary_create_from_constructor(
                 ctor,
                 ObjectPayload::DATAVIEW(DataViewPayload::new(
                     array_buffer,

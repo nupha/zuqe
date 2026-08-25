@@ -1177,7 +1177,7 @@ impl Bytecode {
                             // super() returns).
                             let (callee_this, ctor_this) = if !bc.attrs.is_derived_class_constructor
                             {
-                                match realm_scope.create_instance_with_ctor(
+                                match realm_scope.ordinary_create_from_constructor(
                                     ctor_new_target,
                                     ObjectPayload::OBJECT,
                                 ) {

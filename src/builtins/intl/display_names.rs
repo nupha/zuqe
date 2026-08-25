@@ -75,10 +75,10 @@ pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallCont
         language_display: "dialect",
     };
     let mut instance = match ctx
-        .create_instance_with_ctor(cc.this(), ObjectPayload::INTL_DISPLAY_NAMES(Box::new(default_data)))
+        .ordinary_create_from_constructor(cc.this(), ObjectPayload::INTL_DISPLAY_NAMES(Box::new(default_data)))
     {
         Ok(o) => o,
-        // create_instance_with_ctor may leave a pending JS exception when
+        // ordinary_create_from_constructor  may leave a pending JS exception when
         // reading `new_target.prototype` fails (e.g. a poisoned getter).
         // Propagate the pending exception.
         Err(_) => {

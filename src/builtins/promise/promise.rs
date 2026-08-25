@@ -248,7 +248,7 @@ impl Promise {
             is_handled: false,
         });
         let promise = Self(
-            ctx.ordinary_create_from_constructor (ctor, ObjectPayload::PROMISE(isa))
+            ctx.ordinary_create_from_constructor(ctor, ObjectPayload::PROMISE(isa))
                 .map_err(|_| -1)?
                 .0,
         );
@@ -370,7 +370,7 @@ impl Promise {
         job: impl Fn(&mut ScopedContext, Promise, &[JSValue; 2]) -> Result<JobState, i32> + 'static,
     ) -> Result<Self, i32> {
         let promise = Self(
-            ctx.ordinary_create_from_constructor (
+            ctx.ordinary_create_from_constructor(
                 JSValue::UNDEFINED,
                 ObjectPayload::PROMISE(Box::default()),
             )

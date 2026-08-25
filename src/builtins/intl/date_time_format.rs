@@ -101,7 +101,7 @@ pub(crate) fn js_date_time_format_constructor(
         let data =
             build_date_time_format_data(ctx, cc.arg(0), cc.arg(1), DateTimeDefaults::Standard)?;
         let instance = ctx
-            .create_instance_with_ctor(
+            .ordinary_create_from_constructor(
                 JSValue::UNDEFINED,
                 ObjectPayload::INTL_DATE_TIME_FORMAT(Box::new(data)),
             )
@@ -128,7 +128,7 @@ pub(crate) fn js_date_time_format_constructor(
 
     let data = build_date_time_format_data(ctx, cc.arg(0), cc.arg(1), DateTimeDefaults::Standard)?;
     let instance = ctx
-        .create_instance_with_ctor(
+        .ordinary_create_from_constructor(
             new_target,
             ObjectPayload::INTL_DATE_TIME_FORMAT(Box::new(data)),
         )

@@ -83,7 +83,7 @@ pub(crate) fn js_list_format_constructor(ctx: &mut ScopedContext, cc: CallContex
     }
 
     let instance = ctx
-        .create_instance_with_ctor(cc.this(), ObjectPayload::INTL_LIST_FORMAT(Box::new(data)))
+        .ordinary_create_from_constructor(cc.this(), ObjectPayload::INTL_LIST_FORMAT(Box::new(data)))
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }

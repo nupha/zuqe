@@ -225,7 +225,7 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
     if !new_target.is_callable() {
         let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
         let instance = ctx
-            .create_instance_with_ctor(
+            .ordinary_create_from_constructor(
                 JSValue::UNDEFINED,
                 ObjectPayload::INTL_NUMBER_FORMAT(Box::new(data)),
             )
@@ -253,7 +253,7 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
     let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
 
     let instance = ctx
-        .create_instance_with_ctor(
+        .ordinary_create_from_constructor(
             new_target,
             ObjectPayload::INTL_NUMBER_FORMAT(Box::new(data)),
         )
@@ -1669,24 +1669,6 @@ fn format_fixed(
         }
     }
     Ok(out)
-}
-
-/// Pad the integer part of a plain number string to at least `min_int` digits.
-fn pad_min_integer(s: &mut String, min_int: i32) {
-    if min_int <= 1 {
-        return;
-    }
-    let neg = s.starts_with('-');
-    let digits = if neg { &s[1..] } else { s.as_str() };
-    if digits.len() < min_int as usize {
-        let padding = "0".repeat(min_int as usize - digits.len());
-        let new = if neg {
-            format!("-{}{}", padding, digits)
-        } else {
-            format!("{}{}", padding, digits)
-        };
-        *s = new;
-    }
 }
 
 fn insert_grouping(s: &mut String, grouping_sep: char, indian: bool) {
