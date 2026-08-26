@@ -30,7 +30,12 @@ pub type ClassID = u16;
 /// Class instance finalize callback, called from `ObjectImpl::drop()` when a class instance is garbage collected.
 pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
 /// free user class instance handler
-pub(crate) type ClassFinalizeOpaqueFn = fn(rt: &mut RuntimeImpl, opaque: *mut c_void, id: usize);
+pub(crate) type ClassFinalizeOpaqueFn = fn(
+    rt: &mut RuntimeImpl,
+    payload_opaque: *mut c_void,
+    class_id: usize,
+    id: usize,
+);
 /// class unregister handler.
 ///
 /// # Note
@@ -51,7 +56,8 @@ pub type ClassCallFn = fn(
 ) -> JSResult;
 /// GC marker for non-builtin class instance's opaque payload.
 /// Called during GC mark phase to trace gc-nodes held inside opaque.
-pub(crate) type ClassGcTraceFn = fn(opaque: *mut c_void, gcx: &mut GcTraceCtx);
+pub(crate) type ClassGcTraceFn =
+    fn(payload_opaque: *mut c_void, gcx: &mut GcTraceCtx, class_id: usize);
 
 pub type DefineOwnPropertyFn = fn(
     ctx: &mut ScopedContext,

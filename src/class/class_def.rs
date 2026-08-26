@@ -402,8 +402,9 @@ impl ClassDef {
 
     fn default_fini_fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
         if let Some(u) = isa.other() {
-            if let Some(f) = rt.class_registry[u.class_id as usize].on_finalize_opaque {
-                f(rt, u.opaque, id)
+            let class_id = u.class_id;
+            if let Some(f) = rt.class_registry[class_id as usize].on_finalize_opaque {
+                f(rt, u.opaque, class_id as usize, id)
             }
         } else {
             unreachable!("builtin class: finalize handler is required");

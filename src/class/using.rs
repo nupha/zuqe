@@ -39,7 +39,7 @@ impl GcTrace for OtherPayload {
                 .get(self.class_id as usize)
                 .and_then(|c| c.on_gc_trace)
             {
-                f(self.opaque, gcx);
+                f(self.opaque, gcx, self.class_id as usize);
             }
         }
     }

@@ -171,8 +171,6 @@ pub struct RuntimeImpl {
     #[cfg(feature = "zapi")]
     pub(crate) zapi_class_map:
         std::sync::Mutex<std::collections::HashMap<crate::class::ClassID, usize>>,
-    #[cfg(feature = "zapi")]
-    pub(crate) zapi_pending_class_def: *const zuqe_zapi::ffi::ZqClassDef,
 }
 
 impl Drop for RuntimeImpl {
@@ -246,8 +244,6 @@ impl RuntimeImpl {
             zapi_next_token: std::sync::atomic::AtomicI32::new(1),
             #[cfg(feature = "zapi")]
             zapi_class_map: std::sync::Mutex::new(std::collections::HashMap::new()),
-            #[cfg(feature = "zapi")]
-            zapi_pending_class_def: std::ptr::null(),
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,

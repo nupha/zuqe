@@ -274,14 +274,29 @@ unsafe extern "C" fn zapi_call_function(env: ZqEnv, info: *mut ZqCallbackInfoS) 
     }
 }
 
-fn zapi_gc_trace_bridge(opaque: *mut c_void, gcx: &mut gc_lite::GcTraceCtx) {
+fn zapi_gc_trace_bridge(
+    payload_opaque: *mut c_void,
+    gcx: &mut gc_lite::GcTraceCtx,
+    class_id: usize,
+) {
     let rt = unsafe { &*(gcx.opaque() as *const crate::RuntimeImpl) };
-    let def = unsafe { &*rt.zapi_pending_class_def };
+    // Resolve this class's own ZqClassDef via its ClassID (one entry per class).
+    let def_ptr = rt
+        .zapi_class_map
+        .lock()
+        .unwrap()
+        .get(&(class_id as u16))
+        .copied()
+        .unwrap_or(0);
+    if def_ptr == 0 {
+        return;
+    }
+    let def = unsafe { &*(def_ptr as *const ZqClassDef) };
     if let Some(gc_trace) = def.gc_trace {
         let mut trace_ctx = ZqGcTraceCtxS {
             inner: (gcx as *mut gc_lite::GcTraceCtx).cast::<c_void>(),
         };
-        unsafe { gc_trace(&mut trace_ctx, opaque) };
+        unsafe { gc_trace(&mut trace_ctx, payload_opaque) };
     }
 }
 
@@ -372,17 +387,31 @@ unsafe extern "C" fn zapi_register_class(env: ZqEnv, class_def: *const ZqClassDe
 
     let mut cd = crate::class::ClassDef::new_with(leaked, zapi_class_init);
 
-    // Store ZqClassDef in RuntimeImpl so bridges can access it.
-    ctx.rt_mut().zapi_pending_class_def = class_def;
-
     if def.gc_trace.is_some() {
         cd = cd.on_gc_trace(zapi_gc_trace_bridge);
     }
     if def.finalize.is_some() {
-        cd = cd.on_dispose(|_rt, opaque, _| {
-            let def = unsafe { &*_rt.zapi_pending_class_def };
-            if let Some(fin) = def.finalize {
-                unsafe { fin(std::ptr::null_mut(), opaque) };
+        // Per-class dispatch: the host forwards this object's ClassID, which
+        // maps to its own ZqClassDef in `zapi_class_map` (one entry per class).
+        cd = cd.on_dispose(|rt, payload_opaque, class_id, _| {
+            let def_ptr = rt
+                .zapi_class_map
+                .lock()
+                .unwrap()
+                .get(&(class_id as u16))
+                .copied()
+                .unwrap_or(0);
+            if def_ptr != 0 {
+                let def = unsafe { &*(def_ptr as *const ZqClassDef) };
+                if std::env::var_os("ZUQE_ZAPI_DEBUG").is_some() {
+                    let name = unsafe { std::ffi::CStr::from_ptr(def.name) }
+                        .to_string_lossy()
+                        .into_owned();
+                    eprintln!("[zapi] finalize class={name}");
+                }
+                if let Some(fin) = def.finalize {
+                    unsafe { fin(std::ptr::null_mut(), payload_opaque) };
+                }
             }
         });
     }

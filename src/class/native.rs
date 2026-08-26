@@ -82,10 +82,10 @@ macro_rules! def_native_object {
                 // Set on_dispose to free heap-allocated opaque.
                 // () payload uses null opaque so the null-check short-circuits;
                 // real types need Box::from_raw to reclaim the allocation.
-                cd = cd.on_dispose(|_, opaque: *mut std::ffi::c_void, _| {
-                    if !opaque.is_null() {
+                cd = cd.on_dispose(|_, payload_opaque: *mut std::ffi::c_void, _class_id, _| {
+                    if !payload_opaque.is_null() {
                         unsafe {
-                            let _ = Box::from_raw(opaque.cast::<$payload_ty>());
+                            let _ = Box::from_raw(payload_opaque.cast::<$payload_ty>());
                         }
                     }
                 });
@@ -95,9 +95,9 @@ macro_rules! def_native_object {
 
                 // set payload gc handler
                 $(
-                    cd = cd.on_gc_trace(|opaque, gcx| {
-                        debug_assert!(!opaque.is_null());
-                        let p = unsafe { &*opaque.cast::<$payload_ty>() };
+                    cd = cd.on_gc_trace(|payload_opaque, gcx, _class_id| {
+                        debug_assert!(!payload_opaque.is_null());
+                        let p = unsafe { &*payload_opaque.cast::<$payload_ty>() };
                         $on_payload_gc(p, gcx);
                     });
                 )?
