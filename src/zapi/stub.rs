@@ -6,7 +6,7 @@ use std::ffi::c_void;
 use once_cell::sync::Lazy;
 use zuqe_zapi::ffi::{
     ZQ_ABI_VERSION, ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqFieldDef, ZqGcTraceCtxS,
-    ZqGcTraceFn, ZqRawValue,
+    ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn, ZqRawValue,
 };
 
 use crate::{JSValue, ScopedContext, class::ClassID};
@@ -511,6 +511,51 @@ unsafe extern "C" fn zapi_set_gc_trace_func(
     0
 }
 
+/// Extension-side job callbacks: see `ZqJobRunFn` / `ZqJobTraceFn` in ffi.
+
+/// GC node for a queued job: forwards tracing to the extension so JS values
+/// held inside `data` stay reachable across collections.
+struct ZqJobNode {
+    trace: Option<ZqJobTraceFn>,
+    data: *mut c_void,
+}
+
+impl crate::microtask::JobGcTrace for ZqJobNode {
+    fn job_trace_values(&self, gcx: &mut gc_lite::GcTraceCtx) {
+        if let Some(f) = self.trace {
+            let mut tc = ZqGcTraceCtxS {
+                inner: (gcx as *mut gc_lite::GcTraceCtx).cast::<c_void>(),
+            };
+            unsafe { f(self.data, &mut tc) };
+        }
+    }
+}
+
+/// Bridge the host polling-job queue to extensions (fetch/fs async pattern):
+/// each tick runs `run(data)` on the JS thread until it reports Done/Err.
+unsafe extern "C" fn zapi_queue_job(
+    env: ZqEnv,
+    run: ZqJobRunFn,
+    trace: Option<ZqJobTraceFn>,
+    data: *mut c_void,
+) -> i32 {
+    let ctx = ctx_from_env(env);
+    ctx.queue_job(
+        move |cx| {
+            let mut env_s = env_from_ctx(cx);
+            let env = &mut env_s as *mut ZqEnvS as ZqEnv;
+            match unsafe { run(data, env) } {
+                0 => Ok(crate::microtask::JobState::Done),
+                1 => Ok(crate::microtask::JobState::Again),
+                2 => Ok(crate::microtask::JobState::AgainNoHold),
+                _ => Err(-1),
+            }
+        },
+        ZqJobNode { trace, data },
+    );
+    0
+}
+
 unsafe extern "C" fn zapi_get_value_type(_env: ZqEnv, val: ZqRawValue) -> zuqe_zapi::ffi::ZqType {
     use zuqe_zapi::ffi::ZqType;
     let v = JSValue(val, std::marker::PhantomData);
@@ -616,6 +661,7 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         value_to_string: zapi_value_to_string,
         call_constructor: zapi_call_constructor,
         set_gc_trace_func: zapi_set_gc_trace_func,
+        queue_job: zapi_queue_job,
 
         // host-provided constant value handles
         value_undefined: crate::JSValue::UNDEFINED.0,
