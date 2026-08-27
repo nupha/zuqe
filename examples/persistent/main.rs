@@ -1260,6 +1260,45 @@ async fn main() -> ExitCode {
     )
     .await as i32;
 
+    // regexp cross-runtime persistence (was: OP_REGEXP panic on fresh runtime)
+    failed += !check_roundtrip_js(
+        "regexp literal",
+        r#"(function(){ return /\d+/.test("42") })"#,
+        "__v()",
+        "true",
+    )
+    .await as i32;
+    failed += !check_roundtrip_js(
+        "regexp with flags",
+        r#"(function(){ return /hello/i.test("HELLO") })"#,
+        "__v()",
+        "true",
+    )
+    .await as i32;
+
+    // class constructor cross-runtime persistence (was: empty shell, missing prototype)
+    failed += !check_roundtrip_js(
+        "class basic round-trip",
+        "(function(){ class Foo { constructor(n){ this.n = n } } return new Foo(5) })",
+        "String(__v().n)",
+        "5",
+    )
+    .await as i32;
+    failed += !check_roundtrip_js(
+        "class has prototype methods",
+        "(function(){ class Foo { greet(){ return 42 } } return new Foo() })",
+        "String(__v().greet())",
+        "42",
+    )
+    .await as i32;
+    failed += !check_roundtrip_js(
+        "class prototype constructor backlink",
+        "(function(){ class Foo {} return Foo.prototype.constructor === Foo })",
+        "String(__v())",
+        "true",
+    )
+    .await as i32;
+
     // module edge cases (cross-runtime namespace reload)
     let mod_dir = std::env::temp_dir().join("zhuque_persist_mod");
     std::fs::create_dir_all(&mod_dir).expect("create module temp dir");

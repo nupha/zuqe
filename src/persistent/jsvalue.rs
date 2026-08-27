@@ -486,6 +486,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                     1 => self.deserialize_value()?.as_object(),
                     _ => None,
                 };
+                let class_home_object = home_object;
                 let mut payload = BFuncPayload::new(bc, captured);
                 if let Some(h) = home_object {
                     payload.set_home_object(Some(h));
@@ -553,6 +554,39 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                     .map_err(|_| {
                         BytecodeSerializeError::InvalidValue("cannot set prototype".into())
                     })?;
+                } else if bc_ref.attrs.need_home_object {
+                    // Class constructor: need_home_object=true, has_prototype=false.
+                    // The home_object is the class prototype object (already restored
+                    // above).  Define `.prototype` as a data property pointing to it,
+                    // matching js_op_define_class_for_arena's runtime setup.
+                    obj.set_flag_constructor(true);
+                    if let Some(h) = class_home_object {
+                        let mut proto_obj: Object = h.into();
+                        obj.define_property_value(
+                            self.ctx,
+                            Atom::CONST_prototype,
+                            JSValue::from(proto_obj),
+                            crate::JS_PROP_WRITABLE,
+                        )
+                        .map_err(|_| {
+                            BytecodeSerializeError::InvalidValue(
+                                "cannot set class prototype".into(),
+                            )
+                        })?;
+                        // Backlink: proto.constructor = ctor (mirrors runtime path).
+                        proto_obj
+                            .define_property_value(
+                                self.ctx,
+                                Atom::CONST_constructor,
+                                JSValue::from(obj),
+                                crate::JS_PROP_WRITABLE | crate::JS_PROP_CONFIGURABLE,
+                            )
+                            .map_err(|_| {
+                                BytecodeSerializeError::InvalidValue(
+                                    "cannot set class proto constructor".into(),
+                                )
+                            })?;
+                    }
                 }
                 Ok(JSValue::from(obj))
             }

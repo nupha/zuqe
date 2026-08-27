@@ -87,6 +87,28 @@ impl JSValue {
         sctx.buffer.extend_from_slice(BYTECODE_SERIALIZE_MAGIC);
         sctx.buffer
             .extend_from_slice(&BYTECODE_SERIALIZE_VERSION.to_le_bytes());
+
+        // Persist the runtime's pre-compiled regexp table so that OP_REGEXP
+        // indices remain valid across runtimes. Each entry stores only the
+        // source pattern and flags — the compiled Regex is rebuilt on restore.
+        #[cfg(feature = "builtin_regexp")]
+        {
+            let rps = &ctx.rt().regexp_precompiled;
+            sctx.write_u32(rps.len() as u32);
+            for rp in rps {
+                let pat = rp.pattern.encode_utf8_bytes(false);
+                sctx.write_u32(pat.len() as u32);
+                sctx.write_bytes(&pat);
+                let flg = rp.flags_str.encode_utf8_bytes(false);
+                sctx.write_u32(flg.len() as u32);
+                sctx.write_bytes(&flg);
+            }
+        }
+        #[cfg(not(feature = "builtin_regexp"))]
+        {
+            sctx.write_u32(0);
+        }
+
         sctx.serialize_value(ctx, val)?;
         Ok(sctx.buffer.into_boxed_slice())
     }
@@ -107,6 +129,47 @@ impl JSValue {
                 "unsupported bytecode version {version} (expected {BYTECODE_SERIALIZE_VERSION})"
             )));
         }
+
+        // Restore the pre-compiled regexp table serialized by `dump`.
+        #[cfg(feature = "builtin_regexp")]
+        {
+            let count = inp.read_u32()? as usize;
+            for _ in 0..count {
+                let pat_bytes = {
+                    let n = inp.read_u32()? as usize;
+                    inp.read_bytes(n)?
+                };
+                let flags_bytes = {
+                    let n = inp.read_u32()? as usize;
+                    inp.read_bytes(n)?
+                };
+                let pattern = String::from_utf8(pat_bytes)
+                    .map_err(|e| BytecodeSerializeError::Encode(e.to_string()))?;
+                let flags = String::from_utf8(flags_bytes)
+                    .map_err(|e| BytecodeSerializeError::Encode(e.to_string()))?;
+                let pat_sd = crate::string::StringData::from_str(&pattern)
+                    .map_err(|_| BytecodeSerializeError::Encode("OOM in regexp pattern".into()))?;
+                let flg_sd = crate::string::StringData::from_str(&flags)
+                    .map_err(|_| BytecodeSerializeError::Encode("OOM in regexp flags".into()))?;
+                let re_data = crate::builtins::regexp::RegExpData::create(
+                    inp.ctx, pat_sd, flg_sd,
+                )
+                .map_err(|_| {
+                    BytecodeSerializeError::InvalidValue("failed to recompile regexp".into())
+                })?;
+                inp.ctx.rt_mut().regexp_precompiled.push(re_data);
+            }
+        }
+        #[cfg(not(feature = "builtin_regexp"))]
+        {
+            let count = inp.read_u32()?;
+            if count != 0 {
+                return Err(BytecodeSerializeError::Encode(
+                    "blob contains regexp data but builtin_regexp is disabled".into(),
+                ));
+            }
+        }
+
         inp.deserialize_value()
     }
 }
