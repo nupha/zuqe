@@ -531,7 +531,31 @@ impl crate::microtask::JobGcTrace for ZqJobNode {
     }
 }
 
-/// Bridge the host polling-job queue to extensions (fetch/fs async pattern):
+/// Take the pending exception and return its raw handle
+/// (value_undefined if none). Mirrors ScopedContext::take_exception.
+unsafe extern "C" fn zapi_take_exception(env: ZqEnv) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let exc = ctx.take_exception();
+    let raw = match exc {
+        crate::error::Exception::Error(val) => val.0,
+        _ => ZQ_API_TABLE.value_undefined,
+    };
+    debug_assert_ne!(raw, ZQ_API_TABLE.value_exception,
+        "take_exception must never return the exception sentinel");
+    raw
+}
+
+/// Peek the pending exception without consuming it (value_undefined if none).
+unsafe extern "C" fn zapi_exception(env: ZqEnv) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let raw = match ctx.rt().exception() {
+        crate::error::Exception::Error(val) => val.0,
+        _ => ZQ_API_TABLE.value_undefined,
+    };
+    debug_assert_ne!(raw, ZQ_API_TABLE.value_exception,
+        "exception() must never return the exception sentinel");
+    raw
+}
 /// each tick runs `run(data)` on the JS thread until it reports Done/Err.
 unsafe extern "C" fn zapi_queue_job(
     env: ZqEnv,
@@ -662,6 +686,8 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         call_constructor: zapi_call_constructor,
         set_gc_trace_func: zapi_set_gc_trace_func,
         queue_job: zapi_queue_job,
+        take_exception: zapi_take_exception,
+        exception: zapi_exception,
 
         // host-provided constant value handles
         value_undefined: crate::JSValue::UNDEFINED.0,
