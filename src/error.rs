@@ -209,28 +209,35 @@ impl<'c> ScopedContext<'c> {
     /// if other GC references exist, GC will trace it; otherwise it should be collected.
     pub fn throw(&mut self, exc: Exception) {
         if let Exception::Error(val) = &exc
-            && let Some(n) = val.as_gc_node()
+            && let Some(mut n) = val.as_gc_node()
         {
-            // If the node is LOCAL, it must be in some scope's cache.
+            // If the node is LOCAL, remove it from the current scope cache
+            // and clear the LOCAL flag so the exception slot keeps it alive.
+            //
             // Search from current scope upward through ancestors.
+            // For cross-realm errors (e.g. `throw new otherRealm.TypeError()`),
+            // the node is LOCAL on a *different* scope stack and won't be
+            // found here — clear the LOCAL flag via GcHead::clear_local_flag().
+            // The node stays protected by the other scope's cache; it will be
+            // cleaned up when that scope is eventually dropped.
             if unsafe { n.as_ref().is_local() } {
-                #[cfg(debug_assertions)]
-                let mut _found = false;
-
+                let mut found = false;
                 let mut scope = Some(self.gc_state()); // start from self.gc() - the most-inner scope.
                 while let Some(s) = scope {
                     if s.remove_node(n) {
-                        #[cfg(debug_assertions)]
-                        {
-                            _found = true;
-                        }
+                        found = true;
                         break;
                     }
                     scope = s.parent().map(|(p, _)| p);
                 }
 
-                #[cfg(debug_assertions)]
-                debug_assert!(_found, "LOCAL node not found in any scope cache");
+                if !found {
+                    // Cross-realm: node lives on another scope stack.
+                    // Clear LOCAL flag so set_exception won't assert.
+                    unsafe {
+                        n.as_mut().clear_local_flag();
+                    }
+                }
             }
         }
 
