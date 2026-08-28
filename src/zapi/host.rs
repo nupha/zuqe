@@ -260,6 +260,29 @@ impl<'a> ScopedContext<'a> {
         let api_ptr = api as *const ZqApi as *mut ZqApi;
 
         let mut md_info = ZqModuleInfo::default();
+
+        // Hand the extension its own canonical load path before registration
+        // (dlopen-filename pattern): extensions locate sibling
+        // resources relative to it via `zuqe_zapi::module_path()`.
+        //
+        // Ownership: intentionally leaked — never freed by the process. The
+        // extension stores this pointer in its own static (`module_path()`
+        // promises `&'static str`) and may read it at any later point, even
+        // during teardown, so freeing it here would be a use-after-free.
+        // Bounded: one allocation per loaded module (cache-deduped).
+        // Reclaimed wholesale by the OS at process exit, like the dylib
+        // mapping kept alive by `mem::forget` below.
+        let path_c = match std::ffi::CString::new(abs_path.to_string_lossy().as_ref()) {
+            Ok(s) => s,
+            Err(e) => {
+                return Err(self.throw_internal_error(&format!(
+                    "invalid extension path '{}': {e}",
+                    abs_path.display()
+                )));
+            }
+        };
+        md_info.path = Box::leak(Box::new(path_c)).as_ptr();
+
         unsafe { module_register_fn(api_ptr, &mut md_info) };
 
         // Pre-pass: snapshot the exports and register every CLASS field (host
@@ -299,6 +322,16 @@ impl<'a> ScopedContext<'a> {
             }
         }
 
+        // Inject `__file__` — the canonical load path as a plain string —
+        // into the module namespace (Python `__file__` semantics) unless the
+        // extension exports its own (author wins). Done host-side so prebuilt
+        // extensions get it without recompiling.
+        let inject_file = !export_names.iter().any(|n| n == "__file__");
+        if inject_file {
+            export_names.push("__file__".to_string());
+        }
+        let module_path_str = abs_path.to_string_lossy().into_owned();
+
         // Keep the library alive.
         std::mem::forget(lib);
 
@@ -315,6 +348,7 @@ impl<'a> ScopedContext<'a> {
                     return Err(ctx.throw_internal_error("zapi module init failed"));
                 }
             }
+
             let mut class_iter = class_ids.iter();
             for def in &fields {
                 let name = def
@@ -328,6 +362,15 @@ impl<'a> ScopedContext<'a> {
                 let value = eval_field_value(ctx, def, class_id)?;
                 set_module_export(ctx, md, name, value)?;
             }
+
+            if inject_file {
+                // export `__file__` field
+                let sr = ctx
+                    .create_string_from_utf8(module_path_str.into_bytes())
+                    .map_err(|_| -1)?;
+                set_module_export(ctx, md, "__file__", crate::JSValue::make_string(sr))?;
+            }
+
             Ok(())
         };
 
