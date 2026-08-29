@@ -311,7 +311,7 @@ async fn main_impl() {
     // never runs. Install a vectored exception handler to print the native
     // stack at the faulting point. REMOVE AFTER DIAGNOSIS.
     unsafe {
-        AddVectoredExceptionHandler(1, veh_av_backtrace as usize);
+        AddVectoredExceptionHandler(1, veh_av_backtrace as *const () as usize);
     }
 
     // Install a panic hook that prints the script currently being run. This is
