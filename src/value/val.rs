@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{marker::PhantomData, ptr::NonNull};
+use std::{ffi::c_void, marker::PhantomData, ptr::NonNull};
 
 use gc_lite::{GcHead, GcNode, GcRef, GcTrace, GcTraceCtx};
 
@@ -11,7 +11,7 @@ use crate::{
     function::{Bytecode, BytecodeImpl},
     module::ModuleDefImpl,
     number::{Float64Union, JS_DTOA_VAR_FORMAT, f64_stringify},
-    object::{Object, ObjectImpl, ObjectPayload},
+    object::{Object, ObjectImpl},
     string::{RopeImpl, StringImpl, StringRef},
     utils::{hash_usize, unlikely},
     value::HINT_STRING,
@@ -362,7 +362,7 @@ impl JSValue {
         } else if self.tag() == JSValueTag::Object {
             // Boolean objects (e.g. `new Boolean(true)`) must unwrap their
             // stored primitive, not be rejected as a non-boolean.
-            unsafe { self.as_object_unchecked().payload().bool().copied() }
+            unsafe { self.as_object_unchecked() }.payload_bool().copied()
         } else {
             None
         }
@@ -453,7 +453,7 @@ impl JSValue {
             // unwrap String object
             let o = unsafe { self.as_object_unchecked() };
             if o.class_id() == JS_CLASS_STRING {
-                o.payload().string().copied()
+o.payload_string().copied()
             } else {
                 None
             }
@@ -473,7 +473,7 @@ impl JSValue {
         } else if allow_symbol_object && tag == (JSValueTag::Object as i32) {
             let o = unsafe { self.as_object_unchecked() };
             if o.class_id() == JS_CLASS_SYMBOL {
-                return o.payload().string().copied();
+                return o.payload_string().copied();
             }
         }
 
@@ -771,23 +771,31 @@ impl JSValue {
                     .objectify(ctx, JSValue::UNDEFINED)
             },
             JSValueTag::Int | JSValueTag::Float64 => ctx
-                .create_instance_with_payload(ObjectPayload::NUMBER(*self))
+                .create_instance_with_class(
+                    JS_CLASS_NUMBER,
+                    Box::into_raw(Box::new(*self)) as *mut c_void,
+                )
                 .map_err(|_| -1),
             JSValueTag::Bool => ctx
-                .create_instance_with_payload(ObjectPayload::BOOLEAN(self.payload_i32() != 0))
+                .create_instance_with_class(
+                    JS_CLASS_BOOLEAN,
+                    Box::into_raw(Box::new(self.payload_i32() != 0)) as *mut c_void,
+                )
                 .map_err(|_| -1),
 
             JSValueTag::Symbol => ctx
-                .create_instance_with_payload(ObjectPayload::SYMBOL(unsafe {
-                    self.as_string_unchecked()
-                }))
+                .create_instance_with_class(
+                    JS_CLASS_SYMBOL,
+                    Box::into_raw(Box::new(unsafe { self.as_string_unchecked() })) as *mut c_void,
+                )
                 .map_err(|_| -1),
 
             #[cfg(feature = "big_int")]
             JSValueTag::BigInt => ctx
-                .create_instance_with_payload(ObjectPayload::BIG_INT(unsafe {
-                    self.as_bigint_unchecked()
-                }))
+                .create_instance_with_class(
+                    crate::JS_CLASS_BIG_INT,
+                    Box::into_raw(Box::new(unsafe { self.as_bigint_unchecked() })) as *mut c_void,
+                )
                 .map_err(|_| -1),
 
             JSValueTag::Exception => {
@@ -1007,13 +1015,13 @@ mod serde_json_support {
         ) -> Result<serde_json::Value, i32> {
             match obj.class_id() {
                 JS_CLASS_STRING => {
-                    if let Some(s) = obj.payload().string() {
+                    if let Some(s) = obj.payload_string() {
                         let rust_str = s.content().encode_utf8(false).into_owned();
                         return Ok(serde_json::Value::String(rust_str));
                     }
                 }
                 JS_CLASS_NUMBER => {
-                    if let Some(n) = obj.payload().value() {
+                    if let Some(n) = obj.payload_value() {
                         return if let Some(num) = n.as_number() {
                             match num {
                                 IntOrFloat::Int64(i) => Ok(serde_json::Value::Number(i.into())),
@@ -1033,7 +1041,7 @@ mod serde_json_support {
                     }
                 }
                 JS_CLASS_BOOLEAN => {
-                    if let Some(b) = obj.payload().bool() {
+                    if let Some(b) = obj.payload_bool() {
                         return Ok(serde_json::Value::Bool(*b));
                     }
                 }

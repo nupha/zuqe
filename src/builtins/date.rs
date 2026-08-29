@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use std::{
+    ffi::c_void,
     ops::RangeInclusive,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -14,7 +15,6 @@ use crate::{
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
-    object::ObjectPayload,
     string::{CharCode, StringBuf, StringRef},
     value::{HINT_FORCE_ORDINARY, HINT_NONE, HINT_NUMBER, HINT_STRING, JSValue},
 };
@@ -895,9 +895,8 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         1 => {
             if let Some(ts) = cc
                 .arg(0)
-                .payload()
-                .and_then(ObjectPayload::datetime)
-                .copied()
+                .as_object()
+                .and_then(|o| o.payload_datetime().copied())
             {
                 ts
             } else {
@@ -939,14 +938,20 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         // invoked as a function, returns toString()
         datetime_format(ctx, tm.into(), 0x13).map(JSValue::make_string)
     } else {
-        ctx.ordinary_create_from_constructor(new_target, ObjectPayload::DATE(tm))
-            .map(JSValue::from)
-            .map_err(|_| -1)
+        ctx.ordinary_create_from_constructor_class(
+            new_target,
+            JS_CLASS_DATE,
+            Box::into_raw(Box::new(tm)) as *mut c_void,
+        )
+        .map(JSValue::from)
+        .map_err(|_| -1)
     }
 }
 
 fn JS_ThisTimeValue(ctx: &mut ScopedContext, this: JSValue) -> Result<Datetime, i32> {
-    this.class_payload(ctx, JS_CLASS_DATE).copied()
+    this.as_object()
+        .and_then(|o| o.payload_datetime().copied())
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_DATE))
 }
 
 fn js_date_getTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -963,8 +968,12 @@ fn js_date_setTime(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         Datetime::INVALID
     };
 
-    let mut this = cc.this();
-    *this.class_payload_mut(ctx, JS_CLASS_DATE)? = dt2;
+    let this = cc.this();
+    let mut o = this
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_DATE))?;
+    *o.payload_datetime_mut()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_DATE))? = dt2;
     Ok(dt2.into())
 }
 
@@ -1065,7 +1074,7 @@ fn get_date_field(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn set_date_field_internal(
     ctx: &mut ScopedContext,
-    mut this: JSValue,
+    this: JSValue,
     args: &[JSValue],
     magic: i32,
 ) -> JSResult {
@@ -1107,7 +1116,12 @@ fn set_date_field_internal(
         Datetime::INVALID
     };
 
-    let dt: &mut Datetime = this.class_payload_mut(ctx, JS_CLASS_DATE)?;
+    let mut o = this
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_DATE))?;
+    let dt: &mut Datetime = o
+        .payload_datetime_mut()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_DATE))?;
     // Note: to pass test262
     // only `this` timestamp is invalid, and not setting `year`, do update the timestamp.
     // `this` timestamp could have been updated in valueOf() method.

@@ -13,7 +13,7 @@ use crate::{
     context::{ProtoCtorPair, ScopedContext},
     error::Exception,
     function::{Callback, CallbackFn, NativeFunction},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl},
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -46,9 +46,9 @@ impl GcTrace for OtherPayload {
 }
 
 impl OtherPayload {
-    pub(crate) fn new(class_id: ClassID, opaque: *mut c_void) -> Box<Self> {
+    pub(crate) fn new(class_id: ClassID, opaque: *mut c_void) -> Self {
         debug_assert!(class_id >= USER_CLASS_ID_START);
-        Box::new(Self { class_id, opaque })
+        Self { class_id, opaque }
     }
 
     #[inline(always)]
@@ -65,8 +65,9 @@ impl OtherPayload {
 impl ObjectImpl {
     /// if the object is a user class instance, returns the opaque pointer if available
     pub fn opaque(&self) -> Option<NonNull<c_void>> {
-        if let ObjectPayload::OTHER(u) = self.payload() {
-            NonNull::new(u.opaque)
+        if self.class_id() >= USER_CLASS_ID_START {
+            let other = unsafe { &*(self.payload_raw() as *const OtherPayload) };
+            NonNull::new(other.opaque)
         } else {
             None
         }
@@ -74,8 +75,9 @@ impl ObjectImpl {
 
     /// if the object is a user class instance, returns the opaque pointer reference if available
     pub fn opaque_ref<T>(&self) -> Option<&T> {
-        if let ObjectPayload::OTHER(u) = self.payload() {
-            unsafe { u.opaque.cast::<T>().as_ref() }
+        if self.class_id() >= USER_CLASS_ID_START {
+            let other = unsafe { &*(self.payload_raw() as *const OtherPayload) };
+            unsafe { other.opaque.cast::<T>().as_ref() }
         } else {
             None
         }
@@ -467,9 +469,10 @@ impl<'c> ScopedContext<'c> {
         ctor: JSValue,
         opaque: *mut c_void,
     ) -> Result<Object, i32> {
-        self.ordinary_create_from_constructor(
+        self.ordinary_create_from_constructor_class(
             ctor,
-            ObjectPayload::OTHER(Box::new(OtherPayload { class_id, opaque })),
+            class_id,
+            Box::into_raw(Box::new(OtherPayload { class_id, opaque })) as *mut c_void,
         )
         .map_err(|_| -1)
     }

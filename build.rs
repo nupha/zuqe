@@ -10,7 +10,7 @@ use std::{env, path::PathBuf};
 
 use build_atoms::gen_atoms;
 use build_opcodes::gen_opcodes;
-use build_stdclass::{gen_class_payload, gen_object_casts, gen_std_class_defs};
+use build_stdclass::{gen_payload_accessors, gen_object_casts, gen_std_class_defs};
 use build_tokens::gen_tokens;
 
 /// TEMP MITIGATION GUARD (remove when the LLVM issue is resolved — full
@@ -142,6 +142,6 @@ fn main() {
     gen_opcodes(&out_path.join("opcodes.rs"));
     gen_tokens(&out_path.join("tokens.rs"));
     gen_std_class_defs(&out_path.join("std_class_def.rs"));
-    gen_class_payload(&out_path.join("class_payload.rs"));
+    gen_payload_accessors(&out_path.join("payload_accessors.rs"));
     gen_object_casts(&out_path.join("object_casts.rs"));
 }

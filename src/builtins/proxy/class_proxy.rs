@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use crate::{
-    Callback, ScopedContext,
+    Callback, JS_CLASS_PROXY, ScopedContext,
     atom::Atom,
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunction},
-    object::{JS_PROP_C_W_E, ObjectPayload},
+    object::JS_PROP_C_W_E,
     value::JSValue,
 };
 
@@ -22,9 +24,10 @@ pub fn js_proxy_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     };
 
     let mut obj = ctx
-        .create_instance_with_proto_payload(
+        .create_instance_with_proto_class(
             None,
-            ObjectPayload::PROXY(ProxyPayload::new(target, handler.into())),
+            JS_CLASS_PROXY,
+            Box::into_raw(Box::new(ProxyPayload::new(target, handler.into()))) as *mut c_void,
         )
         .map_err(|_| -1)?;
 

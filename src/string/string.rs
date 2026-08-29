@@ -5,7 +5,7 @@ use std::{
     borrow::Cow,
     cmp::Ordering,
     collections::TryReserveError,
-    ffi::CStr,
+    ffi::{c_void, CStr},
     ops::{Deref, Range},
     ptr::NonNull,
 };
@@ -22,7 +22,7 @@ use crate::{
     number::{ATOD_ACCEPT_BIN_OCT, IntOrFloat, NumValue, js_aton},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,
-        ObjectPayload, check_define_prop_flags,
+        check_define_prop_flags,
     },
     runtime::RuntimePtr,
     string::{CharCode, StringCharIter, StringData},
@@ -250,8 +250,13 @@ impl StringImpl {
     /// convert String value to String object
     pub fn objectify(&self, ctx: &mut ScopedContext, ctor: JSValue) -> Result<Object, i32> {
         let len = self.len();
+        let s: StringRef = self.gc_ref().into();
         let mut o = ctx
-            .ordinary_create_from_constructor(ctor, ObjectPayload::STRING(self.gc_ref().into()))
+            .ordinary_create_from_constructor_class(
+                ctor,
+                JS_CLASS_STRING,
+                Box::into_raw(Box::new(s)) as *mut c_void,
+            )
             .map_err(|_| -1)?;
 
         o.define_property_value(ctx, Atom::CONST_length, JSValue::from(len as u32), 0)?;
@@ -1028,7 +1033,7 @@ fn string_define_own_property(
     if let Some(idx) = prop.to_small_int() {
         let ob = unsafe { this_obj.as_object_unchecked() };
         if ob.class_id() == JS_CLASS_STRING {
-            let s = ob.payload().string().unwrap();
+            let s = ob.payload_string().unwrap();
             let len = s.len();
             let nth_char = s.content().chars_since(idx as usize).next().map(|(_, c)| c);
 

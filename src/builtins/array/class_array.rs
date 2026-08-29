@@ -23,7 +23,6 @@ use crate::{
     number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, Object,
-        ObjectPayload,
     },
     runtime::js_check_stack_overflow,
     string::{StringBuf, StringRef},
@@ -63,9 +62,10 @@ pub(crate) fn js_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
     };
 
     let mut arr = Array::try_from(
-        ctx.ordinary_create_from_constructor(
+        ctx.ordinary_create_from_constructor_class(
             new_target,
-            ObjectPayload::ARRAY(ArrayPayload::new(values)),
+            crate::JS_CLASS_ARRAY,
+            Box::into_raw(Box::new(ArrayPayload::new(values))) as *mut std::ffi::c_void,
         )
         .map_err(|_| -1)?,
     )
@@ -232,7 +232,7 @@ fn array_values_snapshot(
     }
 
     if obj.is_fast_array()
-        && let Some(arr_data) = obj.payload().array()
+        && let Some(arr_data) = obj.payload_array()
     {
         let it = arr_data.values().iter().copied();
         return if rev {
@@ -274,7 +274,7 @@ fn js_array_at(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     // fast array: read the payload slot directly
     if obj.is_fast_array()
-        && let Some(a) = obj.payload().array()
+        && let Some(a) = obj.payload_array()
         && let Some(v) = a.values().get(idx as usize)
     {
         return Ok(*v);
@@ -634,7 +634,7 @@ fn js_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
         // fast path: fast array
         if this_obj.is_fast_array()
-            && let Some((i, _)) = this_obj.payload().array().and_then(|a| {
+            && let Some((i, _)) = this_obj.payload_array().and_then(|a| {
                 a.values()
                     .iter()
                     .enumerate()
@@ -736,7 +736,7 @@ fn js_array_includes(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
         // fast path: fast array
         if obj.is_fast_array()
-            && let Some(arr_data) = obj.payload().array()
+            && let Some(arr_data) = obj.payload_array()
         {
             if arr_data
                 .values()
@@ -836,7 +836,7 @@ pub(crate) fn js_array_pop(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         new_len = length - 1;
 
         res = if this_obj.is_fast_array()
-            && let Some(arr_data) = this_obj.payload_mut().array_mut()
+            && let Some(arr_data) = this_obj.payload_array_mut()
             && arr_data.len() == length as usize
         {
             // fast array
@@ -1004,7 +1004,7 @@ pub(crate) fn js_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     if let Some(mut arr1) = res_arr.as_object_Array()
         && arr1.is_fast_array()
         && this_obj.is_fast_array()
-        && let Some(arr_data) = this_obj.payload_mut().array_mut()
+        && let Some(arr_data) = this_obj.payload_array_mut()
     {
         let lst = try_collect_values(
             ctx,
@@ -1582,7 +1582,7 @@ fn copy_sub_array(
 
     // not for class ARGUMENTS
     if obj.is_fast_array() && obj.class_id() == JS_CLASS_ARRAY {
-        let arr_data = obj.payload_mut().array_mut().unwrap();
+        let arr_data = obj.payload_array_mut().unwrap();
         let len = arr_data.len();
         let mut done_count = count;
 

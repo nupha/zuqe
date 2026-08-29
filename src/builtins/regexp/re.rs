@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, collections::HashMap, ops::Range, rc::Rc};
+use std::{cell::Cell, collections::HashMap, ffi::c_void, ops::Range, rc::Rc};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 use lre::{Regex, RegexFlags};
 use zerocopy::IntoBytes;
 
 use crate::{
-    JS_CLASS_REGEXP_STRING_ITERATOR,
+    JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     array::{Array, alloc_fast_array_slots},
     atom::Atom,
     class::ClassID,
     context::ScopedContext,
-    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, ObjectPayload, RegExp},
+    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, RegExp},
     string::{CharCode, StringData, StringRef},
     value::JSValue,
 };
@@ -42,14 +42,14 @@ impl GcTrace for RegExpStringIterPayload {
 }
 
 impl RegExpStringIterPayload {
-    pub fn new(regexp: Object, str: StringRef, global: bool, unicode: bool) -> Box<Self> {
-        Box::new(Self {
+    pub fn new(regexp: Object, str: StringRef, global: bool, unicode: bool) -> Self {
+        Self {
             iterating_regexp: regexp,
             iterated_string: str,
             global,
             unicode,
             done: Cell::new(false),
-        })
+        }
     }
 
     #[inline(always)]
@@ -278,9 +278,13 @@ impl RegExp {
         re: Box<RegExpData>,
     ) -> Result<Self, i32> {
         let mut o = Self(
-            ctx.ordinary_create_from_constructor(ctor, ObjectPayload::REGEXP(re))
-                .map_err(|_| -1)?
-                .0,
+            ctx.ordinary_create_from_constructor_class(
+                ctor,
+                JS_CLASS_REGEXP,
+                Box::into_raw(re) as *mut c_void,
+            )
+            .map_err(|_| -1)?
+            .0,
         );
         o.define_property_value(
             ctx,

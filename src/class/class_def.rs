@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use crate::{
     Callback, ClassID, FieldDef, RuntimeImpl,
     atom::Atom,
@@ -10,7 +12,7 @@ use crate::{
     },
     context::ScopedContext,
     function::{CallbackFn, NativeFunction},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object},
 };
 
 use super::{
@@ -123,6 +125,10 @@ pub struct ClassDef {
     pub(crate) on_unregister: Option<ClassUnregisterFn>,
     /// to trace JSValues stored in an instance's payload (opaque)
     pub(crate) on_gc_trace: Option<ClassGcTraceFn>,
+    /// Drop function for the typed payload behind *mut c_void
+    pub(crate) drop_payload: Option<unsafe fn(*mut c_void)>,
+    /// GC trace function for the typed payload behind *mut c_void
+    pub(crate) trace_payload: Option<fn(*const c_void, &mut gc_lite::GcTraceCtx)>,
 }
 
 impl Default for ClassDef {
@@ -142,6 +148,8 @@ impl Default for ClassDef {
             on_finalize_opaque: None,
             on_unregister: None,
             on_gc_trace: None,
+            drop_payload: None,
+            trace_payload: None,
         }
     }
 }
@@ -168,6 +176,8 @@ impl ClassDef {
             on_finalize: Some(Self::default_fini_fn),
             on_finalize_opaque: None,
             on_gc_trace: None,
+            drop_payload: None,
+            trace_payload: None,
         }
     }
 
@@ -195,6 +205,8 @@ impl ClassDef {
             on_finalize: Some(Self::default_fini_fn),
             on_finalize_opaque: None,
             on_gc_trace: None,
+            drop_payload: None,
+            trace_payload: None,
         }
     }
 
@@ -225,6 +237,8 @@ impl ClassDef {
             on_finalize: Some(Self::default_fini_fn),
             on_finalize_opaque: None,
             on_gc_trace: None,
+            drop_payload: None,
+            trace_payload: None,
         }
     }
 
@@ -248,6 +262,8 @@ impl ClassDef {
             on_finalize: None,
             on_finalize_opaque: None,
             on_gc_trace: None,
+            drop_payload: None,
+            trace_payload: None,
         }
     }
 
@@ -263,6 +279,8 @@ impl ClassDef {
             on_finalize: None,
             on_finalize_opaque: None,
             on_gc_trace: None,
+            drop_payload: None,
+            trace_payload: None,
         }
     }
 
@@ -301,6 +319,18 @@ impl ClassDef {
     /// Set GC mark callback for tracing JSValues in opaque payload.
     pub const fn on_gc_trace(mut self, f: ClassGcTraceFn) -> Self {
         self.on_gc_trace = Some(f);
+        self
+    }
+
+    /// Set drop function for the typed payload behind *mut c_void
+    pub(crate) const fn on_drop_payload(mut self, f: unsafe fn(*mut c_void)) -> Self {
+        self.drop_payload = Some(f);
+        self
+    }
+
+    /// Set GC trace function for the typed payload behind *mut c_void
+    pub(crate) const fn on_trace_payload(mut self, f: fn(*const c_void, &mut gc_lite::GcTraceCtx)) -> Self {
+        self.trace_payload = Some(f);
         self
     }
 
@@ -400,11 +430,12 @@ impl ClassDef {
         Ok(())
     }
 
-    fn default_fini_fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize) {
-        if let Some(u) = isa.other() {
-            let class_id = u.class_id;
+    fn default_fini_fn(rt: &mut RuntimeImpl, isa: *mut c_void, id: usize) {
+        if !isa.is_null() {
+            let other = unsafe { &*(isa as *const crate::class::OtherPayload) };
+            let class_id = other.class_id;
             if let Some(f) = rt.class_registry[class_id as usize].on_finalize_opaque {
-                f(rt, u.opaque, class_id as usize, id)
+                f(rt, other.opaque, class_id as usize, id)
             }
         } else {
             unreachable!("builtin class: finalize handler is required");

@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use crate::{
-    JS_CLASS_OBJECT,
+    JS_CLASS_ARGUMENTS, JS_CLASS_OBJECT,
     array::{ArrayPayload, alloc_fast_array_slots},
     atom::Atom,
     context::ScopedContext,
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_WRITABLE, JSProperty,
-        ObjectPayload,
     },
     value::JSValue,
 };
@@ -18,9 +19,10 @@ use super::JS_MAX_LOCAL_VARS;
 /// Make Arguments class instance with values.
 pub(crate) fn js_build_arguments(ctx: &mut ScopedContext, values: &[JSValue]) -> JSValue {
     let object_proto = ctx.class_proto(JS_CLASS_OBJECT);
-    let mut obj = if let Ok(o) = ctx.create_instance_with_proto_payload(
+    let mut obj = if let Ok(o) = ctx.create_instance_with_proto_class(
         object_proto,
-        ObjectPayload::ARGUMENTS(ArrayPayload::default()),
+        JS_CLASS_ARGUMENTS,
+        Box::into_raw(Box::new(ArrayPayload::default())) as *mut c_void,
     ) {
         o
     } else {
@@ -86,7 +88,7 @@ pub(crate) fn build_arg_list(
     let mut lst = alloc_fast_array_slots(ctx, length as usize)?;
 
     if array_arg.is_fast_array()
-        && let Some(arr_data) = array_arg.payload().array()
+        && let Some(arr_data) = array_arg.payload_array()
     {
         // fast array
         if arr_data.len() == length as usize {

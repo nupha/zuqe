@@ -890,122 +890,79 @@ pub fn gen_std_class_defs(outfile: &Path) {
     }
 }
 
-pub fn gen_class_payload(outfile: &Path) {
-    let mut items = Vec::<String>::with_capacity(CLASS_DEF_LIST.len() + 10);
-    let mut getid_arms = Vec::<String>::with_capacity(CLASS_DEF_LIST.len() + 8);
-
-    for cdef in CLASS_DEF_LIST {
-        items.push(if cdef.key != PayloadKey::None {
-            format!("{}({})", cdef.const_name, CLASS_PAYLOAD_TYPE[&cdef.key])
-        } else {
-            cdef.const_name.to_string()
-        });
-
-        getid_arms.push(if cdef.key != PayloadKey::None {
-            format!(
-                "Self::{}(_)=>crate::JS_CLASS_{}",
-                cdef.const_name, cdef.const_name
-            )
-        } else {
-            format!(
-                "Self::{}=>crate::JS_CLASS_{}",
-                cdef.const_name, cdef.const_name
-            )
-        });
-    }
-
-    items.push("OTHER(Box<crate::class::OtherPayload>)".to_string());
-    getid_arms.push("Self::OTHER(u)=>u.class_id".to_string());
-
-    // get payload methods
-    let mut get_payload_methods = Vec::<String>::with_capacity(CLASS_DEF_LIST.len() + 8);
-    let mut gc_trace_arms = Vec::<String>::with_capacity(CLASS_DEF_LIST.len() + 8);
-    // PayloadType impls: map each payload data type back to its variant accessor,
-    // enabling generic extraction via class_payload()/class_payload_mut().
-    let mut payload_type_impls = Vec::<String>::with_capacity(CLASS_PAYLOAD_TYPE.len());
+pub fn gen_payload_accessors(outfile: &Path) {
+    // Build grouped accessor methods (same grouping as before, but on ObjectImpl)
+    let mut drop_arms = Vec::<String>::new();
+    let mut trace_arms = Vec::<String>::new();
+    let mut get_payload_methods = Vec::<String>::new();
 
     let mut kvs = CLASS_PAYLOAD_TYPE.iter().collect::<Vec<_>>();
     kvs.sort();
     for (k, pty) in kvs {
-        let arms = CLASS_DEF_LIST
+        let class_ids = CLASS_DEF_LIST
             .iter()
             .filter_map(|c| {
                 if c.key.eq(k) {
-                    Some(format!("Self::{}(x)", c.const_name))
+                    Some(format!("crate::JS_CLASS_{}", c.const_name))
                 } else {
                     None
                 }
             })
             .collect::<Vec<_>>();
 
-        if !arms.is_empty() {
-            let ty = if pty.starts_with("Box<") && pty.ends_with(">") {
-                &pty[4..pty.len() - 1]
-            } else {
-                pty
-            };
-
-            get_payload_methods.push(
-                format!("pub const fn {k}(&self)->Option<&{ty}> {{ if let {} = self {{ Some(x) }} else {{ None }} }}",
-                arms.join("|")
-            ));
-            get_payload_methods.push(
-                format!("pub const fn {k}_mut(&mut self)->Option<&mut {ty}> {{ if let {} = self {{ Some(x) }} else {{ None }} }}",
-                arms.join("|")
-            ));
-
-            gc_trace_arms.push(format!("{} => {{ x.trace(tr); }}", arms.join("|")));
-
-            payload_type_impls.push(format!(
-                r#"impl crate::object::PayloadType for {ty} {{
-                    #[inline(always)]
-                    fn from_payload(p: &ObjectPayload) -> Option<&Self> {{ p.{k}() }}
-                    #[inline(always)]
-                    fn from_payload_mut(p: &mut ObjectPayload) -> Option<&mut Self> {{ p.{k}_mut() }}
-                }}"#
-            ));
+        if class_ids.is_empty() {
+            continue;
         }
+
+        let inner_ty = if pty.starts_with("Box<") && pty.ends_with(">") {
+            &pty[4..pty.len() - 1]
+        } else {
+            pty
+        };
+        let class_id_pattern = class_ids.join(" | ");
+
+        drop_arms.push(format!(
+            "{class_id_pattern} => {{ drop(Box::from_raw(ptr as *mut {inner_ty})); }}"
+        ));
+
+        trace_arms.push(format!(
+            "{class_id_pattern} => {{ (*(ptr as *const {inner_ty})).trace(tr); }}"
+        ));
+
+        get_payload_methods.push(format!(
+            "pub const fn payload_{k}(&self) -> Option<&{inner_ty}> {{ \
+             match self.class_id() {{ {class_id_pattern} => Some(unsafe {{ &*(self.payload as *const {inner_ty}) }}), _ => None }} }}"
+        ));
+        get_payload_methods.push(format!(
+            "pub fn payload_{k}_mut(&mut self) -> Option<&mut {inner_ty}> {{ \
+             match self.class_id() {{ {class_id_pattern} => Some(unsafe {{ &mut *(self.payload as *mut {inner_ty}) }}), _ => None }} }}"
+        ));
     }
 
-    gc_trace_arms.push("Self::OTHER(x) => { x.trace(tr); }".to_string());
-
-    get_payload_methods.push("pub const fn other(&self)->Option<&crate::class::OtherPayload> { if let Self::OTHER(o)=self {Some(o)} else{None} }".to_string());
-    get_payload_methods.push("pub const fn other_mut(&mut self)->Option<&mut crate::class::OtherPayload> { if let Self::OTHER(o)=self {Some(o)} else{None} }".to_string());
-
     let lines: Vec<String> = vec![
-        "use crate::{  class::{ClassID }};\n".to_string(),
-        // ObjectPayload
-        "#[allow(clippy::upper_case_acronyms)]\n#[derive(Debug)]\n#[repr(u8)]\npub enum ObjectPayload {\n".to_string(),
-        items.join(",\n"),
-        "}".to_string(),
-        "".to_string(),
-        // impl
-        "impl ObjectPayload {".to_string(),
-        // class_id()
-        format!(
-            "pub const fn class_id(&self)->ClassID {{ match self {{ {} }} }}",
-            getid_arms.join(",\n"),
-        ),
-        "\n".into(),
-        // get payload methods
-        get_payload_methods.join("\n\n"),
-        "}".to_string(),
-        // PayloadType impls
-        "\n\n".to_string(),
-        payload_type_impls.join("\n\n"),
-        // impl collect trait
-        "\n\n".to_string(),
-        format!(
-            r#"impl gc_lite::GcTrace for ObjectPayload {{
-                fn trace(&self, tr: &mut gc_lite::GcTraceCtx) {{
-                    match self {{
-                        {},
-                        _=>{{ }}
-                    }}
-                }}
-            }}"#,
-            gc_trace_arms.join(",\n")
-        ),
+        "// @generated by build_stdclass.rs gen_payload_accessors. DO NOT EDIT.".into(),
+        String::new(),
+        "pub(crate) unsafe fn drop_payload(class_id: ClassID, ptr: *mut c_void) {".into(),
+        "    if ptr.is_null() { return; }".into(),
+        "    match class_id {".into(),
+        format!("        {},", drop_arms.join("\n        ")),
+        "        _ => {}".into(),
+        "    }".into(),
+        "}".into(),
+        String::new(),
+        "pub(crate) fn trace_payload(class_id: ClassID, ptr: *const c_void, tr: &mut gc_lite::GcTraceCtx) {".into(),
+        "    if ptr.is_null() { return; }".into(),
+        "    unsafe {".into(),
+        "        match class_id {".into(),
+        format!("            {},", trace_arms.join("\n            ")),
+        "            _ => {}".into(),
+        "        }".into(),
+        "    }".into(),
+        "}".into(),
+        String::new(),
+        "impl crate::object::ObjectImpl {".into(),
+        get_payload_methods.join("\n"),
+        "}".into(),
     ];
 
     std::fs::write(outfile, lines.join("\n")).unwrap();

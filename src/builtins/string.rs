@@ -1038,7 +1038,12 @@ fn js_string_iterator_next(
     state: &mut IteratorState,
 ) -> JSResult {
     let this = cc.this();
-    let it: &ArrayIterPayload = this.class_payload(ctx, JS_CLASS_STRING_ITERATOR)?;
+    let this_obj = this
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_STRING_ITERATOR))?;
+    let it: &ArrayIterPayload = this_obj
+        .payload_array_iterator()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_STRING_ITERATOR))?;
 
     let val = it.value();
 

@@ -23,6 +23,32 @@ impl Object {
             None
         }
     }
+
+    /// Get the opaque payload of a user-registered class object.
+    ///
+    /// Builtin-class objects have typed payloads and return `None`.
+    pub fn other_payload(&self) -> Option<&crate::class::OtherPayload> {
+        if self.class_id() < crate::USER_CLASS_ID_START {
+            return None;
+        }
+        let p = self.payload_raw();
+        if p.is_null() {
+            return None;
+        }
+        Some(unsafe { &*(p as *const crate::class::OtherPayload) })
+    }
+
+    /// Mutable variant of [`Object::other_payload`].
+    pub fn other_payload_mut(&mut self) -> Option<&mut crate::class::OtherPayload> {
+        if self.class_id() < crate::USER_CLASS_ID_START {
+            return None;
+        }
+        let p = self.payload_raw();
+        if p.is_null() {
+            return None;
+        }
+        Some(unsafe { &mut *(p as *mut crate::class::OtherPayload) })
+    }
 }
 
 impl JSValue {
@@ -213,7 +239,7 @@ macro_rules! def_native_object {
             pub fn payload(&self) -> Option<&$payload_ty> {
                 debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
 
-                if let Some(p) = self.as_object().payload().other() {
+                if let Some(p) = self.as_object().other_payload() {
                     let ptr = p.opaque();
                     if !ptr.is_null() {
                         Some(unsafe { &*ptr.cast::<$payload_ty>() })
@@ -229,7 +255,7 @@ macro_rules! def_native_object {
             pub fn payload_mut(&mut self) -> Option<&mut $payload_ty> {
                 debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
 
-                if let Some(p) = self.as_object_mut().payload_mut().other_mut() {
+                if let Some(p) = self.as_object_mut().other_payload_mut() {
                     let ptr = p.opaque();
                     if !ptr.is_null() {
                         Some(unsafe { &mut *ptr.cast::<$payload_ty>() })
@@ -243,7 +269,7 @@ macro_rules! def_native_object {
 
             pub fn take_payload(&mut self) -> Option<Box<$payload_ty>>{
                 debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
-                if let Some(p) = self.as_object_mut().payload_mut().other_mut() {
+                if let Some(p) = self.as_object_mut().other_payload_mut() {
                     unsafe {
                         let ptr = p.replace_opaque(std::ptr::null_mut());
                         if !ptr.is_null() {
@@ -274,7 +300,7 @@ macro_rules! def_native_object {
                 // Safety: the opaque pointer points to a heap-allocated Box<$payload_ty>
                 // (created via Box::into_raw in new_instance). As long as the JS object
                 // is alive in the GC heap, this allocation remains valid.
-                if let Some(other) = o.payload().other() {
+                if let Some(other) = o.other_payload() {
                     let ptr = other.opaque();
                     if !ptr.is_null() {
                         Some(unsafe { &*ptr.cast::<$payload_ty>() })
@@ -304,7 +330,7 @@ macro_rules! def_native_object {
                 // Safety: the opaque pointer points to a heap-allocated Box<$payload_ty>
                 // (created via Box::into_raw in new_instance). Mutability is gated by the
                 // &'a mut JSValue — the caller must not alias the payload during 'a.
-                if let Some(other) = o.payload_mut().other_mut() {
+                if let Some(other) = o.other_payload_mut() {
                     let ptr = other.opaque();
                     if !ptr.is_null() {
                         Some(unsafe { &mut *ptr.cast::<$payload_ty>() })
@@ -327,7 +353,7 @@ macro_rules! def_native_object {
                 if o.class_id() != <Self as $crate::NativeObject>::class_id() {
                     return None;
                 }
-                if let Some(other) = o.payload_mut().other_mut() {
+                if let Some(other) = o.other_payload_mut() {
                     // Safety: the opaque pointer, if non-null, points to a
                     // heap-allocated Box<$payload_ty> created in new_instance.
                     unsafe {

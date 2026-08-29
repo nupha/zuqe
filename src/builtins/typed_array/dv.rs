@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
+    JS_CLASS_DATAVIEW,
     builtins::array_buffer::ArrayBuffer,
     context::ScopedContext,
-    object::{DataView, ObjectPayload},
+    object::DataView,
     value::JSValue,
 };
 
@@ -146,14 +149,15 @@ impl DataView {
         length_tracked: bool,
     ) -> Result<Self, i32> {
         let o = ctx
-            .ordinary_create_from_constructor(
+            .ordinary_create_from_constructor_class(
                 ctor,
-                ObjectPayload::DATAVIEW(DataViewPayload::new(
+                JS_CLASS_DATAVIEW,
+                Box::into_raw(DataViewPayload::new(
                     array_buffer,
                     offset,
                     byte_length,
                     length_tracked,
-                )),
+                )) as *mut c_void,
             )
             .map_err(|_| -1)?;
 
@@ -175,7 +179,7 @@ impl DataView {
 
     #[inline(always)]
     pub fn payload(&self) -> &DataViewPayload {
-        unsafe { self.0.as_ref().payload() }.data_view().unwrap()
+        unsafe { self.0.as_ref() }.payload_data_view().unwrap()
     }
 
     /// check if the TypedArray is detached.

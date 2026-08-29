@@ -10,7 +10,7 @@ use crate::{
     context::{ContextPtr, ScopedContext},
     error::{ErrorKind, JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL, JSResult},
     function::CallContext,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object},
     value::JSValue,
 };
 
@@ -38,7 +38,11 @@ pub(crate) fn js_error_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
     debug_assert!(proto.is_object());
 
     let mut obj = ctx
-        .create_instance_with_proto_payload(Object::try_from(proto).ok(), ObjectPayload::ERROR)
+        .create_instance_with_proto_class(
+            Object::try_from(proto).ok(),
+            JS_CLASS_ERROR,
+            std::ptr::null_mut(),
+        )
         .map_err(|_| -1)?;
 
     let mut arg_index = if magic == ErrorKind::Aggregate as i32 {
@@ -92,7 +96,11 @@ pub(crate) fn js_error_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
 pub(crate) fn js_aggregate_error_constructor(ctx: &mut ScopedContext, errors: JSValue) -> JSValue {
     let err_proto = ctx.error_protos[ErrorKind::Aggregate as usize].as_object();
 
-    if let Ok(mut obj) = ctx.create_instance_with_proto_payload(err_proto, ObjectPayload::ERROR) {
+    if let Ok(mut obj) = ctx.create_instance_with_proto_class(
+        err_proto,
+        JS_CLASS_ERROR,
+        std::ptr::null_mut(),
+    ) {
         obj.define_property_value(
             ctx,
             Atom::CONST_errors,

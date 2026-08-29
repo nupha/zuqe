@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
     value::JSValue,
 };
 
@@ -82,9 +82,12 @@ pub(crate) fn js_list_format_constructor(ctx: &mut ScopedContext, cc: CallContex
         }
     }
 
-    let instance = ctx
-        .ordinary_create_from_constructor(cc.this(), ObjectPayload::INTL_LIST_FORMAT(Box::new(data)))
-        .map_err(|_| -1)?;
+    let instance = ctx.ordinary_create_from_constructor_class(
+        cc.this(),
+        crate::JS_CLASS_INTL_LIST_FORMAT,
+        Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+    )
+    .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 
@@ -94,8 +97,7 @@ fn js_list_format_format(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a ListFormat"))?;
     let this = this_obj
-        .payload()
-        .intl_list_format()
+        .payload_intl_list_format()
         .ok_or_else(|| ctx.throw_type_error("not a ListFormat"))?;
     let list = string_list_from_iterable(ctx, cc.arg(0))?;
     let s = join_list(this, &list)?;
@@ -276,8 +278,7 @@ fn js_list_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext) -> J
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a ListFormat"))?;
     let this = this_obj
-        .payload()
-        .intl_list_format()
+        .payload_intl_list_format()
         .ok_or_else(|| ctx.throw_type_error("not a ListFormat"))?;
     let list = string_list_from_iterable(ctx, cc.arg(0))?;
     let lang = this.locale.id.language.to_string();
@@ -308,8 +309,7 @@ fn js_list_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> 
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a ListFormat"))?;
     let p = this_obj
-        .payload()
-        .intl_list_format()
+        .payload_intl_list_format()
         .ok_or_else(|| ctx.throw_type_error("not a ListFormat"))?;
 
     let mut o = ctx.create_base_object()?;

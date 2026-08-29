@@ -119,7 +119,7 @@ impl ObjectImpl {
                     JS_CLASS_ARRAY => {
                         if let Some(idx) = prop.to_small_int() {
                             let idx = idx as usize;
-                            let array_len = self.payload().array().unwrap().len();
+                            let array_len = self.payload_array().unwrap().len();
 
                             if idx < array_len {
                                 // update value in list
@@ -133,7 +133,7 @@ impl ObjectImpl {
                                     continue; // redo_prop_update
                                 }
                                 if flags & JS_PROP_HAS_VALUE != 0 {
-                                    self.payload_mut().array_mut().unwrap().set_nth(idx, val);
+                                    self.payload_array_mut().unwrap().set_nth(idx, val);
                                     // Even though array list is auto-traced by GC:
                                     // in case the array has already been marked Black and a new White
                                     // value is set_nth(), calling bind() ensures the value is grayed

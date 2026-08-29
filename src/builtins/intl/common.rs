@@ -387,7 +387,7 @@ fn canonicalize_tag_string(
 /// True when `v` is an [[InitializedLocale]] object (an `Intl.Locale`).
 fn is_locale_instance(v: &JSValue) -> bool {
     match v.as_object() {
-        Some(o) => o.payload().intl_locale().is_some(),
+        Some(o) => o.payload_intl_locale().is_some(),
         None => false,
     }
 }
@@ -414,7 +414,7 @@ pub(crate) fn canonicalize_locale_list(
         // directly (its toString is not called).
         let tag = match tag_value
             .as_object()
-            .map(|o| o.payload().intl_locale().map(|l| l.locale.to_string()))
+            .map(|o| o.payload_intl_locale().map(|l| l.locale.to_string()))
         {
             Some(Some(tag)) => tag,
             _ => to_utf8_string(ctx, tag_value)?,

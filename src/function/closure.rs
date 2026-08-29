@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ptr::NonNull;
+use std::{ffi::c_void, ptr::NonNull};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
@@ -12,7 +12,6 @@ use crate::{
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
         JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE, LazyInit, Object,
-        ObjectPayload,
     },
     stack_frame::{FrameIndex, StackFrameArena},
     value::JSValue,
@@ -434,17 +433,12 @@ impl Bytecode {
         };
 
         let mut obj = {
-            let p = BFuncPayload::new(*self, captures);
-            let isa = match self.func_kind() {
-                FunctionKind::Normal => ObjectPayload::BYTECODE_FUNCTION(p),
-                FunctionKind::Generator => ObjectPayload::GENERATOR_FUNCTION(p),
-                FunctionKind::Async => ObjectPayload::ASYNC_FUNCTION(p),
-                FunctionKind::AsyncGenerator => ObjectPayload::ASYNC_GENERATOR_FUNCTION(p),
-            };
+            let class_id = self.func_kind().class_id();
             BCWrapper(
-                ctx.create_instance_with_proto_payload(
-                    proto.or_else(|| ctx.class_proto(isa.class_id())),
-                    isa,
+                ctx.create_instance_with_proto_class(
+                    proto.or_else(|| ctx.class_proto(class_id)),
+                    class_id,
+                    Box::into_raw(Box::new(BFuncPayload::new(*self, captures))) as *mut c_void,
                 )
                 .map_err(|_| -1)?
                 .gc_ref(),

@@ -16,7 +16,7 @@ use crate::{
     context::ScopedContext,
     error::{Exception, JSResult},
     function::{CallContext, FieldDef, IteratorState, NativeFunction},
-    object::{AsyncFromSyncIterator, Object, ObjectPayload},
+    object::{AsyncFromSyncIterator, Object},
     value::JSValue,
 };
 
@@ -76,7 +76,7 @@ fn js_async_from_sync_iterator_close_on_reject(
     let e = ctx.throw_value(err);
 
     if let Ok(async_obj) = Object::try_from(async_val)
-        && let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = async_obj.payload()
+        && let Some(p) = async_obj.payload_async_from_sync_iterator()
     {
         let _ = ObjectIter::close_iter_internal(ctx, p.obj);
         p.closed.set(true);
@@ -139,7 +139,7 @@ fn js_async_from_sync_iterator_next(ctx: &mut ScopedContext, cc: CallContext) ->
     let this_val = cc.this();
     let p = unsafe { this_val.as_object_unchecked() };
 
-    if let ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(p) = p.payload() {
+    if let Some(p) = p.payload_async_from_sync_iterator() {
         if cc.magic() == GEN_MAGIC_RETURN && p.closed.get() {
             let result = make_iterator_next_result(ctx, JSValue::UNDEFINED, true)?;
             let _ = resolving_funcs[0].call(ctx, JSValue::UNDEFINED, &[result]);

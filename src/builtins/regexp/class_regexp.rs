@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use lre::RegexFlags;
 use smallvec::SmallVec;
 
 use crate::{
-    JS_CLASS_REGEXP,
+    JS_CLASS_REGEXP, JS_CLASS_REGEXP_STRING_ITERATOR,
     array::Array,
     atom::Atom,
     builtins::common::SPECIES_FIELD,
@@ -14,7 +16,6 @@ use crate::{
     function::{CallContext, Callback, FieldDef, js_function_apply},
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, Object,
-        ObjectPayload,
     },
     string::{CharCode, CharCodeDecoder, JS_ConcatString3, StringBuf, StringData, StringRef},
     value::JSValue,
@@ -79,13 +80,13 @@ pub fn js_regexp_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         None
     };
 
-    let payload = ObjectPayload::REGEXP(Box::new(if let Some(d) = re {
+    let payload = Box::into_raw(Box::new(if let Some(d) = re {
         d.clone()
     } else {
         RegExpData::create(ctx, pattern, flags_str)?
-    }));
+    })) as *mut c_void;
     let mut obj = ctx
-        .ordinary_create_from_constructor(cc.this(), payload)
+        .ordinary_create_from_constructor_class(cc.this(), JS_CLASS_REGEXP, payload)
         .map_err(|_| -1)?;
 
     obj.define_property_value(
@@ -100,7 +101,9 @@ pub fn js_regexp_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 
 /// Get the RegExpData payload if `obj` is a RegExp instance (no error thrown).
 fn js_get_regexp<'a>(obj: &'a JSValue) -> Option<&'a RegExpData> {
-    obj.try_class_payload(JS_CLASS_REGEXP)
+    let o = obj.as_object().filter(|o| o.class_id() == JS_CLASS_REGEXP)?;
+    let p = o.payload_regexp()?;
+    Some(unsafe { std::mem::transmute::<&RegExpData, &'a RegExpData>(p) })
 }
 
 pub(crate) fn is_regexp(ctx: &mut ScopedContext, obj: JSValue) -> Result<bool, i32> {
@@ -128,7 +131,7 @@ pub fn js_regexp_get_source(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
             return ctx.create_string_from_str("(?:)").map(JSValue::make_string);
         }
 
-        let re: &RegExpData = this.class_payload(ctx, JS_CLASS_REGEXP)?;
+        let re: &RegExpData = class_regexp_payload(&this, ctx)?;
         if re.pattern.is_empty() {
             return ctx.create_string_from_str("(?:)").map(JSValue::make_string);
         }
@@ -277,7 +280,7 @@ pub fn js_regexp_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
 
 fn js_regexp_compile(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let _: &RegExpData = this.class_payload(ctx, JS_CLASS_REGEXP)?;
+    let _: &RegExpData = class_regexp_payload(&this, ctx)?;
 
     let pattern1 = cc.arg(0);
     let flags1 = cc.arg(1);
@@ -309,15 +312,13 @@ fn js_regexp_compile(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         };
     }
 
-    let new_re = Box::new(RegExpData::create(ctx, pattern, flags_str)?);
+    let new_re = RegExpData::create(ctx, pattern, flags_str)?;
 
     let mut this = cc.this();
-    if let ObjectPayload::REGEXP(re0) = this.as_object().unwrap().payload_mut() {
+    let mut o = this.as_object().unwrap();
+    if let Some(re0) = o.payload_regexp_mut() {
         // replace the regexp data of payload
-        unsafe {
-            let ptr = re0 as *const Box<RegExpData> as *mut Box<RegExpData>;
-            std::ptr::replace(ptr, new_re);
-        }
+        let _old = std::mem::replace(re0, new_re);
     }
 
     this.set_property(ctx, Atom::CONST_lastIndex, JSValue::from(0))?;
@@ -391,18 +392,34 @@ pub fn js_regexp_Symbol_matchAll(ctx: &mut ScopedContext, cc: CallContext) -> JS
     regexp.set_property(ctx, Atom::CONST_lastIndex, last_index.into())?;
 
     // make regexp string iterator object
-    ctx.create_instance_with_payload(ObjectPayload::REGEXP_STRING_ITERATOR(
-        RegExpStringIterPayload::new(
+    ctx.create_instance_with_class(
+        JS_CLASS_REGEXP_STRING_ITERATOR,
+        Box::into_raw(Box::new(RegExpStringIterPayload::new(
             regexp.try_into().unwrap(),
             str.into(),
             flags.index_of_char('g', 0).is_some(),
             flags
                 .chars()
                 .any(|(_, c)| matches!(c, CharCode::Char('u') | CharCode::Char('v'))),
-        ),
-    ))
+        ))) as *mut c_void,
+    )
     .map(JSValue::from)
     .map_err(|_| -1)
+}
+
+/// Get the RegExpData payload if `obj` is a RegExp instance (throws if not).
+fn class_regexp_payload<'a>(
+    obj: &'a JSValue,
+    ctx: &mut ScopedContext,
+) -> Result<&'a RegExpData, i32> {
+    let o = obj
+        .as_object()
+        .filter(|o| o.class_id() == JS_CLASS_REGEXP)
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_REGEXP))?;
+    let p = o
+        .payload_regexp()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_REGEXP))?;
+    Ok(unsafe { std::mem::transmute::<&RegExpData, &'a RegExpData>(p) })
 }
 
 // fn js_is_standard_regexp(ctx: &mut ContextImpl, rx: Object) -> Result<bool, i32> {
@@ -969,8 +986,8 @@ fn regexp_exec_default(
     // `re` would be a dangling reference (use-after-free -> SIGSEGV).
     let mut from = get_last_index(ctx, this)? as usize;
 
-    let re: &RegExpData = this.class_payload(ctx, JS_CLASS_REGEXP)?;
-    let re_flags = re.flags();
+let re: &RegExpData = class_regexp_payload(&this, ctx)?;
+        let re_flags = re.flags();
 
     if !re_flags.has_global() && !re_flags.has_sticky() {
         from = 0;

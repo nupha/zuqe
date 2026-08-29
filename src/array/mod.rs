@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::collections::TryReserveError;
+use std::{collections::TryReserveError, ffi::c_void};
 
 use fallible_collections::{FallibleVec, TryCollect};
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
@@ -16,7 +16,7 @@ use crate::{
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
         JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, Object, ObjectImpl,
-        ObjectPayload, PropertyKeyKind,
+        PropertyKeyKind,
     },
     string::StringData,
     utils::unlikely,
@@ -107,13 +107,12 @@ impl Array {
 
     #[inline(always)]
     pub fn payload(&self) -> &ArrayPayload {
-        unsafe { self.0.as_ref().payload() }.array().unwrap()
+        self.payload_array().unwrap()
     }
 
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut ArrayPayload {
-        let obj: &mut Object = self;
-        obj.payload_mut().array_mut().unwrap()
+        self.payload_array_mut().unwrap()
     }
 
     /// get `length` property value
@@ -302,7 +301,8 @@ impl Array {
         let mut arr = ObjectImpl::create(
             ctx,
             ctx.array_shape.clone(),
-            ObjectPayload::ARRAY(ArrayPayload::new(values)),
+            JS_CLASS_ARRAY,
+            Box::into_raw(Box::new(ArrayPayload::new(values))) as *mut c_void,
         )
         .map(|o| Array(o.0))
         .map_err(|_| -1)?;
@@ -583,7 +583,7 @@ impl ObjectImpl {
 
         if self.is_fast_array() {
             // take array list out
-            let mut items = std::mem::take(&mut self.payload_mut().array_mut().unwrap().values);
+            let mut items = std::mem::take(&mut self.payload_array_mut().unwrap().values);
             let mut arr_obj = Object::from_ref(self);
 
             // Protect remaining elements from GC during the loop. After
@@ -632,7 +632,7 @@ impl ObjectImpl {
 
         // extend the array by one
         // XXX: convert to slow array if new_len > u32::MAX elements
-        let new_len = self.payload().array().unwrap().len() + 1;
+        let new_len = self.payload_array().unwrap().len() + 1;
 
         // first element in `prop_values` is the array length.
         // update the length if necessary. We assume that if the length is
@@ -671,8 +671,7 @@ impl ObjectImpl {
         }
 
         // add new element to list
-        self.payload_mut()
-            .array_mut()
+        self.payload_array_mut()
             .unwrap()
             .push(value)
             .map_err(|_| ctx.throw_out_of_memory())?;
@@ -689,10 +688,10 @@ impl ObjectImpl {
     /// - for TypedArray or DataView instance, return elements count;
     /// - __Panic__ when object is not an Array, Argument, TypedArray or DataView.
     pub(crate) fn fast_array_count(&self) -> u32 {
-        if let Some(ap) = self.payload().array() {
+        if let Some(ap) = self.payload_array() {
             // ARRAY or ARGUMENT
             ap.len() as u32
-        } else if let Some(ta) = self.payload().typed_array() {
+        } else if let Some(ta) = self.payload_typed_array() {
             // typed array or dataview
             ta.count() as _
         } else {

@@ -355,7 +355,7 @@ pub(super) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
     };
 
     let mut ob2 = enum_obj;
-    if let Some(it) = ob2.payload_mut().for_in_iterator_mut() {
+    if let Some(it) = ob2.payload_for_in_iterator_mut() {
         let mut prop: Atom;
 
         loop {

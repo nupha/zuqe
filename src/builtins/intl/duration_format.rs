@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
     value::JSValue,
 };
 
@@ -305,9 +305,10 @@ fn js_duration_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
     };
 
     let instance = ctx
-        .ordinary_create_from_constructor(
+        .ordinary_create_from_constructor_class(
             new_target,
-            ObjectPayload::INTL_DURATION_FORMAT(Box::new(data)),
+            crate::JS_CLASS_INTL_DURATION_FORMAT,
+            Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
         )
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
@@ -344,8 +345,7 @@ fn js_duration_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext)
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a DurationFormat"))?;
     let this = this_obj
-        .payload()
-        .intl_duration_format()
+        .payload_intl_duration_format()
         .ok_or_else(|| ctx.throw_type_error("not a DurationFormat"))?;
     let mut o = ctx.create_base_object()?;
     let loc = locale_to_string(ctx, &this.locale)?;
@@ -659,8 +659,7 @@ fn js_duration_format_format(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a DurationFormat"))?;
     let this = this_obj
-        .payload()
-        .intl_duration_format()
+        .payload_intl_duration_format()
         .ok_or_else(|| ctx.throw_type_error("not a DurationFormat"))?;
     let rec = to_duration_record(ctx, cc.arg(0))?;
     let parts = partition(ctx, this, &rec)?;
@@ -674,8 +673,7 @@ fn js_duration_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext) 
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a DurationFormat"))?;
     let this = this_obj
-        .payload()
-        .intl_duration_format()
+        .payload_intl_duration_format()
         .ok_or_else(|| ctx.throw_type_error("not a DurationFormat"))?;
     let rec = to_duration_record(ctx, cc.arg(0))?;
     let parts = partition(ctx, this, &rec)?;

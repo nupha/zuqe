@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::UnsafeCell, ops::DerefMut};
+use std::{cell::UnsafeCell, ffi::c_void, ops::DerefMut};
 
 use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
@@ -16,7 +16,7 @@ use crate::{
     context::ScopedContext,
     function::{Callback, NativeFunction},
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, ObjectPayload, TypedArray,
+        JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, TypedArray,
     },
     runtime::RuntimeImpl,
     value::JSValue,
@@ -342,7 +342,7 @@ impl TypedArray {
         Ok(())
     }
 
-    pub(crate) const fn class_finalize(_rt: &mut RuntimeImpl, _isa: &ObjectPayload, _id: usize) {
+    pub(crate) const fn class_finalize(_rt: &mut RuntimeImpl, _isa: *mut c_void, _id: usize) {
         // Hint: TypedArray underlaying ArrayBuffer object could have been disposed,
         // calling ta.array_buffer() like following may cause undefined behaviour.
         // if let Some(ta) = isa.typed_array() {
@@ -370,44 +370,29 @@ impl TypedArray {
             count,
         )?);
 
-        let isa = match class_id {
-            JS_CLASS_UINT8C_ARRAY => ObjectPayload::UINT8C_ARRAY(ta),
-            JS_CLASS_UINT8_ARRAY => ObjectPayload::UINT8_ARRAY(ta),
-            JS_CLASS_INT8_ARRAY => ObjectPayload::INT8_ARRAY(ta),
-            JS_CLASS_UINT16_ARRAY => ObjectPayload::UINT16_ARRAY(ta),
-            JS_CLASS_INT16_ARRAY => ObjectPayload::INT16_ARRAY(ta),
-            JS_CLASS_INT32_ARRAY => ObjectPayload::INT32_ARRAY(ta),
-            JS_CLASS_UINT32_ARRAY => ObjectPayload::UINT32_ARRAY(ta),
-            JS_CLASS_FLOAT16_ARRAY => ObjectPayload::FLOAT16_ARRAY(ta),
-            JS_CLASS_FLOAT32_ARRAY => ObjectPayload::FLOAT32_ARRAY(ta),
-            JS_CLASS_FLOAT64_ARRAY => ObjectPayload::FLOAT64_ARRAY(ta),
-            #[cfg(feature = "big_int")]
-            JS_CLASS_BIG_INT64_ARRAY => ObjectPayload::BIG_INT64_ARRAY(ta),
-            #[cfg(feature = "big_int")]
-            JS_CLASS_BIG_UINT64_ARRAY => ObjectPayload::BIG_UINT64_ARRAY(ta),
-            #[cfg(not(feature = "big_int"))]
-            c @ (JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) => {
+        #[cfg(not(feature = "big_int"))]
+        {
+            if matches!(class_id, JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) {
                 return Err(ctx.throw_type_error(&format!(
                     "typed array for {} is unsupported",
-                    if c == JS_CLASS_BIG_INT64_ARRAY {
+                    if class_id == JS_CLASS_BIG_INT64_ARRAY {
                         "BigInt"
                     } else {
                         "BigUint"
                     }
                 )));
             }
-            c => {
-                unreachable!("{c}")
-            }
-        };
+        }
+
+        let isa = Box::into_raw(ta) as *mut c_void;
 
         let ta = ctx
-            .ordinary_create_from_constructor(new_target, isa)
+            .ordinary_create_from_constructor_class(new_target, class_id, isa)
             .map_err(|_| -1)?;
 
         // establish mutual references between TypedArray <==> ArrayBuffer
         {
-            let p = ta.payload().typed_array().unwrap();
+            let p = ta.payload_typed_array().unwrap();
             let w = ta.downgrade();
             p.array_buffer().payload_mut().add_typed_array_weakref(w);
             unsafe {
@@ -631,12 +616,12 @@ impl TypedArray {
 
     #[inline(always)]
     pub fn payload(&self) -> &TypedArrayPayload {
-        unsafe { self.0.as_ref().payload() }.typed_array().unwrap()
+        unsafe { self.0.as_ref() }.payload_typed_array().unwrap()
     }
 
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut TypedArrayPayload {
-        self.deref_mut().payload_mut().typed_array_mut().unwrap()
+        unsafe { self.0.as_mut() }.payload_typed_array_mut().unwrap()
     }
 
     /// check if the TypedArray is detached.

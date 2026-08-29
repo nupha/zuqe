@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::cell::RefCell;
+use std::{cell::RefCell, ffi::c_void};
 
 use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
@@ -17,7 +17,7 @@ use crate::{
     function::{
         AsyncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind, NativeFunction,
     },
-    object::{AsyncGeneratorFunction, JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
+    object::{AsyncGeneratorFunction, JS_PROP_CONFIGURABLE, Object, ObjectImpl},
     utils::unlikely,
     value::JSValue,
 };
@@ -351,7 +351,7 @@ impl AGenPayload {
         #[cfg(feature = "gc_protect_transient")]
         debug_assert!(
             result
-                .gc_node_ptr()
+                .as_gc_node()
                 .map_or(true, |n| unsafe { n.as_ref().is_root_or_local() }),
             "resolve_or_reject: result not protected"
         );
@@ -458,13 +458,16 @@ impl AsyncGeneratorFunction {
 
         // create AsyncGenerator object
         let mut obj = ctx
-            .ordinary_create_from_constructor(func_obj, ObjectPayload::ASYNC_GENERATOR(s))
+            .ordinary_create_from_constructor_class(
+                func_obj,
+                JS_CLASS_ASYNC_GENERATOR,
+                Box::into_raw(s) as *mut c_void,
+            )
             .map_err(|_| -1)?;
 
         // set generator to obj weakref
         let w = obj.downgrade();
-        *obj.payload_mut()
-            .async_generator_mut()
+        *obj.payload_async_generator_mut()
             .unwrap()
             .generator
             .borrow_mut() = w;
@@ -512,7 +515,8 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
 
     let arg = cc.arg(0);
     let mut data0 = cc.data(0).as_object().unwrap();
-    if let ObjectPayload::ASYNC_GENERATOR(s) = data0.payload_mut() {
+    if data0.class_id() == JS_CLASS_ASYNC_GENERATOR {
+        let s = data0.payload_async_generator_mut().unwrap();
         if cc.magic() >= 2 {
             // resume next case in AWAITING_RETURN state
             debug_assert!(matches!(
@@ -558,8 +562,13 @@ fn js_async_generator_resolve_function(ctx: &mut ScopedContext, cc: CallContext)
 fn js_async_generator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let (promise, resolving_funcs) = Promise::create(ctx)?;
 
-    let mut this = cc.this();
-    if let Ok(s) = this.class_payload_mut::<AGenPayload>(ctx, JS_CLASS_ASYNC_GENERATOR) {
+    let this = cc.this();
+    let mut obj = this.as_object();
+    if let Some(s) = obj
+        .as_mut()
+        .filter(|o| o.class_id() == JS_CLASS_ASYNC_GENERATOR)
+        .and_then(|mut o| o.payload_async_generator_mut())
+    {
         let req = Box::new(JSAsyncGeneratorRequest {
             completion_type: cc.magic(),
             result: cc.arg(0),
@@ -572,6 +581,7 @@ fn js_async_generator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
             s.resume_next(ctx);
         }
     } else {
+        let _ = ctx.throw_type_error_invalid_class(JS_CLASS_ASYNC_GENERATOR);
         let err_val = ctx.take_exception().to_value(ctx);
         resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
     }

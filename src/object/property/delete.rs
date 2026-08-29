@@ -52,7 +52,7 @@ impl ObjectImpl {
                             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS => {
                                 let cnt = self.fast_array_count();
                                 if idx < cnt {
-                                    let arr_data = self.payload_mut().array_mut().unwrap();
+                                    let arr_data = self.payload_array_mut().unwrap();
                                     debug_assert_eq!(arr_data.len(), cnt as usize);
                                     if idx == arr_data.len() as u32 - 1 {
                                         arr_data.pop();

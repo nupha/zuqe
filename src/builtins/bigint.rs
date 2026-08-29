@@ -83,8 +83,7 @@ fn js_thisBigIntValue(ctx: &mut ScopedContext, this_val: JSValue) -> Result<BigI
     if let Some(bi) = this_val.as_bigint() {
         Ok(bi)
     } else if let Some(o) = this_val.as_object() {
-        o.payload()
-            .bigint()
+        o.payload_bigint()
             .copied()
             .ok_or_else(|| ctx.throw_type_error("not a BigInt"))
     } else {

@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
     value::JSValue,
 };
 
@@ -225,9 +225,10 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
     if !new_target.is_callable() {
         let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
         let instance = ctx
-            .ordinary_create_from_constructor(
+            .ordinary_create_from_constructor_class(
                 JSValue::UNDEFINED,
-                ObjectPayload::INTL_NUMBER_FORMAT(Box::new(data)),
+                crate::JS_CLASS_INTL_NUMBER_FORMAT,
+                Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
             )
             .map_err(|_| -1)?
             .into();
@@ -253,9 +254,10 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
     let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
 
     let instance = ctx
-        .ordinary_create_from_constructor(
+        .ordinary_create_from_constructor_class(
             new_target,
-            ObjectPayload::INTL_NUMBER_FORMAT(Box::new(data)),
+            crate::JS_CLASS_INTL_NUMBER_FORMAT,
+            Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
         )
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
@@ -602,7 +604,7 @@ fn js_number_format_format_getter(ctx: &mut ScopedContext, cc: CallContext) -> J
 
 fn is_number_format(v: &JSValue) -> bool {
     v.as_object()
-        .is_some_and(|o| o.payload().intl_number_format().is_some())
+        .is_some_and(|o| o.payload_intl_number_format().is_some())
 }
 
 fn js_number_format_format_bound(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -611,8 +613,7 @@ fn js_number_format_format_bound(ctx: &mut ScopedContext, cc: CallContext) -> JS
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a NumberFormat"))?;
     let this = this_obj
-        .payload()
-        .intl_number_format()
+        .payload_intl_number_format()
         .ok_or_else(|| ctx.throw_type_error("not a NumberFormat"))?;
     let v = cc.arg(0);
     let s = format_value(ctx, this, v)?;
@@ -1927,8 +1928,7 @@ fn js_number_format_formatToParts(ctx: &mut ScopedContext, cc: CallContext) -> J
         .as_object()
         .ok_or_else(|| ctx.throw_internal_error("unreachable"))?;
     let this = this_obj
-        .payload()
-        .intl_number_format()
+        .payload_intl_number_format()
         .ok_or_else(|| ctx.throw_type_error("not a NumberFormat"))?;
 
     let value = cc.arg(0);
@@ -1964,8 +1964,7 @@ fn js_number_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
         .as_object()
         .ok_or_else(|| ctx.throw_internal_error("unreachable"))?;
     let this = this_obj
-        .payload()
-        .intl_number_format()
+        .payload_intl_number_format()
         .ok_or_else(|| ctx.throw_type_error("not a NumberFormat"))?;
     let mut o = ctx.create_base_object()?;
     let _v1 = locale_to_string(ctx, &this.locale)?;

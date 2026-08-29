@@ -484,7 +484,7 @@ fn format_typed_array(
     stack: &mut Vec<Object>,
 ) -> String {
     let cn = class_name_str(ctx, obj);
-    let count = match obj.payload().typed_array() {
+    let count = match obj.payload_typed_array() {
         Some(ta) => ta.count() as usize,
         None => 0,
     };
@@ -535,7 +535,7 @@ fn format_mapset(
     stack: &mut Vec<Object>,
 ) -> String {
     let cn = class_name_str(ctx, obj);
-    let ms = match obj.payload().mapset() {
+    let ms = match obj.payload_mapset() {
         Some(ms) => ms,
         None => return format!("{} {{}}", cn),
     };
@@ -687,11 +687,11 @@ fn inspect(
         // engine does not directly expose target/handler: fall back to plain object traversal
     }
     // TypedArray
-    if obj.payload().typed_array().is_some() {
+    if obj.payload_typed_array().is_some() {
         return format_typed_array(ctx, &mut obj, opts, level, stack);
     }
     // Array
-    if obj.payload().array().is_some() {
+    if obj.payload_array().is_some() {
         return format_array(ctx, &mut obj, opts, level, stack);
     }
     // RegExp
@@ -711,7 +711,7 @@ fn inspect(
         return format_error(ctx, &mut obj, opts);
     }
     // Map / Set
-    if obj.payload().mapset().is_some() {
+    if obj.payload_mapset().is_some() {
         return format_mapset(ctx, &mut obj, opts, level, stack);
     }
     // plain object

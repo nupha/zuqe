@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    JS_CLASS_OBJECT,
     atom::Atom,
     context::ScopedContext,
     error::{Exception, JSResult},
-    object::{JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object, ObjectImpl, ObjectPayload},
+    object::{JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object, ObjectImpl},
     utils::unlikely,
     value::JSValue,
 };
@@ -165,9 +166,13 @@ impl ObjectImpl {
 
             let this: JSValue = if is_legacy_ctor {
                 // legacy constructor behavior.
-                ctx.ordinary_create_from_constructor(new_target, ObjectPayload::OBJECT)
-                    .map_err(|_| ctx.throw_type_error("constructor must return an object"))?
-                    .into()
+                ctx.ordinary_create_from_constructor_class(
+                    new_target,
+                    JS_CLASS_OBJECT,
+                    std::ptr::null_mut(),
+                )
+                .map_err(|_| ctx.throw_type_error("constructor must return an object"))?
+                .into()
             } else {
                 this_obj
             };

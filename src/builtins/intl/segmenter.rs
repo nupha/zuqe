@@ -15,7 +15,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object},
     value::JSValue,
 };
 
@@ -85,9 +85,12 @@ pub(crate) fn js_segmenter_constructor(ctx: &mut ScopedContext, cc: CallContext)
         locale,
         granularity,
     };
-    let instance = ctx
-        .ordinary_create_from_constructor(new_target, ObjectPayload::INTL_SEGMENTER(Box::new(data)))
-        .map_err(|_| -1)?;
+    let instance = ctx.ordinary_create_from_constructor_class(
+        new_target,
+        crate::JS_CLASS_INTL_SEGMENTER,
+        Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+    )
+    .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 
@@ -214,7 +217,7 @@ fn js_segmenter_segment(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this_obj = this_val
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
-    if this_obj.payload().intl_segmenter().is_none() {
+    if this_obj.payload_intl_segmenter().is_none() {
         return Err(ctx.throw_type_error("not a Segmenter"));
     }
     let sref = cc.arg(0).to_string(ctx)?;
@@ -263,8 +266,7 @@ fn js_segments_containing(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
     let data = seg_obj
-        .payload()
-        .intl_segmenter()
+        .payload_intl_segmenter()
         .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
     let sref = cc.data(D_INPUT).to_string(ctx)?;
     let units = js_to_utf16(&sref);
@@ -328,8 +330,7 @@ fn js_segment_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
     let data = seg_obj
-        .payload()
-        .intl_segmenter()
+        .payload_intl_segmenter()
         .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
     let sref = cc.data(D_INPUT).to_string(ctx)?;
     let units = js_to_utf16(&sref);
@@ -388,8 +389,7 @@ fn js_segmenter_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JS
         .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
 
     let seg = this_obj
-        .payload()
-        .intl_segmenter()
+        .payload_intl_segmenter()
         .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
 
     let mut o = ctx.create_base_object()?;

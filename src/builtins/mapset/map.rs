@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::collections::HashMap;
+use std::{collections::HashMap, ffi::c_void};
 
 use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_MAP_ITERATOR, JS_CLASS_SET_ITERATOR,
+    JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET_ITERATOR,
     builtins::weakref::can_be_held_weakly,
     class::ClassID,
     context::{ContextImpl, ScopedContext},
-    object::{MapSet, Object, ObjectImpl, ObjectPayload},
+    object::{MapSet, Object, ObjectImpl},
     utils::hash_usize,
     value::JSValue,
 };
@@ -404,7 +404,10 @@ impl MapSet {
 
     pub fn from_entries(ctx: &mut ScopedContext, entries: JSMapState) -> Result<Self, i32> {
         let obj = ctx
-            .create_instance_with_payload(ObjectPayload::MAP(Box::new(entries)))
+            .create_instance_with_class(
+                JS_CLASS_MAP,
+                Box::into_raw(Box::new(entries)) as *mut c_void,
+            )
             .map_err(|_| -1)?;
         obj.try_into().map_err(|_| -1)
     }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{fmt::Formatter, ops::Deref};
+use std::{ffi::c_void, fmt::Formatter, ops::Deref};
 
 use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx, GcWeak};
 use smallvec::SmallVec;
@@ -17,8 +17,8 @@ use crate::{
 
 use super::{
     JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE,
-    JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty,
-    ObjectPayload, Shape,
+    JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, Shape,
+    payload_access,
 };
 
 /// TODO: use bitfield instead
@@ -186,8 +186,8 @@ pub struct ObjectImpl {
     #[cfg(any(feature = "builtin_mapset", feature = "builtin_weakref"))]
     weak_refs: Vec<GcWeak<ObjectImpl>>,
 
-    /// object payload.
-    payload: ObjectPayload,
+    /// object payload — type-erased pointer, interpreted via class_id.
+    pub(super) payload: *mut c_void,
 }
 
 impl GcTrace for ObjectImpl {
@@ -198,7 +198,21 @@ impl GcTrace for ObjectImpl {
         for p in self.prop_values.iter() {
             p.trace(tr);
         }
-        self.payload.trace(tr);
+        // Trace the type-erased payload by class_id: user-class payloads are
+        // Box<OtherPayload> (fires the per-class on_gc_trace handler), builtin
+        // classes use the generated per-class dispatch.
+        let cid = self.class_id();
+        if cid >= crate::USER_CLASS_ID_START {
+            let p = self.payload;
+            if !p.is_null() {
+                unsafe { (*(p as *const crate::class::OtherPayload)).trace(tr) };
+            }
+        } else {
+            payload_access::trace_payload(cid, self.payload as *const c_void, tr);
+        }
+        if let Some(trace_fn) = self.rt.class_registry[cid as usize].trace_payload {
+            trace_fn(self.payload as *const c_void, tr);
+        }
     }
 }
 
@@ -242,14 +256,15 @@ impl std::fmt::Display for ObjectImpl {
 }
 
 impl ObjectImpl {
-    /// Create an instance object with `shape` and `payload` data. The class is implied by payload.
+    /// Create an instance object with `shape`, `class_id` and raw `payload` pointer.
     ///
     /// When fail, `payload` is returned back in Err, caller should free it.
     pub(crate) fn create(
         ctx: &mut ScopedContext,
         mut shape: Option<Shape>,
-        payload: ObjectPayload,
-    ) -> Result<Object, ObjectPayload> {
+        class_id: ClassID,
+        payload: *mut c_void,
+    ) -> Result<Object, *mut c_void> {
         #[cfg(debug_assertions)]
         if let Some(sh) = &shape {
             debug_assert!(
@@ -291,7 +306,7 @@ impl ObjectImpl {
 
         let mut array_length_prop = false;
 
-        match payload.class_id() {
+        match class_id {
             JS_CLASS_OBJECT => {}
 
             JS_CLASS_BYTECODE_FUNCTION
@@ -355,7 +370,7 @@ impl ObjectImpl {
 
         // cache class id in the flags bitfield (low 16 bits) so that
         // `ObjectImpl::class_id()` is an O(1) field load (no payload match).
-        flags.set_class_id(payload.class_id());
+        flags.set_class_id(class_id);
 
         let mut obj = ctx
             .alloc_local(Self {
@@ -369,9 +384,9 @@ impl ObjectImpl {
                 weak_refs: Vec::new(),
             })
             .map(Object)
-            .map_err(|(_, mut o)| {
+            .map_err(|(_, o)| {
                 let _ = ctx.throw_out_of_memory();
-                std::mem::replace(&mut o.payload, ObjectPayload::NUMBER(JSValue::ZERO))
+                o.payload
             })?;
 
         #[cfg(debug_assertions)]
@@ -406,16 +421,10 @@ impl ObjectImpl {
         self.rt
     }
 
-    /// get object payload
+    /// get object payload as raw pointer
     #[inline(always)]
-    pub const fn payload(&self) -> &ObjectPayload {
-        &self.payload
-    }
-
-    /// get object payload
-    #[inline(always)]
-    pub const fn payload_mut(&mut self) -> &mut ObjectPayload {
-        &mut self.payload
+    pub const fn payload_raw(&self) -> *mut c_void {
+        self.payload
     }
 
     #[inline(always)]
@@ -490,15 +499,20 @@ impl ObjectImpl {
     /// - Proxy objects that wrapping a function
     /// - Objects of native class which has `call` handler
     pub fn is_callable(&self) -> bool {
-        match &self.payload {
-            ObjectPayload::BYTECODE_FUNCTION(_) => true,
+        match self.class_id() {
+            JS_CLASS_BYTECODE_FUNCTION
+            | JS_CLASS_GENERATOR_FUNCTION
+            | JS_CLASS_ASYNC_FUNCTION
+            | JS_CLASS_ASYNC_GENERATOR_FUNCTION => true,
             #[cfg(feature = "builtin_proxy")]
-            ObjectPayload::PROXY(x) => x.is_func(),
-            isa => {
+            crate::JS_CLASS_PROXY => {
+                unsafe { &*(self.payload as *const crate::builtins::proxy::ProxyPayload) }.is_func()
+            }
+            _ => {
                 // check if class proto has exotic call handler
                 self.rt_ptr()
                     .class_registry
-                    .get(isa.class_id() as usize)
+                    .get(self.class_id() as usize)
                     .and_then(|c| c.call)
                     .is_some()
             }
@@ -573,6 +587,9 @@ impl ObjectImpl {
     /// holds `&mut RuntimeImpl`, and a `RuntimePtr` deref here would create
     /// a second non-derived access path to `RuntimeImpl` (aliasing UB).
     pub(crate) fn finalize(&mut self, rt: &mut RuntimeImpl) {
+        let class_id = self.class_id();
+        let ptr = self.payload;
+
         // WeakMap/WeakSet cleanup
         #[cfg(feature = "builtin_mapset")]
         {
@@ -589,7 +606,7 @@ impl ObjectImpl {
                     "must be WeakSet or WeakMap object"
                 );
 
-                if let Some(ms) = o.payload_mut().mapset_mut() {
+                if let Some(ms) = o.payload_mapset_mut() {
                     ms.remove_weak_obj(this);
                 }
             }
@@ -612,7 +629,7 @@ impl ObjectImpl {
                     continue;
                 }
 
-                if let Some(frd) = o.payload_mut().finalization_registry_mut() {
+                if let Some(frd) = o.payload_finalization_registry_mut() {
                     let held_values = frd.remove_entries_for_target(this, heap);
                     let callback = frd.callback;
                     let context = frd.realm;
@@ -627,9 +644,21 @@ impl ObjectImpl {
         }
 
         // call class finalize handler.
-        if let Some(cb) = rt.class_registry[self.class_id() as usize].on_finalize {
+        if let Some(cb) = rt.class_registry[class_id as usize].on_finalize {
             let id = self.id();
-            cb(rt, &self.payload, id);
+            cb(&mut *rt, ptr, id);
+        }
+
+        // free payload memory
+        unsafe {
+            if class_id < crate::USER_CLASS_ID_START {
+                payload_access::drop_payload(class_id, ptr);
+            } else if !ptr.is_null() {
+                drop(Box::from_raw(ptr as *mut crate::class::OtherPayload));
+            }
+            if let Some(drop_fn) = rt.class_registry[class_id as usize].drop_payload {
+                drop_fn(ptr);
+            }
         }
     }
 }

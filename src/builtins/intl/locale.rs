@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE},
     value::JSValue,
 };
 
@@ -84,9 +84,12 @@ pub(crate) fn js_locale_constructor(ctx: &mut ScopedContext, cc: CallContext) ->
         }
     }
 
-    let instance = ctx
-        .ordinary_create_from_constructor(cc.this(), ObjectPayload::INTL_LOCALE(Box::new(data)))
-        .map_err(|_| -1)?;
+    let instance = ctx.ordinary_create_from_constructor_class(
+        cc.this(),
+        crate::JS_CLASS_INTL_LOCALE,
+        Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+    )
+    .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 
@@ -119,8 +122,7 @@ fn js_locale_getters(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a Locale"))?;
     let this = this_obj
-        .payload()
-        .intl_locale()
+        .payload_intl_locale()
         .ok_or_else(|| ctx.throw_type_error("not a Locale"))?;
     let raw = this.raw.clone();
     let l = &this.locale;
@@ -250,8 +252,7 @@ fn js_locale_maximize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a Locale"))?;
     let this = this_obj
-        .payload()
-        .intl_locale()
+        .payload_intl_locale()
         .ok_or_else(|| ctx.throw_type_error("not a Locale"))?;
     let mut l = this.locale.clone();
     maximize_id(&mut l.id);
@@ -259,9 +260,12 @@ fn js_locale_maximize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         locale: l,
         raw: this.raw.clone(),
     };
-    let instance = ctx
-        .ordinary_create_from_constructor(cc.this(), ObjectPayload::INTL_LOCALE(Box::new(data)))
-        .map_err(|_| -1)?;
+    let instance = ctx.ordinary_create_from_constructor_class(
+        cc.this(),
+        crate::JS_CLASS_INTL_LOCALE,
+        Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+    )
+    .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 
@@ -271,8 +275,7 @@ fn js_locale_minimize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a Locale"))?;
     let this = this_obj
-        .payload()
-        .intl_locale()
+        .payload_intl_locale()
         .ok_or_else(|| ctx.throw_type_error("not a Locale"))?;
     let mut l = this.locale.clone();
     // RemoveLikelySubtags is defined as remove(add(x)).
@@ -282,9 +285,12 @@ fn js_locale_minimize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         locale: l,
         raw: this.raw.clone(),
     };
-    let instance = ctx
-        .ordinary_create_from_constructor(cc.this(), ObjectPayload::INTL_LOCALE(Box::new(data)))
-        .map_err(|_| -1)?;
+    let instance = ctx.ordinary_create_from_constructor_class(
+        cc.this(),
+        crate::JS_CLASS_INTL_LOCALE,
+        Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+    )
+    .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 

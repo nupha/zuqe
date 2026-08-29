@@ -9,7 +9,7 @@ use fallible_collections::TryCollect;
 use crate::function::InlineCacheEntry;
 
 use crate::{
-    Array, JS_CLASS_OBJECT, ScopeResult,
+    Array, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_OBJECT, ScopeResult,
     array::alloc_fast_array_slots,
     atom::{Atom, AtomKind},
     builtins::{
@@ -47,7 +47,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
         JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, Object, ObjectPayload,
+        JS_PROP_WRITABLE, JSProperty, Object,
     },
     stack_frame::{
         ExecMode, FrameAllocError, FrameIndex, MAX_CALL_DEPTH, StackFrameArena, VirtualFrame,
@@ -653,9 +653,10 @@ impl Bytecode {
                             }
                             SpecialObject::MappedArguments => {
                                 let object_proto = realm_scope.class_proto(JS_CLASS_OBJECT);
-                                let mut obj = match realm_scope.create_instance_with_proto_payload(
+                                let mut obj = match realm_scope.create_instance_with_proto_class(
                                     object_proto,
-                                    ObjectPayload::MAPPED_ARGUMENTS,
+                                    JS_CLASS_MAPPED_ARGUMENTS,
+                                    std::ptr::null_mut(),
                                 ) {
                                     Ok(o) => o,
                                     Err(_) => {
@@ -1208,9 +1209,10 @@ impl Bytecode {
                             // super() returns).
                             let (callee_this, ctor_this) = if !bc.attrs.is_derived_class_constructor
                             {
-                                match realm_scope.ordinary_create_from_constructor(
+                                match realm_scope.ordinary_create_from_constructor_class(
                                     ctor_new_target,
-                                    ObjectPayload::OBJECT,
+                                    JS_CLASS_OBJECT,
+                                    std::ptr::null_mut(),
                                 ) {
                                     Ok(o) => {
                                         let v = JSValue::from(o);

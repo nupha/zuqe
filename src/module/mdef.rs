@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::marker::PhantomData;
+use std::{ffi::c_void, marker::PhantomData};
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use url::Url;
 
 use crate::{
+    JS_CLASS_BYTECODE_FUNCTION,
     atom::Atom,
     builtins::promise::Promise,
     class::ClassExoticMethods,
@@ -17,7 +18,7 @@ use crate::{
     },
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
-    object::{JS_PROP_C_W_E, JS_PROP_WRITABLE, Object, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_WRITABLE, Object},
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -301,10 +302,14 @@ impl ModuleDefImpl {
         }
 
         self.bytecode = {
-            let p = ObjectPayload::BYTECODE_FUNCTION(BFuncPayload::new(bc, var_refs));
-            ctx.create_instance_with_proto_payload(Some(ctx.function_proto()), p)
-                .map_err(|_| -1)?
-                .into()
+            let p = Box::into_raw(Box::new(BFuncPayload::new(bc, var_refs))) as *mut c_void;
+            ctx.create_instance_with_proto_class(
+                Some(ctx.function_proto()),
+                JS_CLASS_BYTECODE_FUNCTION,
+                p,
+            )
+            .map_err(|_| -1)?
+            .into()
         };
 
         Ok(())

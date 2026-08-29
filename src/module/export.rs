@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::cmp::Ordering;
+use std::{cmp::Ordering, ffi::c_void};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
+    JS_CLASS_MODULE_NS,
     atom::Atom,
     context::ScopedContext,
     error::ErrorKind,
@@ -13,7 +14,6 @@ use crate::{
     module::{ModuleDef, ModuleDefImpl},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, LazyInit, Object,
-        ObjectPayload,
     },
     utils::unlikely,
     value::JSValue,
@@ -384,7 +384,7 @@ impl ModuleDef {
     /// build module ns object
     fn build_module_ns(&self, ctx: &mut ScopedContext) -> Result<Object, i32> {
         let mut obj = ctx
-            .create_instance_with_payload(ObjectPayload::MODULE_NS)
+            .create_instance_with_class(JS_CLASS_MODULE_NS, std::ptr::null_mut())
             .map_err(|_| -1)?;
 
         let mut state = GetExportNamesState::default();

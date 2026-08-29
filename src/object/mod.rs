@@ -4,14 +4,14 @@
 mod casts;
 mod create;
 mod obj;
-mod payload;
+mod payload_access;
 mod private;
 mod property;
 mod prototype;
 mod shape;
 
 pub(crate) use shape::*;
-pub use {casts::*, obj::*, payload::*, property::*};
+pub use {casts::*, obj::*, payload_access::*, property::*};
 
 #[macro_export]
 macro_rules! gcref_wrapper {

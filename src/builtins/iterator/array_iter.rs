@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::cell::UnsafeCell;
+use std::{cell::UnsafeCell, ffi::c_void};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
@@ -10,7 +10,6 @@ use crate::{
     builtins::typed_array::TypedArray,
     error::JSResult,
     function::{CallContext, IteratorState},
-    object::ObjectPayload,
     value::JSValue,
 };
 
@@ -91,13 +90,9 @@ pub fn js_create_array_iterator(ctx: &mut ScopedContext, cc: CallContext) -> JSR
         idx: UnsafeCell::new(0),
         kind,
     });
-    ctx.create_instance_with_payload(if class_id == JS_CLASS_STRING_ITERATOR {
-        ObjectPayload::STRING_ITERATOR(isa)
-    } else {
-        ObjectPayload::ARRAY_ITERATOR(isa)
-    })
-    .map(JSValue::from)
-    .map_err(|_| -1)
+    ctx.create_instance_with_class(class_id, Box::into_raw(isa) as *mut c_void)
+        .map(JSValue::from)
+        .map_err(|_| -1)
 }
 
 pub(crate) fn js_array_iterator_next(
@@ -106,7 +101,12 @@ pub(crate) fn js_array_iterator_next(
     state: &mut IteratorState,
 ) -> JSResult {
     let this = cc.this();
-    let it: &ArrayIterPayload = this.class_payload(ctx, JS_CLASS_ARRAY_ITERATOR)?;
+    let this_obj = this
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_ARRAY_ITERATOR))?;
+    let it: &ArrayIterPayload = this_obj
+        .payload_array_iterator()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_ARRAY_ITERATOR))?;
 
     let obj = it.value();
     if obj.is_undefined() {

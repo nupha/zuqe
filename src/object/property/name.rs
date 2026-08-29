@@ -132,7 +132,7 @@ impl ObjectImpl {
             } else if self.class_id() == JS_CLASS_STRING {
                 // String object
                 if flags & JS_GPN_STR_OR_INT_MASK != 0 {
-                    let buf_len = self.payload().string().unwrap().len();
+                    let buf_len = self.payload_string().unwrap().len();
                     for i in 0..buf_len {
                         callback(
                             ctx,

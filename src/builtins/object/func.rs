@@ -14,7 +14,6 @@ use crate::{
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE,
-        ObjectPayload,
     },
     value::JSValue,
 };
@@ -23,8 +22,12 @@ pub(crate) fn js_object_constructor(ctx: &mut ScopedContext, cc: CallContext) ->
     let new_target = cc.this();
 
     if !new_target.is_undefined() && ctx.rt().current_function() != new_target {
-        ctx.ordinary_create_from_constructor(new_target, ObjectPayload::OBJECT)
-            .map_err(|_| -1)
+        ctx.ordinary_create_from_constructor_class(
+            new_target,
+            crate::JS_CLASS_OBJECT,
+            std::ptr::null_mut(),
+        )
+        .map_err(|_| -1)
     } else {
         let v = cc.arg(0);
         if v.is_undefined_or_null() {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ops::DerefMut;
+use std::{ffi::c_void, ops::DerefMut};
 
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
@@ -11,7 +11,7 @@ use crate::{
     builtins::iterator::make_iterator_next_result,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
-    object::{NativeFunction, Object, ObjectImpl, ObjectPayload},
+    object::{NativeFunction, Object, ObjectImpl},
     runtime::js_check_stack_overflow,
     stack_frame::{ExecMode, FrameAllocError, FrameState, StackFrameArena},
     value::JSValue,
@@ -343,20 +343,21 @@ impl NativeFunction {
         let has_binding_data = binding_data.is_some();
 
         let mut func_obj = {
-            let p = Box::new(NFuncPayload {
+            let p = Box::into_raw(Box::new(NFuncPayload {
                 callback,
                 length,
                 magic,
                 realm: ctx.gc_ref().into(),
                 data: binding_data,
-            });
-            ctx.create_instance_with_proto_payload(
+            })) as *mut c_void;
+            ctx.create_instance_with_proto_class(
                 Some(proto),
                 if has_binding_data {
-                    ObjectPayload::C_FUNCTION_DATA(p)
+                    JS_CLASS_C_FUNCTION_DATA
                 } else {
-                    ObjectPayload::C_FUNCTION(p)
+                    JS_CLASS_C_FUNCTION
                 },
+                p,
             )
             .map_err(|_| -1)?
         };
@@ -378,12 +379,12 @@ impl NativeFunction {
 
     #[inline(always)]
     pub(crate) fn payload(&self) -> &NFuncPayload {
-        unsafe { self.0.as_ref().payload() }.native_func().unwrap()
+        unsafe { self.0.as_ref() }.payload_native_func().unwrap()
     }
 
     #[inline(always)]
     pub(crate) fn payload_mut(&mut self) -> &mut NFuncPayload {
-        self.deref_mut().payload_mut().native_func_mut().unwrap()
+        self.deref_mut().payload_native_func_mut().unwrap()
     }
 }
 
@@ -391,7 +392,7 @@ impl ObjectImpl {
     /// Checks if Object is native function of specific type.
     /// Matches both the callback pointer and magic.
     pub fn match_native_callback(&self, callback: Callback, magic: i32) -> bool {
-        if let Some(nf) = self.payload().native_func() {
+        if let Some(nf) = self.payload_native_func() {
             nf.magic == magic as i16 && callback.eq(&nf.callback)
         } else {
             false

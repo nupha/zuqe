@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use crate::{
-    ClassDef,
+    ClassDef, JS_CLASS_BOOLEAN,
     atom::Atom,
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
-    object::ObjectPayload,
     value::JSValue,
 };
 
@@ -16,9 +17,13 @@ pub fn js_boolean_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     let b = cc.arg(0).to_bool().unwrap_or(true);
 
     if !new_target.is_undefined() {
-        ctx.ordinary_create_from_constructor(new_target, ObjectPayload::BOOLEAN(b))
-            .map(JSValue::from)
-            .map_err(|_| -1)
+        ctx.ordinary_create_from_constructor_class(
+            new_target,
+            JS_CLASS_BOOLEAN,
+            Box::into_raw(Box::new(b)) as *mut c_void,
+        )
+        .map(JSValue::from)
+        .map_err(|_| -1)
     } else {
         Ok(b.into())
     }

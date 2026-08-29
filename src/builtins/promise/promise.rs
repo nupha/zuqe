@@ -3,7 +3,7 @@
 
 use std::{
     cell::{Cell, RefCell},
-    ops::DerefMut,
+    ffi::c_void,
     rc::Rc,
     sync::{Arc, Mutex},
 };
@@ -18,7 +18,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, Callback, NativeFunction, js_function_set_properties},
     make_bounded_channel,
-    object::{JS_PROP_C_W_E, Object, ObjectImpl, ObjectPayload, Promise},
+    object::{JS_PROP_C_W_E, Object, ObjectImpl, Promise},
     value::JSValue,
 };
 
@@ -248,9 +248,13 @@ impl Promise {
             is_handled: false,
         });
         let promise = Self(
-            ctx.ordinary_create_from_constructor(ctor, ObjectPayload::PROMISE(isa))
-                .map_err(|_| -1)?
-                .0,
+            ctx.ordinary_create_from_constructor_class(
+                ctor,
+                JS_CLASS_PROMISE,
+                Box::into_raw(isa) as *mut c_void,
+            )
+            .map_err(|_| -1)?
+            .0,
         );
 
         let rr = promise.create_resolving_functions(ctx)?;
@@ -370,9 +374,10 @@ impl Promise {
         job: impl Fn(&mut ScopedContext, Promise, &[JSValue; 2]) -> Result<JobState, i32> + 'static,
     ) -> Result<Self, i32> {
         let promise = Self(
-            ctx.ordinary_create_from_constructor(
+            ctx.ordinary_create_from_constructor_class(
                 JSValue::UNDEFINED,
-                ObjectPayload::PROMISE(Box::default()),
+                JS_CLASS_PROMISE,
+                Box::into_raw(Box::new(PromisePayload::default())) as *mut c_void,
             )
             .map_err(|_| -1)?
             .0,
@@ -557,14 +562,16 @@ impl Promise {
                 promise: *self,
                 resolved: resolved_flag.clone(), // flag is shared between two functions
             });
+            let class_id = if i == 0 {
+                crate::JS_CLASS_PROMISE_RESOLVE_FUNCTION
+            } else {
+                crate::JS_CLASS_PROMISE_REJECT_FUNCTION
+            };
             let func = ctx
-                .create_instance_with_proto_payload(
+                .create_instance_with_proto_class(
                     Some(func_proto),
-                    if i == 0 {
-                        ObjectPayload::PROMISE_RESOLVE_FUNCTION(p)
-                    } else {
-                        ObjectPayload::PROMISE_REJECT_FUNCTION(p)
-                    },
+                    class_id,
+                    Box::into_raw(p) as *mut c_void,
                 )
                 .map_err(|_| -1)?;
             js_function_set_properties(ctx, func, Atom::CONST_empty_string, 1)?;
@@ -584,11 +591,11 @@ impl Promise {
     pub fn payload(&self) -> &PromisePayload {
         #[cfg(debug_assertions)]
         {
-            unsafe { self.0.as_ref().payload() }.promise().unwrap()
+            unsafe { self.0.as_ref() }.payload_promise().unwrap()
         }
         #[cfg(not(debug_assertions))]
         unsafe {
-            self.0.as_ref().payload().promise().unwrap_unchecked()
+            self.0.as_ref().payload_promise().unwrap_unchecked()
         }
     }
 
@@ -597,14 +604,11 @@ impl Promise {
     pub fn payload_mut(&mut self) -> &mut PromisePayload {
         #[cfg(debug_assertions)]
         {
-            self.deref_mut().payload_mut().promise_mut().unwrap()
+            unsafe { self.0.as_mut() }.payload_promise_mut().unwrap()
         }
         #[cfg(not(debug_assertions))]
         unsafe {
-            self.deref_mut()
-                .payload_mut()
-                .promise_mut()
-                .unwrap_unchecked()
+            self.0.as_mut().payload_promise_mut().unwrap_unchecked()
         }
     }
 

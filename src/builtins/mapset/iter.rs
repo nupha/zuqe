@@ -47,15 +47,28 @@ fn js_map_iterator_next(
 
     *state = IteratorState::NotDone;
 
-    let it: &mut JSMapIteratorData =
-        this.class_payload_mut(ctx, JS_CLASS_MAP_ITERATOR + magic as ClassID)?;
+    let it_class = JS_CLASS_MAP_ITERATOR + magic as ClassID;
+    let mut this_o = this
+        .as_object()
+        .filter(|o| o.class_id() == it_class)
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(it_class))?;
+    let it: &mut JSMapIteratorData = this_o
+        .payload_mapset_iterator_mut()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(it_class))?;
 
     let mut ret: Option<JSValue> = None;
     let mut end = false;
 
     if let Some(obj) = it.obj {
         let mut objv: JSValue = obj.into();
-        let ms: &mut JSMapState = objv.class_payload_mut(ctx, JS_CLASS_MAP + magic as ClassID)?;
+        let ms_class = JS_CLASS_MAP + magic as ClassID;
+        let mut ms_o = objv
+            .as_object()
+            .filter(|o| o.class_id() == ms_class)
+            .ok_or_else(|| ctx.throw_type_error_invalid_class(ms_class))?;
+        let ms: &mut JSMapState = ms_o
+            .payload_mapset_mut()
+            .ok_or_else(|| ctx.throw_type_error_invalid_class(ms_class))?;
 
         if it.index < ms.slots.len() {
             let slice = &ms.slots[it.index..];

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::RefCell, ops::DerefMut, rc::Rc, sync::Arc};
+use std::{cell::RefCell, ffi::c_void, rc::Rc, sync::Arc};
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
@@ -13,7 +13,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     make_bounded_channel,
-    object::{AsyncIterableIterator, JS_PROP_CONFIGURABLE, ObjectImpl, ObjectPayload},
+    object::{AsyncIterableIterator, JS_PROP_CONFIGURABLE, ObjectImpl},
     value::JSValue,
 };
 
@@ -215,7 +215,10 @@ impl AsyncIterableIterator {
         });
 
         let obj = ctx
-            .create_instance_with_payload(ObjectPayload::ASYNC_ITERABLE_ITERATOR(data))
+            .create_instance_with_class(
+                crate::JS_CLASS_ASYNC_ITERABLE_ITERATOR,
+                Box::into_raw(data) as *mut c_void,
+            )
             .map_err(|_| -1)?;
 
         Ok(Self(obj.0))
@@ -280,14 +283,13 @@ impl AsyncIterableIterator {
     pub fn payload(&self) -> &AsyncIterPayload {
         #[cfg(debug_assertions)]
         unsafe {
-            self.0.as_ref().payload().async_iterator().unwrap()
+            self.0.as_ref().payload_async_iterator().unwrap()
         }
         #[cfg(not(debug_assertions))]
         unsafe {
             self.0
                 .as_ref()
-                .payload()
-                .async_iterator()
+                .payload_async_iterator()
                 .unwrap_unchecked()
         }
     }
@@ -296,14 +298,11 @@ impl AsyncIterableIterator {
     pub fn payload_mut(&mut self) -> &mut AsyncIterPayload {
         #[cfg(debug_assertions)]
         {
-            self.deref_mut().payload_mut().async_iterator_mut().unwrap()
+            unsafe { self.0.as_mut() }.payload_async_iterator_mut().unwrap()
         }
         #[cfg(not(debug_assertions))]
         unsafe {
-            self.deref_mut()
-                .payload_mut()
-                .async_iterator_mut()
-                .unwrap_unchecked()
+            self.0.as_mut().payload_async_iterator_mut().unwrap_unchecked()
         }
     }
 
@@ -325,7 +324,7 @@ fn js_async_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     let Some(o) = this.as_object() else {
         return Err(ctx.throw_type_error("not an AsyncIterableIterator"));
     };
-    let Some(ait) = o.payload().async_iterator() else {
+    let Some(ait) = o.payload_async_iterator() else {
         return Err(ctx.throw_type_error("not an AsyncIterableIterator"));
     };
 
@@ -399,7 +398,7 @@ fn js_async_iterator_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     let value = cc.arg(0);
 
     if let Some(mut obj) = this.as_object()
-        && let Some(ait) = obj.payload_mut().async_iterator_mut()
+        && let Some(ait) = obj.payload_async_iterator_mut()
     {
         ait.set_completed();
 

@@ -80,7 +80,7 @@ fn js_iterator_helper_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
     // Check for IteratorZip payload first (zip results share IteratorHelper proto)
-    if this_obj.payload().iterator_zip().is_some() {
+    if this_obj.payload_iterator_zip().is_some() {
         return if is_return {
             super::js_iterator_zip_return(ctx, cc)
         } else {
@@ -88,9 +88,7 @@ fn js_iterator_helper_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         };
     }
 
-    let ip = this_obj
-        .payload()
-        .iterator_helper()
+    let ip = this_obj.payload_iterator_helper()
         .ok_or_else(|| ctx.throw_type_error("not an Iterator Helper"))?;
 
     if ip.executing.get() {

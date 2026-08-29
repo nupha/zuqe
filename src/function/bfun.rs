@@ -8,7 +8,8 @@ use smallvec::SmallVec;
 
 use crate::{
     EvalName, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
+    JS_CLASS_BOUND_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
+    JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
     atom::{Atom, AtomDescKind},
     bytecode::exec_stackless::execute_trampoline,
     class::ClassID,
@@ -17,7 +18,7 @@ use crate::{
     eval::{EvalFlags, EvalType},
     object::{
         BytecodeFunction, JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object,
-        ObjectImpl, ObjectPayload,
+        ObjectImpl,
     },
     runtime::js_check_stack_overflow,
     stack_frame::{FrameAllocError, FrameState, StackFrameArena},
@@ -122,12 +123,12 @@ impl GcTrace for BFuncPayload {
 }
 
 impl BFuncPayload {
-    pub(crate) fn new(bytecode: Bytecode, captured_vars: Vec<VarRef>) -> Box<Self> {
-        Box::new(Self {
+    pub(crate) fn new(bytecode: Bytecode, captured_vars: Vec<VarRef>) -> Self {
+        Self {
             bytecode,
             closure_var_refs: captured_vars,
             home_object: None,
-        })
+        }
     }
 
     /// get bytecode
@@ -221,13 +222,13 @@ impl BCWrapper {
     /// get bcfunction payload
     #[inline]
     pub fn payload(&self) -> &BFuncPayload {
-        unsafe { self.0.as_ref().payload() }.bc_function().unwrap()
+        unsafe { self.0.as_ref() }.payload_bc_function().unwrap()
     }
 
     /// get bcfunction payload
     #[inline]
     pub fn payload_mut(&mut self) -> &mut BFuncPayload {
-        self.deref_mut().payload_mut().bc_function_mut().unwrap()
+        unsafe { self.0.as_mut() }.payload_bc_function_mut().unwrap()
     }
 
     pub(crate) fn method_set_home_object(&mut self, home_obj: Option<Object>) {
@@ -250,21 +251,27 @@ impl ObjectImpl {
 
     /// get realm context of a function object
     pub(crate) fn realm(&self, mut default: ContextPtr) -> Result<ContextPtr, i32> {
-        match self.payload() {
-            ObjectPayload::C_FUNCTION(f) => Ok(f.realm),
-            ObjectPayload::BOUND_FUNCTION(f) => f.func_obj.realm(default),
-            ObjectPayload::BYTECODE_FUNCTION(f)
-            | ObjectPayload::GENERATOR_FUNCTION(f)
-            | ObjectPayload::ASYNC_FUNCTION(f)
-            | ObjectPayload::ASYNC_GENERATOR_FUNCTION(f) => Ok(f.bytecode().realm()),
+        match self.class_id() {
+            JS_CLASS_C_FUNCTION | JS_CLASS_C_FUNCTION_DATA => {
+                Ok(self.payload_native_func().unwrap().realm)
+            }
+            JS_CLASS_BOUND_FUNCTION => {
+                self.payload_bound_function().unwrap().func_obj.realm(default)
+            }
+            JS_CLASS_BYTECODE_FUNCTION
+            | JS_CLASS_GENERATOR_FUNCTION
+            | JS_CLASS_ASYNC_FUNCTION
+            | JS_CLASS_ASYNC_GENERATOR_FUNCTION => {
+                Ok(self.payload_bc_function().unwrap().bytecode().realm())
+            }
 
             #[cfg(feature = "builtin_proxy")]
-            ObjectPayload::PROXY(px) => {
-                if px.is_revoked() {
+            crate::JS_CLASS_PROXY => {
+                if self.payload_proxy().unwrap().is_revoked() {
                     Err(default
                         .with_current_scope(|mut scope| scope.throw_type_error_revoked_proxy()))
                 } else {
-                    px.target().realm(default)
+                    self.payload_proxy().unwrap().target().realm(default)
                 }
             }
 
@@ -412,12 +419,12 @@ impl BytecodeFunction {
 
     #[inline(always)]
     pub fn payload(&self) -> &BFuncPayload {
-        unsafe { self.0.as_ref().payload() }.bc_function().unwrap()
+        unsafe { self.0.as_ref() }.payload_bc_function().unwrap()
     }
 
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut BFuncPayload {
-        self.deref_mut().payload_mut().bc_function_mut().unwrap()
+        unsafe { self.0.as_mut() }.payload_bc_function_mut().unwrap()
     }
 
     /// Run Bytecode Function in given scope.

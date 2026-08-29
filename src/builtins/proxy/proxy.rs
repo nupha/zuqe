@@ -16,7 +16,7 @@ use crate::{
         JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
         JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JSPropertyDescriptor, Object, ObjectPayload, PropertyKey, Proxy, check_define_prop_flags,
+        JSPropertyDescriptor, Object, PropertyKey, Proxy, check_define_prop_flags,
     },
     runtime::js_check_stack_overflow,
     utils::unlikely,
@@ -41,13 +41,13 @@ impl GcTrace for ProxyPayload {
 }
 
 impl ProxyPayload {
-    pub fn new(target: Object, handler: JSValue) -> Box<Self> {
-        Box::new(Self {
+    pub fn new(target: Object, handler: JSValue) -> Self {
+        Self {
             is_func: target.is_callable(),
             target,
             handler,
             is_revoked: Cell::new(false),
-        })
+        }
     }
 
     #[inline(always)]
@@ -244,31 +244,13 @@ impl Proxy {
     /// get proxy payload reference
     #[inline(always)]
     pub(super) fn payload(&self) -> &ProxyPayload {
-        if let ObjectPayload::PROXY(s) = unsafe { self.0.as_ref().payload() } {
-            s.as_ref()
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!();
-            #[cfg(not(debug_assertions))]
-            unsafe {
-                std::hint::unreachable_unchecked();
-            }
-        }
+        unsafe { self.0.as_ref() }.payload_proxy().unwrap()
     }
 
     /// get proxy payload reference
     #[inline(always)]
     pub(super) fn payload_mut(&mut self) -> &mut ProxyPayload {
-        if let ObjectPayload::PROXY(s) = self.deref_mut().payload_mut() {
-            s.as_mut()
-        } else {
-            #[cfg(debug_assertions)]
-            unreachable!();
-            #[cfg(not(debug_assertions))]
-            unsafe {
-                std::hint::unreachable_unchecked();
-            }
-        }
+        self.deref_mut().payload_proxy_mut().unwrap()
     }
 
     /// get proxied method

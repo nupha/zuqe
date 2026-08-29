@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use crate::{
-    IntOrFloat, JS_CLASS_MAP, JS_CLASS_SET, ScopedContext,
+    IntOrFloat, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, ScopedContext,
     array::Array,
     atom::Atom,
     builtins::{
@@ -16,7 +18,7 @@ use crate::{
     function::{CallContext, FieldDef},
     gc::GcHeapExt,
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_CONFIGURABLE, Object, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, Object},
     value::JSValue,
 };
 
@@ -28,12 +30,23 @@ fn get_jsmap_state<'s>(
     class_id: ClassID,
     ctx: &mut ScopedContext,
 ) -> Result<&'s JSMapState, i32> {
-    val.class_payload(ctx, class_id)
+    let o = val
+        .as_object()
+        .filter(|o| o.class_id() == class_id)
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(class_id))?;
+    let p = o
+        .payload_mapset()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(class_id))?;
+    Ok(unsafe { std::mem::transmute::<&JSMapState, &'s JSMapState>(p) })
 }
 
 /// Try to get the internal JSMapState (returns None if not the target class).
-fn try_get_jsmap_state(val: &JSValue, class_id: ClassID) -> Option<&JSMapState> {
-    val.try_class_payload(class_id)
+fn try_get_jsmap_state<'s>(val: &'s JSValue, class_id: ClassID) -> Option<&'s JSMapState> {
+    let o = val
+        .as_object()
+        .filter(|o| o.class_id() == class_id)?;
+    let p = o.payload_mapset()?;
+    Some(unsafe { std::mem::transmute::<&JSMapState, &'s JSMapState>(p) })
 }
 
 /// Get the mutable internal JSMapState from a Map/Set/WeakMap/WeakSet value (throws if not the target class).
@@ -42,7 +55,14 @@ fn get_jsmap_state_mut<'s>(
     class_id: ClassID,
     ctx: &mut ScopedContext,
 ) -> Result<&'s mut JSMapState, i32> {
-    val.class_payload_mut(ctx, class_id)
+    let mut o = val
+        .as_object()
+        .filter(|o| o.class_id() == class_id)
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(class_id))?;
+    let p = o
+        .payload_mapset_mut()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(class_id))?;
+    Ok(unsafe { std::mem::transmute::<&mut JSMapState, &'s mut JSMapState>(p) })
 }
 
 /// Iterate over all Strong keys in a JSMapState.
@@ -60,18 +80,10 @@ pub(crate) fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JS
 
     let new_target = cc.this();
 
-    let isa = Box::new(JSMapState::new(is_weak, 8));
+    let isa = Box::into_raw(Box::new(JSMapState::new(is_weak, 8))) as *mut c_void;
+    let class_id = JS_CLASS_MAP + magic as ClassID;
     let obj = ctx
-        .ordinary_create_from_constructor(
-            new_target,
-            match magic {
-                0 => ObjectPayload::MAP(isa),
-                1 => ObjectPayload::SET(isa),
-                2 => ObjectPayload::WEAKMAP(isa),
-                3 => ObjectPayload::WEAKSET(isa),
-                _ => unreachable!(),
-            },
-        )
+        .ordinary_create_from_constructor_class(new_target, class_id, isa)
         .map(JSValue::from)
         .map_err(|_| -1)?;
 
@@ -284,7 +296,7 @@ fn js_map_forEach(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     loop {
         // get index `i`
-        let kv = this_obj.payload().mapset().unwrap().slots.get(i).cloned();
+        let kv = this_obj.payload_mapset().unwrap().slots.get(i).cloned();
 
         if let Some(kv) = kv {
             let pair = match kv {
@@ -318,7 +330,7 @@ fn js_map_forEach(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     // unlock map
-    this_obj.payload_mut().mapset_mut().unwrap().unlock();
+    this_obj.payload_mapset_mut().unwrap().unlock();
 
     if has_err {
         Err(-1)
@@ -334,21 +346,20 @@ pub(crate) fn js_create_map_iterator(ctx: &mut ScopedContext, cc: CallContext) -
 
     // ensure `this` is an object of expected class_id
     let this = cc.this();
-    let _: &JSMapState = this.class_payload(ctx, JS_CLASS_MAP + (cc.magic() & 3) as ClassID)?;
+    let class_id = JS_CLASS_MAP + (cc.magic() & 3) as ClassID;
+    this.as_object()
+        .filter(|o| o.class_id() == class_id)
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(class_id))?;
 
     // create iterator object
-    let isa = Box::new(JSMapIteratorData {
+    let isa = Box::into_raw(Box::new(JSMapIteratorData {
         obj: this.as_object(),
         kind,
         index: 0,
-    });
-    ctx.create_instance_with_payload(match cc.magic() & 1 {
-        0 => ObjectPayload::MAP_ITERATOR(isa),
-        1 => ObjectPayload::SET_ITERATOR(isa),
-        _ => unreachable!(),
-    })
-    .map_err(|_| -1)
-    .map(JSValue::from)
+    })) as *mut c_void;
+    ctx.create_instance_with_class(JS_CLASS_MAP_ITERATOR + (cc.magic() & 1) as ClassID, isa)
+        .map_err(|_| -1)
+        .map(JSValue::from)
 }
 
 pub const js_map_proto_funcs: &[FieldDef] = &[
@@ -486,8 +497,8 @@ fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i3
 
 /// create an empty Set instance with the given capacity.
 fn create_empty_set(ctx: &mut ScopedContext, capacity: usize) -> Result<JSValue, i32> {
-    let state = Box::new(JSMapState::new(false, capacity));
-    ctx.create_instance_with_payload(ObjectPayload::SET(state))
+    let state = Box::into_raw(Box::new(JSMapState::new(false, capacity))) as *mut c_void;
+    ctx.create_instance_with_class(JS_CLASS_SET, state)
         .map_err(|_| -1)
         .map(JSValue::from)
 }

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::borrow::Cow;
+use std::{borrow::Cow, ffi::c_void};
 
 use crate::{
-    ClassDef,
+    ClassDef, JS_CLASS_NUMBER,
     builtins::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     context::ScopedContext,
     error::JSResult,
@@ -13,7 +13,6 @@ use crate::{
         ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP,
         JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, NumValue, f64_stringify, is_safe_integer, js_aton,
     },
-    object::ObjectPayload,
     utils::unlikely,
     value::JSValue,
 };
@@ -33,9 +32,13 @@ pub fn js_number_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 
     let new_target = cc.this();
     if !new_target.is_undefined() {
-        ctx.ordinary_create_from_constructor(new_target, ObjectPayload::NUMBER(val))
-            .map(JSValue::from)
-            .map_err(|_| -1)
+        ctx.ordinary_create_from_constructor_class(
+            new_target,
+            JS_CLASS_NUMBER,
+            Box::into_raw(Box::new(val)) as *mut c_void,
+        )
+        .map(JSValue::from)
+        .map_err(|_| -1)
     } else {
         Ok(val)
     }
@@ -48,7 +51,7 @@ fn js_thisNumberValue(ctx: &mut ScopedContext, this_val: JSValue) -> JSResult {
         // check number object
         let val = this_val
             .as_object()
-            .and_then(|p| p.payload().value().cloned());
+            .and_then(|p| p.payload_value().cloned());
 
         val.filter(|v| v.is_number())
             .ok_or_else(|| ctx.throw_type_error("not a number"))

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, ops::DerefMut, rc::Rc};
+use std::{cell::Cell, rc::Rc};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
@@ -11,7 +11,7 @@ use crate::{
     context::{ContextImpl, ScopedContext},
     error::JSResult,
     gc::GcHeapExt,
-    object::{JS_SpeciesConstructor, Object, ObjectPayload, PromiseResolveFunc},
+    object::{JS_SpeciesConstructor, Object, PromiseResolveFunc},
     utils::unlikely,
     value::JSValue,
 };
@@ -101,23 +101,13 @@ impl PromiseResolveFunc {
     }
 
     pub fn payload(&self) -> &PromiseResolvePayload {
-        if let ObjectPayload::PROMISE_RESOLVE_FUNCTION(x)
-        | ObjectPayload::PROMISE_REJECT_FUNCTION(x) = unsafe { self.0.as_ref().payload() }
-        {
-            x
-        } else {
-            unreachable!()
-        }
+        unsafe { self.0.as_ref() }.payload_promise_resolving_function().unwrap()
     }
 
     pub fn payload_mut(&mut self) -> &mut PromiseResolvePayload {
-        if let ObjectPayload::PROMISE_RESOLVE_FUNCTION(x)
-        | ObjectPayload::PROMISE_REJECT_FUNCTION(x) = self.deref_mut().payload_mut()
-        {
-            x.as_mut()
-        } else {
-            unreachable!()
-        }
+        unsafe { self.0.as_mut() }
+            .payload_promise_resolving_function_mut()
+            .unwrap()
     }
 }
 

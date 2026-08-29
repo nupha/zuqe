@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION,
     JS_CLASS_ERROR, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR,
@@ -20,7 +22,7 @@ use crate::{
     function::{BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
-        JS_PROP_HAS_SET, JS_PROP_WRITABLE, ObjectPayload,
+        JS_PROP_HAS_SET, JS_PROP_WRITABLE,
     },
     stack_frame::ExecMode,
     value::JSValue,
@@ -63,7 +65,7 @@ impl<'c> ScopedContext<'c> {
                         .this()
                         .as_object()
                         .and_then(|o| {
-                            o.payload().bc_function().map(|bc| {
+                            o.payload_bc_function().map(|bc| {
                                 let b = bc.bytecode();
                                 b.mode().contains(ExecMode::STRICT) || !b.has_prototype()
                             })
@@ -248,9 +250,10 @@ impl<'c> ScopedContext<'c> {
 
     pub(super) fn intrinsic_base_number(&mut self) {
         let mut proto = self
-            .create_instance_with_proto_payload(
+            .create_instance_with_proto_class(
                 self.class_proto(JS_CLASS_OBJECT),
-                ObjectPayload::NUMBER(0.into()),
+                JS_CLASS_NUMBER,
+                Box::into_raw(Box::new(JSValue::from(0.0))) as *mut c_void,
             )
             .unwrap();
         proto.install_fields(self, js_number_proto_funcs).unwrap();
@@ -271,9 +274,10 @@ impl<'c> ScopedContext<'c> {
 
     pub(super) fn intrinsic_base_boolean(&mut self) {
         let mut proto = self
-            .create_instance_with_proto_payload(
+            .create_instance_with_proto_class(
                 self.class_proto(JS_CLASS_OBJECT),
-                ObjectPayload::BOOLEAN(false),
+                JS_CLASS_BOOLEAN,
+                Box::into_raw(Box::new(false)) as *mut c_void,
             )
             .unwrap();
         proto.install_fields(self, js_boolean_proto_funcs).unwrap();
@@ -297,9 +301,10 @@ impl<'c> ScopedContext<'c> {
         let empty_str = Atom::CONST_empty_string.force_string(self).unwrap();
         let string_proto = {
             let mut o = self
-                .create_instance_with_proto_payload(
+                .create_instance_with_proto_class(
                     self.class_proto(JS_CLASS_OBJECT),
-                    ObjectPayload::STRING(empty_str),
+                    JS_CLASS_STRING,
+                    Box::into_raw(Box::new(empty_str)) as *mut c_void,
                 )
                 .unwrap();
             o.install_fields(self, js_string_proto_funcs).unwrap();

@@ -182,7 +182,7 @@ impl ObjectImpl {
 
         match self.class_id() {
             JS_CLASS_ARRAY | JS_CLASS_ARGUMENTS if self.is_fast_array() => {
-                let arr_data = self.payload().array().unwrap();
+                let arr_data = self.payload_array().unwrap();
                 if let Some(&el) = arr_data.values().get(idx) {
                     return Some(Ok(el));
                 }

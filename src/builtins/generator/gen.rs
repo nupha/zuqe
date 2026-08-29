@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
@@ -11,7 +13,7 @@ use crate::{
         AsyncState, BytecodeFunction, CallContext, FieldDef, FunctionKind, IteratorState,
         NativeFunction,
     },
-    object::{GeneratorFunction, JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{GeneratorFunction, JS_PROP_CONFIGURABLE},
     value::JSValue,
 };
 
@@ -159,9 +161,13 @@ pub(super) fn js_generator_function_call(
     p.resume(ctx)?;
 
     // create Generator instance
-    ctx.ordinary_create_from_constructor(func_obj, ObjectPayload::GENERATOR(p))
-        .map(JSValue::from)
-        .map_err(|_| -1)
+    ctx.ordinary_create_from_constructor_class(
+        func_obj,
+        JS_CLASS_GENERATOR,
+        Box::into_raw(p) as *mut c_void,
+    )
+    .map(JSValue::from)
+    .map_err(|_| -1)
 }
 
 fn js_generator_next(
@@ -172,9 +178,14 @@ fn js_generator_next(
     let magic = cc.magic();
 
     *iter_state = IteratorState::Done;
-    let mut this = cc.this();
+    let this = cc.this();
 
-    let g: &mut GeneratorPayload = this.class_payload_mut(ctx, JS_CLASS_GENERATOR)?;
+    let mut obj = this
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_GENERATOR))?;
+    let g: &mut GeneratorPayload = obj
+        .payload_generator_mut()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_GENERATOR))?;
 
     enum WhatToDo {
         ExecNoArg,

@@ -50,7 +50,7 @@ fn js_function_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let p = unsafe { this_val.as_object_unchecked() };
 
     let mut native_presented = false;
-    let func_kind = if let Some(func) = p.payload().bc_function() {
+    let func_kind = if let Some(func) = p.payload_bc_function() {
         let bc = func.bytecode();
         if let Some(debug) = bc.debug.as_ref() {
             // JS-implemented built-ins present as plain native functions to
@@ -96,8 +96,7 @@ fn js_function_hasInstance(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 
 fn js_function_proto_fileName(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Some(filename) = cc.this().as_object().and_then(|o| {
-        o.payload()
-            .bc_function()
+        o.payload_bc_function()
             .and_then(|x| x.bytecode().debug.as_ref().map(|d| d.filename))
     }) {
         filename.force_string(ctx).map(JSValue::make_string)
@@ -108,8 +107,7 @@ fn js_function_proto_fileName(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
 
 fn js_function_proto_lineNumber(_: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Some(line_num) = cc.this().as_object().and_then(|o| {
-        o.payload()
-            .bc_function()
+        o.payload_bc_function()
             .and_then(|x| x.bytecode().debug.as_ref().map(|d| d.line_num))
     }) {
         Ok(JSValue::from(line_num))

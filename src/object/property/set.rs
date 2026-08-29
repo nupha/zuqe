@@ -350,7 +350,7 @@ impl ObjectImpl {
                     let this = Object::from_ref(self);
 
                     if self.is_fast_array()
-                        && let Some(arr_data) = self.payload_mut().array_mut()
+                        && let Some(arr_data) = self.payload_array_mut()
                     {
                         match index.cmp(&arr_data.len()) {
                             std::cmp::Ordering::Less => {
@@ -408,7 +408,7 @@ impl ObjectImpl {
 
             JS_CLASS_ARGUMENTS => {
                 if self.is_fast_array()
-                    && let Some(arr_data) = self.payload_mut().array_mut()
+                    && let Some(arr_data) = self.payload_array_mut()
                 {
                     if index < arr_data.len() {
                         arr_data.set_nth(index, val);

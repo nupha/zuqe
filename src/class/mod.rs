@@ -20,7 +20,7 @@ use crate::{
     atom::Atom,
     context::ScopedContext,
     error::JSResult,
-    object::{JSPropertyDescriptor, Object, ObjectPayload, PropertyKey},
+    object::{JSPropertyDescriptor, Object, PropertyKey},
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -28,7 +28,7 @@ use crate::{
 pub type ClassID = u16;
 
 /// Class instance finalize callback, called from `ObjectImpl::drop()` when a class instance is garbage collected.
-pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: &ObjectPayload, id: usize);
+pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: *mut c_void, id: usize);
 /// free user class instance handler
 pub(crate) type ClassFinalizeOpaqueFn = fn(
     rt: &mut RuntimeImpl,

@@ -8,27 +8,20 @@ use gc_lite::GcNode;
 use crate::{
     USER_CLASS_ID_START,
     atom::Atom,
-    class::{ClassID, OtherPayload},
+    class::ClassID,
     context::{ContextPtr, ScopedContext},
-    object::{Object, ObjectImpl, ObjectPayload, Shape},
+    object::{Object, ObjectImpl, Shape},
     value::JSValue,
 };
 
 impl<'c> ScopedContext<'c> {
-    /// Create new class instance with prototype `proto` and `payload`:
-    ///
-    /// - New object will apply the shape determined by `proto`, if provided.
-    /// - The `payload` determines what class the new object is.
-    ///
-    /// This method is the most fundamental way to instantiate a class.
-    /// Higher-level methods (like `create_instance_with_payload` which provide sugars)
-    /// are finally directed to this method.
-    pub(crate) fn create_instance_with_proto_payload(
+    /// Create new class instance with prototype `proto`, `class_id` and `payload` raw pointer.
+    pub(crate) fn create_instance_with_proto_class(
         &mut self,
         proto: Option<Object>,
-        payload: ObjectPayload,
-    ) -> Result<Object, ObjectPayload> {
-        // find shape by prototype
+        class_id: ClassID,
+        payload: *mut c_void,
+    ) -> Result<Object, *mut c_void> {
         let shape = match self.rt().find_shape_by_proto(proto) {
             Some(sh) => sh,
             None => {
@@ -39,40 +32,28 @@ impl<'c> ScopedContext<'c> {
             }
         };
 
-        ObjectImpl::create(self, Some(shape), payload)
+        ObjectImpl::create(self, Some(shape), class_id, payload)
     }
 
-    /// Create an instance with `payload` data, applying payload's implied (default) class and proto.
-    ///
-    /// This method is for **builtin class only**. For user-defined (non-builtin) classes,
-    /// use `create_class_instance_with_opaque` instead, which respects `newTarget`
-    /// per ES `OrdinaryCreateFromConstructor`.
     #[inline(always)]
-    pub(crate) fn create_instance_with_payload(
+    pub(crate) fn create_instance_with_class(
         &mut self,
-        payload: ObjectPayload,
-    ) -> Result<Object, ObjectPayload> {
+        class_id: ClassID,
+        payload: *mut c_void,
+    ) -> Result<Object, *mut c_void> {
         debug_assert!(
-            payload.class_id() < USER_CLASS_ID_START,
-            "create_instance_with_payload is for builtin class only; \
-             use create_class_instance_with_opaque for user-defined classes"
+            class_id < USER_CLASS_ID_START,
+            "create_instance_with_class is for builtin class only"
         );
-        self.create_instance_with_proto_payload(self.class_proto(payload.class_id()), payload)
+        self.create_instance_with_proto_class(self.class_proto(class_id), class_id, payload)
     }
 
-    /// OrdinaryCreateFromConstructor:
-    /// create instance applying constructor `ctor`, with `payload` data.
-    /// new object's class is implied by `payload` kind.
-    ///
-    /// the `ctor` could be:
-    /// - undefined: use the `payload` kind associated class prototype,
-    /// - otherwise retrieve property `ctor.prototype` for prototype.
-    pub(crate) fn ordinary_create_from_constructor(
+    pub(crate) fn ordinary_create_from_constructor_class(
         &mut self,
         ctor: JSValue,
-        payload: ObjectPayload,
-    ) -> Result<Object, ObjectPayload> {
-        let class_id = payload.class_id();
+        class_id: ClassID,
+        payload: *mut c_void,
+    ) -> Result<Object, *mut c_void> {
         let proto: Option<Object> = if ctor.is_undefined() {
             self.class_proto(class_id)
         } else if let Ok(p) = ctor.get_property(self, Atom::CONST_prototype) {
@@ -90,68 +71,44 @@ impl<'c> ScopedContext<'c> {
             return Err(payload);
         };
 
-        self.create_instance_with_proto_payload(proto, payload)
+        self.create_instance_with_proto_class(proto, class_id, payload)
     }
 
-    /// Create an instance of a user-defined (non-builtin) class with an attached raw pointer,
-    /// respecting `newTarget.prototype` for the object's prototype chain.
-    ///
-    /// When called from a native constructor, pass `cc.this()` (which is `newTarget`)
-    /// so that `class MySub extends NativeClass` creates instances with the correct
-    /// prototype (`MySub.prototype` instead of `NativeClass.prototype`).
-    ///
-    /// - If `new_target` is undefined, falls back to the class's default prototype.
-    /// - If `new_target.prototype` is an object, uses it as the instance prototype.
-    /// - If `new_target.prototype` is not an object, falls back to the class's default prototype.
     pub fn create_class_instance_with_opaque(
         &mut self,
         new_target: JSValue,
         class_id: ClassID,
         opaque: *mut c_void,
-    ) -> Result<Object, ObjectPayload> {
+    ) -> Result<Object, i32> {
+        let other = Box::new(crate::class::OtherPayload { class_id, opaque });
+        let payload = Box::into_raw(other) as *mut c_void;
         if class_id < USER_CLASS_ID_START {
             let _ = self.throw_internal_error("expect non-builtin class");
-            Err(ObjectPayload::OTHER(OtherPayload::new(class_id, opaque)))
+            Err(-1)
         } else {
-            self.ordinary_create_from_constructor(
-                new_target,
-                ObjectPayload::OTHER(OtherPayload::new(class_id, opaque)),
-            )
+            self.ordinary_create_from_constructor_class(new_target, class_id, payload)
+                .map_err(|_| -1)
         }
     }
 
-    /// Create an instance of a user-defined (non-builtin) class,
-    /// respecting `newTarget.prototype` for the object's prototype chain.
-    ///
-    /// Same as `create_class_instance_with_opaque` but without opaque data.
-    ///
-    /// When called from a native constructor, pass `cc.this()` (which is `newTarget`)
-    /// so that `class MySub extends NativeClass` creates instances with the correct
-    /// prototype (`MySub.prototype` instead of `NativeClass.prototype`).
-    ///
-    /// - If `new_target` is undefined, falls back to the class's default prototype.
-    /// - If `new_target.prototype` is an object, uses it as the instance prototype.
-    /// - If `new_target.prototype` is not an object, falls back to the class's default prototype.
     #[inline(always)]
     pub fn create_class_instance(
         &mut self,
         new_target: JSValue,
         class_id: ClassID,
-    ) -> Result<Object, ObjectPayload> {
+    ) -> Result<Object, i32> {
         self.create_class_instance_with_opaque(new_target, class_id, std::ptr::null_mut())
     }
 
-    /// Create base Object with prototype `proto`.
     #[inline(always)]
     pub fn create_base_object_with_proto(&mut self, proto: Option<Object>) -> Result<Object, i32> {
-        self.create_instance_with_proto_payload(proto, ObjectPayload::OBJECT)
+        self.create_instance_with_proto_class(proto, crate::JS_CLASS_OBJECT, std::ptr::null_mut())
             .map_err(|_| -1)
     }
 
-    /// Create new base Object using default Object prototype
     #[inline(always)]
     pub fn create_base_object(&mut self) -> Result<Object, i32> {
-        self.create_instance_with_payload(ObjectPayload::OBJECT)
+        self.create_instance_with_class(crate::JS_CLASS_OBJECT, std::ptr::null_mut())
             .map_err(|_| -1)
     }
 }

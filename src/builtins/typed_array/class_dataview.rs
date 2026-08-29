@@ -199,7 +199,12 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mut this = cc.this();
 
-    let dv: &DataViewPayload = this.class_payload(ctx, JS_CLASS_DATAVIEW)?;
+    let mut o = this
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_DATAVIEW))?;
+    let dv = o
+        .payload_data_view()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_DATAVIEW))?;
 
     let class_id = cc.magic() as ClassID;
     let size = 1 << TypedArray::SIZE_LOG2(class_id);
@@ -260,7 +265,9 @@ fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(ctx.throw_range_error("out of bound"));
     }
 
-    let dv_mut: &mut DataViewPayload = this.class_payload_mut(ctx, JS_CLASS_DATAVIEW)?;
+    let dv_mut = o
+        .payload_data_view_mut()
+        .ok_or_else(|| ctx.throw_type_error_invalid_class(JS_CLASS_DATAVIEW))?;
 
     dv_mut.with_bytes_mut(|buf| -> Result<(), i32> {
         unsafe {

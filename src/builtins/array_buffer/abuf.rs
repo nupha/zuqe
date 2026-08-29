@@ -15,7 +15,7 @@ use crate::{
     context::ScopedContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::CallContext,
-    object::{ArrayBuffer, Object, ObjectImpl, ObjectPayload},
+    object::{ArrayBuffer, Object, ObjectImpl},
     runtime::RuntimeImpl,
     utils::unlikely,
     value::JSValue,
@@ -213,9 +213,9 @@ impl ArrayBufferPayload {
 
 impl ArrayBuffer {
     /// also used for SharedArrayBuffer
-    pub fn class_finalize(rt: &mut RuntimeImpl, isa: &ObjectPayload, _id: usize) {
+    pub fn class_finalize(rt: &mut RuntimeImpl, ptr: *mut c_void, _id: usize) {
         // free data content
-        let abuf = isa.array_buffer().unwrap();
+        let abuf = unsafe { &*(ptr as *const ArrayBufferPayload) };
         match abuf.data() {
             ABufData::Raw(p, len, Some(free_func)) => {
                 free_func(rt, abuf.opaque(), p.as_ptr(), *len);
@@ -251,13 +251,14 @@ impl ArrayBuffer {
         });
 
         // create array buffer or shared array buffer instance
-        ctx.ordinary_create_from_constructor(
+        ctx.ordinary_create_from_constructor_class(
             new_target,
             if !shared {
-                ObjectPayload::ARRAY_BUFFER(ab)
+                crate::JS_CLASS_ARRAY_BUFFER
             } else {
-                ObjectPayload::SHARED_ARRAY_BUFFER(ab)
+                crate::JS_CLASS_SHARED_ARRAY_BUFFER
             },
+            Box::into_raw(ab) as *mut c_void,
         )
         .map(|o| ArrayBuffer(o.0))
         .map_err(|_| -1)
@@ -304,13 +305,14 @@ impl ArrayBuffer {
             opaque,
         });
         let mut obj = ctx
-            .ordinary_create_from_constructor(
+            .ordinary_create_from_constructor_class(
                 new_target,
                 if !shared {
-                    ObjectPayload::ARRAY_BUFFER(isa)
+                    crate::JS_CLASS_ARRAY_BUFFER
                 } else {
-                    ObjectPayload::SHARED_ARRAY_BUFFER(isa)
+                    crate::JS_CLASS_SHARED_ARRAY_BUFFER
                 },
+                Box::into_raw(isa) as *mut c_void,
             )
             .map(|o| Self(o.0))
             .map_err(|_| -1)?;
@@ -416,7 +418,7 @@ impl ArrayBuffer {
             };
             let mut o = Object::from(o.into_raw());
             let element_size = 1usize << TypedArray::SIZE_LOG2(o.class_id());
-            let Some(ta) = o.payload_mut().typed_array_mut() else {
+            let Some(ta) = o.payload_typed_array_mut() else {
                 continue;
             };
             let offset = ta.offset();
@@ -495,7 +497,7 @@ impl ArrayBuffer {
             };
             let mut o = Object::from(o.into_raw());
             let element_size = 1usize << TypedArray::SIZE_LOG2(o.class_id());
-            let Some(ta) = o.payload_mut().typed_array_mut() else {
+            let Some(ta) = o.payload_typed_array_mut() else {
                 continue;
             };
             let offset = ta.offset();
@@ -545,13 +547,13 @@ impl ArrayBuffer {
     /// get array buffer payload
     #[inline(always)]
     pub fn payload(&self) -> &ArrayBufferPayload {
-        unsafe { self.0.as_ref().payload() }.array_buffer().unwrap()
+        unsafe { self.0.as_ref() }.payload_array_buffer().unwrap()
     }
 
     /// get array buffer payload
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut ArrayBufferPayload {
-        self.deref_mut().payload_mut().array_buffer_mut().unwrap()
+        self.deref_mut().payload_array_buffer_mut().unwrap()
     }
 
     pub fn is_detached(&self) -> bool {
@@ -615,10 +617,10 @@ impl ArrayBuffer {
                 let mut o = Object::from(o.into_raw());
                 // the typed array length and offset fields are not modified, only set count to 0
                 debug_assert!(
-                    o.payload_mut().typed_array_mut().is_some(),
+                    o.payload_typed_array_mut().is_some(),
                     "expect TypedArray object"
                 );
-                if let Some(ta) = o.payload_mut().typed_array_mut() {
+                if let Some(ta) = o.payload_typed_array_mut() {
                     ta.set_count(0);
                 }
             }

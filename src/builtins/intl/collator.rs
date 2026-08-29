@@ -13,7 +13,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
     value::JSValue,
 };
 
@@ -300,7 +300,11 @@ pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) 
     let new_target = cc.this();
     let data = build_collator_data(ctx, cc.arg(0), cc.arg(1))?;
     let instance = ctx
-        .ordinary_create_from_constructor(new_target, ObjectPayload::INTL_COLLATOR(Box::new(data)))
+        .ordinary_create_from_constructor_class(
+            new_target,
+            crate::JS_CLASS_INTL_COLLATOR,
+            Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+        )
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
@@ -327,7 +331,7 @@ fn js_collator_compare_getter(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
 
 fn is_collator(v: &JSValue) -> bool {
     v.as_object()
-        .is_some_and(|o| o.payload().intl_collator().is_some())
+        .is_some_and(|o| o.payload_intl_collator().is_some())
 }
 
 fn js_collator_compare_bound(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -336,8 +340,7 @@ fn js_collator_compare_bound(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a Collator"))?;
     let this = this_obj
-        .payload()
-        .intl_collator()
+        .payload_intl_collator()
         .ok_or_else(|| ctx.throw_type_error("not a Collator"))?;
     let a = to_utf8_string(ctx, cc.arg(0))?;
     let b = to_utf8_string(ctx, cc.arg(1))?;
@@ -355,8 +358,7 @@ fn js_collator_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSR
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a Collator"))?;
     let this = this_obj
-        .payload()
-        .intl_collator()
+        .payload_intl_collator()
         .ok_or_else(|| ctx.throw_type_error("not a Collator"))?;
     let mut o = ctx.create_base_object()?;
     // Property order must be: locale, usage, sensitivity, ignorePunctuation,

@@ -10,7 +10,7 @@ use crate::{
     function::{CallContext, FieldDef},
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
-        JS_PROP_ENUMERABLE, JS_PROP_WRITABLE, ObjectPayload, PropertyKey,
+        JS_PROP_ENUMERABLE, JS_PROP_WRITABLE, PropertyKey,
     },
     parse::{JSONParseRecord, JSParseState},
     runtime::js_check_stack_overflow,
@@ -255,7 +255,7 @@ fn js_json_rawJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     // Create a RAWJSON object
     let mut obj = ctx
-        .create_instance_with_payload(ObjectPayload::RAWJSON)
+        .create_instance_with_class(JS_CLASS_RAWJSON, std::ptr::null_mut())
         .map_err(|_| -1)?;
 
     // Set the rawJSON property (enumerable, non-writable, non-configurable)

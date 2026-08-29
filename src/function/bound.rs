@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
@@ -8,7 +10,7 @@ use crate::{
     array::alloc_fast_array_slots,
     context::ScopedContext,
     error::JSResult,
-    object::{BoundFunction, Object, ObjectPayload},
+    object::{BoundFunction, Object},
     string::{JS_ConcatString3, StringRef},
     value::JSValue,
 };
@@ -39,7 +41,7 @@ impl BoundFunction {
         flags: i32,
     ) -> JSResult {
         let o = unsafe { func_obj.as_object_unchecked() };
-        if let Some(bf) = o.payload().bound_function() {
+        if let Some(bf) = o.payload_bound_function() {
             let arg_count = bf.bind_args.len() + args.len();
 
             // if js_check_stack_overflow(ctx.rt_ref(), std::mem::size_of::<JSValue>() * arg_count) {
@@ -76,13 +78,14 @@ impl BoundFunction {
 
         let mut bound = {
             let p = ctx.function_proto();
-            ctx.create_instance_with_proto_payload(
+            ctx.create_instance_with_proto_class(
                 Some(p),
-                ObjectPayload::BOUND_FUNCTION(Box::new(BoundFunctionPayload {
+                JS_CLASS_BOUND_FUNCTION,
+                Box::into_raw(Box::new(BoundFunctionPayload {
                     func_obj,
                     this_val,
                     bind_args,
-                })),
+                })) as *mut c_void,
             )
             .map_err(|_| -1)?
         };

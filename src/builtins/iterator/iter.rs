@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, marker::PhantomData, ptr::NonNull};
+use std::{cell::Cell, ffi::c_void, marker::PhantomData, ptr::NonNull};
 
 use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 
@@ -14,8 +14,7 @@ use crate::{
     function::{CallContext, Callback, FieldDef, IteratorState},
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E,
-        JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_THROW, Object, ObjectPayload,
-        PropertyKey,
+        JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_THROW, Object, PropertyKey,
     },
     value::JSValue,
 };
@@ -104,8 +103,12 @@ impl ForInIterPayload {
             }
         }
 
-        ctx.create_instance_with_proto_payload(None, ObjectPayload::FOR_IN_ITERATOR(it))
-            .map_err(|_| -1)
+        ctx.create_instance_with_proto_class(
+            None,
+            crate::JS_CLASS_FOR_IN_ITERATOR,
+            Box::into_raw(it) as *mut c_void,
+        )
+        .map_err(|_| -1)
     }
 
     /// build property-enumeration-list for `obj`.
@@ -273,7 +276,8 @@ impl<'a> ObjectIter<'a> {
         args: &[JSValue],
     ) -> Result<(JSValue, IteratorState), i32> {
         if let Some(o) = method.as_object()
-            && let ObjectPayload::C_FUNCTION(nfun) = o.payload()
+            && o.class_id() == crate::JS_CLASS_C_FUNCTION
+            && let Some(nfun) = o.payload_native_func()
             && let Callback::IteratorNext(f) = nfun.callback
         {
             // fast path for the built-in iterators,
@@ -402,13 +406,14 @@ impl JSValue {
             // method [Symbol.asyncIterator] is not defined:
             // wrap [Symbol.iterator]() object into an AsyncFromSyncIterator
             let next_method = sync_it.get_property(ctx, Atom::CONST_next)?;
-            ctx.create_instance_with_payload(ObjectPayload::ASYNC_FROM_SYNC_ITERATOR(Box::new(
-                JSAsyncFromSyncIteratorData {
+            ctx.create_instance_with_class(
+                crate::JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
+                Box::into_raw(Box::new(JSAsyncFromSyncIteratorData {
                     obj: sync_it,
                     next_method,
                     closed: Cell::new(false),
-                },
-            )))
+                })) as *mut c_void,
+            )
             .map(Some)
             .map_err(|_| -1)
         } else {

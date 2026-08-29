@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
     value::JSValue,
 };
 
@@ -214,9 +214,12 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
         notation,
         compact_display,
     };
-    let instance = ctx
-        .ordinary_create_from_constructor(new_target, ObjectPayload::INTL_PLURAL_RULES(Box::new(data)))
-        .map_err(|_| -1)?;
+    let instance = ctx.ordinary_create_from_constructor_class(
+        new_target,
+        crate::JS_CLASS_INTL_PLURAL_RULES,
+        Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+    )
+    .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 
@@ -226,8 +229,7 @@ fn js_plural_rules_select(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a PluralRules"))?;
     let this = this_obj
-        .payload()
-        .intl_plural_rules()
+        .payload_intl_plural_rules()
         .ok_or_else(|| ctx.throw_type_error("not a PluralRules"))?;
     let n = cc.arg(0).to_number(ctx)?.to_f64();
     let operands = if this.notation == "compact" && n.is_finite() && n.abs() >= 1000.0 {
@@ -270,8 +272,7 @@ fn js_plural_rules_resolved_options(ctx: &mut ScopedContext, cc: CallContext) ->
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a PluralRules"))?;
     let this = this_obj
-        .payload()
-        .intl_plural_rules()
+        .payload_intl_plural_rules()
         .ok_or_else(|| ctx.throw_type_error("not a PluralRules"))?;
     let mut o = ctx.create_base_object()?;
     let _v1 = locale_to_string(ctx, &this.locale)?;

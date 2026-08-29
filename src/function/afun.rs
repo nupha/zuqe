@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use crate::{
-    Atom, JS_CLASS_ASYNC_FUNCTION_REJECT,
+    Atom, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_ASYNC_FUNCTION_RESOLVE,
     builtins::promise::{Promise, js_promise_resolve},
     class::ClassID,
     context::ScopedContext,
     error::JSResult,
     function::{AsyncState, BCWrapper, BytecodeFunction, Callback, FunctionKind, NativeFunction},
-    object::{AsyncFunction, JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{AsyncFunction, JS_PROP_CONFIGURABLE},
     value::JSValue,
 };
 
@@ -102,7 +104,7 @@ impl AsyncState {
     ) -> JSResult {
         let mut o = unsafe { func_obj.as_object_unchecked() };
         let is_reject = o.class_id() == JS_CLASS_ASYNC_FUNCTION_REJECT;
-        let a_state = o.payload_mut().async_function_resolving_mut().unwrap();
+        let a_state = o.payload_async_function_resolving_mut().unwrap();
 
         if is_reject {
             let _ = ctx.throw_value(if args.is_empty() {
@@ -235,13 +237,15 @@ impl AsyncState {
 
         for i in 0..2 {
             let func_obj = ctx
-                .create_instance_with_proto_payload(Some(ctx.function_proto()), {
+                .create_instance_with_proto_class(
+                    Some(ctx.function_proto()),
                     if i == 0 {
-                        ObjectPayload::ASYNC_FUNCTION_RESOLVE(state)
+                        JS_CLASS_ASYNC_FUNCTION_RESOLVE
                     } else {
-                        ObjectPayload::ASYNC_FUNCTION_REJECT(state)
-                    }
-                })
+                        JS_CLASS_ASYNC_FUNCTION_REJECT
+                    },
+                    Box::into_raw(Box::new(state)) as *mut c_void,
+                )
                 .map_err(|_| -1)?;
 
             resolving_funcs[i] = func_obj.into();

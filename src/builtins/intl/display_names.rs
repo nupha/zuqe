@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
     value::JSValue,
 };
 
@@ -74,9 +74,11 @@ pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallCont
         fallback_str: "code",
         language_display: "dialect",
     };
-    let mut instance = match ctx
-        .ordinary_create_from_constructor(cc.this(), ObjectPayload::INTL_DISPLAY_NAMES(Box::new(default_data)))
-    {
+    let mut instance = match ctx.ordinary_create_from_constructor_class(
+        cc.this(),
+        crate::JS_CLASS_INTL_DISPLAY_NAMES,
+        Box::into_raw(Box::new(default_data)) as *mut std::ffi::c_void,
+    ) {
         Ok(o) => o,
         // ordinary_create_from_constructor  may leave a pending JS exception when
         // reading `new_target.prototype` fails (e.g. a poisoned getter).
@@ -161,7 +163,9 @@ pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallCont
     }
 
     // Update the instance payload with validated data
-    *instance.payload_mut().intl_display_names_mut().ok_or_else(|| ctx.throw_type_error("not a DisplayNames"))? = data;
+    *instance
+        .payload_intl_display_names_mut()
+        .ok_or_else(|| ctx.throw_type_error("not a DisplayNames"))? = data;
 
     Ok(JSValue::from(instance))
 }
@@ -172,8 +176,7 @@ fn js_display_names_of(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a DisplayNames"))?;
     let this = this_obj
-        .payload()
-        .intl_display_names()
+        .payload_intl_display_names()
         .ok_or_else(|| ctx.throw_type_error("not a DisplayNames"))?;
     let code = to_utf8_string(ctx, cc.arg(0))?;
     let canon = canonical_code_for(ctx, this, &code)?;
@@ -313,8 +316,7 @@ fn js_display_names_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a DisplayNames"))?;
     let p = this_obj
-        .payload()
-        .intl_display_names()
+        .payload_intl_display_names()
         .ok_or_else(|| ctx.throw_type_error("not a DisplayNames"))?;
 
     let mut o = ctx.create_base_object()?;

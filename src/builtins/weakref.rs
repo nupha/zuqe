@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    Atom, ClassDef,
+    Atom, ClassDef, JS_CLASS_FINALIZATION_REGISTRY, JS_CLASS_WEAKREF,
     atom::AtomKind,
     class::ClassCtorDef,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
     function::{CallContext, FieldDef},
-    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl},
     value::JSValue,
 };
 
@@ -52,9 +54,10 @@ fn js_weakref_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     };
 
     let obj = ctx
-        .ordinary_create_from_constructor(
+        .ordinary_create_from_constructor_class(
             new_target,
-            ObjectPayload::WEAKREF(Box::new(WeakRefData { target })),
+            JS_CLASS_WEAKREF,
+            Box::into_raw(Box::new(WeakRefData { target })) as *mut c_void,
         )
         .map_err(|_| -1)?;
 
@@ -66,7 +69,7 @@ fn js_weakref_deref(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         return Err(ctx.throw_type_error("WeakRef.prototype.deref requires a WeakRef"));
     };
 
-    let wrd = match this_obj.payload().weak_ref() {
+    let wrd = match this_obj.payload_weak_ref() {
         Some(d) => d,
         None => {
             return Err(ctx.throw_type_error("WeakRef.prototype.deref called on non-WeakRef"));
@@ -244,9 +247,10 @@ fn js_finrec_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     let obj = ctx
-        .ordinary_create_from_constructor(
+        .ordinary_create_from_constructor_class(
             new_target,
-            ObjectPayload::FINALIZATION_REGISTRY(Box::new(data)),
+            JS_CLASS_FINALIZATION_REGISTRY,
+            Box::into_raw(Box::new(data)) as *mut c_void,
         )
         .map_err(|_| -1)?;
 
@@ -315,7 +319,7 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // Validate this is a FinalizationRegistry and push entry
     {
         let mut this_obj = this_obj;
-        let frd = match this_obj.payload_mut().finalization_registry_mut() {
+        let frd = match this_obj.payload_finalization_registry_mut() {
             Some(d) => d,
             None => {
                 return Err(ctx.throw_type_error(
@@ -341,7 +345,7 @@ fn js_finrec_unregister(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         ));
     };
 
-    let frd = match this_obj.payload_mut().finalization_registry_mut() {
+    let frd = match this_obj.payload_finalization_registry_mut() {
         Some(d) => d,
         None => {
             return Err(ctx.throw_type_error(

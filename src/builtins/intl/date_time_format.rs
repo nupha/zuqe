@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
     value::JSValue,
 };
 
@@ -101,9 +101,10 @@ pub(crate) fn js_date_time_format_constructor(
         let data =
             build_date_time_format_data(ctx, cc.arg(0), cc.arg(1), DateTimeDefaults::Standard)?;
         let instance = ctx
-            .ordinary_create_from_constructor(
+            .ordinary_create_from_constructor_class(
                 JSValue::UNDEFINED,
-                ObjectPayload::INTL_DATE_TIME_FORMAT(Box::new(data)),
+                crate::JS_CLASS_INTL_DATE_TIME_FORMAT,
+                Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
             )
             .map_err(|_| -1)?
             .into();
@@ -128,9 +129,10 @@ pub(crate) fn js_date_time_format_constructor(
 
     let data = build_date_time_format_data(ctx, cc.arg(0), cc.arg(1), DateTimeDefaults::Standard)?;
     let instance = ctx
-        .ordinary_create_from_constructor(
+        .ordinary_create_from_constructor_class(
             new_target,
-            ObjectPayload::INTL_DATE_TIME_FORMAT(Box::new(data)),
+            crate::JS_CLASS_INTL_DATE_TIME_FORMAT,
+            Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
         )
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
@@ -690,7 +692,7 @@ fn js_date_time_format_format_getter(ctx: &mut ScopedContext, cc: CallContext) -
 
 fn is_date_time_format(v: &JSValue) -> bool {
     v.as_object()
-        .is_some_and(|o| o.payload().intl_date_time_format().is_some())
+        .is_some_and(|o| o.payload_intl_date_time_format().is_some())
 }
 
 fn js_date_time_format_format_bound(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -699,8 +701,7 @@ fn js_date_time_format_format_bound(ctx: &mut ScopedContext, cc: CallContext) ->
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
     let this = this_obj
-        .payload()
-        .intl_date_time_format()
+        .payload_intl_date_time_format()
         .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
     let arg = cc.arg(0);
     let provided = cc.length() > 0 && !arg.is_undefined();
@@ -960,8 +961,7 @@ fn js_date_time_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext)
         .as_object()
         .ok_or_else(|| ctx.throw_internal_error("unreachable"))?;
     let this = this_obj
-        .payload()
-        .intl_date_time_format()
+        .payload_intl_date_time_format()
         .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
     let arg = cc.arg(0);
     let provided = cc.length() > 0 && !arg.is_undefined();
@@ -1084,8 +1084,7 @@ fn js_date_time_format_format_range_to_parts(ctx: &mut ScopedContext, cc: CallCo
         .as_object()
         .ok_or_else(|| ctx.throw_internal_error("unreachable"))?;
     let this = this_obj
-        .payload()
-        .intl_date_time_format()
+        .payload_intl_date_time_format()
         .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
     let (x, y) = (cc.arg(0), cc.arg(1));
     if x.is_undefined() || y.is_undefined() {
@@ -1121,8 +1120,7 @@ fn js_date_time_format_format_range(ctx: &mut ScopedContext, cc: CallContext) ->
         .as_object()
         .ok_or_else(|| ctx.throw_internal_error("unreachable"))?;
     let this = this_obj
-        .payload()
-        .intl_date_time_format()
+        .payload_intl_date_time_format()
         .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
     let (x, y) = (cc.arg(0), cc.arg(1));
     if x.is_undefined() || y.is_undefined() {
@@ -1475,8 +1473,7 @@ fn js_date_time_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext
         .as_object()
         .ok_or_else(|| ctx.throw_internal_error("unreachable"))?;
     let this = this_obj
-        .payload()
-        .intl_date_time_format()
+        .payload_intl_date_time_format()
         .ok_or_else(|| ctx.throw_type_error("not a DateTimeFormat"))?;
     let mut o = ctx.create_base_object()?;
     let _v3 = locale_to_string(ctx, &this.locale)?;

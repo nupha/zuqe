@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, ObjectPayload},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
     value::JSValue,
 };
 
@@ -124,12 +124,12 @@ pub(crate) fn js_relative_time_format_constructor(
         ns_opt.map(|s| Box::leak(s.into_boxed_str()) as &'static str);
     data.locale = super::common::resolve_locale_keys(data.locale, &[("nu", ns_static)]);
 
-    let instance = ctx
-        .ordinary_create_from_constructor(
-            cc.this(),
-            ObjectPayload::INTL_RELATIVE_TIME_FORMAT(Box::new(data)),
-        )
-        .map_err(|_| -1)?;
+    let instance = ctx.ordinary_create_from_constructor_class(
+        cc.this(),
+        crate::JS_CLASS_INTL_RELATIVE_TIME_FORMAT,
+        Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+    )
+    .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 
@@ -147,8 +147,7 @@ fn js_relative_time_format_format(ctx: &mut ScopedContext, cc: CallContext) -> J
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a RelativeTimeFormat"))?;
     let this = this_obj
-        .payload()
-        .intl_relative_time_format()
+        .payload_intl_relative_time_format()
         .ok_or_else(|| ctx.throw_type_error("not a RelativeTimeFormat"))?;
     let parts = partition_relative_time(ctx, this, cc.arg(0), cc.arg(1))?;
     let s: String = parts.iter().map(|p| p.value.as_str()).collect();
@@ -161,8 +160,7 @@ fn js_relative_time_format_format_to_parts(ctx: &mut ScopedContext, cc: CallCont
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a RelativeTimeFormat"))?;
     let this = this_obj
-        .payload()
-        .intl_relative_time_format()
+        .payload_intl_relative_time_format()
         .ok_or_else(|| ctx.throw_type_error("not a RelativeTimeFormat"))?;
     let parts = partition_relative_time(ctx, this, cc.arg(0), cc.arg(1))?;
     let mut out = Vec::with_capacity(parts.len());
@@ -479,8 +477,7 @@ fn js_relative_time_format_resolved_options(ctx: &mut ScopedContext, cc: CallCon
         .as_object()
         .ok_or_else(|| ctx.throw_type_error("not a RelativeTimeFormat"))?;
     let this = this_obj
-        .payload()
-        .intl_relative_time_format()
+        .payload_intl_relative_time_format()
         .ok_or_else(|| ctx.throw_type_error("not a RelativeTimeFormat"))?;
     let mut o = ctx.create_base_object()?;
     let _v3 = locale_to_string(ctx, &this.locale)?;

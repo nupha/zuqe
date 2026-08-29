@@ -9,7 +9,7 @@ use crate::{
     class::ClassID,
     context::ContextImpl,
     function::{Bytecode, get_func_name},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, ObjectPayload},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
     value::JSValue,
 };
 
@@ -180,7 +180,7 @@ impl<'c> ScopedContext<'c> {
     ) -> Option<Object> {
         let proto = self.error_protos[kind as usize].as_object();
         if let Ok(mut err_obj) =
-            self.create_instance_with_proto_payload(proto, ObjectPayload::ERROR)
+            self.create_instance_with_proto_class(proto, JS_CLASS_ERROR, std::ptr::null_mut())
         {
             let s = self.create_string_from_str(message);
             let _ = err_obj.define_property_value(

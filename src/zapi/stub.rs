@@ -321,12 +321,13 @@ unsafe extern "C" fn zapi_register_class(env: ZqEnv, class_def: *const ZqClassDe
 
     fn zapi_class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         let o = ctx
-            .create_instance_with_proto_payload(
+            .create_instance_with_proto_class(
                 None,
-                crate::object::ObjectPayload::OTHER(crate::class::OtherPayload::new(
+                class_id,
+                Box::into_raw(Box::new(crate::class::OtherPayload::new(
                     class_id,
                     std::ptr::null_mut(),
-                )),
+                ))) as *mut std::ffi::c_void,
             )
             .map_err(|_| -1)?;
         ctx.class_slots[class_id as usize].proto = Some(o);

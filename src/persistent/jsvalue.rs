@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ffi::c_void;
+
 use crate::{
     Atom, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BYTECODE_FUNCTION,
     JS_CLASS_C_FUNCTION, JS_CLASS_GENERATOR_FUNCTION, JSValue, JSValueTag, ScopedContext,
     atom::AtomKind,
     bigint::BigIntRef,
     function::{BFuncPayload, Bytecode, FunctionKind, VarRef},
-    object::{LazyInit, Object, ObjectPayload},
+    object::{LazyInit, Object},
     string::StringRef,
 };
 
@@ -226,13 +228,9 @@ impl SerializeCtx {
                         | JS_CLASS_ASYNC_GENERATOR_FUNCTION
                 ) {
                     self.write_bc_type(ValueType::ClosureFunction);
-                    let payload = match obj.payload() {
-                        ObjectPayload::BYTECODE_FUNCTION(p)
-                        | ObjectPayload::GENERATOR_FUNCTION(p)
-                        | ObjectPayload::ASYNC_FUNCTION(p)
-                        | ObjectPayload::ASYNC_GENERATOR_FUNCTION(p) => p,
-                        _ => unreachable!("class id matches but payload is not bytecode function"),
-                    };
+                    let payload = obj
+                        .payload_bc_function()
+                        .expect("class id matches but payload is not bytecode function");
                     payload.bytecode().serialize(cx, self)?;
                     let captured = payload.captured_vars();
                     self.write_u32(captured.len() as u32);
@@ -497,18 +495,15 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                 // `name`/`length` properties the blob does not carry as own
                 // properties.
                 let bc_ref = payload.bytecode();
-                let isa = match bc_ref.func_kind() {
-                    FunctionKind::Normal => ObjectPayload::BYTECODE_FUNCTION(payload),
-                    FunctionKind::Generator => ObjectPayload::GENERATOR_FUNCTION(payload),
-                    FunctionKind::Async => ObjectPayload::ASYNC_FUNCTION(payload),
-                    FunctionKind::AsyncGenerator => {
-                        ObjectPayload::ASYNC_GENERATOR_FUNCTION(payload)
-                    }
-                };
-                let proto = self.ctx.class_proto(isa.class_id());
+                let class_id = bc_ref.func_kind().class_id();
+                let proto = self.ctx.class_proto(class_id);
                 let mut obj = self
                     .ctx
-                    .create_instance_with_proto_payload(proto, isa)
+                    .create_instance_with_proto_class(
+                        proto,
+                        class_id,
+                        Box::into_raw(Box::new(payload)) as *mut c_void,
+                    )
                     .map_err(|_| {
                         BytecodeSerializeError::InvalidValue("oom in closure object".into())
                     })?;

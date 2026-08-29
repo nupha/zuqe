@@ -4,7 +4,7 @@
 use crate::{
     atom::Atom,
     context::ScopedContext,
-    object::{Object, ObjectImpl, ObjectPayload},
+    object::{Object, ObjectImpl},
     value::JSValue,
 };
 
@@ -23,7 +23,7 @@ impl ObjectImpl {
         // ctor is sure to be object now.
         let ctor = unsafe { ctor.as_object_unchecked() };
 
-        if let ObjectPayload::BOUND_FUNCTION(b) = ctor.payload() {
+        if let Some(b) = ctor.payload_bound_function() {
             // bound function case
             return self.instance_of(ctx, b.func_obj.into());
         }

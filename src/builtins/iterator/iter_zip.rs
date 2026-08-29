@@ -116,9 +116,7 @@ pub(crate) fn js_iterator_zip_next(ctx: &mut ScopedContext, cc: CallContext) -> 
         .as_object()
         .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
-    let zd = this_obj
-        .payload()
-        .iterator_zip()
+    let zd = this_obj.payload_iterator_zip()
         .ok_or_else(|| ctx.throw_type_error("not an Iterator Zip"))?;
 
     // Reentrancy guard
@@ -331,9 +329,7 @@ pub(crate) fn js_iterator_zip_return(ctx: &mut ScopedContext, cc: CallContext) -
         .as_object()
         .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
-    let zd = this_obj
-        .payload()
-        .iterator_zip()
+    let zd = this_obj.payload_iterator_zip()
         .ok_or_else(|| ctx.throw_type_error("not an Iterator Zip"))?;
 
     // Reentrancy guard

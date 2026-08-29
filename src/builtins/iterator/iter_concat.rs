@@ -56,9 +56,7 @@ pub(crate) fn js_iterator_concat_next(ctx: &mut ScopedContext, cc: CallContext) 
         .as_object()
         .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
-    let cd = this_obj
-        .payload()
-        .iterator_concat()
+    let cd = this_obj.payload_iterator_concat()
         .ok_or_else(|| ctx.throw_type_error("not an Iterator Concat"))?;
 
     if cd.running.get() {
@@ -112,9 +110,7 @@ pub(crate) fn js_iterator_concat_return(ctx: &mut ScopedContext, cc: CallContext
         .as_object()
         .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
-    let cd = this_obj
-        .payload()
-        .iterator_concat()
+    let cd = this_obj.payload_iterator_concat()
         .ok_or_else(|| ctx.throw_type_error("not an Iterator Concat"))?;
 
     if cd.running.get() {

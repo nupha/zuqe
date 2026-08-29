@@ -15,6 +15,53 @@ use std::{
     sync::Mutex,
 };
 
+// TEMP DEBUG: minimal VEH plumbing for SEGV backtrace. REMOVE AFTER DIAGNOSIS.
+#[repr(C)]
+struct ExceptionRecord {
+    code: u32,
+    flags: u32,
+    next: *mut ExceptionRecord,
+    address: *const u8,
+    num_params: u32,
+    info: [usize; 15], // AV: info[0] = 0 read / 1 write / 8 DEP, info[1] = target address
+}
+#[repr(C)]
+struct ExceptionPointers {
+    record: *mut ExceptionRecord,
+    context: *mut u8, // CONTEXT — opaque, unused here
+}
+unsafe extern "system" {
+    fn AddVectoredExceptionHandler(first: u32, handler: usize) -> usize;
+    fn GetModuleHandleExW(flags: u32, addr: *const u16, out: *mut *mut u8) -> i32;
+}
+unsafe extern "system" fn veh_av_backtrace(ptrs: *mut ExceptionPointers) -> i32 {
+    let rec = unsafe { (*ptrs).record };
+    if unsafe { (*rec).code } & 0xFFFF_FFFFu32 == 0xC000_0005 {
+        let kind = match unsafe { (*rec).info[0] } {
+            0 => "READ",
+            1 => "WRITE",
+            8 => "EXEC (DEP)",
+            _ => "?",
+        };
+        eprintln!(
+            "!!! AV {}: target = 0x{:016x} (pc = {:p})",
+            kind,
+            unsafe { (*rec).info[1] },
+            unsafe { (*rec).address }
+        );
+        // Module base of the faulting PC → RVA for offline symbolication.
+        let mut base: *mut u8 = std::ptr::null_mut();
+        let pc = unsafe { (*rec).address } as *const u16;
+        let ok = unsafe { GetModuleHandleExW(4, pc, &mut base) }; // 4 = FROM_ADDRESS
+        if ok != 0 {
+            let rva = (unsafe { (*rec).address } as usize) - (base as usize);
+            eprintln!("!!! AV rva = 0x{:x} (base = {:p})", rva, base);
+        }
+        eprintln!("{}", std::backtrace::Backtrace::force_capture());
+    }
+    0 // EXCEPTION_CONTINUE_SEARCH
+}
+
 use clap::Parser;
 use serde::Deserialize;
 
@@ -259,6 +306,13 @@ pub fn validate_config(cfg: &AppConfig, presets: &[PresetDef], require_preset: b
 
 async fn main_impl() {
     let args = Args::parse();
+
+    // TEMP DEBUG: SEGV (0xC0000005) is not a Rust panic, so the panic hook
+    // never runs. Install a vectored exception handler to print the native
+    // stack at the faulting point. REMOVE AFTER DIAGNOSIS.
+    unsafe {
+        AddVectoredExceptionHandler(1, veh_av_backtrace as usize);
+    }
 
     // Install a panic hook that prints the script currently being run. This is
     // the zero-cost crash reporter in `panic = "unwind"` builds (debug and
