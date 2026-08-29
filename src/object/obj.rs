@@ -202,11 +202,10 @@ impl GcTrace for ObjectImpl {
     }
 }
 
-impl Drop for ObjectImpl {
-    fn drop(&mut self) {
-        self.finalize();
-    }
-}
+// ⚠️ `ObjectImpl` has NO `Drop` impl: payload `Drop` impls must not
+// re-enter the runtime (`RuntimePtr` deref under LTO creates aliased
+// `&mut` — SEGV in release). `finalize` runs via the runtime's
+// `pre_drop_cleanup` before payloads are dropped.
 
 impl std::fmt::Display for ObjectImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -567,9 +566,13 @@ impl ObjectImpl {
             .retain(|w| w.upgrade(heap).is_some_and(|o| *o.as_raw() != eliminate.0));
     }
 
-    fn finalize(&mut self) {
-        let mut rt = self.rt_ptr();
-
+    /// Runtime side-effects for a dying object. Called ONLY by the runtime's
+    /// pre-drop GC cleanup (`pre_drop_cleanup`) — never from `Drop`.
+    ///
+    /// Takes `rt` explicitly instead of using `self.rt_ptr()`: the caller
+    /// holds `&mut RuntimeImpl`, and a `RuntimePtr` deref here would create
+    /// a second non-derived access path to `RuntimeImpl` (aliasing UB).
+    pub(crate) fn finalize(&mut self, rt: &mut RuntimeImpl) {
         // WeakMap/WeakSet cleanup
         #[cfg(feature = "builtin_mapset")]
         {
@@ -626,7 +629,7 @@ impl ObjectImpl {
         // call class finalize handler.
         if let Some(cb) = rt.class_registry[self.class_id() as usize].on_finalize {
             let id = self.id();
-            cb(&mut rt, &self.payload, id);
+            cb(rt, &self.payload, id);
         }
     }
 }

@@ -4,8 +4,8 @@
 use std::ptr::NonNull;
 
 use gc_lite::{
-    GcError, GcHead, GcHeap, GcNode, GcPartitionId, GcRef, GcTrace, GcTraceCtx, GcTraceFn,
-    gc_type_register,
+    GcError, GcHead, GcHeap, GcNode, GcNodeLink, GcPartitionId, GcRef, GcTrace, GcTraceCtx,
+    GcTraceFn, gc_type_register,
 };
 
 // `GcTraceCtx` is only referenced by the feature-off `BigIntImpl` placeholder.
@@ -203,10 +203,26 @@ impl RuntimeImpl {
 
         let mut freed = 0;
         if self.gc_heap_mut().mark(partition_id, usize::MAX) {
-            // mark cycle done, sweep whites
-            freed = self
-                .gc_heap_mut()
-                .sweep(partition_id, GcHeap::DUMMY_DISPOSE_CALLBACK);
+            // mark cycle done, use two-phase sweep.
+            //
+            // Phase 1: Unlink white nodes (needs &mut GcHeap).
+            if let Some(white) = self.gc_heap_mut().sweep_unlink(partition_id) {
+                // Phase 2: Pre-drop cleanup — runtime side-effects for dying
+                // nodes (atom removal, object finalize). Runs with the
+                // runtime's own &mut self and NO drop_fn executing, so no
+                // re-entrancy is possible by construction.
+                self.pre_drop_cleanup(&white);
+
+                // Phase 3: Drop payloads — Drop impls are trivial (no
+                // RuntimeImpl access), so holding &mut self across this is
+                // sound. Only drops white non-root/non-local nodes; root/local
+                // survivors are kept by sweep_dispose and freed later.
+                let registry = self.gc_heap().type_registry();
+                gc_lite::GcHeap::sweep_drop_payloads(&white, registry);
+
+                // Phase 4: Dispose — frees memory, updates accounting (needs &mut GcHeap).
+                freed = self.gc_heap_mut().sweep_dispose(partition_id, white);
+            }
         }
 
         // update new gc threshold
@@ -222,6 +238,51 @@ impl RuntimeImpl {
     #[inline(always)]
     pub(crate) fn gc_collect(&mut self) {
         self.gc_collect_in(self.gc_part_id());
+    }
+
+    /// Runtime side-effects for dying white nodes, run BEFORE their payloads
+    /// are dropped.
+    ///
+    /// This replaces logic that used to live in payload `Drop` impls
+    /// (`StringImpl::drop` atom removal, `ObjectImpl::finalize`). Payload
+    /// `Drop` impls MUST stay trivial (no `RuntimePtr` deref): a deref here
+    /// would create a second non-derived access path to `RuntimeImpl` while
+    /// the caller's `&mut self` is live — a `noalias` violation that LTO
+    /// exploits into memory corruption (SEGV in release).
+    ///
+    /// Soundness: runs with the runtime's own `&mut self` and no `drop_fn`
+    /// executing, so all accesses derive from `self`. White-node payloads
+    /// are still alive (unlinked but not yet dropped/disposed), so reading
+    /// `atom_info` / running `finalize` sees the same state the old `Drop`
+    /// impls did.
+    pub(crate) fn pre_drop_cleanup(&mut self, white: &GcNodeLink) {
+        let registry = self.gc_heap().type_registry();
+
+        for node in white.iter() {
+            // SAFETY: nodes in the white list are live (unlinked from the
+            // partition but not yet dropped or disposed). The payload layout
+            // matches the registered type info.
+            let (dtype, payload) = unsafe {
+                let head = node.as_ref();
+                let info = &registry.type_info_list[head.dtype() as usize];
+                (head.dtype(), info.payload_ptr(node).as_ptr())
+            };
+
+            if dtype == StringImpl::GC_TYPE_ID {
+                // SAFETY: dtype matches; payload is a valid StringImpl.
+                let s = unsafe { &*(payload as *const StringImpl) };
+                if let Some(a) = s.atom_info()
+                    && !a.is_const()
+                    && !a.is_small_int()
+                {
+                    self.remove_atom(a);
+                }
+            } else if dtype == ObjectImpl::GC_TYPE_ID {
+                // SAFETY: dtype matches; payload is a valid ObjectImpl.
+                let o = unsafe { &mut *(payload as *mut ObjectImpl) };
+                o.finalize(self);
+            }
+        }
     }
 
     #[inline(always)]

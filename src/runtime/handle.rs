@@ -108,11 +108,27 @@ impl RuntimeImpl {
     unsafe fn panic_free_gc(&mut self) {
         self.cur_exception = Exception::default();
         self.interrupt_code = None;
+
+        // Pop gc_top_scope first so ContextImpl::drop skips the
+        // gc_heap_mut() access during the drop phase (same as
+        // RuntimeImpl::finalize).
+        for ctx_ptr in &mut self.context_list {
+            drop(ctx_ptr.gc_top_scope.take());
+        }
         self.context_list.clear();
         self.shape_registry.clear();
 
+        // Same sequence as RuntimeImpl::finalize: prepare (clear scope
+        // caches + weak slots) → pre-drop cleanup (runtime side-effects) →
+        // trivial payload drops → dealloc. Payload Drop impls must not
+        // re-enter the runtime (LTO aliasing) — panics are no exception.
         let pid = self.gc_part_id();
-        if let Some(link) = self.gc_heap().finalize_partition(pid) {
+        if let Some(link) = self.gc_heap().finalize_partition_prepare(pid) {
+            self.pre_drop_cleanup(&link);
+
+            let registry = self.gc_heap().type_registry();
+            gc_lite::GcHeap::sweep_drop_payloads(&link, registry);
+
             self.gc_heap_mut().dealloc_partition(pid, link);
         }
     }

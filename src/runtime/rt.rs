@@ -384,15 +384,17 @@ impl RuntimeImpl {
         #[cfg(feature = "builtin_weakref")]
         self.finrec_pending_cleanups.clear();
 
-        // Two-phase partition release.
+        // Partition release with a host pre-drop pass:
         //
-        // Phase 1 (finalize, &self): Drop GC node payloads without freeing
-        //   memory.  Since finalize_partition only takes &GcHeap (shared ref),
-        //   any reentrant GcHeap access during Drop is safe — the borrow
-        //   checker prevents aliasing &mut references.
-        //
-        // Phase 2 (dealloc, &mut self): Free the memory of all finalized
-        //   nodes.  No Drop callbacks run, so no risk of reentrancy.
+        // Phase 1a (prepare, &GcHeap): clear scope caches + weak slots, take
+        //   the node link WITHOUT dropping payloads.
+        // Phase 1b (pre-drop, &mut self): run runtime side-effects for dying
+        //   payloads (atom removal, object finalize) through the runtime's
+        //   own &mut self — no drop_fn executes here, so no re-entrancy.
+        // Phase 1c (drop): payload Drop impls are trivial (no RuntimeImpl
+        //   access) — re-entrancy is impossible by construction.
+        // Phase 2 (dealloc, &mut self): free the memory of all finalized
+        //   nodes. No Drop callbacks run here.
         //
         // Before Phase 1 we pop gc_top_scope from all contexts so that
         // ContextImpl::drop finds gc_top_scope == None and skips the
@@ -406,14 +408,14 @@ impl RuntimeImpl {
         self.context_list.clear();
         self.shape_registry.clear();
 
-        // Phase 1: finalize — call Drop on all GC nodes with &GcHeap.
-        // This reborrows &mut self as &self; the borrow drops when the call
-        // returns, restoring &mut self for Phase 2.
         let pid = self.gc_part_id();
-        let link = self.gc_heap().finalize_partition(pid);
-
-        // Phase 2: dealloc — free memory, no Drop callbacks.
+        let link = self.gc_heap().finalize_partition_prepare(pid);
         if let Some(link) = link {
+            self.pre_drop_cleanup(&link);
+
+            let registry = self.gc_heap().type_registry();
+            gc_lite::GcHeap::sweep_drop_payloads(&link, registry);
+
             self.gc_heap_mut().dealloc_partition(pid, link);
         }
 

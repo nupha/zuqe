@@ -68,17 +68,10 @@ impl GcTrace for StringImpl {
     fn trace(&self, _: &mut GcTraceCtx) {}
 }
 
-impl Drop for StringImpl {
-    fn drop(&mut self) {
-        if let Some(a) = &self.atom_info
-            && !a.is_const()
-            && !a.is_small_int()
-        {
-            self.rt().remove_atom(a);
-        }
-    }
-}
-
+/// ⚠️ `StringImpl` has NO `Drop` impl: payload `Drop` impls must not
+/// re-enter the runtime (`RuntimePtr` deref under LTO creates aliased
+/// `&mut` — SEGV in release). Atom removal for dying strings is done by
+/// the runtime's `pre_drop_cleanup` before payloads are dropped.
 impl Deref for StringImpl {
     type Target = StringData;
 
