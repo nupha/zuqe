@@ -303,13 +303,48 @@ impl Bytecode {
             (arg_base, var_base, sp, frame.mode, frame.func_obj)
         };
 
-        let frame = arena.frame_mut(cur_frame_idx);
+        // Single raw root for the arena; everything below re-derives
+        // frame-header access from it at each use. Never cache a `&mut`/raw
+        // into the arena across interpreter-loop iterations: the loop creates
+        // fresh `&mut StackFrameArena` reborrows (build_callee_frame →
+        // alloc_frame → frames.push, find_catch_in_frame, ...), and under
+        // Stacked Borrows a newer reborrow pops any borrow derived earlier.
+        // fat-LTO + panic=abort lets LLVM exploit that violation (nounwind
+        // store motion across calls), corrupting sp/pc bookkeeping — same
+        // family as the `frames` incident notes in stack_frame/arena.rs.
+        let arena_ptr: *mut StackFrameArena = arena;
 
-        // Store a raw pointer to cur_sp_offset for SP_GO! macro updates.
-        // SAFETY: FrameHead is in Vec<FrameHead>, its address is stable
-        // for the duration of this function (no arena resizing).
-        let cur_sp_offset_ptr: *mut i32 = &mut frame.cur_sp_offset;
-        let cur_pc_offset_ptr: *mut usize = &mut frame.cur_pc_offset;
+        // Raw-root accessors: each use re-derives a fresh borrow through
+        // arena_ptr (see the discipline note above).
+        macro_rules! frame {
+            ($idx:expr) => {
+                unsafe { (*arena_ptr).frame($idx) }
+            };
+        }
+        macro_rules! frame_mut {
+            ($idx:expr) => {
+                unsafe { (*arena_ptr).frame_mut($idx) }
+            };
+        }
+        macro_rules! arena_mut {
+            () => {
+                unsafe { &mut *arena_ptr }
+            };
+        }
+
+        // cur_frame_idx is fixed for the whole invocation (the loop only
+        // allocates/frees callee frames), so these macros can index it
+        // directly; they re-derive through the raw root on every use.
+        macro_rules! save_sp {
+            ($val:expr) => {
+                unsafe { (*arena_ptr).frame_mut(cur_frame_idx).cur_sp_offset = $val }
+            };
+        }
+        macro_rules! save_pc {
+            ($val:expr) => {
+                unsafe { (*arena_ptr).frame_mut(cur_frame_idx).cur_pc_offset = $val }
+            };
+        }
 
         let cpools = self.consts();
 
@@ -317,9 +352,7 @@ impl Bytecode {
         let mut pc = unsafe { pc_base.add(pc_offset) };
         let mut sp = unsafe { sp_base.add(sp_offset) };
 
-        unsafe {
-            *cur_sp_offset_ptr = sp_offset as i32;
-        }
+        save_sp!(sp_offset as i32);
 
         // Resolve captured_vars from the current frame's function object
         // (func_obj already extracted from the preamble frame lookup above).
@@ -347,13 +380,15 @@ impl Bytecode {
             if let Exception::Error(err_val) = rt.exception()
                 && is_backtrace_needed(err_val)
             {
-                arena.frame_mut(cur_frame_idx).cur_pc_offset = cur_pc;
+                frame_mut!(cur_frame_idx).cur_pc_offset = cur_pc;
                 realm_scope.build_backtrace_to(err_val, None, 0);
             }
 
-            if let Some((new_pc, new_sp)) = arena.find_catch_in_frame(cur_frame_idx, realm_scope) {
+            if let Some((new_pc, new_sp)) = unsafe {
+                (*arena_ptr).find_catch_in_frame(cur_frame_idx, realm_scope)
+            } {
                 unsafe {
-                    *cur_sp_offset_ptr = new_sp as i32;
+                    save_sp!(new_sp as i32);
                     pc = pc_base.add(new_pc);
                     sp = sp_base.add(new_sp);
                 }
@@ -364,8 +399,8 @@ impl Bytecode {
         }
 
         // ── Stack access macros ──
-        // These work with raw pointers and the cur_sp_offset pointer,
-        // identical to the legacy versions but using *cur_sp_offset_ptr.
+        // These work with raw pointers and re-derived frame-header access,
+        // identical to the legacy versions but using save_sp!/save_pc!.
 
         macro_rules! SP_VAL {
             (0) => {
@@ -428,7 +463,7 @@ impl Bytecode {
         macro_rules! SP_GO {
             ($step:expr) => {
                 sp = unsafe {
-                    *cur_sp_offset_ptr += ($step) as i32;
+                    (*arena_ptr).frame_mut(cur_frame_idx).cur_sp_offset += ($step) as i32;
                     sp.offset(($step) as isize)
                 }
             };
@@ -648,7 +683,7 @@ impl Bytecode {
                                         true,
                                         arg_base_ptr,
                                         var_base_ptr,
-                                        arena,
+                                        arena_mut!(),
                                         cur_frame_idx,
                                         self.arg_count,
                                         self.var_count,
@@ -920,7 +955,7 @@ impl Bytecode {
                                 opcode == OpCode::MAKE_ARG_REF,
                                 arg_base_ptr,
                                 var_base_ptr,
-                                arena,
+                                arena_mut!(),
                                 cur_frame_idx,
                                 self.arg_count,
                                 self.var_count,
@@ -1008,9 +1043,7 @@ impl Bytecode {
                         let call_argc = PC_FETCH!(u16);
                         let call_argv = unsafe { sp.offset(-(call_argc as isize)) };
 
-                        unsafe {
-                            *cur_pc_offset_ptr = pc.offset_from(pc_base) as _;
-                        }
+                        save_pc!(pc.offset_from(pc_base) as _);
 
                         let func = unsafe { *call_argv.offset(-1) };
 
@@ -1060,9 +1093,9 @@ impl Bytecode {
                                 } else {
                                     // Non-tail call: use build_callee_frame to
                                     // allocate and initialize the callee frame.
-                                    let caller_depth = arena.frame(cur_frame_idx).depth;
+                                    let caller_depth = frame!(cur_frame_idx).depth;
                                     let callee_frame_idx = match build_callee_frame(
-                                        arena,
+                                        arena_mut!(),
                                         caller_depth,
                                         bfun.into(),
                                         bc,
@@ -1089,7 +1122,7 @@ impl Bytecode {
                                             break ExecAction::Exception;
                                         }
                                     };
-                                    arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+                                    frame_mut!(callee_frame_idx).prev = cur_frame_idx;
 
                                     let return_sp = unsafe {
                                         sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
@@ -1151,9 +1184,7 @@ impl Bytecode {
                     OpCode::CALL_CONSTRUCTOR => {
                         let call_argc = PC_FETCH!(u16) as i32;
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
-                        unsafe {
-                            *cur_pc_offset_ptr = pc.offset_from(pc_base) as _;
-                        }
+                        save_pc!(pc.offset_from(pc_base) as _);
 
                         let func = unsafe { *call_argv.offset(-2) };
                         let ctor_new_target = unsafe { *call_argv.offset(-1) };
@@ -1198,9 +1229,9 @@ impl Bytecode {
                             let args_slice = unsafe {
                                 std::slice::from_raw_parts(call_argv, call_argc as usize)
                             };
-                            let caller_depth = arena.frame(cur_frame_idx).depth;
+                            let caller_depth = frame!(cur_frame_idx).depth;
                             let callee_frame_idx = match build_callee_frame(
-                                arena,
+                                arena_mut!(),
                                 caller_depth,
                                 bfun.into(),
                                 bc,
@@ -1221,7 +1252,7 @@ impl Bytecode {
                                     break ExecAction::Exception;
                                 }
                             };
-                            arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+                            frame_mut!(callee_frame_idx).prev = cur_frame_idx;
 
                             let return_sp = unsafe {
                                 sp.offset(-(call_argc as isize + 2)).offset_from(sp_base)
@@ -1271,9 +1302,7 @@ impl Bytecode {
                     OpCode::CALL_METHOD | OpCode::TAIL_CALL_METHOD => {
                         let call_argc = PC_FETCH!(u16) as i32;
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
-                        unsafe {
-                            *cur_pc_offset_ptr = pc.offset_from(pc_base) as _;
-                        }
+                        save_pc!(pc.offset_from(pc_base) as _);
 
                         let func = unsafe { *call_argv.offset(-1) };
                         let method_this = unsafe { *call_argv.offset(-2) };
@@ -1304,9 +1333,9 @@ impl Bytecode {
                                         };
                                     }
                                 } else {
-                                    let caller_depth = arena.frame(cur_frame_idx).depth;
+                                    let caller_depth = frame!(cur_frame_idx).depth;
                                     let callee_frame_idx = match build_callee_frame(
-                                        arena,
+                                        arena_mut!(),
                                         caller_depth,
                                         bfun.into(),
                                         bc,
@@ -1334,7 +1363,7 @@ impl Bytecode {
                                             break ExecAction::Exception;
                                         }
                                     };
-                                    arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+                                    frame_mut!(callee_frame_idx).prev = cur_frame_idx;
 
                                     let return_sp = unsafe {
                                         sp.offset(-(call_argc as isize + 2)).offset_from(sp_base)
@@ -1620,9 +1649,9 @@ impl Bytecode {
                         if unlikely(value.is_uninitialized()) {
                             // Per ES spec, this error belongs in the caller's realm
                             // (same pattern as CHECK_CTOR_RETURN).
-                            let prev = arena.frame(cur_frame_idx).prev;
+                            let prev = frame!(cur_frame_idx).prev;
                             if !prev.is_null() {
-                                let prev_func = arena.frame(prev).func_obj;
+                                let prev_func = frame!(prev).func_obj;
                                 if let Ok(bfun) = BCWrapper::try_from(JSValue::from(prev_func)) {
                                     let mut caller_ctx_ptr = bfun.payload().bytecode().realm();
                                     let mut caller_scope = caller_ctx_ptr.new_scope();
@@ -1716,9 +1745,9 @@ impl Bytecode {
                                 // Per ES [[Construct]], throw TypeError in the CALLER's realm,
                                 // not the current function's realm.
                                 // Retrive caller's realm from the prev frame.
-                                let prev = arena.frame(cur_frame_idx).prev;
+                                let prev = frame!(cur_frame_idx).prev;
                                 if !prev.is_null() {
-                                    let prev_func = arena.frame(prev).func_obj;
+                                    let prev_func = frame!(prev).func_obj;
                                     if let Ok(bfun) = BCWrapper::try_from(JSValue::from(prev_func))
                                     {
                                         let mut caller_ctx_ptr = bfun.payload().bytecode().realm();
@@ -1882,9 +1911,7 @@ impl Bytecode {
                         let call_argc = PC_FETCH!(u16) as i32;
                         let scope_idx = PC_FETCH!(u16) as i32 - 1;
                         let call_argv = unsafe { sp.offset(-call_argc as isize) };
-                        unsafe {
-                            *cur_pc_offset_ptr = pc.offset_from(pc_base) as _;
-                        }
+                        save_pc!(pc.offset_from(pc_base) as _);
                         let func_val = unsafe { *call_argv.offset(-1) };
                         if func_val.is_same(realm_scope.eval_func) {
                             // ── Direct eval (intrinsic %eval%) ──
@@ -1951,9 +1978,9 @@ impl Bytecode {
                                     // BytecodeFunction::call). build_callee_frame enforces the
                                     // call-depth and byte limits itself, so runaway recursion is
                                     // still caught (and the error remains catchable).
-                                    let caller_depth = arena.frame(cur_frame_idx).depth;
+                                    let caller_depth = frame!(cur_frame_idx).depth;
                                     let callee_frame_idx = match build_callee_frame(
-                                        arena,
+                                        arena_mut!(),
                                         caller_depth,
                                         bfun.into(),
                                         bc,
@@ -1981,7 +2008,7 @@ impl Bytecode {
                                             break ExecAction::Exception;
                                         }
                                     };
-                                    arena.frame_mut(callee_frame_idx).prev = cur_frame_idx;
+                                    frame_mut!(callee_frame_idx).prev = cur_frame_idx;
 
                                     let return_sp = unsafe {
                                         sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
@@ -2607,7 +2634,7 @@ impl Bytecode {
                                 realm_scope,
                                 None,
                                 captured_vars,
-                                arena,
+                                arena_mut!(),
                                 cur_frame_idx,
                             )
                             .map_or(JSValue::EXCEPTION, |f| f.into());
@@ -3099,7 +3126,7 @@ impl Bytecode {
                             atom,
                             class_flags as _,
                             captured_vars,
-                            arena,
+                            arena_mut!(),
                             cur_frame_idx,
                             opcode == OpCode::DEFINE_CLASS_COMPUTED,
                         );
@@ -3336,10 +3363,8 @@ impl Bytecode {
 
             match action {
                 ExecAction::Return(ret_val, is_generator) => {
-                    unsafe {
-                        *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
-                        *cur_sp_offset_ptr = sp.offset_from(sp_base) as i32;
-                    }
+                    save_pc!(pc.offset_from(pc_base) as usize);
+                    save_sp!(sp.offset_from(sp_base) as i32);
                     return ExecAction::Return(ret_val, is_generator);
                 }
 
@@ -3355,15 +3380,15 @@ impl Bytecode {
                     if let Exception::Error(err_val) = rt.exception()
                         && is_backtrace_needed(err_val)
                     {
-                        arena.frame_mut(cur_frame_idx).cur_pc_offset = cur_pc;
+                        frame_mut!(cur_frame_idx).cur_pc_offset = cur_pc;
                         realm_scope.build_backtrace_to(err_val, None, 0);
                     }
 
-                    if let Some((new_pc, new_sp)) =
-                        arena.find_catch_in_frame(cur_frame_idx, realm_scope)
-                    {
+                    if let Some((new_pc, new_sp)) = unsafe {
+                        (*arena_ptr).find_catch_in_frame(cur_frame_idx, realm_scope)
+                    } {
                         unsafe {
-                            *cur_sp_offset_ptr = new_sp as i32;
+                            save_sp!(new_sp as i32);
                             pc = pc_base.add(new_pc);
                             sp = sp_base.add(new_sp);
                         }
@@ -3380,10 +3405,8 @@ impl Bytecode {
                     new_target,
                     ctor_this,
                 } => {
-                    unsafe {
-                        *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
-                        *cur_sp_offset_ptr = sp.offset_from(sp_base) as i32;
-                    }
+                    save_pc!(pc.offset_from(pc_base) as usize);
+                    save_sp!(sp.offset_from(sp_base) as i32);
                     return ExecAction::CallBytecode {
                         callee_bc,
                         callee_frame_idx,
@@ -3403,10 +3426,8 @@ impl Bytecode {
                     new_target,
                     ctor_this,
                 } => {
-                    unsafe {
-                        *cur_pc_offset_ptr = pc.offset_from(pc_base) as usize;
-                        *cur_sp_offset_ptr = sp.offset_from(sp_base) as i32;
-                    }
+                    save_pc!(pc.offset_from(pc_base) as usize);
+                    save_sp!(sp.offset_from(sp_base) as i32);
                     return ExecAction::CallBytecodeCrossRealm {
                         callee_bc,
                         callee_frame_idx,
