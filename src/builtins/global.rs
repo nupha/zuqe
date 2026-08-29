@@ -54,12 +54,6 @@ const fn is_uri_reserved(c: u32) -> bool {
     ) && c < 128
 }
 
-/// ES spec: uriReserved + (used by encodeURI)
-#[inline(always)]
-const fn is_uri_reserved_or_hash(c: u32) -> bool {
-    is_uri_reserved(c)
-}
-
 /// ES spec: uriUnescaped = ALPHA | DIGIT | "-" | "_" | "." | "!" | "~" | "*" | "'" | "(" | ")"
 #[inline(always)]
 const fn is_uri_unescaped(c: u32) -> bool {
