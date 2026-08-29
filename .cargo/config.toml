@@ -1,0 +1,8 @@
+[build]
+# Purpose: makes plain `cargo build --release` include the MemCpyOpt
+# mitigation flag so the build.rs guard passes without hand-setting
+# RUSTFLAGS. Why the flag is needed: fat-LTO + panic=abort + O2+ builds
+# hit an LLVM MemCpyOpt/MemDep miscompile (GC root loss -> SEGV in test262
+# promise tests); scan-limit <= 8 avoids it. Details:
+# memo/lto-ub-handover.md §17-§18.
+rustflags = ["-Cllvm-args=-memdep-block-scan-limit=1"]
