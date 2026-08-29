@@ -1,0 +1,2 @@
+# 强制所有文本文件在检出时使用 Unix 风格 LF 换行
+* text=auto eol=lf
