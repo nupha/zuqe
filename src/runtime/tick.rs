@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::time::Instant;
+
 use gc_lite::GcNode;
 
 use crate::{
@@ -15,6 +17,27 @@ impl<'c> ScopedContext<'c> {
     pub fn add_tick_handler(&mut self, f: fn(&mut ScopedContext) -> bool) {
         self.tick_handlers.push(f);
     }
+
+    /// Clonable handle to this context's runtime event loop. Capture it on
+    /// the JS thread and move it into producer tasks/threads (channel senders
+    /// etc.); calling `wake()` after pushing work re-ticks the parked loop.
+    /// Per-runtime — holding handles of many runtimes at once is fine.
+    pub fn wake_handle(&self) -> crate::runtime::WakeHandle {
+        self.rt().wake_handle()
+    }
+
+    /// Advise the event-loop driver of the earliest time a polling job needs
+    /// to run again (e.g. a timer's next deadline). A `Parked` round then
+    /// suspends until this instant (or an external wake) instead of spinning.
+    /// Accumulates the minimum across jobs of one tick; consumed by `tick()`.
+    pub fn set_poll_hint(&mut self, at: Instant) {
+        let prev = self.poll_hint.replace(Some(at));
+        if let Some(d) = prev
+            && d < at
+        {
+            self.poll_hint.set(Some(d));
+        }
+    }
 }
 
 #[derive(PartialEq)]
@@ -24,12 +47,14 @@ pub(super) enum TickStatus {
     /// caller should call `tick()` again immediately to advance.
     Progress,
     /// No real progress this round, but a polling job is still spinning on
-    /// `Again` (waiting on external IO). Those jobs are re-queued (never
-    /// lost) but produced no new work. The caller decides: the sync loop
-    /// yields without exiting, the async path suspends (Pending), and the
-    /// agent `drain_jobs` terminates — so a pure-`Again` spin can never
-    /// dead-loop.
-    Parked,
+    /// `Again` (waiting on external IO or a timer deadline). Those jobs are
+    /// re-queued (never lost) but produced no new work. The `Option<Instant>`
+    /// is the earliest deadline any such job reported via
+    /// `set_poll_hint` (`None` = wait for external wake only). The caller
+    /// decides: the sync loop suspends on a condvar, the async path parks via
+    /// the parker thread (Pending), and the agent `drain_jobs` terminates —
+    /// so a pure-`Again` wait can never dead-loop or hot-spin.
+    Parked(Option<Instant>),
     /// The event loop is genuinely idle (no Progress, no Parked) or was
     /// interrupted. Every caller terminates its drive loop.
     Idle,
@@ -40,6 +65,7 @@ impl RuntimeImpl {
     pub(super) fn tick(&mut self) -> TickStatus {
         let mut had_progress = false;
         let mut had_parked = false;
+        let mut hint: Option<Instant> = None;
 
         for mut ctx in self.context_list.iter().copied() {
             ctx.with_new_scope(|cx| {
@@ -137,6 +163,15 @@ impl RuntimeImpl {
                             had_progress = true;
                         }
                     }
+
+                    // Collect the earliest deadline any polling job reported
+                    // this round (jobs ran above; take clears the cell).
+                    if let Some(d) = cx.poll_hint.take() {
+                        hint = Some(match hint {
+                            Some(h) => h.min(d),
+                            None => d,
+                        });
+                    }
                 }
             });
 
@@ -175,11 +210,12 @@ impl RuntimeImpl {
         // Progress takes priority: if any real work was produced this round,
         // advance immediately (a co-existing `Again` job is already re-queued
         // and will be polled next round). Only when there is no real progress
-        // but a polling job is still pending do we report `Parked`.
+        // but a polling job is still pending do we report `Parked`, carrying
+        // the earliest reported re-poll deadline so the driver can suspend.
         if had_progress {
             TickStatus::Progress
         } else if had_parked {
-            TickStatus::Parked
+            TickStatus::Parked(hint)
         } else {
             TickStatus::Idle
         }

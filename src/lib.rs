@@ -49,7 +49,7 @@ pub use {
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_FORCE, JS_PROP_GETSET, JS_PROP_WRITABLE,
         Object,
     },
-    runtime::{Runtime, RuntimeImpl},
+    runtime::{Runtime, RuntimeImpl, WakeHandle},
     value::JSValue,
 };
 

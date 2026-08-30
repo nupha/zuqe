@@ -146,14 +146,14 @@ impl<D: 'static> AsyncIteratorFetcher for ChannelFetcher<D> {
 /// is then rejected deterministically instead of polling forever and hanging
 /// the event loop.
 struct SlotFetcher<D: Send + 'static> {
-    data: Arc<std::sync::Mutex<Option<D>>>,
+    data: Arc<crate::builtins::promise::SlotInner<D>>,
     /// convert D to JSValue, running in js thread. None to stop
     convert: Box<dyn Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32>>,
 }
 
 impl<D: Send + 'static> AsyncIteratorFetcher for SlotFetcher<D> {
     fn try_fetch(&self, cx: &mut ScopedContext) -> Result<IterFetchStatus, i32> {
-        let Some(data) = self.data.lock().unwrap().take() else {
+        let Some(data) = self.data.value.lock().unwrap().take() else {
             if Arc::strong_count(&self.data) == 1 {
                 debug_assert!(false, "[promise result slot] dropped without commit");
                 return Err(cx.throw_internal_error("promise result slot dropped without commit"));
@@ -267,6 +267,9 @@ impl AsyncIterableIterator {
         data_slot: PromiseResultSlot<D>,
         convert: impl Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + 'static,
     ) -> Result<Self, i32> {
+        // Commits from any slot clone (typically on IO threads) wake the
+        // parked event loop so the fetcher polls promptly.
+        data_slot.attach_wake(&ctx.rt_mut().park);
         Self::create(
             ctx,
             SlotFetcher {

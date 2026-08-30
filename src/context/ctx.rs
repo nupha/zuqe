@@ -83,6 +83,12 @@ pub struct ContextImpl {
     /// user defined tick handlers
     pub(crate) tick_handlers: Vec<fn(&mut ScopedContext) -> bool>,
 
+    /// Advisory earliest re-poll time set by a polling job via
+    /// [`ScopedContext::set_poll_hint`] (e.g. a timer's next deadline);
+    /// taken by each `tick()` round and reported to the driver so a `Parked`
+    /// round can suspend until the deadline instead of hot-spinning.
+    pub(crate) poll_hint: Cell<Option<std::time::Instant>>,
+
     /// The top-level GC scope for this context.
     /// Its stack_id identifies which scope stack this context uses.
     /// Dropped in ContextImpl::drop before releasing the scope stack.
@@ -194,6 +200,7 @@ impl ContextImpl {
             polling_jobs: VecDeque::new(),
             oneshot_jobs: VecDeque::new(),
             tick_handlers: Vec::new(),
+            poll_hint: Cell::new(None),
 
             realm_symbols: Vec::new(),
 

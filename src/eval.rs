@@ -530,12 +530,21 @@ impl<'c> ScopedContext<'c> {
         // tick to finish
         loop {
             match self.rt_mut().tick() {
-                crate::runtime::TickStatus::Progress | crate::runtime::TickStatus::Parked => {
-                    // Progress: real work was produced, drain it now.
-                    // Parked: a polling job (fetch/fs/...) is still waiting on IO
-                    // but produced no progress this round — yield without exiting
-                    // so the IO thread can later push a value and resolve the promise.
+                crate::runtime::TickStatus::Progress => {
+                    // Real work was produced — drain it now.
                     std::thread::yield_now();
+                    continue;
+                }
+                crate::runtime::TickStatus::Parked(hint) => {
+                    // A polling job (fetch/fs/... or a timer) is waiting.
+                    // Suspend the thread until an external wake or the
+                    // deadline — capped by the same quantum safety net as the
+                    // async driver — instead of hot-spinning on yield.
+                    let now = std::time::Instant::now();
+                    let deadline = hint.map_or(now + crate::runtime::PARK_QUANTUM, |d| {
+                        d.min(now + crate::runtime::PARK_QUANTUM)
+                    });
+                    self.rt_mut().park.park_blocking(deadline);
                     continue;
                 }
                 crate::runtime::TickStatus::Idle => {

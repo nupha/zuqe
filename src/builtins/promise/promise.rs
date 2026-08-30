@@ -5,7 +5,7 @@ use std::{
     cell::{Cell, RefCell},
     ops::DerefMut,
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, Weak},
 };
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
@@ -125,8 +125,20 @@ impl PromisePayload {
     }
 }
 
+/// Shared backing storage of a [`PromiseResultSlot`]. The wake hook lives
+/// here (not on the slot handle) so every clone of the slot — including the
+/// ones held by producer threads/tasks — wakes the parked event loop on
+/// `commit`.
+pub(crate) struct SlotInner<D: Send> {
+    pub(crate) value: Mutex<Option<D>>,
+    /// Park state of the runtime that bound this slot to a polling job; set
+    /// by `attach_wake` when the job is created. `Weak` so a slot outliving
+    /// its runtime doesn't keep the parker thread alive.
+    wake: Mutex<Option<Weak<crate::runtime::ParkState>>>,
+}
+
 pub struct PromiseResultSlot<D: Send> {
-    data: Arc<Mutex<Option<D>>>,
+    data: Arc<SlotInner<D>>,
 }
 
 impl<D: Send> Clone for PromiseResultSlot<D> {
@@ -140,30 +152,46 @@ impl<D: Send> Clone for PromiseResultSlot<D> {
 impl<D: Send + 'static> PromiseResultSlot<D> {
     pub fn new() -> Self {
         Self {
-            data: Arc::new(Mutex::new(None)),
+            data: Arc::new(SlotInner {
+                value: Mutex::new(None),
+                wake: Mutex::new(None),
+            }),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.data.lock().unwrap().is_none()
+        self.data.value.lock().unwrap().is_none()
     }
 
     /// Submit a value into the slot.
     pub fn commit(&self, data: D) -> Result<(), D> {
-        let mut guard = self.data.lock().unwrap();
-        if guard.is_none() {
+        {
+            let mut guard = self.data.value.lock().unwrap();
+            if guard.is_some() {
+                return Err(data);
+            }
             guard.replace(data);
-            Ok(())
-        } else {
-            Err(data)
         }
+        // Wake the parked event loop (if bound) so the polling job observes
+        // the value promptly instead of waiting out the park quantum.
+        if let Some(park) = self
+            .data
+            .wake
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|w| w.upgrade())
+        {
+            park.wake();
+        }
+        Ok(())
     }
 
     /// Take the committed value, if any. Lets a caller that drives the slot
     /// itself (rather than through `create_with_result_slot`) observe the
     /// result.
     pub fn try_take(&self) -> Option<D> {
-        self.data.lock().unwrap().take()
+        self.data.value.lock().unwrap().take()
     }
 
     /// Clone the strong reference to the backing storage.
@@ -174,8 +202,15 @@ impl<D: Send + 'static> PromiseResultSlot<D> {
     /// `Arc::strong_count() == 1` (only the poller holds a strong reference)
     /// detects that all committers are gone and settles deterministically
     /// instead of polling forever.
-    pub(crate) fn arc(&self) -> Arc<Mutex<Option<D>>> {
+    pub(crate) fn arc(&self) -> Arc<SlotInner<D>> {
         self.data.clone()
+    }
+
+    /// Bind this slot to the runtime's park state: a `commit` from any clone
+    /// then wakes the parked event loop. Called when a polling job is created
+    /// for the slot (`Promise::create_with_result_slot`, async iterators).
+    pub(crate) fn attach_wake(&self, park: &Arc<crate::runtime::ParkState>) {
+        *self.data.wake.lock().unwrap() = Some(Arc::downgrade(park));
     }
 }
 
@@ -511,10 +546,13 @@ impl Promise {
         // job holds a strong reference), all committers are gone without
         // committing, so settle deterministically instead of polling forever.
         let data = data_slot.arc();
+        // Commits from any slot clone (typically on IO threads) wake the
+        // parked event loop so this polling job runs promptly.
+        data_slot.attach_wake(&ctx.rt_mut().park);
         let convert_slot = Rc::new(RefCell::new(Some(convert)));
 
         Promise::create_with_job(ctx, move |cx| -> Result<Option<JSValue>, i32> {
-            let Some(data) = data.lock().unwrap().take() else {
+            let Some(data) = data.value.lock().unwrap().take() else {
                 if Arc::strong_count(&data) == 1 {
                     // Here: slot empty and `strong_count == 1` (only the job holds
                     // a strong ref), i.e. all committers dropped without committing.
