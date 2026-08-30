@@ -238,7 +238,7 @@ pub(crate) fn js_aton(
     while let Some(c) = bytes.get(idx).copied() {
         let is_digit = (c as char).is_digit(radix as _);
 
-        let is_sep = if c == sep as u8 {
+        let is_sep = if c as i32 == sep {
             let next_is_digit = bytes
                 .get(idx + 1)
                 .copied()
@@ -290,7 +290,7 @@ pub(crate) fn js_aton(
                 .copied()
                 .map(|c| to_digit(c) < radix)
                 .unwrap_or(false)
-                || (matches!(bytes.get(idx), Some(c) if *c == sep as u8)
+                || (matches!(bytes.get(idx), Some(c) if *c as i32 == sep)
                     && bytes
                         .get(idx + 1)
                         .copied()
@@ -315,7 +315,7 @@ pub(crate) fn js_aton(
             if matches!(bytes.get(p1).copied(), Some(c) if (c as char).is_digit(radix as _)) {
                 idx = p1 + 1;
                 while matches!(bytes.get(idx).copied(), Some(c) if (c as char).is_digit(radix as _))
-                    || (matches!(bytes.get(idx), Some(c) if *c == sep as u8)
+                    || (matches!(bytes.get(idx), Some(c) if *c as i32 == sep)
                         && matches!(bytes.get(idx + 1).copied(), Some(n) if (n as char).is_digit(radix as _)))
                 {
                     idx += 1;
@@ -542,7 +542,7 @@ unsafe fn js_atof(
         let mut is_float = false;
         p_start = p;
         while (*p as char).is_digit(radix as _)
-            || (*p == sep as u8
+            || (*p as i32 == sep
                 && (radix != 10 || p != p_start.offset(1) || *p.offset(-1) != b'0')
                 && (*p.add(1) as char).is_digit(radix as _))
         {
@@ -556,7 +556,7 @@ unsafe fn js_atof(
                 if *p as i32 == sep {
                     fail!();
                 }
-                while to_digit(*p) < radix || (*p == sep as u8 && to_digit(*p.offset(1)) < radix) {
+                while to_digit(*p) < radix || (*p as i32 == sep && to_digit(*p.offset(1)) < radix) {
                     p = p.add(1);
                 }
             }
@@ -572,7 +572,7 @@ unsafe fn js_atof(
                 if (*p1 as char).is_digit(radix as _) {
                     p = p1.offset(1);
                     while (*p as char).is_digit(radix as _)
-                        || (*p == sep as u8 && (*p.add(1) as char).is_digit(radix as _))
+                        || (*p as i32 == sep && (*p.add(1) as char).is_digit(radix as _))
                     {
                         p = p.offset(1);
                     }
@@ -882,6 +882,74 @@ mod tests {
                     }
                 }
             }
+        });
+    }
+
+    /// Regression test: the "no separator" sentinel `sep = 256` was compared
+    /// as `sep as u8` (== 0), so the NUL terminator hit the separator branch
+    /// and parsing consumed bytes past the end of the string. The comparison
+    /// must use the promoted `i32` value, like the C original.
+    #[test]
+    fn js_atof_nul_terminator_is_not_a_separator() {
+        fn parse_old(
+            ctx: &mut ScopedContext,
+            literal: &[u8],
+            radix: i32,
+            flags: i32,
+        ) -> Result<(IntOrFloat, usize), i32> {
+            let mut buf = SmallVec::<[u8; 64]>::new();
+            buf.extend_from_slice(literal);
+            buf.push(0); // NUL terminator
+            buf.push(b'9'); // digit byte behind the terminator
+            buf.push(0);
+            let ptr = buf.as_ptr();
+            let mut p = ptr;
+            let r = unsafe { js_atof(ctx, ptr, &mut p, radix, flags)? };
+            let off = unsafe { p.offset_from(ptr) as usize };
+            Ok((r, off))
+        }
+
+        with_ctx(|ctx| {
+            // main digit loop
+            let (v, off) = parse_old(ctx, b"123", 10, 0).unwrap();
+            assert_eq!(v, IntOrFloat::Int64(123));
+            assert_eq!(off, 3);
+
+            // fractional part
+            let (v, off) = parse_old(ctx, b"1.5", 10, 0).unwrap();
+            assert_eq!(v, IntOrFloat::Float64(1.5));
+            assert_eq!(off, 3);
+
+            // exponent part
+            let (v, off) = parse_old(ctx, b"1e2", 10, 0).unwrap();
+            assert_eq!(v, IntOrFloat::Int64(100));
+            assert_eq!(off, 3);
+
+            // underscores still separate when the flag is enabled
+            let (v, off) = parse_old(ctx, b"1_2", 10, ATOD_ACCEPT_UNDERSCORES).unwrap();
+            assert_eq!(v, IntOrFloat::Int64(12));
+            assert_eq!(off, 3);
+        });
+    }
+
+    /// Same sentinel bug in the slice-bounded `js_aton`: an embedded NUL byte
+    /// must end the number (parseFloat/parseInt prefix semantics), never act
+    /// as a digit separator.
+    #[test]
+    fn js_aton_nul_is_not_a_separator() {
+        with_ctx(|ctx| {
+            let (v, consumed) = js_aton(ctx, &[b'1', 0, b'5'], 10, 0).unwrap();
+            assert_eq!(consumed, 1);
+            assert_eq!(v, NumValue::Float(IntOrFloat::Int64(1)));
+
+            let (v, consumed) = js_aton(ctx, &[b'1', b'2', 0, b'3'], 10, 0).unwrap();
+            assert_eq!(consumed, 2);
+            assert_eq!(v, NumValue::Float(IntOrFloat::Int64(12)));
+
+            // with separators enabled, NUL still terminates, '_' still separates
+            let (v, consumed) = js_aton(ctx, b"1_2\x003", 0, ATOD_ACCEPT_UNDERSCORES).unwrap();
+            assert_eq!(consumed, 3);
+            assert_eq!(v, NumValue::Float(IntOrFloat::Int64(12)));
         });
     }
 
