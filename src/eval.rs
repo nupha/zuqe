@@ -538,13 +538,11 @@ impl<'c> ScopedContext<'c> {
                 crate::runtime::TickStatus::Parked(hint) => {
                     // A polling job (fetch/fs/... or a timer) is waiting.
                     // Suspend the thread until an external wake or the
-                    // deadline — capped by the same quantum safety net as the
-                    // async driver — instead of hot-spinning on yield.
-                    let now = std::time::Instant::now();
-                    let deadline = hint.map_or(now + crate::runtime::PARK_QUANTUM, |d| {
-                        d.min(now + crate::runtime::PARK_QUANTUM)
-                    });
-                    self.rt_mut().park.park_blocking(deadline);
+                    // deadline. With quantum poll off (the default) the wait
+                    // is purely event driven (self-pipe + deadline); when
+                    // enabled via `use_quantum_poll`, every park is capped
+                    // by the quantum.
+                    self.rt_mut().park.park_blocking(hint);
                     continue;
                 }
                 crate::runtime::TickStatus::Idle => {
