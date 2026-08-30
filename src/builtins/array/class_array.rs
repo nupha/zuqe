@@ -65,7 +65,7 @@ pub(crate) fn js_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
         ctx.ordinary_create_from_constructor_class(
             new_target,
             crate::JS_CLASS_ARRAY,
-            Box::into_raw(Box::new(ArrayPayload::new(values))) as *mut std::ffi::c_void,
+            ArrayPayload::new(values),
         )
         .map_err(|_| -1)?,
     )

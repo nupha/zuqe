@@ -3,7 +3,6 @@
 
 use std::{
     cell::{Cell, RefCell},
-    ffi::c_void,
     rc::Rc,
     sync::{Arc, Mutex},
 };
@@ -29,8 +28,7 @@ pub type JSHostPromiseRejectionTracker = fn(
     promise: Promise,
     reason: JSValue,
     is_handled: ::core::ffi::c_int,
-    opaque: *mut ::core::ffi::c_void,
-);
+    opaque: *mut ::core::ffi::c_void);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -251,7 +249,7 @@ impl Promise {
             ctx.ordinary_create_from_constructor_class(
                 ctor,
                 JS_CLASS_PROMISE,
-                Box::into_raw(isa) as *mut c_void,
+                *isa,
             )
             .map_err(|_| -1)?
             .0,
@@ -377,7 +375,7 @@ impl Promise {
             ctx.ordinary_create_from_constructor_class(
                 JSValue::UNDEFINED,
                 JS_CLASS_PROMISE,
-                Box::into_raw(Box::new(PromisePayload::default())) as *mut c_void,
+                PromisePayload::default(),
             )
             .map_err(|_| -1)?
             .0,
@@ -571,7 +569,7 @@ impl Promise {
                 .create_instance_with_proto_class(
                     Some(func_proto),
                     class_id,
-                    Box::into_raw(p) as *mut c_void,
+                    *p,
                 )
                 .map_err(|_| -1)?;
             js_function_set_properties(ctx, func, Atom::CONST_empty_string, 1)?;

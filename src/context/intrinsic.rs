@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION,
@@ -253,7 +252,7 @@ impl<'c> ScopedContext<'c> {
             .create_instance_with_proto_class(
                 self.class_proto(JS_CLASS_OBJECT),
                 JS_CLASS_NUMBER,
-                Box::into_raw(Box::new(JSValue::from(0.0))) as *mut c_void,
+                JSValue::from(0.0),
             )
             .unwrap();
         proto.install_fields(self, js_number_proto_funcs).unwrap();
@@ -277,7 +276,7 @@ impl<'c> ScopedContext<'c> {
             .create_instance_with_proto_class(
                 self.class_proto(JS_CLASS_OBJECT),
                 JS_CLASS_BOOLEAN,
-                Box::into_raw(Box::new(false)) as *mut c_void,
+                false,
             )
             .unwrap();
         proto.install_fields(self, js_boolean_proto_funcs).unwrap();
@@ -304,7 +303,7 @@ impl<'c> ScopedContext<'c> {
                 .create_instance_with_proto_class(
                     self.class_proto(JS_CLASS_OBJECT),
                     JS_CLASS_STRING,
-                    Box::into_raw(Box::new(empty_str)) as *mut c_void,
+                    empty_str,
                 )
                 .unwrap();
             o.install_fields(self, js_string_proto_funcs).unwrap();

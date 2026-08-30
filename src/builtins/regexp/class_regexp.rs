@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
 
 use lre::RegexFlags;
 use smallvec::SmallVec;
@@ -16,6 +15,7 @@ use crate::{
     function::{CallContext, Callback, FieldDef, js_function_apply},
     object::{
         JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, Object,
+        PayloadPtr,
     },
     string::{CharCode, CharCodeDecoder, JS_ConcatString3, StringBuf, StringData, StringRef},
     value::JSValue,
@@ -80,13 +80,13 @@ pub fn js_regexp_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         None
     };
 
-    let payload = Box::into_raw(Box::new(if let Some(d) = re {
+    let payload = PayloadPtr::new(JS_CLASS_REGEXP, if let Some(d) = re {
         d.clone()
     } else {
         RegExpData::create(ctx, pattern, flags_str)?
-    })) as *mut c_void;
+    });
     let mut obj = ctx
-        .ordinary_create_from_constructor_class(cc.this(), JS_CLASS_REGEXP, payload)
+        .ordinary_create_from_constructor_payload(cc.this(), payload)
         .map_err(|_| -1)?;
 
     obj.define_property_value(
@@ -394,14 +394,14 @@ pub fn js_regexp_Symbol_matchAll(ctx: &mut ScopedContext, cc: CallContext) -> JS
     // make regexp string iterator object
     ctx.create_instance_with_class(
         JS_CLASS_REGEXP_STRING_ITERATOR,
-        Box::into_raw(Box::new(RegExpStringIterPayload::new(
+        RegExpStringIterPayload::new(
             regexp.try_into().unwrap(),
             str.into(),
             flags.index_of_char('g', 0).is_some(),
             flags
                 .chars()
                 .any(|(_, c)| matches!(c, CharCode::Char('u') | CharCode::Char('v'))),
-        ))) as *mut c_void,
+        ),
     )
     .map(JSValue::from)
     .map_err(|_| -1)

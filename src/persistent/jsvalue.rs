@@ -502,7 +502,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                     .create_instance_with_proto_class(
                         proto,
                         class_id,
-                        Box::into_raw(Box::new(payload)) as *mut c_void,
+                        payload,
                     )
                     .map_err(|_| {
                         BytecodeSerializeError::InvalidValue("oom in closure object".into())

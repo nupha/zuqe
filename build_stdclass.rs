@@ -894,7 +894,9 @@ pub fn gen_payload_accessors(outfile: &Path) {
     // Build grouped accessor methods (same grouping as before, but on ObjectImpl)
     let mut drop_arms = Vec::<String>::new();
     let mut trace_arms = Vec::<String>::new();
+    let mut name_arms = Vec::<String>::new();
     let mut get_payload_methods = Vec::<String>::new();
+    let mut into_payload_ptr_impls = std::collections::BTreeSet::<&str>::new();
 
     let mut kvs = CLASS_PAYLOAD_TYPE.iter().collect::<Vec<_>>();
     kvs.sort();
@@ -929,6 +931,12 @@ pub fn gen_payload_accessors(outfile: &Path) {
             "{class_id_pattern} => {{ (*(ptr as *const {inner_ty})).trace(tr); }}"
         ));
 
+        name_arms.push(format!(
+            "{class_id_pattern} => Some(std::any::type_name::<{inner_ty}>()),"
+        ));
+
+        into_payload_ptr_impls.insert(inner_ty);
+
         get_payload_methods.push(format!(
             "pub const fn payload_{k}(&self) -> Option<&{inner_ty}> {{ \
              match self.class_id() {{ {class_id_pattern} => Some(unsafe {{ &*(self.payload as *const {inner_ty}) }}), _ => None }} }}"
@@ -959,6 +967,32 @@ pub fn gen_payload_accessors(outfile: &Path) {
         "        }".into(),
         "    }".into(),
         "}".into(),
+        String::new(),
+        // Debug-only type ledger: maps class_id -> the inner payload type the
+        // drop/trace dispatch expects. `PayloadPtr::new` asserts call sites box
+        // exactly this type, so a mismatched T fails loudly instead of turning
+        // into UB at drop time.
+        "#[cfg(debug_assertions)]".into(),
+        "pub(crate) fn payload_type_name(class_id: ClassID) -> Option<&'static str> {".into(),
+        "    match class_id {".into(),
+        format!("        {}", name_arms.join("\n        ")),
+        "        _ => None".into(),
+        "    }".into(),
+        "}".into(),
+        String::new(),
+        // Compile-time allow-list: only payload types registered in
+        // CLASS_PAYLOAD_TYPE implement IntoPayloadPtr, so a call site passing a
+        // wrong type (e.g. an already-boxed Box<T> where T is expected) fails
+        // to compile instead of double-boxing and corrupting the heap.
+        into_payload_ptr_impls
+            .iter()
+            .map(|ty| {
+                format!(
+                    "impl IntoPayloadPtr for {ty} {{\n    #[inline]\n    fn into_payload_ptr(self, class_id: ClassID) -> PayloadPtr {{ PayloadPtr::new(class_id, self) }}\n}}"
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
         String::new(),
         "impl crate::object::ObjectImpl {".into(),
         get_payload_methods.join("\n"),

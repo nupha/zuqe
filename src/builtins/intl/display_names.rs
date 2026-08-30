@@ -77,7 +77,7 @@ pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallCont
     let mut instance = match ctx.ordinary_create_from_constructor_class(
         cc.this(),
         crate::JS_CLASS_INTL_DISPLAY_NAMES,
-        Box::into_raw(Box::new(default_data)) as *mut std::ffi::c_void,
+        default_data,
     ) {
         Ok(o) => o,
         // ordinary_create_from_constructor  may leave a pending JS exception when

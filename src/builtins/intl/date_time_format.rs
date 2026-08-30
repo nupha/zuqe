@@ -104,7 +104,7 @@ pub(crate) fn js_date_time_format_constructor(
             .ordinary_create_from_constructor_class(
                 JSValue::UNDEFINED,
                 crate::JS_CLASS_INTL_DATE_TIME_FORMAT,
-                Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+                data,
             )
             .map_err(|_| -1)?
             .into();
@@ -132,7 +132,7 @@ pub(crate) fn js_date_time_format_constructor(
         .ordinary_create_from_constructor_class(
             new_target,
             crate::JS_CLASS_INTL_DATE_TIME_FORMAT,
-            Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+            data,
         )
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))

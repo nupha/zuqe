@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{borrow::Cow, ffi::c_void};
+use std::{borrow::Cow};
 
 use crate::{
     ClassDef, JS_CLASS_NUMBER,
@@ -35,7 +35,7 @@ pub fn js_number_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         ctx.ordinary_create_from_constructor_class(
             new_target,
             JS_CLASS_NUMBER,
-            Box::into_raw(Box::new(val)) as *mut c_void,
+            val,
         )
         .map(JSValue::from)
         .map_err(|_| -1)

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
 
 use crate::{
     Callback, JS_CLASS_PROXY, ScopedContext,
@@ -27,7 +26,7 @@ pub fn js_proxy_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         .create_instance_with_proto_class(
             None,
             JS_CLASS_PROXY,
-            Box::into_raw(Box::new(ProxyPayload::new(target, handler.into()))) as *mut c_void,
+            ProxyPayload::new(target, handler.into()),
         )
         .map_err(|_| -1)?;
 

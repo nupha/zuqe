@@ -384,7 +384,7 @@ impl TypedArray {
             }
         }
 
-        let isa = Box::into_raw(ta) as *mut c_void;
+        let isa = *ta;
 
         let ta = ctx
             .ordinary_create_from_constructor_class(new_target, class_id, isa)

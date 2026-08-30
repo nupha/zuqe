@@ -5,7 +5,7 @@ use std::{
     borrow::Cow,
     cmp::Ordering,
     collections::TryReserveError,
-    ffi::{c_void, CStr},
+    ffi::CStr,
     ops::{Deref, Range},
     ptr::NonNull,
 };
@@ -255,7 +255,7 @@ impl StringImpl {
             .ordinary_create_from_constructor_class(
                 ctor,
                 JS_CLASS_STRING,
-                Box::into_raw(Box::new(s)) as *mut c_void,
+                s,
             )
             .map_err(|_| -1)?;
 

@@ -9,7 +9,7 @@ use zuqe_zapi::ffi::{
     ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn, ZqRawValue,
 };
 
-use crate::{JSValue, ScopedContext, class::ClassID};
+use crate::{JSValue, ScopedContext, class::ClassID, object::PayloadPtr};
 
 use super::host::{push_class_fields, register_zapi_func_magic, zapi_trampoline_fn};
 
@@ -321,14 +321,7 @@ unsafe extern "C" fn zapi_register_class(env: ZqEnv, class_def: *const ZqClassDe
 
     fn zapi_class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         let o = ctx
-            .create_instance_with_proto_class(
-                None,
-                class_id,
-                Box::into_raw(Box::new(crate::class::OtherPayload::new(
-                    class_id,
-                    std::ptr::null_mut(),
-                ))) as *mut std::ffi::c_void,
-            )
+            .create_instance_with_proto_payload(None, PayloadPtr::other(class_id, std::ptr::null_mut()))
             .map_err(|_| -1)?;
         ctx.class_slots[class_id as usize].proto = Some(o);
 

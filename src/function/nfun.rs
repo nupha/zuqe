@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{ffi::c_void, ops::DerefMut};
+use std::ops::DerefMut;
 
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
@@ -343,13 +343,13 @@ impl NativeFunction {
         let has_binding_data = binding_data.is_some();
 
         let mut func_obj = {
-            let p = Box::into_raw(Box::new(NFuncPayload {
+            let p = NFuncPayload {
                 callback,
                 length,
                 magic,
                 realm: ctx.gc_ref().into(),
                 data: binding_data,
-            })) as *mut c_void;
+            };
             ctx.create_instance_with_proto_class(
                 Some(proto),
                 if has_binding_data {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{collections::TryReserveError, ffi::c_void};
+use std::collections::TryReserveError;
 
 use fallible_collections::{FallibleVec, TryCollect};
 use gc_lite::{GcNode, GcTrace, GcTraceCtx};
@@ -15,7 +15,7 @@ use crate::{
     number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
-        JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, Object, ObjectImpl,
+        JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, Object, ObjectImpl, PayloadPtr,
         PropertyKeyKind,
     },
     string::StringData,
@@ -301,8 +301,7 @@ impl Array {
         let mut arr = ObjectImpl::create(
             ctx,
             ctx.array_shape.clone(),
-            JS_CLASS_ARRAY,
-            Box::into_raw(Box::new(ArrayPayload::new(values))) as *mut c_void,
+            PayloadPtr::new(JS_CLASS_ARRAY, ArrayPayload::new(values)),
         )
         .map(|o| Array(o.0))
         .map_err(|_| -1)?;

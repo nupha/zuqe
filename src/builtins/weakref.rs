@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
 
 use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
@@ -57,7 +56,7 @@ fn js_weakref_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         .ordinary_create_from_constructor_class(
             new_target,
             JS_CLASS_WEAKREF,
-            Box::into_raw(Box::new(WeakRefData { target })) as *mut c_void,
+            WeakRefData { target },
         )
         .map_err(|_| -1)?;
 
@@ -250,7 +249,7 @@ fn js_finrec_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .ordinary_create_from_constructor_class(
             new_target,
             JS_CLASS_FINALIZATION_REGISTRY,
-            Box::into_raw(Box::new(data)) as *mut c_void,
+            data,
         )
         .map_err(|_| -1)?;
 

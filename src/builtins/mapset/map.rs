@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{collections::HashMap, ffi::c_void};
+use std::collections::HashMap;
 
 use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
@@ -406,7 +406,7 @@ impl MapSet {
         let obj = ctx
             .create_instance_with_class(
                 JS_CLASS_MAP,
-                Box::into_raw(Box::new(entries)) as *mut c_void,
+                entries,
             )
             .map_err(|_| -1)?;
         obj.try_into().map_err(|_| -1)

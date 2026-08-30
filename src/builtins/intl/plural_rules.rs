@@ -217,7 +217,7 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
     let instance = ctx.ordinary_create_from_constructor_class(
         new_target,
         crate::JS_CLASS_INTL_PLURAL_RULES,
-        Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+        data,
     )
     .map_err(|_| -1)?;
     Ok(JSValue::from(instance))

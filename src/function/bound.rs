@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
@@ -81,11 +80,11 @@ impl BoundFunction {
             ctx.create_instance_with_proto_class(
                 Some(p),
                 JS_CLASS_BOUND_FUNCTION,
-                Box::into_raw(Box::new(BoundFunctionPayload {
+                BoundFunctionPayload {
                     func_obj,
                     this_val,
                     bind_args,
-                })) as *mut c_void,
+                },
             )
             .map_err(|_| -1)?
         };

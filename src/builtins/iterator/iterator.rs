@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, ffi::c_void};
+use std::cell::Cell;
 
 use crate::{
     Array, JS_CLASS_ITERATOR,
@@ -229,13 +229,13 @@ fn js_iterator_concat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let concat = ctx
         .create_instance_with_class(
             crate::JS_CLASS_ITERATOR_CONCAT,
-            Box::into_raw(Box::new(IteratorConcatData {
+            IteratorConcatData {
                 values,
                 index: Cell::new(0),
                 iter: Cell::new(None),
                 next: Cell::new(JSValue::UNDEFINED),
                 running: Cell::new(false),
-            })) as *mut c_void,
+            },
         )
         .map_err(|_| -1)?;
 
@@ -274,10 +274,10 @@ fn js_iterator_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let wrap = ctx
         .create_instance_with_class(
             crate::JS_CLASS_ITERATOR_WRAP,
-            Box::into_raw(Box::new(IteratorWrapData {
+            IteratorWrapData {
                 obj: iter_obj,
                 next,
-            })) as *mut c_void,
+            },
         )
         .map_err(|_| -1)?;
 
@@ -511,7 +511,7 @@ fn js_iterator_zip(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let obj = ctx
         .create_instance_with_class(
             crate::JS_CLASS_ITERATOR_ZIP,
-            Box::into_raw(Box::new(zip_data)) as *mut c_void,
+            zip_data,
         )
         .map_err(|_| -1)?;
 
@@ -621,7 +621,7 @@ fn js_iterator_zipKeyed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let obj = ctx
         .create_instance_with_class(
             crate::JS_CLASS_ITERATOR_ZIP,
-            Box::into_raw(Box::new(zip_data)) as *mut c_void,
+            zip_data,
         )
         .map_err(|_| -1)?;
 
@@ -695,7 +695,7 @@ fn js_create_iterator_helper(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     let helper = ctx
         .create_instance_with_class(
             crate::JS_CLASS_ITERATOR_HELPER,
-            Box::into_raw(Box::new(super::IteratorHelperData {
+            super::IteratorHelperData {
                 obj: this_obj,
                 next,
                 func,
@@ -707,7 +707,7 @@ fn js_create_iterator_helper(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
                 executing: Cell::new(false),
                 done: Cell::new(false),
                 source_closed: Cell::new(false),
-            })) as *mut c_void,
+            },
         )
         .map_err(|_| -1)?;
 

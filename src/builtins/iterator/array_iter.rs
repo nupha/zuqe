@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::UnsafeCell, ffi::c_void};
+use std::cell::UnsafeCell;
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
@@ -90,7 +90,7 @@ pub fn js_create_array_iterator(ctx: &mut ScopedContext, cc: CallContext) -> JSR
         idx: UnsafeCell::new(0),
         kind,
     });
-    ctx.create_instance_with_class(class_id, Box::into_raw(isa) as *mut c_void)
+    ctx.create_instance_with_class(class_id, *isa)
         .map(JSValue::from)
         .map_err(|_| -1)
 }

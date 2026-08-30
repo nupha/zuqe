@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
 
 use crate::{
     Atom, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_ASYNC_FUNCTION_RESOLVE,
@@ -244,7 +243,7 @@ impl AsyncState {
                     } else {
                         JS_CLASS_ASYNC_FUNCTION_REJECT
                     },
-                    Box::into_raw(Box::new(state)) as *mut c_void,
+                    state,
                 )
                 .map_err(|_| -1)?;
 

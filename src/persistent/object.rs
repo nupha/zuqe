@@ -159,8 +159,7 @@ pub fn deserialize_object(inp: &mut DeserializeCtx) -> Result<JSValue, BytecodeS
             sc.create_instance_with_proto_class(
                 Some(proto),
                 JS_CLASS_ARRAY,
-                Box::into_raw(Box::new(crate::array::ArrayPayload::new(Vec::new())))
-                    as *mut c_void,
+                crate::array::ArrayPayload::new(Vec::new()),
             )
             .map_err(|_| BytecodeSerializeError::InvalidValue("cannot create array".into()))?
         } else {

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use std::{
-    ffi::c_void,
     ops::RangeInclusive,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -941,7 +940,7 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         ctx.ordinary_create_from_constructor_class(
             new_target,
             JS_CLASS_DATE,
-            Box::into_raw(Box::new(tm)) as *mut c_void,
+            tm,
         )
         .map(JSValue::from)
         .map_err(|_| -1)

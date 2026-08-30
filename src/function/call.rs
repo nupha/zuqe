@@ -6,7 +6,7 @@ use crate::{
     atom::Atom,
     context::ScopedContext,
     error::{Exception, JSResult},
-    object::{JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object, ObjectImpl},
+    object::{JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object, ObjectImpl, PayloadPtr},
     utils::unlikely,
     value::JSValue,
 };
@@ -166,10 +166,9 @@ impl ObjectImpl {
 
             let this: JSValue = if is_legacy_ctor {
                 // legacy constructor behavior.
-                ctx.ordinary_create_from_constructor_class(
+                ctx.ordinary_create_from_constructor_payload(
                     new_target,
-                    JS_CLASS_OBJECT,
-                    std::ptr::null_mut(),
+                    PayloadPtr::none(JS_CLASS_OBJECT),
                 )
                 .map_err(|_| ctx.throw_type_error("constructor must return an object"))?
                 .into()

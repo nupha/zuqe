@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{ffi::c_void, marker::PhantomData};
+use std::marker::PhantomData;
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use url::Url;
@@ -27,15 +27,13 @@ pub type ModuleNormalizeFn = fn(
     ctx: &mut ScopedContext,
     base_name: &Url,
     name: &str,
-    opaque: *mut ::core::ffi::c_void,
-) -> Result<Url, i32>;
+    opaque: *mut ::core::ffi::c_void) -> Result<Url, i32>;
 
 pub type ModuleLoadFn = fn(
     ctx: &mut ScopedContext,
     module_name: &Url,
     attrs: JSValue,
-    opaque: *mut ::core::ffi::c_void,
-) -> Result<ModuleDef, i32>;
+    opaque: *mut ::core::ffi::c_void) -> Result<ModuleDef, i32>;
 
 pub(crate) trait ModuleInitFn:
     Fn(&mut ScopedContext, &ModuleDef) -> Result<(), i32>
@@ -302,7 +300,7 @@ impl ModuleDefImpl {
         }
 
         self.bytecode = {
-            let p = Box::into_raw(Box::new(BFuncPayload::new(bc, var_refs))) as *mut c_void;
+            let p = BFuncPayload::new(bc, var_refs);
             ctx.create_instance_with_proto_class(
                 Some(ctx.function_proto()),
                 JS_CLASS_BYTECODE_FUNCTION,
@@ -506,8 +504,7 @@ impl RuntimeImpl {
         &mut self,
         norm_func: Option<ModuleNormalizeFn>,
         load_func: ModuleLoadFn,
-        opaque: *mut std::ffi::c_void,
-    ) {
+        opaque: *mut std::ffi::c_void) {
         self.module_normalize_func = norm_func;
         self.module_load_func = Some(load_func);
         self.module_load_opaque = opaque;

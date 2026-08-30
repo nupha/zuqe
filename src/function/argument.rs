@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_OBJECT,
@@ -22,7 +21,7 @@ pub(crate) fn js_build_arguments(ctx: &mut ScopedContext, values: &[JSValue]) ->
     let mut obj = if let Ok(o) = ctx.create_instance_with_proto_class(
         object_proto,
         JS_CLASS_ARGUMENTS,
-        Box::into_raw(Box::new(ArrayPayload::default())) as *mut c_void,
+        ArrayPayload::default(),
     ) {
         o
     } else {

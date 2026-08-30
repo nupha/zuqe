@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::RefCell, ffi::c_void, rc::Rc, sync::Arc};
+use std::{cell::RefCell, rc::Rc, sync::Arc};
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
@@ -217,7 +217,7 @@ impl AsyncIterableIterator {
         let obj = ctx
             .create_instance_with_class(
                 crate::JS_CLASS_ASYNC_ITERABLE_ITERATOR,
-                Box::into_raw(data) as *mut c_void,
+                *data,
             )
             .map_err(|_| -1)?;
 

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
 
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
@@ -96,7 +95,7 @@ impl<'c> ScopedContext<'c> {
                 .create_instance_with_proto_class(
                     object.into(),
                     JS_CLASS_ARRAY,
-                    Box::into_raw(Box::new(ArrayPayload::default())) as *mut c_void,
+                    ArrayPayload::default(),
                 )
                 .map_err(|_| -1)?;
             self.class_slots[JS_CLASS_ARRAY as usize].proto = Some(array_proto);

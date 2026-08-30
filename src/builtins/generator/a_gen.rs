@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::RefCell, ffi::c_void};
+use std::cell::RefCell;
 
 use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
@@ -461,7 +461,7 @@ impl AsyncGeneratorFunction {
             .ordinary_create_from_constructor_class(
                 func_obj,
                 JS_CLASS_ASYNC_GENERATOR,
-                Box::into_raw(s) as *mut c_void,
+                *s,
             )
             .map_err(|_| -1)?;
 

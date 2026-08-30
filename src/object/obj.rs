@@ -210,9 +210,6 @@ impl GcTrace for ObjectImpl {
         } else {
             payload_access::trace_payload(cid, self.payload as *const c_void, tr);
         }
-        if let Some(trace_fn) = self.rt.class_registry[cid as usize].trace_payload {
-            trace_fn(self.payload as *const c_void, tr);
-        }
     }
 }
 
@@ -256,15 +253,35 @@ impl std::fmt::Display for ObjectImpl {
 }
 
 impl ObjectImpl {
-    /// Create an instance object with `shape`, `class_id` and raw `payload` pointer.
+    /// Create an instance object with `shape` and `payload`.
     ///
-    /// When fail, `payload` is returned back in Err, caller should free it.
+    /// The object's class is taken from `payload` — the handle is the single
+    /// source of truth for both the class and the payload. `payload` is
+    /// consumed: on failure it is freed automatically, on success its
+    /// ownership moves into the created `ObjectImpl`.
     pub(crate) fn create(
         ctx: &mut ScopedContext,
         mut shape: Option<Shape>,
-        class_id: ClassID,
-        payload: *mut c_void,
-    ) -> Result<Object, *mut c_void> {
+        payload: payload_access::PayloadPtr,
+    ) -> Result<Object, i32> {
+        let class_id = payload.class_id();
+        #[cfg(debug_assertions)]
+        {
+            // Invariant: a builtin class has a payload iff one is registered
+            // for it; user classes always carry a Box<OtherPayload>.
+            if class_id >= crate::USER_CLASS_ID_START {
+                debug_assert!(
+                    !payload.as_ptr().is_null(),
+                    "user class {class_id}: payload must be Box<OtherPayload>"
+                );
+            } else {
+                debug_assert_eq!(
+                    payload_access::payload_type_name(class_id).is_some(),
+                    !payload.as_ptr().is_null(),
+                    "payload presence mismatch for builtin class {class_id}"
+                );
+            }
+        }
         #[cfg(debug_assertions)]
         if let Some(sh) = &shape {
             debug_assert!(
@@ -285,7 +302,7 @@ impl ObjectImpl {
                 .is_err()
             {
                 let _ = ctx.throw_out_of_memory();
-                return Err(payload);
+                return Err(-1);
             };
 
             for _ in 0..prop_count {
@@ -379,15 +396,22 @@ impl ObjectImpl {
                 shape,
                 prop_values,
                 deleted_slot_count: 0,
-                payload,
+                payload: payload.as_ptr(),
                 #[cfg(feature = "builtin_mapset")]
                 weak_refs: Vec::new(),
             })
             .map(Object)
-            .map_err(|(_, o)| {
+            .map_err(|_| {
+                // The half-built ObjectImpl came back by value (never entered
+                // the heap) and is dropped here; `payload` still owns the box
+                // and frees it on unwind of this function.
                 let _ = ctx.throw_out_of_memory();
-                o.payload
+                -1
             })?;
+
+        // Success: the payload pointer now lives in the heap-allocated
+        // ObjectImpl — consume the handle without freeing.
+        std::mem::forget(payload);
 
         #[cfg(debug_assertions)]
         {
@@ -649,16 +673,10 @@ impl ObjectImpl {
             cb(&mut *rt, ptr, id);
         }
 
-        // free payload memory
+        // free payload memory (single exit: generated dispatch for builtin
+        // classes, Box<OtherPayload> for user classes)
         unsafe {
-            if class_id < crate::USER_CLASS_ID_START {
-                payload_access::drop_payload(class_id, ptr);
-            } else if !ptr.is_null() {
-                drop(Box::from_raw(ptr as *mut crate::class::OtherPayload));
-            }
-            if let Some(drop_fn) = rt.class_registry[class_id as usize].drop_payload {
-                drop_fn(ptr);
-            }
+            payload_access::free_payload(class_id, ptr);
         }
     }
 }

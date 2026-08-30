@@ -13,7 +13,7 @@ use crate::{
     context::{ProtoCtorPair, ScopedContext},
     error::Exception,
     function::{Callback, CallbackFn, NativeFunction},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, PayloadPtr},
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -469,11 +469,7 @@ impl<'c> ScopedContext<'c> {
         ctor: JSValue,
         opaque: *mut c_void,
     ) -> Result<Object, i32> {
-        self.ordinary_create_from_constructor_class(
-            ctor,
-            class_id,
-            Box::into_raw(Box::new(OtherPayload { class_id, opaque })) as *mut c_void,
-        )
+        self.ordinary_create_from_constructor_payload(ctor, PayloadPtr::other(class_id, opaque))
         .map_err(|_| -1)
     }
 }

@@ -127,7 +127,7 @@ pub(crate) fn js_relative_time_format_constructor(
     let instance = ctx.ordinary_create_from_constructor_class(
         cc.this(),
         crate::JS_CLASS_INTL_RELATIVE_TIME_FORMAT,
-        Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+        data,
     )
     .map_err(|_| -1)?;
     Ok(JSValue::from(instance))

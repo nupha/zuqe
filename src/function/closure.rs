@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{ffi::c_void, ptr::NonNull};
+use std::ptr::NonNull;
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
@@ -19,7 +19,7 @@ use crate::{
 
 use super::{
     ARG_SCOPE_END, BCWrapper, BFuncPayload, Bytecode, DEFINE_GLOBAL_FUNC_VAR,
-    DEFINE_GLOBAL_LEX_VAR, FunctionDef, FunctionKind, JS_MAX_LOCAL_VARS, JSVarKindEnum, VarRef,
+    DEFINE_GLOBAL_LEX_VAR, FunctionDef, JS_MAX_LOCAL_VARS, JSVarKindEnum, VarRef,
     is_var_in_arg_scope, js_function_set_properties,
 };
 
@@ -438,7 +438,7 @@ impl Bytecode {
                 ctx.create_instance_with_proto_class(
                     proto.or_else(|| ctx.class_proto(class_id)),
                     class_id,
-                    Box::into_raw(Box::new(BFuncPayload::new(*self, captures))) as *mut c_void,
+                    BFuncPayload::new(*self, captures),
                 )
                 .map_err(|_| -1)?
                 .gc_ref(),

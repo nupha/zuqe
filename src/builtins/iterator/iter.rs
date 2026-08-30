@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, ffi::c_void, marker::PhantomData, ptr::NonNull};
+use std::{cell::Cell, marker::PhantomData, ptr::NonNull};
 
 use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 
@@ -103,12 +103,8 @@ impl ForInIterPayload {
             }
         }
 
-        ctx.create_instance_with_proto_class(
-            None,
-            crate::JS_CLASS_FOR_IN_ITERATOR,
-            Box::into_raw(it) as *mut c_void,
-        )
-        .map_err(|_| -1)
+        ctx.create_instance_with_proto_class(None, crate::JS_CLASS_FOR_IN_ITERATOR, *it)
+            .map_err(|_| -1)
     }
 
     /// build property-enumeration-list for `obj`.
@@ -408,11 +404,11 @@ impl JSValue {
             let next_method = sync_it.get_property(ctx, Atom::CONST_next)?;
             ctx.create_instance_with_class(
                 crate::JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
-                Box::into_raw(Box::new(JSAsyncFromSyncIteratorData {
+                JSAsyncFromSyncIteratorData {
                     obj: sync_it,
                     next_method,
                     closed: Cell::new(false),
-                })) as *mut c_void,
+                },
             )
             .map(Some)
             .map_err(|_| -1)

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, collections::HashMap, ffi::c_void, ops::Range, rc::Rc};
+use std::{cell::Cell, collections::HashMap, ops::Range, rc::Rc};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 use lre::{Regex, RegexFlags};
@@ -281,7 +281,7 @@ impl RegExp {
             ctx.ordinary_create_from_constructor_class(
                 ctor,
                 JS_CLASS_REGEXP,
-                Box::into_raw(re) as *mut c_void,
+                *re,
             )
             .map_err(|_| -1)?
             .0,

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
 
 use crate::{
     ClassDef, JS_CLASS_BOOLEAN,
@@ -20,7 +19,7 @@ pub fn js_boolean_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
         ctx.ordinary_create_from_constructor_class(
             new_target,
             JS_CLASS_BOOLEAN,
-            Box::into_raw(Box::new(b)) as *mut c_void,
+            b,
         )
         .map(JSValue::from)
         .map_err(|_| -1)

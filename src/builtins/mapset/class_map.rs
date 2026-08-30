@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
 
 use crate::{
     IntOrFloat, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, ScopedContext,
@@ -80,7 +79,7 @@ pub(crate) fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JS
 
     let new_target = cc.this();
 
-    let isa = Box::into_raw(Box::new(JSMapState::new(is_weak, 8))) as *mut c_void;
+    let isa = JSMapState::new(is_weak, 8);
     let class_id = JS_CLASS_MAP + magic as ClassID;
     let obj = ctx
         .ordinary_create_from_constructor_class(new_target, class_id, isa)
@@ -352,11 +351,11 @@ pub(crate) fn js_create_map_iterator(ctx: &mut ScopedContext, cc: CallContext) -
         .ok_or_else(|| ctx.throw_type_error_invalid_class(class_id))?;
 
     // create iterator object
-    let isa = Box::into_raw(Box::new(JSMapIteratorData {
+    let isa = JSMapIteratorData {
         obj: this.as_object(),
         kind,
         index: 0,
-    })) as *mut c_void;
+    };
     ctx.create_instance_with_class(JS_CLASS_MAP_ITERATOR + (cc.magic() & 1) as ClassID, isa)
         .map_err(|_| -1)
         .map(JSValue::from)
@@ -497,7 +496,7 @@ fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i3
 
 /// create an empty Set instance with the given capacity.
 fn create_empty_set(ctx: &mut ScopedContext, capacity: usize) -> Result<JSValue, i32> {
-    let state = Box::into_raw(Box::new(JSMapState::new(false, capacity))) as *mut c_void;
+    let state = JSMapState::new(false, capacity);
     ctx.create_instance_with_class(JS_CLASS_SET, state)
         .map_err(|_| -1)
         .map(JSValue::from)

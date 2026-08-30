@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{ffi::c_void, marker::PhantomData, ptr::NonNull};
+use std::{marker::PhantomData, ptr::NonNull};
 
 use gc_lite::{GcHead, GcNode, GcRef, GcTrace, GcTraceCtx};
 
@@ -773,20 +773,20 @@ impl JSValue {
             JSValueTag::Int | JSValueTag::Float64 => ctx
                 .create_instance_with_class(
                     JS_CLASS_NUMBER,
-                    Box::into_raw(Box::new(*self)) as *mut c_void,
+                    *self,
                 )
                 .map_err(|_| -1),
             JSValueTag::Bool => ctx
                 .create_instance_with_class(
                     JS_CLASS_BOOLEAN,
-                    Box::into_raw(Box::new(self.payload_i32() != 0)) as *mut c_void,
+                    self.payload_i32() != 0,
                 )
                 .map_err(|_| -1),
 
             JSValueTag::Symbol => ctx
                 .create_instance_with_class(
                     JS_CLASS_SYMBOL,
-                    Box::into_raw(Box::new(unsafe { self.as_string_unchecked() })) as *mut c_void,
+                    unsafe { self.as_string_unchecked() },
                 )
                 .map_err(|_| -1),
 
@@ -794,7 +794,7 @@ impl JSValue {
             JSValueTag::BigInt => ctx
                 .create_instance_with_class(
                     crate::JS_CLASS_BIG_INT,
-                    Box::into_raw(Box::new(unsafe { self.as_bigint_unchecked() })) as *mut c_void,
+                    unsafe { self.as_bigint_unchecked() },
                 )
                 .map_err(|_| -1),
 

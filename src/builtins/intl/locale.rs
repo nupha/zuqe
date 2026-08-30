@@ -87,7 +87,7 @@ pub(crate) fn js_locale_constructor(ctx: &mut ScopedContext, cc: CallContext) ->
     let instance = ctx.ordinary_create_from_constructor_class(
         cc.this(),
         crate::JS_CLASS_INTL_LOCALE,
-        Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+        data,
     )
     .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
@@ -263,7 +263,7 @@ fn js_locale_maximize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let instance = ctx.ordinary_create_from_constructor_class(
         cc.this(),
         crate::JS_CLASS_INTL_LOCALE,
-        Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+        data,
     )
     .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
@@ -288,7 +288,7 @@ fn js_locale_minimize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let instance = ctx.ordinary_create_from_constructor_class(
         cc.this(),
         crate::JS_CLASS_INTL_LOCALE,
-        Box::into_raw(Box::new(data)) as *mut std::ffi::c_void,
+        data,
     )
     .map_err(|_| -1)?;
     Ok(JSValue::from(instance))

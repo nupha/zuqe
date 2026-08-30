@@ -258,7 +258,7 @@ impl ArrayBuffer {
             } else {
                 crate::JS_CLASS_SHARED_ARRAY_BUFFER
             },
-            Box::into_raw(ab) as *mut c_void,
+            *ab,
         )
         .map(|o| ArrayBuffer(o.0))
         .map_err(|_| -1)
@@ -312,7 +312,7 @@ impl ArrayBuffer {
                 } else {
                     crate::JS_CLASS_SHARED_ARRAY_BUFFER
                 },
-                Box::into_raw(isa) as *mut c_void,
+                *isa,
             )
             .map(|o| Self(o.0))
             .map_err(|_| -1)?;
