@@ -63,24 +63,41 @@ impl OtherPayload {
 }
 
 impl ObjectImpl {
+    /// Typed view of a user-class payload: `None` for builtin classes or a
+    /// null payload. Single implementation of the user-payload access
+    /// invariants (`Object::other_payload` and the `opaque*` helpers
+    /// delegate here).
+    pub(crate) fn other_payload(&self) -> Option<&OtherPayload> {
+        if self.class_id() < USER_CLASS_ID_START {
+            return None;
+        }
+        let p = self.payload_raw();
+        if p.is_null() {
+            return None;
+        }
+        Some(unsafe { &*(p as *const OtherPayload) })
+    }
+
+    pub(crate) fn other_payload_mut(&mut self) -> Option<&mut OtherPayload> {
+        if self.class_id() < USER_CLASS_ID_START {
+            return None;
+        }
+        let p = self.payload_raw();
+        if p.is_null() {
+            return None;
+        }
+        Some(unsafe { &mut *(p as *mut OtherPayload) })
+    }
+
     /// if the object is a user class instance, returns the opaque pointer if available
     pub fn opaque(&self) -> Option<NonNull<c_void>> {
-        if self.class_id() >= USER_CLASS_ID_START {
-            let other = unsafe { &*(self.payload_raw() as *const OtherPayload) };
-            NonNull::new(other.opaque)
-        } else {
-            None
-        }
+        self.other_payload().and_then(|other| NonNull::new(other.opaque))
     }
 
     /// if the object is a user class instance, returns the opaque pointer reference if available
     pub fn opaque_ref<T>(&self) -> Option<&T> {
-        if self.class_id() >= USER_CLASS_ID_START {
-            let other = unsafe { &*(self.payload_raw() as *const OtherPayload) };
-            unsafe { other.opaque.cast::<T>().as_ref() }
-        } else {
-            None
-        }
+        let other = self.other_payload()?;
+        unsafe { other.opaque.cast::<T>().as_ref() }
     }
 }
 

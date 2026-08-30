@@ -938,11 +938,11 @@ pub fn gen_payload_accessors(outfile: &Path) {
         into_payload_ptr_impls.insert(inner_ty);
 
         get_payload_methods.push(format!(
-            "pub const fn payload_{k}(&self) -> Option<&{inner_ty}> {{ \
+            "#[inline(always)]\npub const fn payload_{k}(&self) -> Option<&{inner_ty}> {{ \
              match self.class_id() {{ {class_id_pattern} => Some(unsafe {{ &*(self.payload as *const {inner_ty}) }}), _ => None }} }}"
         ));
         get_payload_methods.push(format!(
-            "pub fn payload_{k}_mut(&mut self) -> Option<&mut {inner_ty}> {{ \
+            "#[inline(always)]\npub fn payload_{k}_mut(&mut self) -> Option<&mut {inner_ty}> {{ \
              match self.class_id() {{ {class_id_pattern} => Some(unsafe {{ &mut *(self.payload as *mut {inner_ty}) }}), _ => None }} }}"
         ));
     }
@@ -954,7 +954,10 @@ pub fn gen_payload_accessors(outfile: &Path) {
         "    if ptr.is_null() { return; }".into(),
         "    match class_id {".into(),
         format!("        {},", drop_arms.join("\n        ")),
-        "        _ => {}".into(),
+        // Null was handled above, so reaching this arm means a builtin class
+        // id with no registered payload type carries a live allocation — an
+        // invariant violation the creation paths must have prevented.
+        "        _ => debug_assert!(ptr.is_null(), \"drop_payload: class {class_id} has no registered payload type\")," .into(),
         "    }".into(),
         "}".into(),
         String::new(),
@@ -963,7 +966,7 @@ pub fn gen_payload_accessors(outfile: &Path) {
         "    unsafe {".into(),
         "        match class_id {".into(),
         format!("            {},", trace_arms.join("\n            ")),
-        "            _ => {}".into(),
+        "            _ => debug_assert!(ptr.is_null(), \"trace_payload: class {class_id} has no registered payload type\"),".into(),
         "        }".into(),
         "    }".into(),
         "}".into(),

@@ -28,26 +28,14 @@ impl Object {
     ///
     /// Builtin-class objects have typed payloads and return `None`.
     pub fn other_payload(&self) -> Option<&crate::class::OtherPayload> {
-        if self.class_id() < crate::USER_CLASS_ID_START {
-            return None;
-        }
-        let p = self.payload_raw();
-        if p.is_null() {
-            return None;
-        }
-        Some(unsafe { &*(p as *const crate::class::OtherPayload) })
+        // single implementation lives on ObjectImpl — an explicit path call
+        // here, since an inherent Object method would shadow the Deref one.
+        crate::object::ObjectImpl::other_payload(self)
     }
 
     /// Mutable variant of [`Object::other_payload`].
     pub fn other_payload_mut(&mut self) -> Option<&mut crate::class::OtherPayload> {
-        if self.class_id() < crate::USER_CLASS_ID_START {
-            return None;
-        }
-        let p = self.payload_raw();
-        if p.is_null() {
-            return None;
-        }
-        Some(unsafe { &mut *(p as *mut crate::class::OtherPayload) })
+        crate::object::ObjectImpl::other_payload_mut(self)
     }
 }
 

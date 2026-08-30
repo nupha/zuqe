@@ -38,6 +38,8 @@ pub struct ObjectFlags {
     ///   [25] uncatchable_error: Error cannot be caught
     ///   [24] tmp_mark: Temporary serialization marker
     ///   [23] HTMLDDA: Special browser compatibility behavior
+    /// - Bits 22-16: reserved — do not place flags here, they would collide
+    ///   with future attr flags or shift into the class-id bits
     /// - Bits 15-0: Class ID (JS_CLASS_* constant)
     bitfield: u32,
 }
@@ -203,10 +205,9 @@ impl GcTrace for ObjectImpl {
         // classes use the generated per-class dispatch.
         let cid = self.class_id();
         if cid >= crate::USER_CLASS_ID_START {
-            let p = self.payload;
-            if !p.is_null() {
-                unsafe { (*(p as *const crate::class::OtherPayload)).trace(tr) };
-            }
+            // Invariant: user-class payloads are always Box<OtherPayload>,
+            // never null (enforced by the create-path debug assertion).
+            unsafe { (*(self.payload as *const crate::class::OtherPayload)).trace(tr) };
         } else {
             payload_access::trace_payload(cid, self.payload as *const c_void, tr);
         }
@@ -530,7 +531,9 @@ impl ObjectImpl {
             | JS_CLASS_ASYNC_GENERATOR_FUNCTION => true,
             #[cfg(feature = "builtin_proxy")]
             crate::JS_CLASS_PROXY => {
-                unsafe { &*(self.payload as *const crate::builtins::proxy::ProxyPayload) }.is_func()
+                // Proxy callability is per-instance (target callability), so
+                // a null payload means "not callable" rather than a bug.
+                self.payload_proxy().is_some_and(|p| p.is_func())
             }
             _ => {
                 // check if class proto has exotic call handler
