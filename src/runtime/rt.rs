@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, ffi::c_void, process::ExitCode};
+use std::{cell::Cell, ffi::c_void, process::ExitCode, sync::Arc};
 
 #[cfg(feature = "builtin_weakref")]
 use gc_lite::GcTrace;
@@ -24,6 +24,8 @@ use crate::{
     utils::js_get_stack_pointer,
     value::JSValue,
 };
+
+use super::park::ParkState;
 
 /// Default in-process shared-memory backend for `SharedArrayBuffer`.
 ///
@@ -152,6 +154,11 @@ pub struct RuntimeImpl {
 
     pub(crate) interrupt_handler: Option<Box<dyn InterruptFn>>,
 
+    /// Event-loop park state: lets `Parked` rounds suspend the driving thread
+    /// (async parker thread / sync condvar) instead of hot-spinning. Shared
+    /// externally through [`crate::WakeHandle`] for IO producers to wake us.
+    pub(crate) park: Arc<ParkState>,
+
     /// Monotonically increasing counter for ShapeImpl::uid.
     /// Incremented on every shape allocation to guarantee unique shape IDs.
     /// Used by inline cache to detect ABA reuse of shape memory addresses.
@@ -175,11 +182,19 @@ pub struct RuntimeImpl {
 
 impl Drop for RuntimeImpl {
     fn drop(&mut self) {
+        self.park.retire();
         self.finalize();
     }
 }
 
 impl RuntimeImpl {
+    /// Clonable handle for external producers (IO threads / tokio tasks) to
+    /// wake a parked event loop — call `wake()` after pushing new work into a
+    /// channel or result slot so the next `tick()` sees it promptly.
+    pub fn wake_handle(&self) -> crate::runtime::WakeHandle {
+        crate::runtime::WakeHandle(self.park.clone())
+    }
+
     pub(super) fn new() -> Result<Self, i32> {
         // create gc heap and partition for this runtime
         let mut gc_heap = GcHeap::new(&GC_TYPE_REGISTRY);
@@ -233,6 +248,8 @@ impl RuntimeImpl {
             gc_pending_async_states: Vec::new(),
 
             interrupt_handler: None,
+
+            park: Arc::new(ParkState::new()),
 
             next_shape_uid: Cell::new(1),
             #[cfg(feature = "builtin_weakref")]

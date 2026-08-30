@@ -17,8 +17,8 @@ suite: 262
 tests: []
 
 # test scripts blacklist.
-# glob paths to skip entirely (e.g. very slow tests)
-exclude_tests: ["annexB/**/*", "staging/**/*"]
+# glob paths to skip entirely
+exclude_tests: ["annexB/**/*", "staging/**/*", "zzprobe/**/*"]
 
 # Edition presets. The list is ordered: each preset inherits the features of
 # every preset listed before it.
