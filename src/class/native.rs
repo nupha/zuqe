@@ -23,20 +23,6 @@ impl Object {
             None
         }
     }
-
-    /// Get the opaque payload of a user-registered class object.
-    ///
-    /// Builtin-class objects have typed payloads and return `None`.
-    pub fn other_payload(&self) -> Option<&crate::class::OtherPayload> {
-        // single implementation lives on ObjectImpl — an explicit path call
-        // here, since an inherent Object method would shadow the Deref one.
-        crate::object::ObjectImpl::other_payload(self)
-    }
-
-    /// Mutable variant of [`Object::other_payload`].
-    pub fn other_payload_mut(&mut self) -> Option<&mut crate::class::OtherPayload> {
-        crate::object::ObjectImpl::other_payload_mut(self)
-    }
 }
 
 impl JSValue {
@@ -52,11 +38,16 @@ impl JSValue {
 #[macro_export]
 macro_rules! def_native_object {
     // ── @struct: generate struct definition and built-in impls ──
+    // `@wire_user_payload` is passed only by the with-payload variants: it
+    // wires the monomorphized free (`drop_payload_fn::<P>`) and gc-trace
+    // (`user_payload_trace::<P>`) channels into the class def. Both fns carry
+    // a `P: GcTrace` bound, so a payload type that is not `GcTrace` (e.g. a
+    // missing `#[derive(GcTrace)]`) fails to compile right at the macro call.
     (@struct $name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
         $(, extends: $extends_class:expr)?
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
-        $(, on_payload_gc: $on_payload_gc:expr)?) => {
+        $(, @wire_user_payload: $wire:ty)?) => {
         /// Native object type
         #[repr(transparent)]
         #[derive(Debug, Clone, Copy, PartialEq)]
@@ -93,28 +84,15 @@ macro_rules! def_native_object {
                     cd = $crate::ClassDef::new_extends($name, $proto_entries, $ctor, $extends_class);
                 )?
 
-                // Set on_dispose to free heap-allocated opaque.
-                // () payload uses null opaque so the null-check short-circuits;
-                // real types need Box::from_raw to reclaim the allocation.
-                cd = cd.on_dispose(|_, payload_opaque: *mut std::ffi::c_void, _class_id, _| {
-                    if !payload_opaque.is_null() {
-                        unsafe {
-                            let _ = Box::from_raw(payload_opaque.cast::<$payload_ty>());
-                        }
-                    }
-                });
+                // Owned payload: engine-side free + gc-trace channels,
+                // monomorphized on the payload type.
+                $(
+                    cd = cd.payload_drop($crate::drop_payload_fn::<$wire>);
+                    cd = cd.on_gc_trace($crate::user_payload_trace::<$wire>);
+                )?
 
                 // set class unregister handler
                 $(cd = cd.on_unregister($on_unregister);)?
-
-                // set payload gc handler
-                $(
-                    cd = cd.on_gc_trace(|payload_opaque, gcx, _class_id| {
-                        debug_assert!(!payload_opaque.is_null());
-                        let p = unsafe { &*payload_opaque.cast::<$payload_ty>() };
-                        $on_payload_gc(p, gcx);
-                    });
-                )?
 
                 let class_id = rt.register_class_def(cd)?;
                 Self::CLASS_ID.with(|x| x.set(class_id));
@@ -188,8 +166,7 @@ macro_rules! def_native_object {
     (@native-no-payload $name:expr, $native_ty:ident, $proto_entries:expr, $ctor:expr
         $(, extends: $extends_class:expr)?
         $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?
-        $(, on_payload_gc: $on_payload_gc:expr)?) => {
+        $(, on_class_unregister: $on_unregister:expr)?) => {
         $crate::def_native_object!(@struct $name, $native_ty, (), $proto_entries, $ctor
             $(, extends: $extends_class)?
             $(, on_class_register: $on_register)?
@@ -214,28 +191,23 @@ macro_rules! def_native_object {
     (@native-with-payload $name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
         $(, extends: $extends_class:expr)?
         $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?
-        $(, on_payload_gc: $on_payload_gc:expr)?) => {
+        $(, on_class_unregister: $on_unregister:expr)?) => {
         $crate::def_native_object!(@struct $name, $native_ty, $payload_ty, $proto_entries, $ctor
             $(, extends: $extends_class)?
             $(, on_class_register: $on_register)?
             $(, on_class_unregister: $on_unregister)?
-            $(, on_payload_gc: $on_payload_gc)?);
+            , @wire_user_payload: $payload_ty);
 
         impl $native_ty {
             /// get payload data
             pub fn payload(&self) -> Option<&$payload_ty> {
                 debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
 
-                if let Some(p) = self.as_object().other_payload() {
-                    let ptr = p.opaque();
-                    if !ptr.is_null() {
-                        Some(unsafe { &*ptr.cast::<$payload_ty>() })
-                    } else {
-                        None
-                    }
+                let ptr = self.as_object().payload_raw();
+                if !ptr.is_null() {
+                    Some(unsafe { &*ptr.cast::<$payload_ty>() })
                 } else {
-                    unreachable!()
+                    None
                 }
             }
 
@@ -243,31 +215,23 @@ macro_rules! def_native_object {
             pub fn payload_mut(&mut self) -> Option<&mut $payload_ty> {
                 debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
 
-                if let Some(p) = self.as_object_mut().other_payload_mut() {
-                    let ptr = p.opaque();
-                    if !ptr.is_null() {
-                        Some(unsafe { &mut *ptr.cast::<$payload_ty>() })
-                    } else {
-                        None
-                    }
+                let ptr = self.as_object_mut().payload_raw();
+                if !ptr.is_null() {
+                    Some(unsafe { &mut *ptr.cast::<$payload_ty>() })
                 } else {
-                    unreachable!()
+                    None
                 }
             }
 
             pub fn take_payload(&mut self) -> Option<Box<$payload_ty>>{
                 debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
-                if let Some(p) = self.as_object_mut().other_payload_mut() {
-                    unsafe {
-                        let ptr = p.replace_opaque(std::ptr::null_mut());
-                        if !ptr.is_null() {
-                            Some(Box::from_raw(ptr.cast::<$payload_ty>()))
-                        } else {
-                            None
-                        }
+                unsafe {
+                    let ptr = self.as_object_mut().replace_payload(std::ptr::null_mut());
+                    if !ptr.is_null() {
+                        Some(Box::from_raw(ptr.cast::<$payload_ty>()))
+                    } else {
+                        None
                     }
-                } else {
-                    None
                 }
             }
 
@@ -285,16 +249,12 @@ macro_rules! def_native_object {
                 if o.class_id() != <Self as $crate::NativeObject>::class_id() {
                     return None;
                 }
-                // Safety: the opaque pointer points to a heap-allocated Box<$payload_ty>
+                // Safety: the payload pointer points to a heap-allocated Box<$payload_ty>
                 // (created via Box::into_raw in new_instance). As long as the JS object
                 // is alive in the GC heap, this allocation remains valid.
-                if let Some(other) = o.other_payload() {
-                    let ptr = other.opaque();
-                    if !ptr.is_null() {
-                        Some(unsafe { &*ptr.cast::<$payload_ty>() })
-                    } else {
-                        None
-                    }
+                let ptr = o.payload_raw();
+                if !ptr.is_null() {
+                    Some(unsafe { &*ptr.cast::<$payload_ty>() })
                 } else {
                     None
                 }
@@ -315,16 +275,12 @@ macro_rules! def_native_object {
                 if o.class_id() != <Self as $crate::NativeObject>::class_id() {
                     return None;
                 }
-                // Safety: the opaque pointer points to a heap-allocated Box<$payload_ty>
+                // Safety: the payload pointer points to a heap-allocated Box<$payload_ty>
                 // (created via Box::into_raw in new_instance). Mutability is gated by the
                 // &'a mut JSValue — the caller must not alias the payload during 'a.
-                if let Some(other) = o.other_payload_mut() {
-                    let ptr = other.opaque();
-                    if !ptr.is_null() {
-                        Some(unsafe { &mut *ptr.cast::<$payload_ty>() })
-                    } else {
-                        None
-                    }
+                let ptr = o.payload_raw();
+                if !ptr.is_null() {
+                    Some(unsafe { &mut *ptr.cast::<$payload_ty>() })
                 } else {
                     None
                 }
@@ -333,7 +289,7 @@ macro_rules! def_native_object {
             /// Take (detach) the payload from a `&mut JSValue` by class id check.
             ///
             /// Returns `Some(Box<$payload_ty>)` if `val` is an object of this native
-            /// class with an attached payload, replacing the object's opaque pointer
+            /// class with an attached payload, replacing the object's payload pointer
             /// with null so ownership of the payload transfers to the caller. Returns
             /// `None` otherwise (wrong class or already detached).
             pub fn take_payload_of(val: &mut $crate::JSValue) -> Option<Box<$payload_ty>> {
@@ -341,19 +297,15 @@ macro_rules! def_native_object {
                 if o.class_id() != <Self as $crate::NativeObject>::class_id() {
                     return None;
                 }
-                if let Some(other) = o.other_payload_mut() {
-                    // Safety: the opaque pointer, if non-null, points to a
-                    // heap-allocated Box<$payload_ty> created in new_instance.
-                    unsafe {
-                        let ptr = other.replace_opaque(std::ptr::null_mut());
-                        if !ptr.is_null() {
-                            Some(Box::from_raw(ptr.cast::<$payload_ty>()))
-                        } else {
-                            None
-                        }
+                // Safety: the payload pointer, if non-null, points to a
+                // heap-allocated Box<$payload_ty> created in new_instance.
+                unsafe {
+                    let ptr = o.replace_payload(std::ptr::null_mut());
+                    if !ptr.is_null() {
+                        Some(Box::from_raw(ptr.cast::<$payload_ty>()))
+                    } else {
+                        None
                     }
-                } else {
-                    None
                 }
             }
 
@@ -363,18 +315,9 @@ macro_rules! def_native_object {
                 new_target: $crate::JSValue,
                 payload: $payload_ty,
             ) -> Result<Self, i32> {
-                let p = Box::new(payload);
-                let opaque = Box::into_raw(p).cast::<std::ffi::c_void>();
-                debug_assert!(!opaque.is_null());
-
-                ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject>::class_id(), opaque)
+                ctx.create_class_instance_with_payload(new_target, <Self as $crate::NativeObject>::class_id(), payload)
                     .map(Self)
-                    .map_err(|_| {
-                        unsafe {
-                            let _ = Box::from_raw(opaque.cast::<$payload_ty>());
-                        }
-                        -1
-                    })
+                    .map_err(|_| -1)
             }
         }
     };
@@ -395,13 +338,95 @@ macro_rules! def_native_object {
     ($name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
         $(, extends: $extends_class:expr)?
         $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?
-        $(, on_payload_gc: $on_payload_gc:expr)?) => {
+        $(, on_class_unregister: $on_unregister:expr)?) => {
         $crate::def_native_object!(@native-with-payload $name, $native_ty, $payload_ty, $proto_entries, $ctor
             $(, extends: $extends_class)?
             $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?
-            $(, on_payload_gc: $on_payload_gc)?);
+            $(, on_class_unregister: $on_unregister)?);
         $crate::def_native_object!(@impl $native_ty);
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::c_void;
+    use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+
+    use gc_lite::GcTrace;
+
+    use crate::{ClassDef, JSValue, Runtime, RuntimeImpl, ScopedContext};
+
+    /// Payload carrying a magic value: `on_dispose` must observe it while the
+    /// allocation is still valid.
+    #[derive(GcTrace)]
+    struct DispPayload {
+        magic: u32,
+    }
+
+    /// Monotonic sequence: bumped once when the free channel runs.
+    static FREE_SEQ: AtomicUsize = AtomicUsize::new(0);
+    /// Sequence value observed by `on_dispose` — `0` proves dispose ran
+    /// strictly before the free channel.
+    static DISPOSE_SEQ: AtomicUsize = AtomicUsize::new(usize::MAX);
+    /// Magic read through the payload pointer inside `on_dispose`.
+    static DISPOSE_MAGIC: AtomicU32 = AtomicU32::new(0);
+
+    /// Free channel for the test class (custom, to make the ordering
+    /// observable; the macro normally wires `drop_payload_fn::<P>` here).
+    unsafe fn test_free(ptr: *mut c_void) {
+        FREE_SEQ.fetch_add(1, Ordering::SeqCst);
+        if !ptr.is_null() {
+            drop(Box::from_raw(ptr as *mut DispPayload));
+        }
+    }
+
+    fn test_dispose(_rt: &mut RuntimeImpl, ptr: *mut c_void, _cid: usize, _id: usize) {
+        DISPOSE_SEQ.store(FREE_SEQ.load(Ordering::SeqCst), Ordering::SeqCst);
+        if !ptr.is_null() {
+            // Reading through the pointer is only sound because dispose runs
+            // BEFORE the free channel — exactly the contract under test.
+            let p = unsafe { &*(ptr as *const DispPayload) };
+            DISPOSE_MAGIC.store(p.magic, Ordering::SeqCst);
+        }
+    }
+
+    /// 回归(U1):`on_dispose` 必须在 payload 释放之前、携带仍有效的 payload
+    /// 指针触发,释放随后由 `payload_drop` 完成。
+    #[test]
+    fn on_dispose_fires_before_payload_free() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let class_id = rt.register_class_def(
+            ClassDef::new("DispTest", &[], None)
+                .on_dispose(test_dispose)
+                .payload_drop(test_free),
+        )?;
+
+        let mut ctx = rt.create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            cx.use_class(class_id)?;
+            Ok(())
+        })?;
+
+        // Create the instance in a child scope and let it die with the scope:
+        // objects created in a live scope are scope-locals and survive
+        // collection until the scope pops (the context's root scope outlives
+        // the test).
+        ctx.with_new_scope(|cx| {
+            let _obj = cx.create_class_instance_with_payload(
+                JSValue::UNDEFINED,
+                class_id,
+                DispPayload { magic: 0xCAFE },
+            )?;
+            Ok::<(), i32>(())
+        })?;
+
+        rt.gc_collect();
+
+        // dispose 时 payload 仍有效(magic 完整)...
+        assert_eq!(DISPOSE_MAGIC.load(Ordering::SeqCst), 0xCAFE);
+        // ...且严格先于 free 通道(free 之后不会再触发 dispose)。
+        assert_eq!(DISPOSE_SEQ.load(Ordering::SeqCst), 0);
+        assert!(FREE_SEQ.load(Ordering::SeqCst) >= 1);
+        Ok(())
+    }
 }

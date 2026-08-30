@@ -5,9 +5,11 @@ use std::cell::RefCell;
 
 use zuqe::{
     CallContext, ClassCtorDef, FieldDef, JSResult, JSValue, ScopedContext, def_native_object,
+    gc_lite::GcTrace,
 };
 
 /// Simple Emitter data stored as opaque
+#[derive(GcTrace)]
 struct EmitterData {
     listeners: RefCell<Vec<(String, i32)>>, // simplified: (event_name, count)
 }

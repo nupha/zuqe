@@ -321,7 +321,10 @@ unsafe extern "C" fn zapi_register_class(env: ZqEnv, class_def: *const ZqClassDe
 
     fn zapi_class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         let o = ctx
-            .create_instance_with_proto_payload(None, PayloadPtr::other(class_id, std::ptr::null_mut()))
+            .create_instance_with_proto_payload(
+                None,
+                PayloadPtr::opaque(class_id, std::ptr::null_mut()),
+            )
             .map_err(|_| -1)?;
         ctx.class_slots[class_id as usize].proto = Some(o);
 
@@ -458,8 +461,11 @@ unsafe extern "C" fn zapi_new_instance(
 
 unsafe extern "C" fn zapi_get_native_ptr(_env: ZqEnv, obj: ZqRawValue) -> *mut c_void {
     let val = JSValue(obj, std::marker::PhantomData);
-    val.opaque()
-        .map(|p| p.as_ptr())
+    // Unified payload storage: a zapi class instance's opaque pointer IS the
+    // payload pointer, so read it directly (user-class domain only).
+    val.as_object()
+        .filter(|o| o.class_id() >= crate::USER_CLASS_ID_START)
+        .map(|o| o.payload_raw())
         .unwrap_or(std::ptr::null_mut())
 }
 
@@ -534,8 +540,10 @@ unsafe extern "C" fn zapi_take_exception(env: ZqEnv) -> ZqRawValue {
         crate::error::Exception::Error(val) => val.0,
         _ => ZQ_API_TABLE.value_undefined,
     };
-    debug_assert_ne!(raw, ZQ_API_TABLE.value_exception,
-        "take_exception must never return the exception sentinel");
+    debug_assert_ne!(
+        raw, ZQ_API_TABLE.value_exception,
+        "take_exception must never return the exception sentinel"
+    );
     raw
 }
 
@@ -546,8 +554,10 @@ unsafe extern "C" fn zapi_exception(env: ZqEnv) -> ZqRawValue {
         crate::error::Exception::Error(val) => val.0,
         _ => ZQ_API_TABLE.value_undefined,
     };
-    debug_assert_ne!(raw, ZQ_API_TABLE.value_exception,
-        "exception() must never return the exception sentinel");
+    debug_assert_ne!(
+        raw, ZQ_API_TABLE.value_exception,
+        "exception() must never return the exception sentinel"
+    );
     raw
 }
 /// each tick runs `run(data)` on the JS thread until it reports Done/Err.

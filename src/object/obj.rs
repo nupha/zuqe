@@ -200,14 +200,27 @@ impl GcTrace for ObjectImpl {
         for p in self.prop_values.iter() {
             p.trace(tr);
         }
-        // Trace the type-erased payload by class_id: user-class payloads are
-        // Box<OtherPayload> (fires the per-class on_gc_trace handler), builtin
-        // classes use the generated per-class dispatch.
+        // Trace the type-erased payload by class_id: user classes dispatch
+        // through the registry (ClassDef.on_gc_trace, wired at registration —
+        // macro: user_payload_trace::<P>, zapi: C bridge), builtin classes use
+        // the generated per-class dispatch.
         let cid = self.class_id();
         if cid >= crate::USER_CLASS_ID_START {
-            // Invariant: user-class payloads are always Box<OtherPayload>,
-            // never null (enforced by the create-path debug assertion).
-            unsafe { (*(self.payload as *const crate::class::OtherPayload)).trace(tr) };
+            // Hint: tr.opaque() holds the *const RuntimeImpl, set when heap
+            // was created.
+            debug_assert!(
+                !tr.opaque().is_null(),
+                "GcTraceCtx must have opaque, which is the RuntimeImpl raw pointer"
+            );
+            let rt = unsafe { &*(tr.opaque() as *const RuntimeImpl) };
+            if !self.payload.is_null()
+                && let Some(f) = rt
+                    .class_registry
+                    .get(cid as usize)
+                    .and_then(|c| c.on_gc_trace)
+            {
+                f(self.payload, tr, cid as usize);
+            }
         } else {
             payload_access::trace_payload(cid, self.payload as *const c_void, tr);
         }
@@ -269,13 +282,10 @@ impl ObjectImpl {
         #[cfg(debug_assertions)]
         {
             // Invariant: a builtin class has a payload iff one is registered
-            // for it; user classes always carry a Box<OtherPayload>.
-            if class_id >= crate::USER_CLASS_ID_START {
-                debug_assert!(
-                    !payload.as_ptr().is_null(),
-                    "user class {class_id}: payload must be Box<OtherPayload>"
-                );
-            } else {
+            // for it. A user class stores either a `Box<P>` inner pointer or
+            // an engine-unowned opaque pointer — either may be null (opaque
+            // / payload-less user classes), so nothing to assert there.
+            if class_id < crate::USER_CLASS_ID_START {
                 debug_assert_eq!(
                     payload_access::payload_type_name(class_id).is_some(),
                     !payload.as_ptr().is_null(),
@@ -450,6 +460,25 @@ impl ObjectImpl {
     #[inline(always)]
     pub const fn payload_raw(&self) -> *mut c_void {
         self.payload
+    }
+
+    /// Replace the payload pointer, returning the old one.
+    ///
+    /// Detach support for user-class payloads (`take_payload*`): ownership of
+    /// the returned pointer, if non-null, transfers to the caller — the
+    /// engine will no longer free or trace it.
+    ///
+    /// # Safety
+    /// `new` must match the payload representation of the object's class
+    /// (`Box<P>` inner pointer for owned user-class payloads, engine-unowned
+    /// opaque pointer for opaque classes, null for payload-less classes).
+    pub fn replace_payload(&mut self, new: *mut c_void) -> *mut c_void {
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            self.class_id() >= crate::USER_CLASS_ID_START,
+            "replace_payload is for user classes"
+        );
+        std::mem::replace(&mut self.payload, new)
     }
 
     #[inline(always)]
@@ -670,16 +699,29 @@ impl ObjectImpl {
             rt.finrec_pending_cleanups.extend(held_pending);
         }
 
-        // call class finalize handler.
-        if let Some(cb) = rt.class_registry[class_id as usize].on_finalize {
+        // call class finalize handler + free payload memory.
+        let class_def = rt.class_registry[class_id as usize];
+        if class_id >= crate::USER_CLASS_ID_START {
+            // User class: notify on_dispose while the payload pointer is
+            // still valid, then free the owned payload via the registered
+            // payload_drop. Opaque payloads (zapi) have payload_drop == None
+            // and are never freed by the engine; builtin classes keep the
+            // generated single-free-exit dispatch below.
             let id = self.id();
-            cb(&mut *rt, ptr, id);
-        }
-
-        // free payload memory (single exit: generated dispatch for builtin
-        // classes, Box<OtherPayload> for user classes)
-        unsafe {
-            payload_access::free_payload(class_id, ptr);
+            if let Some(f) = class_def.on_finalize_opaque {
+                f(&mut *rt, ptr, class_id as usize, id);
+            }
+            if let Some(free) = class_def.payload_drop {
+                unsafe { free(ptr) };
+            }
+        } else {
+            if let Some(cb) = class_def.on_finalize {
+                let id = self.id();
+                cb(&mut *rt, ptr, id);
+            }
+            unsafe {
+                payload_access::free_payload(class_id, ptr);
+            }
         }
     }
 }

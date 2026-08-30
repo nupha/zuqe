@@ -3,7 +3,7 @@
 
 use std::ffi::c_void;
 
-use gc_lite::GcNode;
+use gc_lite::{GcNode, GcTrace};
 
 use crate::{
     USER_CLASS_ID_START,
@@ -60,7 +60,7 @@ impl<'c> ScopedContext<'c> {
     // ── handle-payload family ───────────────────────────────────────────
     //
     // For pre-built `PayloadPtr` handles (incl. `none(class_id)` /
-    // `other(class_id, ..)`): the class is carried by the handle, so these
+    // `opaque(class_id, ..)`): the class is carried by the handle, so these
     // signatures deliberately take no `class_id` — there is no second copy
     // of the information to get wrong.
 
@@ -127,6 +127,32 @@ impl<'c> ScopedContext<'c> {
 
     // ── public wrappers ─────────────────────────────────────────────────
 
+    /// Create a user-class instance owning a typed payload `P`.
+    ///
+    /// The engine takes ownership: on instance death the payload is freed via
+    /// the monomorphized `drop_payload_fn::<P>` wired into the class's
+    /// `payload_drop` (which `def_native_object!` registers), and traced via
+    /// `user_payload_trace::<P>`. `P` must implement [`GcTrace`] (typically
+    /// `#[derive(GcTrace)]`).
+    pub fn create_class_instance_with_payload<P: GcTrace>(
+        &mut self,
+        new_target: JSValue,
+        class_id: ClassID,
+        payload: P,
+    ) -> Result<Object, i32> {
+        if class_id < USER_CLASS_ID_START {
+            let _ = self.throw_internal_error("expect non-builtin class");
+            return Err(-1);
+        }
+        let payload = PayloadPtr::new(class_id, payload);
+        self.ordinary_create_from_constructor_payload(new_target, payload)
+    }
+
+    /// Create a user-class instance with an engine-unowned opaque payload.
+    ///
+    /// The pointer is stored as-is and passed back verbatim in the class's
+    /// trace/dispose callbacks; the engine never frees or dereferences it
+    /// (zapi usage).
     pub fn create_class_instance_with_opaque(
         &mut self,
         new_target: JSValue,
@@ -137,7 +163,7 @@ impl<'c> ScopedContext<'c> {
             let _ = self.throw_internal_error("expect non-builtin class");
             return Err(-1);
         }
-        let payload = PayloadPtr::other(class_id, opaque);
+        let payload = PayloadPtr::opaque(class_id, opaque);
         self.ordinary_create_from_constructor_payload(new_target, payload)
     }
 

@@ -11,7 +11,7 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
-use zuqe::{CallContext, FieldDef, JSResult, JSValue, Object, ScopedContext, def_native_object};
+use zuqe::{CallContext, FieldDef, JSResult, JSValue, Object, ScopedContext, def_native_object, gc_lite::GcTrace};
 
 #[derive(Debug)]
 #[repr(u8)]
@@ -20,6 +20,13 @@ enum FileDesc {
     Stdout,
     Stderr,
     File(std::fs::File),
+}
+
+// The payload holds only OS handles — no GC nodes to trace. The manual
+// (empty) impl keeps `RefCell<FileDesc>: GcTrace` satisfied via the
+// container impl in gc_lite.
+impl GcTrace for FileDesc {
+    fn trace(&self, _: &mut zuqe::gc_lite::GcTraceCtx) {}
 }
 
 impl FileDesc {

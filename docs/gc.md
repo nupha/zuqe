@@ -123,14 +123,22 @@ reclaimable) or if it wraps/contains a `GcRef<GcNode>`. Common node types:
 There are exactly **two** entry points through which Rust-held nodes can enter the reachability
 graph — if a node isn't covered by one of them, it is unsafe:
 
-### Rule 1 — class payloads holding GC nodes: provide `on_payload_gc`
+### Rule 1 — class payloads holding GC nodes: implement `GcTrace`
 
-When a `def_native_object!` payload stores GC nodes, you **MUST** pass the `on_payload_gc` option.
-The callback signature is `fn(&PayloadType, &mut GcTraceCtx)`; the macro wires it to the class's
-`on_gc_trace`, so the collector invokes it whenever an instance of that class is marked:
+When a `def_native_object!` payload stores GC nodes, the payload type **MUST** implement
+`gc_lite::GcTrace` — typically via `#[derive(GcTrace)]` (or `#[gc(skip)]`/`#[gc(with)]` for
+fine-grained control). The macro wires the payload's trace into the class's `on_gc_trace`
+automatically at registration, so the collector traces every field whenever an instance of that
+class is marked. A payload type that is not `GcTrace` fails to compile right at the macro call —
+there is no way to register an untraced payload:
 
 ```rust
-use zuqe::gc_lite::{GcTrace, GcTraceCtx};
+use zuqe::gc_lite::GcTrace;
+
+#[derive(GcTrace)]
+struct FooPayload {
+    field: RefCell<Option<JSValue>>, // JSValue / Object / native wrappers all impl GcTrace
+}
 
 def_native_object!(
     "Foo",
@@ -138,26 +146,22 @@ def_native_object!(
     FooPayload,
     FOO_PROTO,
     Some(ClassCtorDef::new(js_foo_constructor, 1, true)),
-    on_payload_gc: FooPayload::gc_trace,
 );
-
-impl FooPayload {
-    fn gc_trace(&self, gcx: &mut GcTraceCtx) {
-        if let Some(ref o) = *self.field.borrow() {
-            o.trace(gcx); // JSValue / Object / native wrappers all impl GcTrace
-        }
-    }
-}
 ```
+
+For a payload that holds **no** GC nodes, write an empty manual `impl GcTrace for Payload { fn
+trace(&self, _: &mut GcTraceCtx) {} }` (a foreign type such as `RefCell<T>` cannot take a derive).
 
 **Pitfalls:**
 
-1. **`extends:` subclasses do NOT inherit the parent's gc trace.** GC looks the trace callback up
+1. **`extends:` subclasses do NOT share the parent's payload type.** GC looks the trace callback up
    by the object's **own** `class_id`, and `new_instance` creates objects with
-   `Self::class_id()`. If a subclass reuses a payload that holds GC nodes, it MUST declare its own
-   `on_payload_gc` — forgetting this is a silent UAF.
+   `Self::class_id()`. Each class's payload type carries its own `GcTrace` impl — a subclass
+   reusing a payload that holds GC nodes gets its trace wired from its own payload type
+   automatically; there is no inherit-to-silently-drop-trace hazard anymore.
 2. **Lazily-cached JS objects are GC nodes too.** A `RefCell<Option<Object>>` cached in the payload
-   (e.g. `URL.searchParams`) must be traced once it is only reachable from that payload.
+   (e.g. `URL.searchParams`) must be traced once it is only reachable from that payload — with the
+   derive this is automatic as long as the field is a traced type.
 
 ### Rule 2 — `thread_local!` stores holding GC nodes: register a user GC trace
 
@@ -238,8 +242,8 @@ index-out-of-bounds aborts during runtime teardown.
 **Rule 1 (class payload)**
 
 - [ ] Does the payload contain GC nodes (`JSValue`/`Object`/native wrapper/callback handle)?
-- [ ] If yes — is `on_payload_gc` provided, and does it trace every GC field?
-- [ ] Is it an `extends:` subclass? If so, does the subclass carry its own `on_payload_gc`?
+- [ ] If yes — does the payload type impl `GcTrace` (derive), and does every GC field get traced?
+- [ ] Is it an `extends:` subclass? If so, does the subclass payload type carry its own `GcTrace` impl?
 
 **Rule 2 (`thread_local`)**
 

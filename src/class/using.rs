@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{ffi::c_void, ptr::NonNull};
-
-use gc_lite::{GcTrace, GcTraceCtx};
+use std::ffi::c_void;
 
 use crate::{
     FieldDef, USER_CLASS_ID_START,
@@ -13,100 +11,10 @@ use crate::{
     context::{ProtoCtorPair, ScopedContext},
     error::Exception,
     function::{Callback, CallbackFn, NativeFunction},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, PayloadPtr},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, PayloadPtr},
     runtime::RuntimeImpl,
     value::JSValue,
 };
-
-#[derive(Debug)]
-pub struct OtherPayload {
-    pub(crate) class_id: ClassID,
-    pub(crate) opaque: *mut c_void,
-}
-
-impl GcTrace for OtherPayload {
-    fn trace(&self, gcx: &mut GcTraceCtx) {
-        if !self.opaque.is_null() {
-            // Hint: gcx.opaque() holds the *const RuntimeImpl，set when heap was created.
-            debug_assert!(
-                !gcx.opaque().is_null(),
-                "GcTraceCtx must have opaque, which is the RuntimeImpl raw pointer"
-            );
-            let rt = unsafe { &*(gcx.opaque() as *const RuntimeImpl) };
-
-            if let Some(f) = rt
-                .class_registry
-                .get(self.class_id as usize)
-                .and_then(|c| c.on_gc_trace)
-            {
-                f(self.opaque, gcx, self.class_id as usize);
-            }
-        }
-    }
-}
-
-impl OtherPayload {
-    pub(crate) fn new(class_id: ClassID, opaque: *mut c_void) -> Self {
-        debug_assert!(class_id >= USER_CLASS_ID_START);
-        Self { class_id, opaque }
-    }
-
-    #[inline(always)]
-    pub const fn opaque(&self) -> *mut c_void {
-        self.opaque
-    }
-
-    #[inline(always)]
-    pub const unsafe fn replace_opaque(&mut self, opaque: *mut c_void) -> *mut c_void {
-        std::mem::replace(&mut self.opaque, opaque)
-    }
-}
-
-impl ObjectImpl {
-    /// Typed view of a user-class payload: `None` for builtin classes or a
-    /// null payload. Single implementation of the user-payload access
-    /// invariants (`Object::other_payload` and the `opaque*` helpers
-    /// delegate here).
-    pub(crate) fn other_payload(&self) -> Option<&OtherPayload> {
-        if self.class_id() < USER_CLASS_ID_START {
-            return None;
-        }
-        let p = self.payload_raw();
-        if p.is_null() {
-            return None;
-        }
-        Some(unsafe { &*(p as *const OtherPayload) })
-    }
-
-    pub(crate) fn other_payload_mut(&mut self) -> Option<&mut OtherPayload> {
-        if self.class_id() < USER_CLASS_ID_START {
-            return None;
-        }
-        let p = self.payload_raw();
-        if p.is_null() {
-            return None;
-        }
-        Some(unsafe { &mut *(p as *mut OtherPayload) })
-    }
-
-    /// if the object is a user class instance, returns the opaque pointer if available
-    pub fn opaque(&self) -> Option<NonNull<c_void>> {
-        self.other_payload().and_then(|other| NonNull::new(other.opaque))
-    }
-
-    /// if the object is a user class instance, returns the opaque pointer reference if available
-    pub fn opaque_ref<T>(&self) -> Option<&T> {
-        let other = self.other_payload()?;
-        unsafe { other.opaque.cast::<T>().as_ref() }
-    }
-}
-
-impl JSValue {
-    /// if the value is a user class instance, returns the opaque pointer if available
-    pub fn opaque(&self) -> Option<NonNull<c_void>> {
-        self.as_object()?.opaque()
-    }
-}
 
 impl RuntimeImpl {
     fn register_class_internal(
@@ -160,7 +68,6 @@ impl RuntimeImpl {
     /// Register a non-builtin class
     pub fn register_class_def(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
         debug_assert!(!class_def.name.is_empty());
-        debug_assert!(class_def.on_finalize.is_some());
 
         class_def.name_atom = {
             let a = Atom::root_str(self, class_def.name)?;
@@ -479,14 +386,14 @@ impl<'c> ScopedContext<'c> {
         }
     }
 
-    /// create a new class instance
+    /// create a new class instance with an engine-unowned opaque payload
     pub fn new_instance(
         &mut self,
         class_id: ClassID,
         ctor: JSValue,
         opaque: *mut c_void,
     ) -> Result<Object, i32> {
-        self.ordinary_create_from_constructor_payload(ctor, PayloadPtr::other(class_id, opaque))
-        .map_err(|_| -1)
+        self.ordinary_create_from_constructor_payload(ctor, PayloadPtr::opaque(class_id, opaque))
+            .map_err(|_| -1)
     }
 }

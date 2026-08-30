@@ -4,7 +4,7 @@
 use std::ffi::c_void;
 
 use crate::{
-    Callback, ClassID, FieldDef, RuntimeImpl,
+    Callback, ClassID, FieldDef,
     atom::Atom,
     class::{
         ClassCallFn, ClassFinalizeOpaqueFn, ClassGcTraceFn, ClassInitializeFn, ClassUnregisterFn,
@@ -119,8 +119,13 @@ pub struct ClassDef {
     on_initialize: ClassInitType,
     /// class instance finalize callback, callbed before Object::drop()
     pub(crate) on_finalize: Option<ClassFinalizeFn>,
-    /// handler on class instance dispose
+    /// class instance dispose handler
     pub(crate) on_finalize_opaque: Option<ClassFinalizeOpaqueFn>,
+    /// owned-payload free channel for user classes (monomorphized
+    /// `drop_payload_fn::<P>`); `None` for builtin classes (generated
+    /// dispatch), opaque classes (engine-unowned payload) and payload-less
+    /// classes. The only free path for user-class payloads.
+    pub(crate) payload_drop: Option<unsafe fn(*mut c_void)>,
     /// class def unregister handler.
     pub(crate) on_unregister: Option<ClassUnregisterFn>,
     /// to trace JSValues stored in an instance's payload (opaque)
@@ -142,6 +147,7 @@ impl Default for ClassDef {
             },
             on_finalize: None,
             on_finalize_opaque: None,
+            payload_drop: None,
             on_unregister: None,
             on_gc_trace: None,
         }
@@ -167,8 +173,9 @@ impl ClassDef {
                 ctor,
                 extends_class: None,
             },
-            on_finalize: Some(Self::default_fini_fn),
+            on_finalize: None,
             on_finalize_opaque: None,
+            payload_drop: None,
             on_gc_trace: None,
         }
     }
@@ -194,8 +201,9 @@ impl ClassDef {
                 extends_class: Some(extends_class),
                 ctor,
             },
-            on_finalize: Some(Self::default_fini_fn),
+            on_finalize: None,
             on_finalize_opaque: None,
+            payload_drop: None,
             on_gc_trace: None,
         }
     }
@@ -224,8 +232,9 @@ impl ClassDef {
 
             on_unregister: None,
             on_initialize: ClassInitType::InitFn(init_fn),
-            on_finalize: Some(Self::default_fini_fn),
+            on_finalize: None,
             on_finalize_opaque: None,
+            payload_drop: None,
             on_gc_trace: None,
         }
     }
@@ -249,6 +258,7 @@ impl ClassDef {
             },
             on_finalize: None,
             on_finalize_opaque: None,
+            payload_drop: None,
             on_gc_trace: None,
         }
     }
@@ -264,6 +274,7 @@ impl ClassDef {
             on_initialize: ClassInitType::InitFn(init_fn),
             on_finalize: None,
             on_finalize_opaque: None,
+            payload_drop: None,
             on_gc_trace: None,
         }
     }
@@ -288,9 +299,23 @@ impl ClassDef {
 
     /// Set class instance dispose handler.
     ///
-    /// This callback could be use to process opaque pointer when class instance is disposed.
+    /// This callback is invoked when a user-class instance dies, **before**
+    /// the payload is freed by `payload_drop`. It is a notification only: the
+    /// engine does not own opaque payloads (zapi), and owned payloads are
+    /// freed separately via [`ClassDef::payload_drop`].
     pub const fn on_dispose(mut self, f: ClassFinalizeOpaqueFn) -> Self {
         self.on_finalize_opaque.replace(f);
+        self
+    }
+
+    /// Set the free channel for owned user-class payloads.
+    ///
+    /// Typically wired automatically by `def_native_object!` with the
+    /// monomorphized `drop_payload_fn::<P>`. Leave `None` for classes whose
+    /// payload the engine does not own (zapi opaque pointers) or that have no
+    /// payload at all.
+    pub const fn payload_drop(mut self, f: unsafe fn(*mut c_void)) -> Self {
+        self.payload_drop.replace(f);
         self
     }
 
@@ -400,17 +425,5 @@ impl ClassDef {
         }
 
         Ok(())
-    }
-
-    fn default_fini_fn(rt: &mut RuntimeImpl, isa: *mut c_void, id: usize) {
-        if !isa.is_null() {
-            let other = unsafe { &*(isa as *const crate::class::OtherPayload) };
-            let class_id = other.class_id;
-            if let Some(f) = rt.class_registry[class_id as usize].on_finalize_opaque {
-                f(rt, other.opaque, class_id as usize, id)
-            }
-        } else {
-            unreachable!("builtin class: finalize handler is required");
-        }
     }
 }

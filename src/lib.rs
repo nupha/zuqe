@@ -47,7 +47,7 @@ pub use {
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E,
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_FORCE, JS_PROP_GETSET, JS_PROP_WRITABLE,
-        Object,
+        Object, drop_payload_fn, user_payload_trace,
     },
     runtime::{Runtime, RuntimeImpl, WakeHandle},
     value::JSValue,

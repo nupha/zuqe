@@ -19,7 +19,8 @@ enum FileDesc {
 
 // The macro generates:
 // - A `#[repr(transparent)]` struct `JSFile` wrapping an `Object` (the payload
-//   `RefCell<FileDesc>` is stored in the object's opaque slot)
+//   `RefCell<FileDesc>` is stored directly in the object's payload slot, as a
+//   heap `Box` owned by the engine)
 // - Class registration function `JSFile::register(rt)`
 // - Class ID accessor `JSFile::class_id()`
 // - Payload access via `as_native_object::<JSFile>()` (then `.payload()` / `.take_payload()`)
@@ -56,21 +57,29 @@ Optional keyword arguments (all prefixed with `,`):
 - `extends: $class_id_fn` — register the class as a subclass of another native class
 - `on_class_register: $fn(rt)` — hook called when the class is registered
 - `on_class_unregister: $fn(rt)` — hook called when the class is unregistered
-- `on_payload_gc: $fn(&PayloadType, &mut GcTraceCtx)` — **required whenever the payload holds GC nodes**; the collector calls it during GC mark so embedded JS values stay reachable (see the GC safety section below).
 
 > **⚠️ GC safety (MUST READ):** A `JSValue`/`Object` stored in a class payload or in a
 > `thread_local!` is invisible to Zuqe's GC — if the collector reclaims it while you still use it,
-> the engine panics with a use-after-free. **Any payload holding GC nodes must provide
-> `on_payload_gc`, and any `thread_local!` holding GC nodes must be traced via
-> `rt.gc_set_trace_handler`.** Note that `extends:` subclasses do *not* inherit the parent's GC
-> trace and must declare their own `on_payload_gc`. See [GC safety for native code — class payloads
-> & thread_local](gc.md) for the full rules, examples, and review checklist.
+> the engine panics with a use-after-free. **The payload type must implement
+> `gc_lite::GcTrace`** — typically by adding `#[derive(GcTrace)]` (or a manual `impl` when the
+> type holds no GC nodes) — and any `thread_local!` holding GC nodes must be traced via
+> `rt.gc_set_trace_handler`. The macro wires the payload's trace and free channels into the
+> class automatically at registration, and a payload type that is not `GcTrace` fails to
+> compile right at the macro call. Note that `extends:` subclasses do *not* inherit the parent's
+> payload type — each class's payload carries its own `GcTrace` impl. See
+> [GC safety for native code — class payloads & thread_local](gc.md) for the full rules,
+> examples, and review checklist.
 
 For classes that need a constructor exposed to JavaScript (e.g., `new Emitter()`), pass a `ClassCtorDef`:
 
 ```rust
 use std::cell::RefCell;
-use zuqe::{CallContext, ClassCtorDef, JSResult, JSValue, ScopedContext};
+use zuqe::{CallContext, ClassCtorDef, JSResult, JSValue, ScopedContext, gc_lite::GcTrace};
+
+#[derive(GcTrace)]
+struct EmitterData {
+    listeners: RefCell<Vec<(String, JSValue)>>,
+}
 
 fn js_emitter_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
@@ -238,8 +247,9 @@ static FILE_MODULE_ENTRIES: &[FieldDef] = &[
 The `def_native_object!` macro generates a `new_instance` method. Use it to create instances with a Rust payload:
 
 > **⚠️ GC note:** if `PayloadType` itself contains GC nodes (`JSValue`/`Object`/native wrapper),
-> the class **must** also declare `on_payload_gc` (see [GC safety for native code — class payloads
-> & thread_local](gc.md)), or those nodes can be reclaimed while the instance is alive.
+> those nodes are traced automatically through the payload's `GcTrace` impl (typically
+> `#[derive(GcTrace)]` — a payload type that lacks it fails to compile at the macro call).
+> See [GC safety for native code — class payloads & thread_local](gc.md).
 
 ```rust
 use std::cell::RefCell;
