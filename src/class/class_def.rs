@@ -121,10 +121,13 @@ pub struct ClassDef {
     pub(crate) on_finalize: Option<ClassFinalizeFn>,
     /// class instance dispose handler
     pub(crate) on_finalize_opaque: Option<ClassFinalizeOpaqueFn>,
-    /// owned-payload free channel for user classes (monomorphized
-    /// `drop_payload_fn::<P>`); `None` for builtin classes (generated
-    /// dispatch), opaque classes (engine-unowned payload) and payload-less
-    /// classes. The only free path for user-class payloads.
+    /// owned-payload free channel, uniform for ALL classes: builtin classes
+    /// are wired by the generator (`wire_builtin_payload_drops`, called right
+    /// after `register_builtin_classes`), user classes by `def_native_object!`
+    /// (monomorphized `drop_payload_fn::<P>`). `None` only for classes whose
+    /// payload the engine does not own (zapi opaque pointers) or that have no
+    /// payload — their payloads are never freed here. `finalize` looks the
+    /// callback up by class_id and frees through it.
     pub(crate) payload_drop: Option<unsafe fn(*mut c_void)>,
     /// class def unregister handler.
     pub(crate) on_unregister: Option<ClassUnregisterFn>,

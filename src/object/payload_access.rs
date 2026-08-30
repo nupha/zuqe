@@ -21,35 +21,17 @@ impl super::ObjectImpl {
     }
 }
 
-/// The single payload free exit for builtin classes. Both
-/// `ObjectImpl::finalize` and [`PayloadPtr::drop`] release through here, so a
-/// payload allocation can never be freed by two different code paths with
-/// different type views.
+/// Monomorphized payload free channel, uniform for builtin and user classes.
+/// Wired into `ClassDef::payload_drop` at registration — builtin classes by
+/// the generator (`wire_builtin_payload_drops`), user classes by
+/// `def_native_object!` — so `ObjectImpl::finalize` frees every payload
+/// through the drop callback registered in the class registry, keyed by
+/// class_id alone. `PayloadPtr` additionally captures the same function in
+/// the handle so the creation error path can free without touching the
+/// registry (Drop cannot take a `&RuntimeImpl`).
 ///
-/// User-class payloads are NOT freed here: owned ones go through the
-/// monomorphized [`drop_payload_fn`] wired into `ClassDef.payload_drop`, and
-/// opaque ones (zapi) are engine-unowned and never freed by Rust.
-///
-/// # Safety
-/// `ptr` must either be null or have been produced by
-/// `Box::into_raw(Box::new(...))` of the payload type registered for
-/// `class_id` (i.e. exactly what [`PayloadPtr`] hands out).
-pub(crate) unsafe fn free_payload(class_id: ClassID, ptr: *mut c_void) {
-    if ptr.is_null() {
-        return;
-    }
-    debug_assert!(
-        class_id < USER_CLASS_ID_START,
-        "user-class payloads free via ClassDef::payload_drop, not free_payload"
-    );
-    unsafe {
-        drop_payload(class_id, ptr);
-    }
-}
-
-/// Monomorphized free channel for user-class payloads: drops the `Box<P>`
-/// that `def_native_object!`'s `new_instance` allocated. Wired into
-/// `ClassDef::payload_drop` at registration.
+/// Classes whose payload the engine does not own (zapi opaque pointers) and
+/// payload-less classes register no drop callback and are never freed here.
 ///
 /// # Safety
 /// `ptr` must either be null or have been produced by
@@ -77,51 +59,40 @@ pub fn user_payload_trace<P: GcTrace>(ptr: *mut c_void, gcx: &mut GcTraceCtx, _c
 /// allocation), and a dropped/failed construction must not leak the box.
 /// `PayloadPtr` owns the box during that window — on error it is dropped and
 /// the payload freed; on success [`PayloadPtr::into_raw`] transfers ownership
-/// into `ObjectImpl::payload`.
+/// into `ObjectImpl::payload`, whose `finalize` frees via the drop callback
+/// registered in `ClassDef::payload_drop`.
 ///
-/// The concrete payload type is recovered from `class_id` in two ways,
-/// depending on the class kind:
-/// - builtin classes: by the generated `drop_payload` dispatch (single source
-///   of truth: `CLASS_PAYLOAD_TYPE` in `build_stdclass.rs`) — `free` stays
-///   `None`, keeping the single-free-exit invariant;
-/// - user classes: by the monomorphized [`drop_payload_fn::<P>`] captured in
-///   `free` at handle construction, so the error path needs no registry.
+/// The handle carries the monomorphized [`drop_payload_fn::<P>`] itself, so
+/// the error path frees without needing the class registry (and `Drop` needs
+/// no `&RuntimeImpl`, which it structurally cannot obtain).
 #[derive(Debug)]
 pub(crate) struct PayloadPtr {
     class_id: ClassID,
     ptr: *mut c_void,
-    /// Free channel for user-class payloads (`drop_payload_fn::<P>`); `None`
-    /// for builtin classes (generated dispatch) and opaque payloads
-    /// (engine-unowned, never freed here).
+    /// Free channel captured at construction (`drop_payload_fn::<P>`).
+    /// `None` only for payloads the engine does not own (opaque, zapi) and
+    /// for the null payload of `none()`.
     free: Option<unsafe fn(*mut c_void)>,
 }
 
 impl PayloadPtr {
     /// Box `value` as the payload of class `class_id` (builtin or user
-    /// class; the free channel is selected by the class-id domain).
+    /// class — the free channel is uniform for both).
     #[inline]
     pub(crate) fn new<T: GcTrace>(class_id: ClassID, value: T) -> Self {
+        #[cfg(debug_assertions)]
         if class_id < USER_CLASS_ID_START {
-            #[cfg(debug_assertions)]
-            {
-                let expected = payload_type_name(class_id);
-                debug_assert!(
-                    expected == Some(std::any::type_name::<T>()),
-                    "payload type mismatch for class {class_id}: registry expects {expected:?}, got {}",
-                    std::any::type_name::<T>(),
-                );
-            }
-            Self {
-                class_id,
-                ptr: Box::into_raw(Box::new(value)) as *mut c_void,
-                free: None,
-            }
-        } else {
-            Self {
-                class_id,
-                ptr: Box::into_raw(Box::new(value)) as *mut c_void,
-                free: Some(drop_payload_fn::<T>),
-            }
+            let expected = payload_type_name(class_id);
+            debug_assert!(
+                expected == Some(std::any::type_name::<T>()),
+                "payload type mismatch for class {class_id}: registry expects {expected:?}, got {}",
+                std::any::type_name::<T>(),
+            );
+        }
+        Self {
+            class_id,
+            ptr: Box::into_raw(Box::new(value)) as *mut c_void,
+            free: Some(drop_payload_fn::<T>),
         }
     }
 
@@ -173,7 +144,7 @@ impl PayloadPtr {
 
     /// Transfer ownership into a successfully created `ObjectImpl`: consume
     /// the handle without freeing. The object's `finalize` becomes the owner
-    /// and frees via [`free_payload`].
+    /// and frees via the drop callback registered in `ClassDef::payload_drop`.
     #[inline]
     pub(crate) fn into_raw(self) -> *mut c_void {
         let ptr = self.ptr;
@@ -185,21 +156,16 @@ impl PayloadPtr {
 impl Drop for PayloadPtr {
     #[inline]
     fn drop(&mut self) {
-        match self.free {
-            Some(free) => unsafe { free(self.ptr) },
-            None => {
-                if self.class_id < USER_CLASS_ID_START {
-                    unsafe { free_payload(self.class_id, self.ptr) };
-                }
-                // else: engine-unowned opaque payload — nothing to free.
-            }
+        if let Some(free) = self.free {
+            unsafe { free(self.ptr) };
         }
+        // else: engine-unowned opaque payload or null payload — nothing to free.
     }
 }
 
 /// Payload argument bound of the `*_class` create helpers. Implementations
 /// are generated per registered payload type (see `build_stdclass.rs
-/// gen_payload_accessors`), so only types the drop/trace dispatch knows can
+/// gen_payload_accessors`), so only types the trace dispatch knows can
 /// become a payload — anything else (including a wrongly re-boxed `Box<T>`)
 /// fails at compile time.
 ///

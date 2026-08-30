@@ -701,27 +701,32 @@ impl ObjectImpl {
 
         // call class finalize handler + free payload memory.
         let class_def = rt.class_registry[class_id as usize];
+        let id = self.id();
         if class_id >= crate::USER_CLASS_ID_START {
             // User class: notify on_dispose while the payload pointer is
-            // still valid, then free the owned payload via the registered
-            // payload_drop. Opaque payloads (zapi) have payload_drop == None
-            // and are never freed by the engine; builtin classes keep the
-            // generated single-free-exit dispatch below.
-            let id = self.id();
+            // still valid (notification only — the engine owns and frees
+            // owned payloads itself).
             if let Some(f) = class_def.on_finalize_opaque {
                 f(&mut *rt, ptr, class_id as usize, id);
             }
-            if let Some(free) = class_def.payload_drop {
-                unsafe { free(ptr) };
-            }
-        } else {
-            if let Some(cb) = class_def.on_finalize {
-                let id = self.id();
-                cb(&mut *rt, ptr, id);
-            }
-            unsafe {
-                payload_access::free_payload(class_id, ptr);
-            }
+        } else if let Some(cb) = class_def.on_finalize {
+            cb(&mut *rt, ptr, id);
+        }
+
+        // Unified free channel, keyed by class_id alone: every payload-owning
+        // class — builtin and user — frees through the drop callback
+        // registered in its ClassDef (builtin: generator wiring via
+        // `wire_builtin_payload_drops`; user: `def_native_object!`; opaque
+        // classes register none and are never freed by the engine).
+        #[cfg(debug_assertions)]
+        if class_id < crate::USER_CLASS_ID_START && !ptr.is_null() {
+            debug_assert!(
+                class_def.payload_drop.is_some(),
+                "builtin class {class_id} carries a live payload but no registered drop callback"
+            );
+        }
+        if let Some(free) = class_def.payload_drop {
+            unsafe { free(ptr) };
         }
     }
 }
