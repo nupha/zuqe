@@ -3,7 +3,7 @@
 
 use std::{cell::Cell, ops::DerefMut};
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::GcTrace;
 
 use crate::{
     array::Array,
@@ -25,19 +25,12 @@ use crate::{
 
 use super::{js_proxy_constructor, js_proxy_funcs};
 
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
 pub struct ProxyPayload {
     target: Object,
     handler: JSValue,
     is_func: bool,
     is_revoked: Cell<bool>,
-}
-
-impl GcTrace for ProxyPayload {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.target.trace(tr);
-        self.handler.trace(tr);
-    }
 }
 
 impl ProxyPayload {

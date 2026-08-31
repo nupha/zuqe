@@ -3,7 +3,7 @@
 
 use std::cell::Cell;
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::GcTrace;
 
 use crate::{
     Array, JS_CLASS_ITERATOR_HELPER,
@@ -16,7 +16,7 @@ use crate::{
 
 use super::{iterator_return, make_iterator_next_result};
 
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
 pub struct IteratorZipData {
     /// (inner_iterator, next_method) for each compiled entry
     pub entries: Vec<(JSValue, JSValue)>,
@@ -36,21 +36,6 @@ pub struct IteratorZipData {
     pub unequal_length: Cell<bool>,
     /// Whether any value was ever yielded (distinguishes suspended-start vs suspended-yield)
     pub yielded: Cell<bool>,
-}
-
-impl GcTrace for IteratorZipData {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        for (obj, method) in &self.entries {
-            obj.trace(tr);
-            method.trace(tr);
-        }
-        for key in &self.keys {
-            key.trace(tr);
-        }
-        for v in &self.padding {
-            v.trace(tr);
-        }
-    }
 }
 
 // =========================================================================

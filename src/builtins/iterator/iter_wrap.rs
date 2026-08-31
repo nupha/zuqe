@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::GcTrace;
 
 use crate::{
     class::ClassID,
@@ -14,17 +14,10 @@ use crate::{
 
 use super::{call_iterator_next, make_iterator_next_result};
 
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
 pub struct IteratorWrapData {
     pub(crate) obj: Object,
     pub(crate) next: JSValue,
-}
-
-impl GcTrace for IteratorWrapData {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.obj.trace(tr);
-        self.next.trace(tr);
-    }
 }
 
 pub(crate) fn js_iterator_wrap_class_init(

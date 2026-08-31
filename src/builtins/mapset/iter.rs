@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::GcTrace;
 
 use crate::{
     Array, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, ScopedContext,
@@ -15,24 +15,17 @@ use crate::{
 
 use super::{JSMapState, MapPair};
 
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
 pub struct JSMapIteratorData {
     /// None if iterator is done.
     pub obj: Option<Object>,
 
     /// result kind
+    #[gc(skip)]
     pub kind: JSIteratorKindEnum,
 
     /// current index of mapset slot
     pub(crate) index: usize,
-}
-
-impl GcTrace for JSMapIteratorData {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        if let Some(x) = self.obj {
-            x.trace(tr)
-        }
-    }
 }
 
 fn js_map_iterator_next(

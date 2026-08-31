@@ -3,7 +3,7 @@
 
 use std::cell::Cell;
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::GcTrace;
 
 use crate::{
     Callback,
@@ -22,18 +22,11 @@ use crate::{
 
 use super::{JS_IteratorGetCompleteValue, ObjectIter, make_iterator_next_result};
 
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
 pub struct JSAsyncFromSyncIteratorData {
     pub(super) obj: Object,
     pub(super) next_method: JSValue,
     pub(super) closed: Cell<bool>,
-}
-
-impl GcTrace for JSAsyncFromSyncIteratorData {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.obj.trace(tr);
-        self.next_method.trace(tr);
-    }
 }
 
 impl AsyncFromSyncIterator {

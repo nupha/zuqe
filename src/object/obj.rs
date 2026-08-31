@@ -458,7 +458,7 @@ impl ObjectImpl {
 
     /// get object payload as raw pointer
     #[inline(always)]
-    pub(crate) const fn payload_raw(&self) -> *mut c_void {
+    pub const fn payload_raw(&self) -> *mut c_void {
         self.payload
     }
 

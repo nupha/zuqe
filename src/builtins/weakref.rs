@@ -150,9 +150,12 @@ impl std::fmt::Debug for WeakRef {
     }
 }
 
+#[derive(GcTrace)]
 struct FinRecEntry {
+    #[gc(skip)]
     target: WeakRef,
     held_value: JSValue,
+    #[gc(skip)]
     token: Option<WeakRef>,
 }
 
@@ -162,16 +165,12 @@ impl std::fmt::Debug for FinRecEntry {
     }
 }
 
-impl GcTrace for FinRecEntry {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.held_value.trace(tr);
-    }
-}
-
 /// Internal data for a FinalizationRegistry instance.
+#[derive(GcTrace)]
 pub struct FinalizationRegistryData {
     pub(crate) callback: JSValue,
     entries: Vec<FinRecEntry>,
+    #[gc(skip)]
     pub(crate) realm: ContextPtr,
 }
 
@@ -181,15 +180,6 @@ impl std::fmt::Debug for FinalizationRegistryData {
             .field("entries_len", &self.entries.len())
             .field("realm", &self.realm)
             .finish()
-    }
-}
-
-impl GcTrace for FinalizationRegistryData {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.callback.trace(tr);
-        for e in self.entries.iter() {
-            e.trace(tr);
-        }
     }
 }
 

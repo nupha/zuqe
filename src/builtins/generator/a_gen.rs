@@ -3,7 +3,7 @@
 
 use std::cell::RefCell;
 
-use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
+use gc_lite::{GcTrace, GcWeak};
 
 use crate::{
     Atom, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
@@ -38,7 +38,7 @@ pub enum AGenState {
     JS_ASYNC_GENERATOR_STATE_COMPLETED,
 }
 
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
 pub struct JSAsyncGeneratorRequest {
     /// completion: GEN_MAGIC_x
     pub completion_type: i32,
@@ -50,20 +50,13 @@ pub struct JSAsyncGeneratorRequest {
     pub resolving_funcs: [JSValue; 2],
 }
 
-impl GcTrace for JSAsyncGeneratorRequest {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.result.trace(tr);
-        self.promise.trace(tr);
-        self.resolving_funcs[0].trace(tr);
-        self.resolving_funcs[1].trace(tr);
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
 pub struct AGenPayload {
     /// back ref to the generator object (const)
+    #[gc(skip)]
     generator: RefCell<GcWeak<ObjectImpl>>,
     /// generator state
+    #[gc(skip)]
     state: AGenState,
 
     /// Async execution state for bytecode running
@@ -72,13 +65,6 @@ pub struct AGenPayload {
     /// list of JSAsyncGeneratorRequest.
     /// the queue's element is consumed in resolve() or reject() call.
     queue: Vec<Box<JSAsyncGeneratorRequest>>,
-}
-
-impl GcTrace for AGenPayload {
-    fn trace(&self, gcx: &mut GcTraceCtx) {
-        self.async_state.trace(gcx);
-        self.queue.iter().for_each(|x| x.trace(gcx));
-    }
 }
 
 impl AGenPayload {

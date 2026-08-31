@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
+use gc_lite::{GcTrace, GcWeak};
 
 use crate::{
     JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET_ITERATOR,
@@ -18,7 +18,7 @@ use crate::{
 use super::{js_map_iterator_proto_funcs, js_set_iterator_proto_funcs};
 
 /// A key-value pair in a map, either strong or weak
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, GcTrace)]
 #[repr(u8)]
 pub enum MapPair {
     Strong {
@@ -27,25 +27,11 @@ pub enum MapPair {
     },
     /// use weakref for key
     Weak {
+        #[gc(skip)]
         key: GcWeak<ObjectImpl>,
         value: JSValue,
     },
     Removed,
-}
-
-impl GcTrace for MapPair {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        match self {
-            Self::Strong { key, value } => {
-                key.trace(tr);
-                value.trace(tr);
-            }
-            Self::Weak { value, .. } => {
-                value.trace(tr);
-            }
-            _ => {}
-        }
-    }
 }
 
 impl MapPair {
@@ -85,7 +71,7 @@ impl<'a> MapEntry<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
 pub struct JSMapState {
     /// is WeakSet/WeakMap?
     is_weak: bool,
@@ -97,12 +83,6 @@ pub struct JSMapState {
     /// map lock count.
     /// when map is locked, it can't do slot compression. forEach will lock the map.
     lock: u16,
-}
-
-impl GcTrace for JSMapState {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.slots.iter().for_each(|x| x.trace(tr));
-    }
 }
 
 impl JSMapState {

@@ -3,7 +3,7 @@
 
 use std::{cell::Cell, marker::PhantomData, ptr::NonNull};
 
-use gc_lite::{GcHead, GcTrace, GcTraceCtx};
+use gc_lite::{GcHead, GcTrace};
 
 use crate::{
     Array,
@@ -29,7 +29,7 @@ pub enum JSIteratorKindEnum {
     JS_ITERATOR_KIND_KEY_AND_VALUE,
 }
 
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
 pub struct ForInIterPayload {
     pub(crate) obj: Option<Object>,
     /// obj is an array?
@@ -45,15 +45,6 @@ pub struct ForInIterPayload {
     /// for fast array, this equals length of array.
     /// for non fast array, this equals to prop_enums.len()
     pub(crate) prop_count: u32,
-}
-
-impl GcTrace for ForInIterPayload {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        if let Some(o) = self.obj {
-            o.trace(tr)
-        }
-        self.prop_enums.iter().for_each(|x| x.trace(tr));
-    }
 }
 
 impl ForInIterPayload {

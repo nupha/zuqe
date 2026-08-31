@@ -25,20 +25,13 @@ pub const RE_HEADER_CAPTURE_COUNT: usize = 1;
 pub const RE_HEADER_STACK_SIZE: usize = 2;
 pub const RE_HEADER_LEN: usize = 7;
 
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
 pub struct RegExpStringIterPayload {
     iterating_regexp: Object,
     iterated_string: StringRef,
     global: bool,
     unicode: bool,
     done: Cell<bool>,
-}
-
-impl GcTrace for RegExpStringIterPayload {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.iterated_string.trace(tr);
-        self.iterating_regexp.trace(tr);
-    }
 }
 
 impl RegExpStringIterPayload {

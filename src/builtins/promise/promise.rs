@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcRef, GcTrace};
 
 use crate::{
     JS_CLASS_PROMISE, JobState, Receiver, Sender, TryRecvError,
@@ -38,8 +38,9 @@ pub enum PromiseState {
     Rejected,
 }
 
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
 pub struct PromisePayload {
+    #[gc(skip)]
     state: PromiseState,
     /// list of pending reactions: #0 for fulfills, #1 for rejects.
     reactions: [Vec<PromiseReaction>; 2],
@@ -49,14 +50,6 @@ pub struct PromisePayload {
     /// Note: only useful to debug
     #[deprecated]
     is_handled: bool,
-}
-
-impl GcTrace for PromisePayload {
-    fn trace(&self, gcx: &mut GcTraceCtx) {
-        self.reactions[0].iter().for_each(|x| x.trace(gcx));
-        self.reactions[1].iter().for_each(|x| x.trace(gcx));
-        self.result.trace(gcx);
-    }
 }
 
 impl Default for PromisePayload {

@@ -6,7 +6,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::GcTrace;
 
 use crate::{
     ClassDef, JS_CLASS_DATE,
@@ -758,15 +758,10 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, GcTrace)]
 pub struct Datetime {
     /// millis since UNIX_EPOCH
     timestamp_ms: i64,
-}
-
-impl GcTrace for Datetime {
-    #[inline(always)]
-    fn trace(&self, _: &mut GcTraceCtx) {}
 }
 
 impl Datetime {

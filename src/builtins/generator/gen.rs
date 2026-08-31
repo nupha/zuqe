@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::GcTrace;
 
 use crate::{
     Atom, Callback, ClassID, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
@@ -35,16 +35,11 @@ pub const FUNC_RET_YIELD: i32 = 1;
 pub const FUNC_RET_YIELD_STAR: i32 = 2;
 pub const FUNC_RET_INITIAL_YIELD: i32 = 3;
 
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
 pub struct GeneratorPayload {
+    #[gc(skip)]
     state: GenState,
     async_state: AsyncState,
-}
-
-impl GcTrace for GeneratorPayload {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.async_state.trace(tr);
-    }
 }
 
 impl GeneratorPayload {

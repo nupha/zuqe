@@ -129,25 +129,14 @@ impl PayloadPtr {
     pub(crate) fn as_ptr(&self) -> *mut c_void {
         self.ptr
     }
-
-    /// Transfer ownership into a successfully created `ObjectImpl`: consume
-    /// the handle without freeing. The object's `finalize` becomes the owner
-    /// and frees via the drop callback registered in `ClassDef::payload_drop`.
-    #[inline]
-    pub(crate) fn into_raw(self) -> *mut c_void {
-        let ptr = self.ptr;
-        std::mem::forget(self);
-        ptr
-    }
 }
 
 impl Drop for PayloadPtr {
     #[inline]
     fn drop(&mut self) {
-        if let Some(free) = self.drop_fn {
-            unsafe { free(self.ptr) };
+        if let Some(f) = self.drop_fn {
+            unsafe { f(self.ptr) };
         }
-        // else: engine-unowned opaque payload or null payload — nothing to free.
     }
 }
 

@@ -111,18 +111,10 @@ impl PromiseResolveFunc {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, GcTrace)]
 pub(super) struct PromiseReaction {
     pub(super) resolving_funcs: [JSValue; 2],
     pub(super) handler: JSValue,
-}
-
-impl GcTrace for PromiseReaction {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.resolving_funcs[0].trace(tr);
-        self.resolving_funcs[1].trace(tr);
-        self.handler.trace(tr);
-    }
 }
 
 impl Default for PromiseReaction {
