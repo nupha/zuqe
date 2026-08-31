@@ -9,18 +9,6 @@ use crate::{USER_CLASS_ID_START, class::ClassID};
 
 include!(concat!(env!("OUT_DIR"), "/payload_accessors.rs"));
 
-impl super::ObjectImpl {
-    #[inline(always)]
-    pub fn payload_ptr(&self) -> *mut c_void {
-        self.payload
-    }
-
-    #[inline(always)]
-    pub(crate) fn payload_ptr_set(&mut self, ptr: *mut c_void) {
-        self.payload = ptr;
-    }
-}
-
 /// Monomorphized payload free channel, uniform for builtin and user classes.
 /// Wired into `ClassDef::payload_drop` at registration — builtin classes by
 /// the generator (`wire_builtin_payload_drops`), user classes by
@@ -69,10 +57,10 @@ pub fn user_payload_trace<P: GcTrace>(ptr: *mut c_void, gcx: &mut GcTraceCtx, _c
 pub(crate) struct PayloadPtr {
     class_id: ClassID,
     ptr: *mut c_void,
-    /// Free channel captured at construction (`drop_payload_fn::<P>`).
+    /// Drop function captured at construction (`drop_payload_fn::<P>`).
     /// `None` only for payloads the engine does not own (opaque, zapi) and
     /// for the null payload of `none()`.
-    free: Option<unsafe fn(*mut c_void)>,
+    drop_fn: Option<unsafe fn(*mut c_void)>,
 }
 
 impl PayloadPtr {
@@ -92,7 +80,7 @@ impl PayloadPtr {
         Self {
             class_id,
             ptr: Box::into_raw(Box::new(value)) as *mut c_void,
-            free: Some(drop_payload_fn::<T>),
+            drop_fn: Some(drop_payload_fn::<T>),
         }
     }
 
@@ -105,7 +93,7 @@ impl PayloadPtr {
         Self {
             class_id,
             ptr,
-            free: None,
+            drop_fn: None,
         }
     }
 
@@ -126,7 +114,7 @@ impl PayloadPtr {
         Self {
             class_id,
             ptr: std::ptr::null_mut(),
-            free: None,
+            drop_fn: None,
         }
     }
 
@@ -156,7 +144,7 @@ impl PayloadPtr {
 impl Drop for PayloadPtr {
     #[inline]
     fn drop(&mut self) {
-        if let Some(free) = self.free {
+        if let Some(free) = self.drop_fn {
             unsafe { free(self.ptr) };
         }
         // else: engine-unowned opaque payload or null payload — nothing to free.

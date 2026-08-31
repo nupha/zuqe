@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{collections::HashMap, path::Path};
-
-use once_cell::sync::Lazy;
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(i32)]
@@ -141,6 +139,76 @@ impl PayloadKey {
             PayloadKey::IntlSegmenter => "intl_segmenter",
         }
     }
+
+    /// Rust type path for this payload kind, used by codegen to emit
+    /// `drop_payload_fn::<T>`, `trace_payload`, `IntoPayloadPtr` impls, etc.
+    /// Returns `None` for `PayloadKey::None` (payload-less classes).
+    pub fn type_str(&self) -> Option<&'static str> {
+        match self {
+            PayloadKey::None => None,
+            PayloadKey::Array => Some("crate::array::ArrayPayload"),
+            PayloadKey::Bool => Some("bool"),
+            PayloadKey::String => Some("crate::string::StringRef"),
+            PayloadKey::Value => Some("crate::value::JSValue"),
+            PayloadKey::NativeFunc => Some("Box<crate::function::NFuncPayload>"),
+            PayloadKey::BcFunction => Some("Box<crate::function::BFuncPayload>"),
+            PayloadKey::BoundFunction => Some("Box<crate::function::BoundFunctionPayload>"),
+            #[cfg(feature = "builtin_regexp")]
+            PayloadKey::RegExp => Some("Box<crate::builtins::regexp::RegExpData>"),
+            PayloadKey::ForInIterator => Some("Box<crate::builtins::iterator::ForInIterPayload>"),
+            PayloadKey::ArrayBuffer => Some("Box<crate::builtins::array_buffer::ArrayBufferPayload>"),
+            PayloadKey::TypedArray => Some("Box<crate::builtins::typed_array::TypedArrayPayload>"),
+            #[cfg(feature = "big_int")]
+            PayloadKey::BigInt => Some("crate::bigint::BigIntRef"),
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlCollator => Some("Box<crate::builtins::intl::collator::CollatorData>"),
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlDateTimeFormat => Some("Box<crate::builtins::intl::date_time_format::DateTimeFormatData>"),
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlDurationFormat => Some("Box<crate::builtins::intl::duration_format::DurationFormatData>"),
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlDisplayNames => Some("Box<crate::builtins::intl::display_names::DisplayNamesData>"),
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlListFormat => Some("Box<crate::builtins::intl::list_format::ListFormatData>"),
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlLocale => Some("Box<crate::builtins::intl::locale::LocaleData>"),
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlNumberFormat => Some("Box<crate::builtins::intl::number_format::NumberFormatData>"),
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlPluralRules => Some("Box<crate::builtins::intl::plural_rules::PluralRulesData>"),
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlRelativeTimeFormat => Some("Box<crate::builtins::intl::relative_time_format::RelativeTimeFormatData>"),
+            #[cfg(feature = "intl402")]
+            PayloadKey::IntlSegmenter => Some("Box<crate::builtins::intl::segmenter::SegmenterData>"),
+            PayloadKey::DataView => Some("Box<crate::builtins::typed_array::DataViewPayload>"),
+            #[cfg(feature = "builtin_mapset")]
+            PayloadKey::MapSet => Some("Box<crate::builtins::mapset::JSMapState>"),
+            #[cfg(feature = "builtin_mapset")]
+            PayloadKey::MapSetIterator => Some("Box<crate::builtins::mapset::JSMapIteratorData>"),
+            PayloadKey::ArrayIterator => Some("Box<crate::builtins::iterator::ArrayIterPayload>"),
+            #[cfg(feature = "builtin_regexp")]
+            PayloadKey::RegExpStringIterator => Some("Box<crate::builtins::regexp::RegExpStringIterPayload>"),
+            PayloadKey::Generator => Some("Box<crate::builtins::generator::GeneratorPayload>"),
+            #[cfg(feature = "builtin_proxy")]
+            PayloadKey::Proxy => Some("Box<crate::builtins::proxy::ProxyPayload>"),
+            PayloadKey::Promise => Some("Box<crate::builtins::promise::PromisePayload>"),
+            PayloadKey::PromiseResolvingFunction => Some("Box<crate::builtins::promise::PromiseResolvePayload>"),
+            PayloadKey::AsyncFunctionResolving => Some("crate::function::AsyncState"),
+            PayloadKey::AsyncFromSyncIterator => Some("Box<crate::builtins::iterator::JSAsyncFromSyncIteratorData>"),
+            PayloadKey::AsyncGenerator => Some("Box<crate::builtins::generator::AGenPayload>"),
+            PayloadKey::AsyncIterableIterator => Some("Box<crate::builtins::iterator::AsyncIterPayload>"),
+            PayloadKey::IteratorHelper => Some("Box<crate::builtins::iterator::IteratorHelperData>"),
+            PayloadKey::IteratorWrap => Some("Box<crate::builtins::iterator::IteratorWrapData>"),
+            PayloadKey::IteratorConcat => Some("Box<crate::builtins::iterator::IteratorConcatData>"),
+            PayloadKey::IteratorZip => Some("Box<crate::builtins::iterator::IteratorZipData>"),
+            #[cfg(feature = "builtin_date")]
+            PayloadKey::Datetime => Some("crate::builtins::date::Datetime"),
+            #[cfg(feature = "builtin_weakref")]
+            PayloadKey::WeakRef => Some("Box<crate::builtins::weakref::WeakRefData>"),
+            #[cfg(feature = "builtin_weakref")]
+            PayloadKey::FinalizationRegistry => Some("Box<crate::builtins::weakref::FinalizationRegistryData>"),
+        }
+    }
 }
 
 impl std::fmt::Display for PayloadKey {
@@ -148,179 +216,6 @@ impl std::fmt::Display for PayloadKey {
         write!(f, "{}", self.as_str())
     }
 }
-
-static CLASS_PAYLOAD_TYPE: Lazy<HashMap<PayloadKey, &'static str>> = Lazy::new(|| {
-    let mut m = HashMap::with_capacity(128);
-
-    m.insert(PayloadKey::Array, "crate::array::ArrayPayload");
-    m.insert(PayloadKey::Bool, "bool");
-    m.insert(PayloadKey::String, "crate::string::StringRef");
-    m.insert(PayloadKey::Value, "crate::value::JSValue");
-    m.insert(PayloadKey::NativeFunc, "Box<crate::function::NFuncPayload>");
-    m.insert(PayloadKey::BcFunction, "Box<crate::function::BFuncPayload>");
-    m.insert(
-        PayloadKey::BoundFunction,
-        "Box<crate::function::BoundFunctionPayload>",
-    );
-    #[cfg(feature = "builtin_regexp")]
-    m.insert(
-        PayloadKey::RegExp,
-        "Box<crate::builtins::regexp::RegExpData>",
-    );
-    m.insert(
-        PayloadKey::ForInIterator,
-        "Box<crate::builtins::iterator::ForInIterPayload>",
-    );
-    m.insert(
-        PayloadKey::ArrayBuffer,
-        "Box<crate::builtins::array_buffer::ArrayBufferPayload>",
-    );
-    m.insert(
-        PayloadKey::TypedArray,
-        "Box<crate::builtins::typed_array::TypedArrayPayload>",
-    );
-    #[cfg(feature = "big_int")]
-    m.insert(PayloadKey::BigInt, "crate::bigint::BigIntRef");
-    #[cfg(feature = "intl402")]
-    m.insert(
-        PayloadKey::IntlCollator,
-        "Box<crate::builtins::intl::collator::CollatorData>",
-    );
-    #[cfg(feature = "intl402")]
-    m.insert(
-        PayloadKey::IntlDateTimeFormat,
-        "Box<crate::builtins::intl::date_time_format::DateTimeFormatData>",
-    );
-    #[cfg(feature = "intl402")]
-    m.insert(
-        PayloadKey::IntlDurationFormat,
-        "Box<crate::builtins::intl::duration_format::DurationFormatData>",
-    );
-    #[cfg(feature = "intl402")]
-    m.insert(
-        PayloadKey::IntlDisplayNames,
-        "Box<crate::builtins::intl::display_names::DisplayNamesData>",
-    );
-    #[cfg(feature = "intl402")]
-    m.insert(
-        PayloadKey::IntlListFormat,
-        "Box<crate::builtins::intl::list_format::ListFormatData>",
-    );
-    #[cfg(feature = "intl402")]
-    m.insert(
-        PayloadKey::IntlLocale,
-        "Box<crate::builtins::intl::locale::LocaleData>",
-    );
-    #[cfg(feature = "intl402")]
-    m.insert(
-        PayloadKey::IntlNumberFormat,
-        "Box<crate::builtins::intl::number_format::NumberFormatData>",
-    );
-    #[cfg(feature = "intl402")]
-    m.insert(
-        PayloadKey::IntlPluralRules,
-        "Box<crate::builtins::intl::plural_rules::PluralRulesData>",
-    );
-    #[cfg(feature = "intl402")]
-    m.insert(
-        PayloadKey::IntlRelativeTimeFormat,
-        "Box<crate::builtins::intl::relative_time_format::RelativeTimeFormatData>",
-    );
-    #[cfg(feature = "intl402")]
-    m.insert(
-        PayloadKey::IntlSegmenter,
-        "Box<crate::builtins::intl::segmenter::SegmenterData>",
-    );
-    m.insert(
-        PayloadKey::DataView,
-        "Box<crate::builtins::typed_array::DataViewPayload>",
-    );
-    #[cfg(feature = "builtin_mapset")]
-    m.insert(
-        PayloadKey::MapSet,
-        "Box<crate::builtins::mapset::JSMapState>",
-    );
-    #[cfg(feature = "builtin_mapset")]
-    m.insert(
-        PayloadKey::MapSetIterator,
-        "Box<crate::builtins::mapset::JSMapIteratorData>",
-    );
-    m.insert(
-        PayloadKey::ArrayIterator,
-        "Box<crate::builtins::iterator::ArrayIterPayload>",
-    );
-    #[cfg(feature = "builtin_regexp")]
-    m.insert(
-        PayloadKey::RegExpStringIterator,
-        "Box<crate::builtins::regexp::RegExpStringIterPayload>",
-    );
-    m.insert(
-        PayloadKey::Generator,
-        "Box<crate::builtins::generator::GeneratorPayload>",
-    );
-    #[cfg(feature = "builtin_proxy")]
-    m.insert(
-        PayloadKey::Proxy,
-        "Box<crate::builtins::proxy::ProxyPayload>",
-    );
-    m.insert(
-        PayloadKey::Promise,
-        "Box<crate::builtins::promise::PromisePayload>",
-    );
-    m.insert(
-        PayloadKey::PromiseResolvingFunction,
-        "Box<crate::builtins::promise::PromiseResolvePayload>",
-    );
-    m.insert(
-        PayloadKey::AsyncFunctionResolving,
-        "crate::function::AsyncState",
-    );
-    m.insert(
-        PayloadKey::AsyncFromSyncIterator,
-        "Box<crate::builtins::iterator::JSAsyncFromSyncIteratorData>",
-    );
-    m.insert(
-        PayloadKey::AsyncGenerator,
-        "Box<crate::builtins::generator::AGenPayload>",
-    );
-    m.insert(
-        PayloadKey::AsyncIterableIterator,
-        "Box<crate::builtins::iterator::AsyncIterPayload>",
-    );
-
-    m.insert(
-        PayloadKey::IteratorHelper,
-        "Box<crate::builtins::iterator::IteratorHelperData>",
-    );
-    m.insert(
-        PayloadKey::IteratorWrap,
-        "Box<crate::builtins::iterator::IteratorWrapData>",
-    );
-    m.insert(
-        PayloadKey::IteratorConcat,
-        "Box<crate::builtins::iterator::IteratorConcatData>",
-    );
-    m.insert(
-        PayloadKey::IteratorZip,
-        "Box<crate::builtins::iterator::IteratorZipData>",
-    );
-
-    #[cfg(feature = "builtin_date")]
-    m.insert(PayloadKey::Datetime, "crate::builtins::date::Datetime");
-
-    #[cfg(feature = "builtin_weakref")]
-    m.insert(
-        PayloadKey::WeakRef,
-        "Box<crate::builtins::weakref::WeakRefData>",
-    );
-    #[cfg(feature = "builtin_weakref")]
-    m.insert(
-        PayloadKey::FinalizationRegistry,
-        "Box<crate::builtins::weakref::FinalizationRegistryData>",
-    );
-
-    m
-});
 
 #[derive(Debug)]
 struct ClassInfo {
@@ -928,7 +823,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
 /// `None` when the class carries no payload (or its payload type is
 /// feature-gated out together with the class).
 fn payload_drop_expr(key: PayloadKey) -> Option<String> {
-    let pty = CLASS_PAYLOAD_TYPE.get(&key)?;
+    let pty = key.type_str()?;
     let inner_ty = if pty.starts_with("Box<") && pty.ends_with(">") {
         &pty[4..pty.len() - 1]
     } else {
@@ -944,13 +839,23 @@ pub fn gen_payload_accessors(outfile: &Path) {
     let mut get_payload_methods = Vec::<String>::new();
     let mut into_payload_ptr_impls = std::collections::BTreeSet::<&str>::new();
 
-    let mut kvs = CLASS_PAYLOAD_TYPE.iter().collect::<Vec<_>>();
-    kvs.sort();
-    for (k, pty) in kvs {
+    // Collect unique (PayloadKey, type_str) pairs from CLASS_DEF_LIST
+    let mut seen = std::collections::BTreeSet::<PayloadKey>::new();
+    let mut keys_with_types = Vec::<(PayloadKey, &str)>::new();
+    for cdef in CLASS_DEF_LIST {
+        if cdef.key == PayloadKey::None || !seen.insert(cdef.key) {
+            continue;
+        }
+        if let Some(pty) = cdef.key.type_str() {
+            keys_with_types.push((cdef.key, pty));
+        }
+    }
+
+    for (k, pty) in &keys_with_types {
         let class_ids = CLASS_DEF_LIST
             .iter()
             .filter_map(|c| {
-                if c.key.eq(k) {
+                if c.key == *k {
                     Some(format!("crate::JS_CLASS_{}", c.const_name))
                 } else {
                     None
