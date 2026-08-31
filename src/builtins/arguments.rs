@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
+
 use crate::{
     Atom, JSValue, ScopedContext, array::ArrayPayload, class::ClassExoticMethods,
     object::JS_PROP_NO_EXOTIC,

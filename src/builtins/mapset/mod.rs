@@ -7,7 +7,7 @@ mod map;
 
 pub use {class_map::*, iter::*, map::*};
 
-use crate::object::{MapIterator, MapSet};
+use crate::object::MapSet;
 
 crate::def_native_object!(
     builtin,
