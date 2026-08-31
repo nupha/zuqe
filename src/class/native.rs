@@ -208,11 +208,9 @@ macro_rules! def_native_object {
                 ctx: &mut $crate::ScopedContext,
                 new_target: $crate::JSValue,
             ) -> Result<Self, i32> {
-                ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject>::class_id(), std::ptr::null_mut())
+                ctx.create_class_instance(new_target, <Self as $crate::NativeObject>::class_id())
                     .map(Self)
-                    .map_err(|_| {
-                        -1
-                    })
+                    .map_err(|_| -1)
             }
         }
     };
@@ -479,7 +477,7 @@ macro_rules! def_native_object {
                 ctx: &mut $crate::ScopedContext,
                 new_target: $crate::JSValue,
             ) -> Result<Self, i32> {
-                ctx.create_class_instance_with_opaque(new_target, <Self as $crate::NativeObject>::class_id(), std::ptr::null_mut())
+                ctx.create_class_instance(new_target, <Self as $crate::NativeObject>::class_id())
                     .map(Self)
                     .map_err(|_| -1)
             }
@@ -556,7 +554,7 @@ macro_rules! def_native_object {
             }
 
             pub fn payload_mut_of<'a>(val: &'a mut $crate::JSValue) -> Option<&'a mut $payload_ty> {
-                let mut o = val.as_object()?;
+                let o = val.as_object()?;
                 if o.class_id() != <Self as $crate::NativeObject>::class_id() {
                     return None;
                 }

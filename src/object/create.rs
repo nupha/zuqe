@@ -97,16 +97,11 @@ impl<'c> ScopedContext<'c> {
         ObjectImpl::create(self, Some(shape), payload)
     }
 
-    /// Create new builtin class instance with the class proto and a
-    /// pre-built payload (the class comes from the payload).
+    /// Create new class instance with the class proto and a payload
     pub(crate) fn create_instance_with_payload(
         &mut self,
         payload: PayloadPtr,
     ) -> Result<Object, i32> {
-        debug_assert!(
-            payload.class_id() < USER_CLASS_ID_START,
-            "create_instance_with_payload is for builtin class only"
-        );
         let proto = self.class_proto(payload.class_id());
         self.create_instance_with_proto_payload(proto, payload)
     }
@@ -124,11 +119,6 @@ impl<'c> ScopedContext<'c> {
         class_id: ClassID,
         payload: P,
     ) -> Result<Object, i32> {
-        if class_id < USER_CLASS_ID_START {
-            let _ = self.throw_internal_error("expect non-builtin class");
-            return Err(-1);
-        }
-
         #[cfg(debug_assertions)]
         {
             let expected = self
@@ -155,7 +145,7 @@ impl<'c> ScopedContext<'c> {
     /// The pointer is stored as-is and passed back verbatim in the class's
     /// trace/dispose callbacks; the engine never frees or dereferences it
     /// (zapi usage).
-    pub fn create_class_instance_with_opaque(
+    pub(crate) fn create_class_instance_with_opaque(
         &mut self,
         new_target: JSValue,
         class_id: ClassID,
