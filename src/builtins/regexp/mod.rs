@@ -5,9 +5,7 @@ mod class_regexp;
 mod class_regexp_iter;
 mod re;
 
-pub use {class_regexp::*, class_regexp_iter::*, re::*};
-
-use crate::object::RegExp;
+pub use {crate::object::RegExp, class_regexp::*, class_regexp_iter::*, re::*};
 
 crate::def_native_object!(
     builtin,

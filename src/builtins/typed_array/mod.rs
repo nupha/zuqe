@@ -7,9 +7,13 @@ mod class_typedarray;
 mod dv;
 mod ta;
 
-pub use {class_dataview::*, class_typedarray::*, dv::*, ta::*};
-
-use crate::object::{DataView, TypedArray};
+pub use {
+    crate::object::{DataView, TypedArray},
+    class_dataview::*,
+    class_typedarray::*,
+    dv::*,
+    ta::*,
+};
 
 crate::def_native_object!(
     builtin,
