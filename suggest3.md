@@ -1,7 +1,7 @@
 # 统一 Builtin Class 与 User Native Class 的注册范式
 
-> **状态: Phase 0-5 已完成 (commit 8f80097b)**
-> Phase 5.5 (NativeObject trait 扩展) 和 Phase 6 (清理) 待后续完成。
+> **状态: Phase 0-5.5 已完成 (commit cd956910)**
+> Phase 6 (清理) 待后续完成。
 
 ## 1. 统一后的设计
 
@@ -192,11 +192,12 @@ pub fn new_with_atom(
 
 ### Phase 6: 清理 ⏳
 
-**待完成**:
-1. 删除 `ClassDef::builtin()` 和 `ClassDef::builtin_with_init_func()`
-2. 删除 `register_builtin_classes()` 方法
-3. 删除 `payload_drop_expr()` 函数
-4. 删除未使用的 `BUILTIN_CLASS_DEFS`/`BUILTIN_PAYLOAD_DROPS` 相关代码
+**待完成** — 所有 builtin class 已迁移，以下代码可安全删除：
+
+1. **`src/class/class_def.rs`**: 删除 `ClassDef::builtin()` 和 `ClassDef::builtin_with_init_func()` 方法（不再有调用者）
+2. **`src/class/using.rs`**: 删除 `RuntimeImpl::register_builtin_classes()` 方法（不再有调用者）
+3. **`build_stdclass.rs`**: 删除 `payload_drop_expr()` 函数和 `wire_builtin_payload_drops()` 生成逻辑
+4. **`src/class/mod.rs`**: 清理未使用的类型引用
 
 ## 3. 关键技术细节
 
