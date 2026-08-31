@@ -172,11 +172,23 @@ pub fn new_with_atom(
 | 模块 | ModuleNS | exotic |
 | Intl | 全部 10 个 intl 类 | payload |
 
-### Phase 5.5: NativeObject trait 扩展 ⏳
+### Phase 5.5: NativeObject trait 扩展 ✅
 
-**待完成** — 将散落的逻辑收拢到 trait 中:
-- `class_name()`, `is_instance_of()`, `from_object()`, `from_value()`
-- `Object::as_native_object<O>()` 标记 `#[deprecated]`
+**文件: `src/class/native.rs`**
+
+1. 扩展 `NativeObject` trait:
+   ```rust
+   pub unsafe trait NativeObject: Clone + TryFrom<JSValue> + TryFrom<Object> {
+       fn class_id() -> ClassID;
+       fn class_name() -> &'static str;
+       fn is_instance_of(obj: &Object) -> bool { ... }
+       fn from_object(obj: &Object) -> Option<&Self> { ... }
+       fn from_value(val: &JSValue) -> Option<Self> { ... }
+   }
+   ```
+2. `Object::as_native_object<O>()` 和 `JSValue::as_native_object<O>()` 标记 `#[deprecated]`
+3. `@impl` 和 `@builtin-impl` 宏规则生成 `class_name()` 返回 `CLASS_NAME` 常量
+4. `TryFrom<JSValue>` 实现改用 `NativeObject::from_value()`
 
 ### Phase 6: 清理 ⏳
 
