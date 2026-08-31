@@ -234,8 +234,7 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
                 crate::JS_CLASS_INTL_NUMBER_FORMAT,
                 data,
             )
-            .map_err(|_| -1)?
-            .into();
+            .map(JSValue::from)?;
 
         let derived = new_target
             .as_object()
@@ -256,15 +255,8 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
     }
 
     let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
-
-    let instance = ctx
-        .ordinary_create_from_constructor_class(
-            new_target,
-            crate::JS_CLASS_INTL_NUMBER_FORMAT,
-            data,
-        )
-        .map_err(|_| -1)?;
-    Ok(JSValue::from(instance))
+    ctx.ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_NUMBER_FORMAT, data)
+        .map(JSValue::from)
 }
 
 /// Build `NumberFormatData` directly (no JS option plumbing) for internal

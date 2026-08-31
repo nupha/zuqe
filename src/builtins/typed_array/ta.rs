@@ -375,10 +375,7 @@ impl TypedArray {
         }
 
         let isa = *ta;
-
-        let ta = ctx
-            .ordinary_create_from_constructor_class(new_target, class_id, isa)
-            .map_err(|_| -1)?;
+        let ta = ctx.ordinary_create_from_constructor_class(new_target, class_id, isa)?;
 
         // establish mutual references between TypedArray <==> ArrayBuffer
         {

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-
 use gc_lite::GcTrace;
 
 use crate::{
@@ -155,13 +154,8 @@ pub(super) fn js_generator_function_call(
     p.resume(ctx)?;
 
     // create Generator instance
-    ctx.ordinary_create_from_constructor_class(
-        func_obj,
-        JS_CLASS_GENERATOR,
-        *p,
-    )
-    .map(JSValue::from)
-    .map_err(|_| -1)
+    ctx.ordinary_create_from_constructor_class(func_obj, JS_CLASS_GENERATOR, *p)
+        .map(JSValue::from)
 }
 
 fn js_generator_next(

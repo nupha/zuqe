@@ -86,10 +86,8 @@ pub(crate) fn js_list_format_constructor(ctx: &mut ScopedContext, cc: CallContex
         }
     }
 
-    let instance = ctx
-        .ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LIST_FORMAT, data)
-        .map_err(|_| -1)?;
-    Ok(JSValue::from(instance))
+    ctx.ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LIST_FORMAT, data)
+        .map(JSValue::from)
 }
 
 fn js_list_format_format(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

@@ -3,6 +3,8 @@
 
 use std::ffi::c_void;
 
+use gc_lite::GcTrace;
+
 use crate::{
     FieldDef, USER_CLASS_ID_START,
     atom::Atom,
@@ -299,7 +301,7 @@ impl<'c> ScopedContext<'c> {
         )
     }
 
-    pub fn add_global_constructor(
+    pub(crate) fn add_global_constructor(
         &mut self,
         name: &str,
         func_obj: Object,
@@ -327,8 +329,8 @@ impl<'c> ScopedContext<'c> {
         Ok(())
     }
 
-    #[inline]
-    pub fn bind_ctor_proto(&mut self, ctor: Object, proto: Object) -> Result<(), i32> {
+    #[inline(always)]
+    pub(crate) fn bind_ctor_proto(&mut self, ctor: Object, proto: Object) -> Result<(), i32> {
         self.bind_ctor_proto_ex(ctor, proto, 0, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
     }
 
@@ -391,33 +393,8 @@ impl<'c> ScopedContext<'c> {
         }
     }
 
+    #[inline(always)]
     pub fn use_class(&mut self, class_id: ClassID) -> Result<(), i32> {
         self.use_classes(&[class_id])
-    }
-
-    pub fn use_class_name(&mut self, name: &str) -> Result<(), i32> {
-        let atom_name = Atom::from_str(self, name)?;
-
-        if let Some(id) = self
-            .rt_ptr()
-            .class_registry
-            .iter()
-            .position(|x| !x.name_atom.is_null() && x.name_atom == atom_name)
-        {
-            self.use_class(id as ClassID)
-        } else {
-            Err(self.throw_internal_error(&format!("class '{}' was not registererd", name)))
-        }
-    }
-
-    /// create a new class instance with an engine-unowned opaque payload
-    pub fn new_instance(
-        &mut self,
-        class_id: ClassID,
-        ctor: JSValue,
-        opaque: *mut c_void,
-    ) -> Result<Object, i32> {
-        self.ordinary_create_from_constructor_payload(ctor, PayloadPtr::opaque(class_id, opaque))
-            .map_err(|_| -1)
     }
 }

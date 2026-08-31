@@ -122,10 +122,8 @@ pub(crate) fn js_locale_constructor(ctx: &mut ScopedContext, cc: CallContext) ->
         }
     }
 
-    let instance = ctx
-        .ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LOCALE, data)
-        .map_err(|_| -1)?;
-    Ok(JSValue::from(instance))
+    ctx.ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LOCALE, data)
+        .map(JSValue::from)
 }
 
 /// Canonicalize `tag` into a `LocaleData`; RangeError when invalid.
@@ -291,10 +289,8 @@ fn js_locale_maximize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         locale: l,
         raw: this.raw.clone(),
     };
-    let instance = ctx
-        .ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LOCALE, data)
-        .map_err(|_| -1)?;
-    Ok(JSValue::from(instance))
+    ctx.ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LOCALE, data)
+        .map(JSValue::from)
 }
 
 fn js_locale_minimize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -313,10 +309,8 @@ fn js_locale_minimize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         locale: l,
         raw: this.raw.clone(),
     };
-    let instance = ctx
-        .ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LOCALE, data)
-        .map_err(|_| -1)?;
-    Ok(JSValue::from(instance))
+    ctx.ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LOCALE, data)
+        .map(JSValue::from)
 }
 
 fn apply_locale_options(

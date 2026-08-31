@@ -308,14 +308,12 @@ fn js_duration_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
         .with_numbering_system(None)
     };
 
-    let instance = ctx
-        .ordinary_create_from_constructor_class(
-            new_target,
-            crate::JS_CLASS_INTL_DURATION_FORMAT,
-            data,
-        )
-        .map_err(|_| -1)?;
-    Ok(JSValue::from(instance))
+    ctx.ordinary_create_from_constructor_class(
+        new_target,
+        crate::JS_CLASS_INTL_DURATION_FORMAT,
+        data,
+    )
+    .map(JSValue::from)
 }
 
 impl DurationFormatData {

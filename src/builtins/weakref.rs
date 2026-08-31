@@ -50,15 +50,8 @@ fn js_weakref_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         return Err(ctx.throw_type_error("WeakRef target must be an object"));
     };
 
-    let obj = ctx
-        .ordinary_create_from_constructor_class(
-            new_target,
-            JS_CLASS_WEAKREF,
-            WeakRefData { target },
-        )
-        .map_err(|_| -1)?;
-
-    Ok(JSValue::from(obj))
+    ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_WEAKREF, WeakRefData { target })
+        .map(JSValue::from)
 }
 
 fn js_weakref_deref(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -237,11 +230,8 @@ fn js_finrec_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         realm: ctx_ptr,
     };
 
-    let obj = ctx
-        .ordinary_create_from_constructor_class(new_target, JS_CLASS_FINALIZATION_REGISTRY, data)
-        .map_err(|_| -1)?;
-
-    Ok(JSValue::from(obj))
+    ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_FINALIZATION_REGISTRY, data)
+        .map(JSValue::from)
 }
 
 fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

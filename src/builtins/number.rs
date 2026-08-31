@@ -34,7 +34,6 @@ pub fn js_number_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     if !new_target.is_undefined() {
         ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_NUMBER, val)
             .map(JSValue::from)
-            .map_err(|_| -1)
     } else {
         Ok(val)
     }

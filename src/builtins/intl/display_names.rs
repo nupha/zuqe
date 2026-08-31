@@ -78,19 +78,11 @@ pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallCont
         fallback_str: "code",
         language_display: "dialect",
     };
-    let mut instance = match ctx.ordinary_create_from_constructor_class(
+    let mut instance = ctx.ordinary_create_from_constructor_class(
         cc.this(),
         crate::JS_CLASS_INTL_DISPLAY_NAMES,
         default_data,
-    ) {
-        Ok(o) => o,
-        // ordinary_create_from_constructor  may leave a pending JS exception when
-        // reading `new_target.prototype` fails (e.g. a poisoned getter).
-        // Propagate the pending exception.
-        Err(_) => {
-            return Err(-1);
-        }
-    };
+    )?;
 
     // Step 3+: argument validation
     let locale = resolve_locale(ctx, cc.arg(0))?;

@@ -28,7 +28,8 @@ pub type JSHostPromiseRejectionTracker = fn(
     promise: Promise,
     reason: JSValue,
     is_handled: ::core::ffi::c_int,
-    opaque: *mut ::core::ffi::c_void);
+    opaque: *mut ::core::ffi::c_void,
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -297,13 +298,8 @@ impl Promise {
             is_handled: false,
         });
         let promise = Self(
-            ctx.ordinary_create_from_constructor_class(
-                ctor,
-                JS_CLASS_PROMISE,
-                *isa,
-            )
-            .map_err(|_| -1)?
-            .0,
+            ctx.ordinary_create_from_constructor_class(ctor, JS_CLASS_PROMISE, *isa)?
+                .0,
         );
 
         let rr = promise.create_resolving_functions(ctx)?;
@@ -427,8 +423,7 @@ impl Promise {
                 JSValue::UNDEFINED,
                 JS_CLASS_PROMISE,
                 PromisePayload::default(),
-            )
-            .map_err(|_| -1)?
+            )?
             .0,
         );
 
@@ -625,11 +620,7 @@ impl Promise {
                 crate::JS_CLASS_PROMISE_REJECT_FUNCTION
             };
             let func = ctx
-                .create_instance_with_proto_class(
-                    Some(func_proto),
-                    class_id,
-                    *p,
-                )
+                .create_instance_with_proto_class(Some(func_proto), class_id, *p)
                 .map_err(|_| -1)?;
             js_function_set_properties(ctx, func, Atom::CONST_empty_string, 1)?;
             resolving_funcs[i as usize] = func.into();

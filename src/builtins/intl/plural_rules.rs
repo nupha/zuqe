@@ -218,10 +218,8 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
         notation,
         compact_display,
     };
-    let instance = ctx
-        .ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_PLURAL_RULES, data)
-        .map_err(|_| -1)?;
-    Ok(JSValue::from(instance))
+    ctx.ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_PLURAL_RULES, data)
+        .map(JSValue::from)
 }
 
 fn js_plural_rules_select(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

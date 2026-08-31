@@ -261,7 +261,6 @@ impl ArrayBuffer {
             *ab,
         )
         .map(|o| ArrayBuffer(o.0))
-        .map_err(|_| -1)
     }
 
     /// create empty array buffer instance with required capacity.
@@ -314,8 +313,7 @@ impl ArrayBuffer {
                 },
                 *isa,
             )
-            .map(|o| Self(o.0))
-            .map_err(|_| -1)?;
+            .map(|o| Self(o.0))?;
 
         // 2. allocate buffer and set buffer to instance
         let data = if capacity == 0 {

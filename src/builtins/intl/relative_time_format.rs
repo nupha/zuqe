@@ -128,14 +128,12 @@ pub(crate) fn js_relative_time_format_constructor(
         ns_opt.map(|s| Box::leak(s.into_boxed_str()) as &'static str);
     data.locale = super::common::resolve_locale_keys(data.locale, &[("nu", ns_static)]);
 
-    let instance = ctx
-        .ordinary_create_from_constructor_class(
-            cc.this(),
-            crate::JS_CLASS_INTL_RELATIVE_TIME_FORMAT,
-            data,
-        )
-        .map_err(|_| -1)?;
-    Ok(JSValue::from(instance))
+    ctx.ordinary_create_from_constructor_class(
+        cc.this(),
+        crate::JS_CLASS_INTL_RELATIVE_TIME_FORMAT,
+        data,
+    )
+    .map(JSValue::from)
 }
 
 /// One element of a partitioned relative-time pattern.

@@ -934,7 +934,6 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     } else {
         ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_DATE, tm)
             .map(JSValue::from)
-            .map_err(|_| -1)
     }
 }
 

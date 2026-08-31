@@ -21,13 +21,11 @@ use crate::{
 
 pub(crate) fn js_object_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
-
     if !new_target.is_undefined() && ctx.rt().current_function() != new_target {
         ctx.ordinary_create_from_constructor_payload(
             new_target,
             PayloadPtr::none(crate::JS_CLASS_OBJECT),
         )
-        .map_err(|_| -1)
     } else {
         let v = cc.arg(0);
         if v.is_undefined_or_null() {

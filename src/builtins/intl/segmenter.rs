@@ -89,10 +89,8 @@ pub(crate) fn js_segmenter_constructor(ctx: &mut ScopedContext, cc: CallContext)
         locale,
         granularity,
     };
-    let instance = ctx
-        .ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_SEGMENTER, data)
-        .map_err(|_| -1)?;
-    Ok(JSValue::from(instance))
+    ctx.ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_SEGMENTER, data)
+        .map(JSValue::from)
 }
 
 /// GetOption for string-valued options: read the property, coerce via

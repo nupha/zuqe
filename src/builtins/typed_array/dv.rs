@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_DATAVIEW,
-    builtins::array_buffer::ArrayBuffer,
-    context::ScopedContext,
-    object::DataView,
-    value::JSValue,
+    JS_CLASS_DATAVIEW, builtins::array_buffer::ArrayBuffer, context::ScopedContext,
+    object::DataView, value::JSValue,
 };
 
 #[derive(Debug)]
@@ -147,18 +143,11 @@ impl DataView {
         byte_length: usize,
         length_tracked: bool,
     ) -> Result<Self, i32> {
-        let o = ctx
-            .ordinary_create_from_constructor_class(
-                ctor,
-                JS_CLASS_DATAVIEW,
-                *DataViewPayload::new(
-                    array_buffer,
-                    offset,
-                    byte_length,
-                    length_tracked,
-                ),
-            )
-            .map_err(|_| -1)?;
+        let o = ctx.ordinary_create_from_constructor_class(
+            ctor,
+            JS_CLASS_DATAVIEW,
+            *DataViewPayload::new(array_buffer, offset, byte_length, length_tracked),
+        )?;
 
         // §25.3.2.1 steps 11-14: reading `newTarget.prototype` can run user
         // code that detaches or resizes the buffer; re-check detach and

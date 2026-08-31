@@ -13,11 +13,9 @@ use crate::{
 pub fn js_boolean_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
     let b = cc.arg(0).to_bool().unwrap_or(true);
-
     if !new_target.is_undefined() {
         ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_BOOLEAN, b)
             .map(JSValue::from)
-            .map_err(|_| -1)
     } else {
         Ok(b.into())
     }

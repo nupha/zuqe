@@ -443,13 +443,8 @@ impl AsyncGeneratorFunction {
         s.async_state.resume(ctx)?;
 
         // create AsyncGenerator object
-        let mut obj = ctx
-            .ordinary_create_from_constructor_class(
-                func_obj,
-                JS_CLASS_ASYNC_GENERATOR,
-                *s,
-            )
-            .map_err(|_| -1)?;
+        let mut obj =
+            ctx.ordinary_create_from_constructor_class(func_obj, JS_CLASS_ASYNC_GENERATOR, *s)?;
 
         // set generator to obj weakref
         let w = obj.downgrade();

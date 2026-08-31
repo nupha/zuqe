@@ -271,13 +271,8 @@ impl RegExp {
         re: Box<RegExpData>,
     ) -> Result<Self, i32> {
         let mut o = Self(
-            ctx.ordinary_create_from_constructor_class(
-                ctor,
-                JS_CLASS_REGEXP,
-                *re,
-            )
-            .map_err(|_| -1)?
-            .0,
+            ctx.ordinary_create_from_constructor_class(ctor, JS_CLASS_REGEXP, *re)?
+                .0,
         );
         o.define_property_value(
             ctx,

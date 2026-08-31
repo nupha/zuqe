@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-
 use crate::{
     IntOrFloat, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET, ScopedContext,
     array::Array,
@@ -41,9 +40,7 @@ fn get_jsmap_state<'s>(
 
 /// Try to get the internal JSMapState (returns None if not the target class).
 fn try_get_jsmap_state<'s>(val: &'s JSValue, class_id: ClassID) -> Option<&'s JSMapState> {
-    let o = val
-        .as_object()
-        .filter(|o| o.class_id() == class_id)?;
+    let o = val.as_object().filter(|o| o.class_id() == class_id)?;
     let p = o.payload_mapset()?;
     Some(unsafe { std::mem::transmute::<&JSMapState, &'s JSMapState>(p) })
 }
@@ -83,8 +80,7 @@ pub(crate) fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JS
     let class_id = JS_CLASS_MAP + magic as ClassID;
     let obj = ctx
         .ordinary_create_from_constructor_class(new_target, class_id, isa)
-        .map(JSValue::from)
-        .map_err(|_| -1)?;
+        .map(JSValue::from)?;
 
     let arr = if cc.length() > 0 {
         cc.arg(0)

@@ -110,8 +110,7 @@ pub(crate) fn js_date_time_format_constructor(
                 crate::JS_CLASS_INTL_DATE_TIME_FORMAT,
                 data,
             )
-            .map_err(|_| -1)?
-            .into();
+            .map(JSValue::from)?;
 
         let derived = new_target
             .as_object()
@@ -132,14 +131,12 @@ pub(crate) fn js_date_time_format_constructor(
     }
 
     let data = build_date_time_format_data(ctx, cc.arg(0), cc.arg(1), DateTimeDefaults::Standard)?;
-    let instance = ctx
-        .ordinary_create_from_constructor_class(
-            new_target,
-            crate::JS_CLASS_INTL_DATE_TIME_FORMAT,
-            data,
-        )
-        .map_err(|_| -1)?;
-    Ok(JSValue::from(instance))
+    ctx.ordinary_create_from_constructor_class(
+        new_target,
+        crate::JS_CLASS_INTL_DATE_TIME_FORMAT,
+        data,
+    )
+    .map(JSValue::from)
 }
 
 /// Build a `DateTimeFormatData` from `(locales, options)` with the given

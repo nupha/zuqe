@@ -303,10 +303,8 @@ fn supported_collation(lang: &str, collation: &str) -> bool {
 pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
     let data = build_collator_data(ctx, cc.arg(0), cc.arg(1))?;
-    let instance = ctx
-        .ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_COLLATOR, data)
-        .map_err(|_| -1)?;
-    Ok(JSValue::from(instance))
+    ctx.ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_COLLATOR, data)
+        .map(JSValue::from)
 }
 
 /// Compare two strings using an ICU4X collator. Exposed for

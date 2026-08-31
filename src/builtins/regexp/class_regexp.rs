@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-
 use lre::RegexFlags;
 use smallvec::SmallVec;
 
@@ -14,8 +13,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, Callback, FieldDef, js_function_apply},
     object::{
-        JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, Object,
-        PayloadPtr,
+        JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, JS_SpeciesConstructor, Object, PayloadPtr,
     },
     string::{CharCode, CharCodeDecoder, JS_ConcatString3, StringBuf, StringData, StringRef},
     value::JSValue,
@@ -80,28 +78,28 @@ pub fn js_regexp_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         None
     };
 
-    let payload = PayloadPtr::new(JS_CLASS_REGEXP, if let Some(d) = re {
-        d.clone()
-    } else {
-        RegExpData::create(ctx, pattern, flags_str)?
-    });
+    let payload = PayloadPtr::new(
+        JS_CLASS_REGEXP,
+        if let Some(d) = re {
+            d.clone()
+        } else {
+            RegExpData::create(ctx, pattern, flags_str)?
+        },
+    );
     let mut obj = ctx
         .ordinary_create_from_constructor_payload(cc.this(), payload)
         .map_err(|_| -1)?;
 
-    obj.define_property_value(
-        ctx,
-        Atom::CONST_lastIndex,
-        JSValue::from(0),
-        JS_PROP_WRITABLE,
-    )?;
+    obj.define_property_value(ctx, Atom::CONST_lastIndex, JSValue::ZERO, JS_PROP_WRITABLE)?;
 
     Ok(obj.into())
 }
 
 /// Get the RegExpData payload if `obj` is a RegExp instance (no error thrown).
 fn js_get_regexp<'a>(obj: &'a JSValue) -> Option<&'a RegExpData> {
-    let o = obj.as_object().filter(|o| o.class_id() == JS_CLASS_REGEXP)?;
+    let o = obj
+        .as_object()
+        .filter(|o| o.class_id() == JS_CLASS_REGEXP)?;
     let p = o.payload_regexp()?;
     Some(unsafe { std::mem::transmute::<&RegExpData, &'a RegExpData>(p) })
 }
@@ -314,7 +312,7 @@ fn js_regexp_compile(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let new_re = RegExpData::create(ctx, pattern, flags_str)?;
 
-    let mut this = cc.this();
+    let this = cc.this();
     let mut o = this.as_object().unwrap();
     if let Some(re0) = o.payload_regexp_mut() {
         // replace the regexp data of payload
@@ -986,8 +984,8 @@ fn regexp_exec_default(
     // `re` would be a dangling reference (use-after-free -> SIGSEGV).
     let mut from = get_last_index(ctx, this)? as usize;
 
-let re: &RegExpData = class_regexp_payload(&this, ctx)?;
-        let re_flags = re.flags();
+    let re: &RegExpData = class_regexp_payload(&this, ctx)?;
+    let re_flags = re.flags();
 
     if !re_flags.has_global() && !re_flags.has_sticky() {
         from = 0;

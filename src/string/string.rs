@@ -251,14 +251,7 @@ impl StringImpl {
     pub fn objectify(&self, ctx: &mut ScopedContext, ctor: JSValue) -> Result<Object, i32> {
         let len = self.len();
         let s: StringRef = self.gc_ref().into();
-        let mut o = ctx
-            .ordinary_create_from_constructor_class(
-                ctor,
-                JS_CLASS_STRING,
-                s,
-            )
-            .map_err(|_| -1)?;
-
+        let mut o = ctx.ordinary_create_from_constructor_class(ctor, JS_CLASS_STRING, s)?;
         o.define_property_value(ctx, Atom::CONST_length, JSValue::from(len as u32), 0)?;
         Ok(o)
     }
