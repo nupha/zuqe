@@ -13,22 +13,45 @@ pub unsafe trait NativeObject: Clone + TryFrom<JSValue> + TryFrom<Object> {
     /// Get registered class id.
     /// Should return 0 if class has not been registered.
     fn class_id() -> ClassID;
-}
 
-impl Object {
-    pub fn as_native_object<O: NativeObject>(&self) -> Option<&O> {
-        if self.class_id() == O::class_id() {
-            Some(unsafe { std::mem::transmute::<&Self, &O>(self) })
+    /// Class name for debugging/logging.
+    fn class_name() -> &'static str;
+
+    /// Check if an Object is an instance of this type.
+    #[inline(always)]
+    fn is_instance_of(obj: &Object) -> bool {
+        obj.class_id() == Self::class_id()
+    }
+
+    /// Safely convert from `&Object` to `&Self`.
+    #[inline(always)]
+    fn from_object(obj: &Object) -> Option<&Self> {
+        if obj.class_id() == Self::class_id() {
+            Some(unsafe { std::mem::transmute::<&Object, &Self>(obj) })
         } else {
             None
         }
     }
+
+    /// Safely convert from `&JSValue` to `Option<Self>`.
+    #[inline(always)]
+    fn from_value(val: &JSValue) -> Option<Self> {
+        let obj = val.as_object()?;
+        Self::from_object(&obj).cloned()
+    }
+}
+
+impl Object {
+    #[deprecated(note = "use NativeObject::from_object() instead")]
+    pub fn as_native_object<O: NativeObject>(&self) -> Option<&O> {
+        NativeObject::from_object(self)
+    }
 }
 
 impl JSValue {
+    #[deprecated(note = "use NativeObject::from_value() instead")]
     pub fn as_native_object<O: NativeObject>(&self) -> Option<O> {
-        self.as_object()
-            .and_then(|o| o.as_native_object::<O>().cloned())
+        NativeObject::from_value(self)
     }
 }
 
@@ -138,7 +161,7 @@ macro_rules! def_native_object {
 
             #[inline(always)]
             fn try_from(v: $crate::JSValue) -> Result<Self, Self::Error> {
-                v.as_native_object::<Self>().ok_or(-1)
+                <Self as $crate::NativeObject>::from_value(&v).ok_or(-1)
             }
         }
 
@@ -162,6 +185,9 @@ macro_rules! def_native_object {
         unsafe impl $crate::NativeObject for $native_ty {
             fn class_id() -> $crate::ClassID {
                 Self::CLASS_ID.with(|x| x.get())
+            }
+            fn class_name() -> &'static str {
+                Self::CLASS_NAME
             }
         }
     };
@@ -410,7 +436,7 @@ macro_rules! def_native_object {
 
             #[inline(always)]
             fn try_from(v: $crate::JSValue) -> Result<Self, Self::Error> {
-                v.as_native_object::<Self>().ok_or(-1)
+                <Self as $crate::NativeObject>::from_value(&v).ok_or(-1)
             }
         }
 
@@ -575,6 +601,9 @@ macro_rules! def_native_object {
         unsafe impl $crate::NativeObject for $native_ty {
             fn class_id() -> $crate::ClassID {
                 $class_id.0
+            }
+            fn class_name() -> &'static str {
+                Self::CLASS_NAME
             }
         }
     };
