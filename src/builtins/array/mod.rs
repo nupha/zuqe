@@ -5,8 +5,6 @@ mod class_array;
 
 pub use class_array::*;
 
-use crate::class::ClassDef;
-
 crate::def_native_object!(
     builtin,
     "Array",
@@ -21,8 +19,12 @@ crate::def_native_object!(
     )
 );
 
-pub(crate) static CLASS_DEF_ARRAY_ITERATOR: ClassDef = ClassDef::builtin(
-    crate::Atom::CONST_Array_Iterator,
+crate::def_native_object!(
+    builtin,
+    "ArrayIterator",
+    CLASS_DEF_ARRAY_ITERATOR,
+    class_id: (crate::JS_CLASS_ARRAY_ITERATOR, crate::Atom::CONST_Array_Iterator),
+    crate::builtins::iterator::ArrayIterPayload,
     js_array_iterator_proto_funcs,
-    None,
+    None
 );

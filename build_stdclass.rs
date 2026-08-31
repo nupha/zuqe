@@ -563,12 +563,12 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
         "crate::builtins::mapset::CLASS_DEF_SET_ITERATOR",
         PayloadKey::MapSetIterator,
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "ARRAY_ITERATOR",
         "crate::builtins::array::CLASS_DEF_ARRAY_ITERATOR",
         PayloadKey::ArrayIterator,
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "STRING_ITERATOR",
         "crate::builtins::string::CLASS_DEF_STRING_ITERATOR",
         PayloadKey::ArrayIterator,

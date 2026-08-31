@@ -81,28 +81,6 @@ impl RuntimeImpl {
         self.register_class_internal(class_id, class_def)
     }
 
-    /// Register builtin classes from a compile-time table.
-    ///
-    /// Called once during `RuntimeImpl::create()` with the generated
-    /// `BUILTIN_CLASS_DEFS` table starting at `JS_CLASS_OBJECT`. Each class
-    /// gets a fixed compile-time id (`start_id + index`), disjoint from the
-    /// user-class serial range.
-    ///
-    /// After registration, `wire_builtin_payload_drops` must be called to
-    /// connect the per-class `payload_drop` callbacks.
-    pub(crate) fn register_builtin_classes(
-        &mut self,
-        tab: &[&ClassDef],
-        start_id: ClassID,
-    ) -> Result<(), i32> {
-        debug_assert!(start_id > 0);
-
-        for (class_id, item) in (start_id..).zip(tab.iter()) {
-            self.register_class_internal(class_id, **item)?;
-        }
-        Ok(())
-    }
-
     /// Register a user-defined (non-builtin) class, returning its runtime
     /// class id.
     ///

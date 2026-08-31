@@ -5,7 +5,7 @@
 use unicode_normalization::UnicodeNormalization;
 
 use crate::{
-    Array, ClassDef, JS_CLASS_STRING_ITERATOR, ScopedContext,
+    Array, JS_CLASS_STRING_ITERATOR, ScopedContext,
     atom::Atom,
     builtins::{
         common::arg_rel_index32,
@@ -1170,8 +1170,12 @@ crate::def_native_object!(
     exotic: &js_string_exotic_methods
 );
 
-pub(crate) static CLASS_DEF_STRING_ITERATOR: ClassDef = ClassDef::builtin(
-    Atom::CONST_String_Iterator,
+crate::def_native_object!(
+    builtin,
+    "StringIterator",
+    CLASS_DEF_STRING_ITERATOR,
+    class_id: (JS_CLASS_STRING_ITERATOR, Atom::CONST_String_Iterator),
+    ArrayIterPayload,
     js_string_iterator_proto_funcs,
-    None,
+    None
 );

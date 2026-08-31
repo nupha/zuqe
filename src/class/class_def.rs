@@ -262,37 +262,6 @@ impl ClassDef {
         }
     }
 
-    /// Create builtin class def.
-    ///
-    /// Builtin class ids are compile-time constants (`JS_CLASS_*`), assigned
-    /// sequentially by `build_stdclass.rs` from `CLASS_DEF_LIST`. All hooks
-    /// start as `None`; the generator wires `payload_drop` via
-    /// `wire_builtin_payload_drops` after registration.
-    pub(crate) const fn builtin(
-        name: Atom,
-        proto_entries: &'static [FieldDef],
-        ctor: Option<ClassCtorDef>,
-    ) -> Self {
-        Self {
-            name_atom: name,
-            on_initialize: ClassInitType::Normal {
-                proto_entries,
-                ctor,
-                extends_class: None,
-            },
-            ..Self::DEFAULT
-        }
-    }
-
-    /// Create builtin class def with customized init func.
-    pub(crate) const fn builtin_with_init_func(name: Atom, init_fn: ClassInitializeFn) -> Self {
-        Self {
-            name_atom: name,
-            on_initialize: ClassInitType::InitFn(init_fn),
-            ..Self::DEFAULT
-        }
-    }
-
     pub const fn exotic(mut self, exotic: &'static ClassExoticMethods) -> Self {
         self.exotic = Some(exotic);
         self
