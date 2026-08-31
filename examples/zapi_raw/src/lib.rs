@@ -89,7 +89,7 @@ fn string_bytes(env: ZqEnv, value: ZqRawValue) -> Vec<u8> {
 
 /// Build a JS string value from UTF-8 bytes.
 fn make_string(env: ZqEnv, bytes: &[u8]) -> ZqRawValue {
-    unsafe { (api().new_string_from_utf8)(env, bytes.as_ptr(), bytes.len()) }
+    unsafe { (api().new_string_utf8)(env, bytes.as_ptr(), bytes.len()) }
 }
 
 // ──────────────────────────────────────
@@ -108,7 +108,8 @@ unsafe extern "C" fn concat(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValu
     let mut joined = Vec::with_capacity(left.len() + right.len());
     joined.extend_from_slice(&left);
     joined.extend_from_slice(&right);
-    make_string(env, &joined)}
+    make_string(env, &joined)
+}
 
 /// `typeOf(v)` → the JS `typeof` name of `v`.
 unsafe extern "C" fn type_of(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
@@ -126,7 +127,11 @@ unsafe extern "C" fn id(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
 unsafe extern "C" fn truthy(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
     let result = unsafe { (api().value_to_bool)(env, arg_at(env, info, 0)) != 0 };
     // `true`/`false` are table constants, no FFI call.
-    if result { api().value_true } else { api().value_false }
+    if result {
+        api().value_true
+    } else {
+        api().value_false
+    }
 }
 /// `makeSymbol(desc)` → `Symbol(desc)`.
 unsafe extern "C" fn make_symbol(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
@@ -138,7 +143,8 @@ unsafe extern "C" fn sym_desc(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawVa
     let symbol = arg_at(env, info, 0);
     let description = unsafe { (api().get_symbol_description)(env, symbol) };
     let bytes = string_bytes(env, description);
-    make_string(env, &bytes)}
+    make_string(env, &bytes)
+}
 
 // ──────────────────────────────────────
 // Object / array exports (FUNC)
@@ -157,7 +163,8 @@ unsafe extern "C" fn make_point(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRaw
         (api.set_property)(env, point, key_x, (api.new_number)(env, x), 0, 0);
         (api.set_property)(env, point, key_y, (api.new_number)(env, y), 0, 0);
     }
-    point}
+    point
+}
 
 /// `pointDist(point)` → `sqrt(x² + y²)` — reads object properties via FFI.
 unsafe extern "C" fn point_dist(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
@@ -180,7 +187,8 @@ unsafe extern "C" fn make_list(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawV
         let index_value = unsafe { (api.new_number)(env, index as f64) };
         unsafe { (api.array_set)(env, array, index_value, index_value) };
     }
-    array}
+    array
+}
 
 /// `listLen(array)` → `array.length`.
 unsafe extern "C" fn list_len(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
@@ -286,7 +294,11 @@ unsafe extern "C" fn box_set_child(env: ZqEnv, info: *mut ZqCallbackInfoS) -> Zq
 unsafe extern "C" fn box_is_box(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue {
     let value = arg_at(env, info, 0);
     let has_payload = !unsafe { (api().get_native_ptr)(env, value) }.is_null();
-    if has_payload { api().value_true } else { api().value_false }
+    if has_payload {
+        api().value_true
+    } else {
+        api().value_false
+    }
 }
 /// Static accessor `Box.kind` (getter-only) → a constant string.
 unsafe extern "C" fn box_kind(env: ZqEnv, _info: *mut ZqCallbackInfoS) -> ZqRawValue {
@@ -295,7 +307,7 @@ unsafe extern "C" fn box_kind(env: ZqEnv, _info: *mut ZqCallbackInfoS) -> ZqRawV
 
 /// Class-payload GC trace: tell the host about every JS value held in native
 /// storage. Called once per GC for each live `Box` instance. The env argument
-/// to `gc_add_trace` is ignored by the host (only `trace_ctx` matters).
+/// to `gc_mark` is ignored by the host (only `trace_ctx` matters).
 unsafe extern "C" fn box_trace(trace_ctx: *mut ZqGcTraceCtxS, opaque: *mut c_void) {
     if opaque.is_null() {
         return;
@@ -304,8 +316,8 @@ unsafe extern "C" fn box_trace(trace_ctx: *mut ZqGcTraceCtxS, opaque: *mut c_voi
     let api = api();
     // Both fields are always valid handles (`box_new` sets them from args or
     // creates fresh values), so trace them unconditionally.
-    unsafe { (api.gc_add_trace)(std::ptr::null_mut(), trace_ctx, payload.label) };
-    unsafe { (api.gc_add_trace)(std::ptr::null_mut(), trace_ctx, payload.child) };
+    unsafe { (api.gc_mark)(trace_ctx, payload.label) };
+    unsafe { (api.gc_mark)(trace_ctx, payload.child) };
 }
 
 /// How many `Box` payloads have been finalized by the GC so far.
@@ -389,7 +401,7 @@ unsafe extern "C" fn get_global(_env: ZqEnv, _info: *mut ZqCallbackInfoS) -> ZqR
 unsafe extern "C" fn global_trace(trace_ctx: *mut ZqGcTraceCtxS, _opaque: *mut c_void) {
     let value = GLOBAL_NODE.with(|slot| *slot.borrow());
     if let Some(v) = value {
-        unsafe { (api().gc_add_trace)(std::ptr::null_mut(), trace_ctx, v) };
+        unsafe { (api().gc_mark)(trace_ctx, v) };
     }
 }
 
@@ -463,11 +475,7 @@ unsafe extern "C" fn module_init(env: ZqEnv) -> i32 {
     GLOBAL_NODE.with(|slot| *slot.borrow_mut() = Some(seed));
     let ok = unsafe { (api.set_gc_trace_func)(env, Some(global_trace), std::ptr::null_mut()) } == 0;
     // 0 = success; nonzero = init failure
-    if ok {
-        0
-    } else {
-        -1
-    }
+    if ok { 0 } else { -1 }
 }
 
 static EXPORTS: &[ZqFieldDef] = &[
@@ -513,17 +521,12 @@ static EXPORTS: &[ZqFieldDef] = &[
 /// `ZqModuleInfo` owned by the host loader.
 #[no_mangle]
 pub unsafe extern "C" fn zq_module_register(api_ptr: *mut ZqApi, info_ptr: *mut ZqModuleInfo) {
-    let api_table = unsafe { &*api_ptr };
-    if api_table.version != ZQ_ABI_VERSION {
-        return; // ABI mismatch: leave info untouched so the host errors out.
-    }
     API.with(|slot| slot.set(api_ptr));
 
     let module = unsafe { &mut *info_ptr };
     module.name = c"zapi_raw".as_ptr();
     module.struct_size = std::mem::size_of::<ZqModuleInfo>() as u32;
-    module.abi_version = ZQ_ABI_VERSION;
-    module.min_api_version = ZQ_API_VERSION;
+    module.version = ZQ_VERSION_PACKED;
     module.exports = EXPORTS.as_ptr();
     module.exports_len = EXPORTS.len();
     module.init = Some(module_init);

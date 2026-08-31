@@ -4,41 +4,58 @@
 //! Event-loop park state: lets a `Parked` round genuinely suspend the driving
 //! thread instead of hot-spinning (`yield_now` + immediate self-wake).
 //!
-//! Two wake sources drive a parked event loop:
+//! Wake sources drive a parked event loop:
 //!
 //! 1. **Deadline** — a polling job reports its earliest re-poll time via
 //!    [`crate::ScopedContext::set_poll_hint`] (e.g. a timer's next deadline);
-//!    `tick()` returns it as `TickStatus::Parked(Some(at))`. The async driver
-//!    hands it to a dedicated parker thread which sleeps until the deadline
-//!    and then wakes the loop. The sync driver simply blocks on a condvar.
+//!    `tick()` returns it as `TickStatus::Parked(Some(at))` and the engine
+//!    hands it to the host-injected deadline waker
+//!    ([`RuntimeImpl::set_deadline_waker`]). No threads are spawned by the
+//!    engine: the host wakes the loop with its own timer facilities.
 //! 2. **External wake** — IO producers (fs/fetch/browser/mcp tasks, channel
-//!    senders, `PromiseResultSlot::commit`) call [`WakeHandle::wake`] when new
-//!    work arrives, turning the next `tick()` into `Progress`.
+//!    senders via [`crate::WakeSender`], `PromiseResultSlot` commit/drop)
+//!    call [`WakeHandle::wake`].
+//! 3. **POSIX signals** — a signal handler may only call
+//!    [`WakeHandle::wake_from_signal`], which does a single async-signal-safe
+//!    `write()` into a self-pipe; the host watches the read end (see
+//!    [`WakeHandle::signal_read_fd`]) and forwards a regular wake.
 //!
-//! Every park is additionally capped at [`PARK_QUANTUM`]: a producer that
-//! misses its `wake()` call degrades to a cheap ~5 ms poll instead of a lost
-//! wakeup (the loop sleeping forever). Waking ~200 times/s costs a fraction
-//! of a percent of a core, versus the 95%+ hot spin this replaces.
+//! By default the loop is purely event driven: every `Again` waiting point
+//! must have a wake source, or the loop sleeps forever. With the
+//! `quantum_poll` feature enabled, a host that cannot guarantee full wake
+//! wiring can additionally enable a fallback quantum via
+//! [`RuntimeImpl::use_quantum_poll`] (ms; 0 = off): every park is then
+//! capped at that interval, so a missed wake degrades to a cheap periodic
+//! poll instead of a lost wakeup.
+//!
+//! # Locking model
+//!
+//! ONE mutex ([`ParkState::inner`]) covers the mutable wake state — the
+//! registered waker and the pending-wake flag. Invariants:
+//!
+//! * `wake()` sets `pending` **before** any wakeup side effect; consumers
+//!   re-check `pending` after (re-)registering, which closes the
+//!   check-then-park race window.
+//! * Only `wake_from_signal` writes to the self-pipe; the host's pipe
+//!   watcher forwards wakes without writing, so the pipe can never
+//!   self-oscillate.
 
 use std::{
     sync::{
         Arc, Condvar, Mutex,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicI32, AtomicU32, Ordering},
     },
     task::Waker,
-    thread,
     time::{Duration, Instant},
 };
 
-/// Upper bound of a single park. Applied to every park, with or without a
-/// deadline hint (see module docs — missed-`wake()` safety net).
-pub(crate) const PARK_QUANTUM: Duration = Duration::from_millis(5);
-
-/// Idle wait of the parker thread between liveness checks.
-const PARKER_IDLE: Duration = Duration::from_secs(1);
+/// Host-provided deadline waker: called on the JS thread every time the
+/// event loop parks with a deadline; the implementation must arrange for
+/// [`WakeHandle::wake`] (or an equivalent re-poll) at (or after) `at`.
+pub type DeadlineWaker = dyn Fn(Instant) + Send + Sync;
 
 #[derive(Default)]
-struct Inner {
+struct ParkInner {
     /// Waker registered by the async driver (`RunFuture`) while parked.
     waker: Option<Waker>,
     /// Set by `wake()` before any wakeup side effect; consumed when the
@@ -47,27 +64,160 @@ struct Inner {
 }
 
 pub(crate) struct ParkState {
-    inner: Mutex<Inner>,
-    /// Signals `park_blocking` (sync driver) waiters.
-    cond: Condvar,
-    /// Next deadline requested from the parker thread (async driver).
-    parker_req: Mutex<Option<Instant>>,
+    inner: Mutex<ParkInner>,
+    /// Signals the sync driver's condvar wait.
     parker_cond: Condvar,
-    parker_started: AtomicBool,
-    /// Set at runtime drop so the parker thread can exit even though it still
-    /// holds a strong `Arc<ParkState>` while waiting.
-    retired: AtomicBool,
+    /// Host-injected deadline waker (see [`DeadlineWaker`]).
+    pub(crate) deadline_waker: Mutex<Option<Arc<DeadlineWaker>>>,
+
+    /// Self-pipe for signal-originated wakes (Unix). Only
+    /// `wake_from_signal` writes; the host's pipe watcher consumes.
+    #[cfg(unix)]
+    pipe_r: AtomicI32,
+    #[cfg(unix)]
+    pipe_w: AtomicI32,
+    /// Fallback quantum poll interval in ms (0 = off, the default). When
+    /// set, every park is capped at this interval so a missed wake degrades
+    /// to a cheap periodic poll. Set via `RuntimeImpl::use_quantum_poll`.
+    /// Requires the `quantum_poll` feature.
+    #[cfg(feature = "quantum_poll")]
+    quantum_ms: AtomicU32,
+    /// Warn-once flag: a deadline was due but no deadline waker is set.
+    #[cfg(debug_assertions)]
+    deadline_waker_warned: std::sync::atomic::AtomicBool,
 }
 
 impl ParkState {
     pub(crate) fn new() -> Self {
+        #[cfg(unix)]
+        let (pipe_r, pipe_w) = Self::create_pipe();
         Self {
-            inner: Mutex::new(Inner::default()),
-            cond: Condvar::new(),
-            parker_req: Mutex::new(None),
+            inner: Mutex::new(ParkInner::default()),
             parker_cond: Condvar::new(),
-            parker_started: AtomicBool::new(false),
-            retired: AtomicBool::new(false),
+            deadline_waker: Mutex::new(None),
+            #[cfg(unix)]
+            pipe_r: AtomicI32::new(pipe_r),
+            #[cfg(unix)]
+            pipe_w: AtomicI32::new(pipe_w),
+            #[cfg(feature = "quantum_poll")]
+            quantum_ms: AtomicU32::new(0),
+            #[cfg(debug_assertions)]
+            deadline_waker_warned: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// Non-blocking pipe with both ends `O_NONBLOCK`; `(-1, -1)` on failure
+    /// (signal wakes then degrade to no-ops).
+    #[cfg(unix)]
+    fn create_pipe() -> (i32, i32) {
+        unsafe {
+            let mut fds = [0 as libc::c_int; 2];
+            if libc::pipe(fds.as_mut_ptr()) != 0 {
+                return (-1, -1);
+            }
+            for fd in fds.iter() {
+                let flags = libc::fcntl(*fd, libc::F_GETFL, 0);
+                if flags >= 0 {
+                    libc::fcntl(*fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+                }
+            }
+            (fds[0], fds[1])
+        }
+    }
+
+    /// Async-signal-safe wakeup: write one byte into the self-pipe and
+    /// nothing else (no locks, no allocation). The host's pipe watcher
+    /// forwards a regular wake.
+    #[cfg(unix)]
+    fn write_pipe_byte(&self) {
+        let fd = self.pipe_w.load(Ordering::Relaxed);
+        if fd < 0 {
+            return;
+        }
+        let byte = 1u8;
+        loop {
+            let n = unsafe { libc::write(fd, &byte as *const u8 as *const libc::c_void, 1) };
+            if n < 0 && std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
+            // EAGAIN (pipe full) is fine: a byte is already queued, which is
+            // all a coalesced wake needs.
+            break;
+        }
+    }
+
+    /// Async driver: register `waker` for later wakes and hand the deadline
+    /// (already quantum-capped) to the host's deadline waker. One critical
+    /// section, so a `wake()` racing this either has its `pending` flag
+    /// visible to the check below or finds the waker registered and wakes
+    /// it. No ordering rules for the caller.
+    pub(crate) fn park_for(&self, waker: &Waker, deadline: Option<Instant>) {
+        let stale = {
+            let mut g = self.inner.lock().unwrap();
+            g.waker.replace(waker.clone())
+        };
+        drop(stale); // stale registration from the previous park round
+
+        // Hand the deadline to the host's deadline waker. With the
+        // `quantum_poll` feature enabled, the deadline is additionally
+        // capped by the fallback quantum.
+        #[cfg(feature = "quantum_poll")]
+        let at = match (deadline, self.quantum()) {
+            (Some(d), Some(q)) => Some(d.min(Instant::now() + q)),
+            (Some(d), None) => Some(d),
+            (None, Some(q)) => Some(Instant::now() + q),
+            (None, None) => None,
+        };
+        #[cfg(not(feature = "quantum_poll"))]
+        let at = deadline;
+        if let Some(at) = at {
+            let g = self.deadline_waker.lock().unwrap();
+            if let Some(f) = g.as_ref() {
+                f(at);
+            } else {
+                // Nothing will ever deliver this deadline: timers cannot fire.
+                #[cfg(debug_assertions)]
+                self.warn_missing_deadline_waker();
+            }
+        }
+
+        if self.take_pending() {
+            // A wake raced with (re-)registration — re-tick immediately.
+            waker.wake_by_ref();
+        }
+    }
+
+    /// Sync driver: block the calling thread until `wake()` (condvar
+    /// notification) or `deadline` (`None` = indefinitely).
+    pub(crate) fn park_blocking(&self, deadline: Option<Instant>) {
+        let mut g = self.inner.lock().unwrap();
+        loop {
+            if g.pending {
+                g.pending = false;
+                return;
+            }
+
+            let now = Instant::now();
+            if deadline.is_some_and(|d| now >= d) {
+                return;
+            }
+
+            // Sync mode needs no quantum for correctness of the deadline
+            // itself (the condvar timeout returns at `deadline`); the
+            // quantum only adds the missed-wake fallback for an otherwise
+            // indefinite wait.
+            #[cfg(feature = "quantum_poll")]
+            let timeout = match (deadline, self.quantum()) {
+                (Some(d), _) => Some(d.saturating_duration_since(now)),
+                (None, Some(q)) => Some(q),
+                (None, None) => None,
+            };
+            #[cfg(not(feature = "quantum_poll"))]
+            let timeout = deadline.map(|d| d.saturating_duration_since(now));
+            g = match timeout {
+                Some(t) => self.parker_cond.wait_timeout(g, t).unwrap().0,
+                None => self.parker_cond.wait(g).unwrap(),
+            };
         }
     }
 
@@ -82,7 +232,8 @@ impl ParkState {
         if let Some(w) = waker {
             w.wake();
         }
-        self.cond.notify_all();
+        // Rouse the sync driver's condvar wait (no-op cost otherwise).
+        self.parker_cond.notify_all();
     }
 
     /// Take and clear the pending-wake flag.
@@ -91,90 +242,74 @@ impl ParkState {
         std::mem::replace(&mut g.pending, false)
     }
 
-    /// Async driver: register the task waker for a later `wake()`. Returns
-    /// true if a wake already arrived — the caller must re-tick immediately
-    /// instead of parking. Arm the deadline timer *before* calling this.
-    pub(crate) fn register(&self, waker: &Waker) -> bool {
-        // Drop the stale registration from the previous park round silently.
-        let old = self.inner.lock().unwrap().waker.replace(waker.clone());
-        drop(old);
-        self.take_pending()
-    }
-
-    /// Sync driver: block the calling thread until `wake()` or `deadline`.
-    pub(crate) fn park_blocking(&self, deadline: Instant) {
-        let mut g = self.inner.lock().unwrap();
-        loop {
-            if g.pending {
-                g.pending = false;
-                return;
-            }
-            let now = Instant::now();
-            if now >= deadline {
-                return;
-            }
-            let (g2, _) = self.cond.wait_timeout(g, deadline - now).unwrap();
-            g = g2;
+    /// Debug-only, warn-once diagnostic: a deadline was due but the host
+    /// never injected a deadline waker, so timer-based scripts will hang.
+    #[cfg(debug_assertions)]
+    fn warn_missing_deadline_waker(&self) {
+        if !self
+            .deadline_waker_warned
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            log::warn!(
+                "[park] deadline wake requested but no deadline waker is set —
+                 timers (setTimeout / Aike.sleep / setInterval) will never fire.
+                 Call Runtime::set_deadline_waker() at startup."
+            );
         }
     }
 
-    /// Async driver: arm the parker thread to `wake()` us at `deadline`.
-    /// Must be called before `register` (a wake racing either way is caught
-    /// by the pending flag).
-    #[cfg(feature = "async_support")]
-    pub(crate) fn park_async(self: &Arc<Self>, deadline: Instant) {
-        self.spawn_parker();
-        *self.parker_req.lock().unwrap() = Some(deadline);
-        self.parker_cond.notify_all();
+    /// Wake from a POSIX signal handler: only an async-signal-safe
+    /// `write()` into the self-pipe — no locks, no allocation. The host's
+    /// pipe watcher forwards a regular wake. On Windows console control
+    /// handlers run as ordinary threads; call [`WakeHandle::wake`] there.
+    pub fn wake_from_signal(&self) {
+        #[cfg(unix)]
+        self.write_pipe_byte();
+        #[cfg(not(unix))]
+        self.wake();
     }
 
-    /// Spawn the one-shot parker thread on first async park. It sleeps until
-    /// the requested deadline and wakes the event loop. Parks are capped at
-    /// [`PARK_QUANTUM`], so it handles ~200 requests/s while the loop is idle.
-    #[cfg(feature = "async_support")]
-    fn spawn_parker(self: &Arc<Self>) {
-        if self.parker_started.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        let weak = Arc::downgrade(self);
-        let _ = thread::Builder::new()
-            .name("zhuque-parker".into())
-            .spawn(move || {
-                loop {
-                    // Hold the strong ref only while waiting for a request so the
-                    // runtime stays droppable; `retired` flags the owner is gone.
-                    let Some(st) = weak.upgrade() else { return };
-                    let deadline = {
-                        let mut req = st.parker_req.lock().unwrap();
-                        loop {
-                            if let Some(d) = *req {
-                                *req = None;
-                                break d;
-                            }
-                            let (r, _) = st.parker_cond.wait_timeout(req, PARKER_IDLE).unwrap();
-                            req = r;
-                            if st.retired.load(Ordering::Acquire) {
-                                return;
-                            }
-                        }
-                    };
-                    drop(st);
+    /// Write-end fd of the self-pipe for signal handlers (Unix; `-1` when
+    /// unavailable). Store it before installing the handler; the handler
+    /// writes one byte (what `wake_from_signal` does) without locks.
+    #[cfg(unix)]
+    pub fn signal_write_fd(&self) -> i32 {
+        self.pipe_w.load(Ordering::Relaxed)
+    }
 
-                    let now = Instant::now();
-                    if deadline > now {
-                        thread::sleep(deadline - now);
-                    }
+    /// Read-end fd of the self-pipe (Unix). The host should watch it for
+    /// readability and forward a regular [`WakeHandle::wake`] — that is what
+    /// turns a signal-handler `write` into an event-loop wake.
+    #[cfg(unix)]
+    pub fn signal_read_fd(&self) -> i32 {
+        self.pipe_r.load(Ordering::Relaxed)
+    }
 
-                    let Some(st) = weak.upgrade() else { return };
-                    st.wake();
+    /// Set the fallback quantum poll interval (ms; 0 = off).
+    #[cfg(feature = "quantum_poll")]
+    pub(crate) fn set_quantum_ms(&self, ms: u32) {
+        self.quantum_ms.store(ms, Ordering::Relaxed);
+    }
+
+    /// Fallback quantum poll interval (0 = off).
+    #[cfg(feature = "quantum_poll")]
+    fn quantum(&self) -> Option<Duration> {
+        let ms = self.quantum_ms.load(Ordering::Relaxed);
+        (ms > 0).then(|| Duration::from_millis(ms as u64))
+    }
+}
+
+impl Drop for ParkState {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        for fd in [&self.pipe_r, &self.pipe_w] {
+            let fd = fd.load(Ordering::Relaxed);
+            if fd >= 0 {
+                unsafe {
+                    libc::close(fd);
                 }
-            });
-    }
-
-    /// Signal the parker thread that the runtime is going away.
-    pub(crate) fn retire(&self) {
-        self.retired.store(true, Ordering::Release);
-        self.parker_cond.notify_all();
+            }
+        }
     }
 }
 
@@ -188,5 +323,27 @@ impl WakeHandle {
     /// work (channel send, slot commit, ...). No-op cost when not parked.
     pub fn wake(&self) {
         self.0.wake();
+    }
+
+    /// Wake from a POSIX signal handler: async-signal-safe (`write()` into
+    /// the self-pipe only). On Windows, call [`WakeHandle::wake`] instead —
+    /// console control handlers run as ordinary threads.
+    pub fn wake_from_signal(&self) {
+        self.0.wake_from_signal();
+    }
+
+    /// Write-end fd of the self-pipe for signal handlers (Unix; `-1` when
+    /// unavailable). Store it before installing the handler; the handler
+    /// writes one byte (what `wake_from_signal` does) without locks.
+    #[cfg(unix)]
+    pub fn signal_write_fd(&self) -> i32 {
+        self.0.signal_write_fd()
+    }
+
+    /// Read-end fd of the self-pipe (Unix). Watch it for readability and
+    /// forward [`WakeHandle::wake`] to complete the signal wake path.
+    #[cfg(unix)]
+    pub fn signal_read_fd(&self) -> i32 {
+        self.0.signal_read_fd()
     }
 }

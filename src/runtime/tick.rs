@@ -26,6 +26,20 @@ impl<'c> ScopedContext<'c> {
         self.rt().wake_handle()
     }
 
+    /// Create an unbounded channel whose sender wakes this event loop
+    /// automatically on every send and on drop (all senders gone). Pair it
+    /// with a channel poller job so a `Parked` round is woken by the
+    /// producer — the infrastructure guarantee behind "every `Again` wait
+    /// has a wake source"; producers cannot forget.
+    ///
+    /// `D` need not be `Send`: JS-thread-only channels (e.g. carrying
+    /// `Object` handles) are supported; `send_async` (for cross-thread
+    /// producers) does require `Send`.
+    pub fn make_wake_channel<D: 'static>(&self) -> (crate::WakeSender<D>, crate::Receiver<D>) {
+        let (tx, rx) = crate::make_local_unbounded_channel();
+        (crate::WakeSender::wrap(tx, self.wake_handle()), rx)
+    }
+
     /// Advise the event-loop driver of the earliest time a polling job needs
     /// to run again (e.g. a timer's next deadline). A `Parked` round then
     /// suspends until this instant (or an external wake) instead of spinning.

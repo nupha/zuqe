@@ -8,8 +8,10 @@
 //! self-registers as a module export via the linkme slice — `#[zq_module]`
 //! needs no export list.
 
-use zuqe_zapi::prelude::*;
-use zuqe_zapi_macros::{ZqGcTrace, zq_class, zq_class_impl, zq_export, zq_function, zq_method, zq_module};
+use zuqe_zapi::*;
+use zuqe_zapi_macros::{
+    ZqGcTrace, zq_class, zq_class_impl, zq_export, zq_function, zq_method, zq_module,
+};
 
 // ──────────────────────────────────────
 // Value introspection & round-trip
@@ -135,7 +137,12 @@ fn del_prop<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErro
 #[zq_function(name = "makeArray")]
 fn make_array<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let _ = cc;
-    let arr = cx.array(&[cx.number(1.0), cx.number(2.0), cx.number(3.0), cx.string("four")]);
+    let arr = cx.array(&[
+        cx.number(1.0),
+        cx.number(2.0),
+        cx.number(3.0),
+        cx.string("four"),
+    ]);
     arr.array_push(&cx, cx.bool(true))?;
     Ok(arr)
 }
@@ -155,7 +162,8 @@ fn array_get<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErr
 #[zq_function(name = "arraySet")]
 fn array_set<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let idx = cc.arg_as::<i32>(&cx, 1)?;
-    cc.arg(&cx, 0).array_set(&cx, idx as usize, cc.arg(&cx, 2))?;
+    cc.arg(&cx, 0)
+        .array_set(&cx, idx as usize, cc.arg(&cx, 2))?;
     Ok(cx.undefined())
 }
 
@@ -252,7 +260,7 @@ impl Counter {
     fn label<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
         let c = cc.this(&cx);
         let p = Counter::payload(&cx, c).ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
-        Ok(cx.wrap_value(p.label))
+        Ok(ZqValue::from(p.label))
     }
 }
 

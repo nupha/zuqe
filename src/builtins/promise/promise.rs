@@ -140,6 +140,29 @@ impl<D: Send> Clone for PromiseResultSlot<D> {
     }
 }
 
+impl<D: Send> Drop for PromiseResultSlot<D> {
+    fn drop(&mut self) {
+        // A committer disappeared. If it never committed, the polling job can
+        // only discover `strong_count == 1` on its *next* poll — wake the
+        // parked loop so that poll happens now instead of the promise (and
+        // the event loop) hanging. Already-committed drops are skipped:
+        // commit() woke the loop. Infrastructure-level guarantee: producers
+        // cannot forget to wake, the slot does it for them.
+        let committed = self.data.value.lock().unwrap().is_some();
+        if !committed
+            && let Some(park) = self
+                .data
+                .wake
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|w| w.upgrade())
+        {
+            park.wake();
+        }
+    }
+}
+
 impl<D: Send + 'static> PromiseResultSlot<D> {
     pub fn new() -> Self {
         Self {
@@ -458,17 +481,20 @@ impl Promise {
 
     /// Create Promise driven by an internal `sync_channel`.
     ///
-    /// Returns a pair of `(Promise, SyncSender<D>)`. The sender can be used,
-    /// typically from another thread, to send a single value of type `D`.
-    /// When the value is received, `convert` is called inside a JS context
-    /// to turn it into `JSValue` and resolve the Promise. If the channel is
+    /// Returns a pair of `(Promise, WakeSender<D>)`. The sender can be used,
+    /// typically from another thread, to send a single value of type `D`;
+    /// every successful send — and dropping the sender — wakes the parked
+    /// event loop automatically, so the polling job runs promptly. When the
+    /// value is received, `convert` is called inside a JS context
+    /// to turn it into a `JSValue` and resolve the Promise. If the channel is
     /// disconnected before a value is sent, the Promise is rejected with an
     /// internal error.
     pub fn create_with_channel<D: Send + 'static>(
         ctx: &mut ScopedContext,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
-    ) -> Result<(Self, Sender<D>), i32> {
+    ) -> Result<(Self, crate::WakeSender<D>), i32> {
         let (tx, rx) = make_bounded_channel::<D>(1);
+        let tx = crate::WakeSender::wrap(tx, ctx.wake_handle());
         let promise = Promise::create_with_receiver(ctx, rx, convert)?;
         Ok((promise, tx))
     }
@@ -511,12 +537,14 @@ impl Promise {
 
     /// Create Promise driven by an internal `sync_channel`, keeping the event
     /// loop alive only while the Promise is observed. See
-    /// [`Promise::create_with_receiver_hold_when_awaited`].
+    /// [`Promise::create_with_receiver_hold_when_awaited`]. The returned
+    /// [`crate::WakeSender`] wakes the parked loop on send and on drop.
     pub fn create_with_channel_hold_when_awaited<D: Send + 'static>(
         ctx: &mut ScopedContext,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
-    ) -> Result<(Self, Sender<D>), i32> {
+    ) -> Result<(Self, crate::WakeSender<D>), i32> {
         let (tx, rx) = make_bounded_channel::<D>(1);
+        let tx = crate::WakeSender::wrap(tx, ctx.wake_handle());
         let promise = Promise::create_with_receiver_hold_when_awaited(ctx, rx, convert)?;
         Ok((promise, tx))
     }

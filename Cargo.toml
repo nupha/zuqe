@@ -17,6 +17,7 @@ async_support = ["futures-util"]
 crossbeam_channel = ["crossbeam"]
 serde_json_support = ["serde_json"]
 zapi = ["zuqe_zapi", "libloading"]
+quantum_poll = []
 persistent = []
 
 builtin_proxy = []
@@ -25,7 +26,7 @@ builtin_mapset = []
 builtin_regexp = ["lre"]
 builtin_reflect = []
 builtin_json = []
-builtin_date = ["libc"]
+builtin_date = []
 builtin_math = []
 builtin_weakref = []
 intl402 = ["dep:icu", "dep:fixed_decimal"]
@@ -97,7 +98,7 @@ gc-lite = { path = "../gc-lite-v2" }
 lre = { version = "0.3.1", optional = true }
 icu = { version = "2.3.0", optional = true }
 fixed_decimal = { version = "0.7.2", optional = true }
-libc = { version = "0.2", optional = true }
+libc = "0.2"
 unicode-id-start = { version = "1.4", optional = true }
 unicode-normalization = { version = "0.1", optional = true }
 zerocopy = "0.8"

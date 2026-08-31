@@ -4,12 +4,11 @@
 use std::{
     pin::Pin,
     task::{Context as TaskContext, Poll},
-    time::Instant,
 };
 
 use crate::{ExitStatus, JSValue};
 
-use super::{Runtime, park::PARK_QUANTUM, tick::TickStatus};
+use super::{Runtime, tick::TickStatus};
 
 pub struct RunFuture<'rt> {
     rt: &'rt mut Runtime,
@@ -39,22 +38,15 @@ impl<'rt> std::future::Future for RunFuture<'rt> {
             }
             TickStatus::Parked(hint) => {
                 // A polling job is waiting on IO or a timer deadline —
-                // suspend for real instead of hot-spinning. Two wake sources:
-                //   * the parker thread wakes us at `min(hint, quantum)`
-                //   * external producers (`WakeHandle::wake` after a channel
-                //     send / slot commit) wake us via the registered waker
-                // The quantum cap is a safety net: a producer that misses its
-                // `wake()` call degrades to a ~5 ms poll instead of a lost
-                // wakeup (the loop sleeping forever). Once genuinely idle
-                // (no Progress, no Parked) `tick()` returns `Idle` and we exit.
-                let park = this.rt.park.clone();
-                let now = Instant::now();
-                let deadline = hint.map_or(now + PARK_QUANTUM, |d| d.min(now + PARK_QUANTUM));
-                park.park_async(deadline);
-                if park.register(cx.waker()) {
-                    // A wake raced with registration — re-tick immediately.
-                    cx.waker().wake_by_ref();
-                }
+                // suspend for real instead of hot-spinning. `park_for` arms
+                // the parker thread for the deadline and registers our waker
+                // in one critical section; wake sources afterwards are the
+                // deadline itself, external producers (`WakeSender` send/drop,
+                // slot commit/drop, signals), or the fallback quantum when
+                // enabled via `use_quantum_poll`. With quantum off (the
+                // default) the loop is purely event driven: every `Again`
+                // waiting point must have a wake source.
+                this.rt.park.park_for(cx.waker(), hint);
                 Poll::Pending
             }
             TickStatus::Idle => {

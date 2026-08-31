@@ -183,7 +183,6 @@ pub struct RuntimeImpl {
 
 impl Drop for RuntimeImpl {
     fn drop(&mut self) {
-        self.park.retire();
         self.finalize();
     }
 }
@@ -194,6 +193,29 @@ impl RuntimeImpl {
     /// channel or result slot so the next `tick()` sees it promptly.
     pub fn wake_handle(&self) -> crate::runtime::WakeHandle {
         crate::runtime::WakeHandle(self.park.clone())
+    }
+
+    /// Enable/disable the fallback quantum poll for the parked event loop.
+    ///
+    /// `ms > 0`: every park is capped at this interval — a producer that
+    /// misses its wake degrades to a cheap periodic poll instead of a lost
+    /// wakeup. `ms = 0` (the default): purely event driven — every `Again`
+    /// waiting point must have a wake source (wake channel, slot
+    /// commit/drop, timer deadline, signal) or the loop sleeps forever.
+    /// Call on the runtime's own thread; takes effect on the next park.
+    #[cfg(feature = "quantum_poll")]
+    pub fn use_quantum_poll(&self, ms: u32) {
+        self.park.set_quantum_ms(ms);
+    }
+
+    /// Inject the host's deadline waker: called on the JS thread whenever the
+    /// event loop parks with a deadline (timer / quantum fallback); the
+    /// implementation must arrange for the loop to be woken at (or after)
+    /// that instant, e.g. `tokio::spawn(sleep_until(at)).await` +
+    /// `WakeHandle::wake`. Async hosts must install one, or timer deadlines
+    /// never fire. Call before running any script.
+    pub fn set_deadline_waker(&mut self, waker: std::sync::Arc<crate::runtime::DeadlineWaker>) {
+        *self.park.deadline_waker.lock().unwrap() = Some(waker);
     }
 
     pub(super) fn new() -> Result<Self, i32> {

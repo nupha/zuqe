@@ -5,8 +5,8 @@ use std::ffi::c_void;
 
 use once_cell::sync::Lazy;
 use zuqe_zapi::ffi::{
-    ZQ_ABI_VERSION, ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqFieldDef, ZqGcTraceCtxS,
-    ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn, ZqRawValue,
+    ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn,
+    ZqJobRunFn, ZqJobTraceFn, ZqRawValue, ZqWakeHandleS,
 };
 
 use crate::{JSValue, ScopedContext, class::ClassID, object::PayloadPtr};
@@ -17,7 +17,6 @@ pub(crate) unsafe fn env_from_ctx(ctx: &mut ScopedContext) -> ZqEnvS {
     let rt_raw: *const crate::RuntimeImpl = &*ctx.rt_ptr();
     ZqEnvS {
         ctx: (ctx as *mut ScopedContext).cast::<c_void>(),
-        trace: std::ptr::null_mut::<ZqGcTraceCtxS>(),
         rt: rt_raw as *mut c_void,
     }
 }
@@ -39,11 +38,7 @@ unsafe extern "C" fn zapi_new_number(_env: ZqEnv, v: f64) -> ZqRawValue {
     JSValue::from(v).0
 }
 
-unsafe extern "C" fn zapi_new_string_from_utf8(
-    env: ZqEnv,
-    ptr: *const u8,
-    len: usize,
-) -> ZqRawValue {
+unsafe extern "C" fn zapi_new_string_utf8(env: ZqEnv, ptr: *const u8, len: usize) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
     match ctx.create_string_from_utf8(bytes.to_vec()) {
@@ -293,10 +288,9 @@ fn zapi_gc_trace_bridge(
     }
     let def = unsafe { &*(def_ptr as *const ZqClassDef) };
     if let Some(gc_trace) = def.gc_trace {
-        let mut trace_ctx = ZqGcTraceCtxS {
-            inner: (gcx as *mut gc_lite::GcTraceCtx).cast::<c_void>(),
-        };
-        unsafe { gc_trace(&mut trace_ctx, payload_opaque) };
+        let trace_ctx: &mut ZqGcTraceCtxS =
+            unsafe { std::mem::transmute::<&mut gc_lite::GcTraceCtx, _>(gcx) };
+        unsafe { gc_trace(trace_ctx, payload_opaque) };
     }
 }
 
@@ -469,13 +463,9 @@ unsafe extern "C" fn zapi_get_native_ptr(_env: ZqEnv, obj: ZqRawValue) -> *mut c
         .unwrap_or(std::ptr::null_mut())
 }
 
-unsafe extern "C" fn zapi_gc_add_trace(
-    _env: ZqEnv,
-    trace_ctx: *mut ZqGcTraceCtxS,
-    val: ZqRawValue,
-) -> i32 {
+unsafe extern "C" fn zapi_gc_mark(gcx: *mut ZqGcTraceCtxS, val: ZqRawValue) -> i32 {
     let gcx: &mut gc_lite::GcTraceCtx =
-        unsafe { &mut *((*trace_ctx).inner as *mut gc_lite::GcTraceCtx) };
+        unsafe { std::mem::transmute::<&mut ZqGcTraceCtxS, _>(&mut *gcx) };
     let jsval = JSValue(val, std::marker::PhantomData);
     gc_lite::GcTrace::trace(&jsval, gcx);
     0
@@ -491,10 +481,8 @@ struct ZapiTraceReg {
 /// Runtime-side adapter: `(gcx, opaque)` → extension `(tc, opaque)`.
 fn zapi_gc_trace_adapter(gcx: &mut gc_lite::GcTraceCtx, reg: *mut c_void) {
     let reg = unsafe { &*(reg as *const ZapiTraceReg) };
-    let mut tc = ZqGcTraceCtxS {
-        inner: (gcx as *mut gc_lite::GcTraceCtx).cast::<c_void>(),
-    };
-    unsafe { (reg.cb)(&mut tc, reg.opaque) };
+    let tc: &mut ZqGcTraceCtxS = unsafe { std::mem::transmute(gcx) };
+    unsafe { (reg.cb)(tc, reg.opaque) };
 }
 
 unsafe extern "C" fn zapi_set_gc_trace_func(
@@ -512,7 +500,6 @@ unsafe extern "C" fn zapi_set_gc_trace_func(
 }
 
 /// Extension-side job callbacks: see `ZqJobRunFn` / `ZqJobTraceFn` in ffi.
-
 /// GC node for a queued job: forwards tracing to the extension so JS values
 /// held inside `data` stay reachable across collections.
 struct ZqJobNode {
@@ -523,10 +510,8 @@ struct ZqJobNode {
 impl crate::microtask::JobGcTrace for ZqJobNode {
     fn job_trace_values(&self, gcx: &mut gc_lite::GcTraceCtx) {
         if let Some(f) = self.trace {
-            let mut tc = ZqGcTraceCtxS {
-                inner: (gcx as *mut gc_lite::GcTraceCtx).cast::<c_void>(),
-            };
-            unsafe { f(self.data, &mut tc) };
+            let tc: &mut ZqGcTraceCtxS = unsafe { std::mem::transmute(gcx) };
+            unsafe { f(self.data, tc) };
         }
     }
 }
@@ -560,8 +545,75 @@ unsafe extern "C" fn zapi_exception(env: ZqEnv) -> ZqRawValue {
     );
     raw
 }
+/// Create a pending Promise. Stays GC-rooted (gc_pending_promises) until
+/// resolved/rejected — the extension may hold the raw handle across ticks.
+unsafe extern "C" fn zapi_new_promise(env: ZqEnv) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    match crate::builtins::promise::Promise::create(ctx) {
+        Ok((p, _rr)) => {
+            // Root while pending; settle() removes it automatically.
+            ctx.rt_mut().gc_pending_promises.push(p);
+            crate::value::JSValue::from(p).0
+        }
+        Err(_) => ZQ_API_TABLE.value_exception,
+    }
+}
+
+/// Settle a pending Promise as fulfilled. Double-settle is a no-op.
+unsafe extern "C" fn zapi_promise_resolve(env: ZqEnv, promise: ZqRawValue, value: ZqRawValue) {
+    let ctx = unsafe { ctx_from_env(env) };
+    let pv = crate::value::JSValue(promise, std::marker::PhantomData);
+    let v = crate::value::JSValue(value, std::marker::PhantomData);
+    if let Ok(mut p) = crate::builtins::promise::Promise::try_from(pv) {
+        p.resolve(ctx, v);
+    }
+}
+
+/// Settle a pending Promise as rejected. Double-settle is a no-op.
+unsafe extern "C" fn zapi_promise_reject(env: ZqEnv, promise: ZqRawValue, reason: ZqRawValue) {
+    let ctx = unsafe { ctx_from_env(env) };
+    let pv = crate::value::JSValue(promise, std::marker::PhantomData);
+    let r = crate::value::JSValue(reason, std::marker::PhantomData);
+    if let Ok(mut p) = crate::builtins::promise::Promise::try_from(pv) {
+        p.reject(ctx, r);
+    }
+}
+
+/// Concrete wake handle handed to extensions as an opaque `*mut ZqWakeHandleS`.
+/// `WakeHandle` is `Send + Sync` (Arc<ParkState>), so `wake` is safe from any
+/// worker thread; it wakes a parked JS event loop immediately.
+#[repr(transparent)]
+pub struct ZqWakeHandle {
+    wake: crate::runtime::WakeHandle,
+}
+
+/// Create a wake handle bound to the env's runtime event loop (JS thread).
+unsafe extern "C" fn zapi_wake_handle_new(env: ZqEnv) -> *mut ZqWakeHandleS {
+    let ctx = unsafe { ctx_from_env(env) };
+    let h = Box::new(ZqWakeHandle {
+        wake: ctx.rt().wake_handle(),
+    });
+    Box::into_raw(h) as *mut ZqWakeHandleS
+}
+
+/// Wake the parked event loop. Thread-safe; cheap when not parked.
+unsafe extern "C" fn zapi_wake_handle_wake(h: *mut ZqWakeHandleS) {
+    if h.is_null() {
+        return;
+    }
+    let wh = unsafe { &*(h as *const ZqWakeHandle) };
+    wh.wake.wake();
+}
+
+/// Release a wake handle.
+unsafe extern "C" fn zapi_wake_handle_free(h: *mut ZqWakeHandleS) {
+    if !h.is_null() {
+        drop(unsafe { Box::from_raw(h as *mut ZqWakeHandle) });
+    }
+}
+
 /// each tick runs `run(data)` on the JS thread until it reports Done/Err.
-unsafe extern "C" fn zapi_queue_job(
+unsafe extern "C" fn zapi_add_polling_job(
     env: ZqEnv,
     run: ZqJobRunFn,
     trace: Option<ZqJobTraceFn>,
@@ -662,37 +714,6 @@ pub(crate) static ZQ_API_TABLE: Lazy<Box<ZqApi>> = Lazy::new(new_zapi);
 /// 构造 host 侧的 `ZqApi` 表，填充全部函数指针，返回堆分配的 Box。
 pub(crate) fn new_zapi() -> Box<ZqApi> {
     Box::new(ZqApi {
-        version: ZQ_ABI_VERSION,
-        new_number: zapi_new_number,
-        new_string_from_utf8: zapi_new_string_from_utf8,
-        new_symbol: zapi_new_symbol,
-        get_symbol_description: zapi_get_symbol_description,
-        get_string_utf8: zapi_get_string_utf8,
-        new_object: zapi_new_object,
-        new_array: zapi_new_array,
-        set_property: zapi_set_property,
-        get_property: zapi_get_property,
-        has_property: zapi_has_property,
-        delete_property: zapi_delete_property,
-        array_push: zapi_array_push,
-        array_set: zapi_array_set,
-        array_len: zapi_array_len,
-        get_global: zapi_get_global,
-        call_function: zapi_call_function,
-        gc_add_trace: zapi_gc_add_trace,
-        register_class: zapi_register_class,
-        new_instance: zapi_new_instance,
-        get_native_ptr: zapi_get_native_ptr,
-        get_value_type: zapi_get_value_type,
-        value_to_float64: zapi_value_to_float64,
-        value_to_bool: zapi_value_to_bool,
-        value_to_string: zapi_value_to_string,
-        call_constructor: zapi_call_constructor,
-        set_gc_trace_func: zapi_set_gc_trace_func,
-        queue_job: zapi_queue_job,
-        take_exception: zapi_take_exception,
-        exception: zapi_exception,
-
         // host-provided constant value handles
         value_undefined: crate::JSValue::UNDEFINED.0,
         value_null: crate::JSValue::NULL.0,
@@ -705,5 +726,46 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         value_infinity: crate::JSValue::from(f64::INFINITY).0,
         value_minus_infinity: crate::JSValue::from(f64::NEG_INFINITY).0,
         value_exception: crate::JSValue::EXCEPTION.0,
+
+        new_number: zapi_new_number,
+        new_string_utf8: zapi_new_string_utf8,
+        new_symbol: zapi_new_symbol,
+        get_symbol_description: zapi_get_symbol_description,
+        get_string_utf8: zapi_get_string_utf8,
+        new_object: zapi_new_object,
+        new_array: zapi_new_array,
+        set_property: zapi_set_property,
+        get_property: zapi_get_property,
+        has_property: zapi_has_property,
+        delete_property: zapi_delete_property,
+
+        array_push: zapi_array_push,
+        array_set: zapi_array_set,
+        array_len: zapi_array_len,
+
+        get_global: zapi_get_global,
+        call_function: zapi_call_function,
+        gc_mark: zapi_gc_mark,
+        register_class: zapi_register_class,
+        new_instance: zapi_new_instance,
+        get_native_ptr: zapi_get_native_ptr,
+        get_value_type: zapi_get_value_type,
+        value_to_float64: zapi_value_to_float64,
+        value_to_bool: zapi_value_to_bool,
+        value_to_string: zapi_value_to_string,
+        call_constructor: zapi_call_constructor,
+        set_gc_trace_func: zapi_set_gc_trace_func,
+
+        new_promise: zapi_new_promise,
+        promise_resolve: zapi_promise_resolve,
+        promise_reject: zapi_promise_reject,
+        add_polling_job: zapi_add_polling_job,
+
+        wake_handle_new: zapi_wake_handle_new,
+        wake_handle_wake: zapi_wake_handle_wake,
+        wake_handle_free: zapi_wake_handle_free,
+
+        take_exception: zapi_take_exception,
+        exception: zapi_exception,
     })
 }
