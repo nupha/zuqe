@@ -8,8 +8,10 @@
 //! `#[zq_method]` installs instance methods on the prototype, `#[zq_static_method]`
 //! on the constructor.
 
-use zuqe_zapi::prelude::*;
-use zuqe_zapi_macros::{ZqGcTrace, zq_class, zq_class_impl, zq_method, zq_module, zq_static_method};
+use zuqe_zapi::*;
+use zuqe_zapi_macros::{
+    ZqGcTrace, zq_class, zq_class_impl, zq_method, zq_module, zq_static_method,
+};
 
 use std::cell::Cell;
 
@@ -38,7 +40,12 @@ struct EventEmitter;
 impl EventEmitter {
     /// `new EventEmitter()` — boxes an empty payload and wraps it in a new instance.
     fn constructor<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-        EventEmitter::new_instance(&cx, EmitterPayload { listeners: Vec::new() })
+        EventEmitter::new_instance(
+            &cx,
+            EmitterPayload {
+                listeners: Vec::new(),
+            },
+        )
     }
 
     /// `ee.on(event, handler)` — register a permanent listener.
@@ -47,8 +54,13 @@ impl EventEmitter {
         let ee = cc.this(&cx);
         let event = cc.arg(&cx, 0).raw();
         let handler = cc.arg(&cx, 1).raw();
-        let p = EventEmitter::payload_mut(&cx, ee).ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
-        p.listeners.push(Listener { event, handler, once: false });
+        let p = EventEmitter::payload_mut(&cx, ee)
+            .ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
+        p.listeners.push(Listener {
+            event,
+            handler,
+            once: false,
+        });
         Ok(ee)
     }
 
@@ -59,8 +71,13 @@ impl EventEmitter {
         let ee = cc.this(&cx);
         let event = cc.arg(&cx, 0).raw();
         let handler = cc.arg(&cx, 1).raw();
-        let p = EventEmitter::payload_mut(&cx, ee).ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
-        p.listeners.push(Listener { event, handler, once: true });
+        let p = EventEmitter::payload_mut(&cx, ee)
+            .ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
+        p.listeners.push(Listener {
+            event,
+            handler,
+            once: true,
+        });
         Ok(ee)
     }
 
@@ -70,8 +87,13 @@ impl EventEmitter {
         let ee = cc.this(&cx);
         let event = cc.arg(&cx, 0).raw();
         let handler = cc.arg(&cx, 1).raw();
-        let p = EventEmitter::payload_mut(&cx, ee).ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
-        if let Some(pos) = p.listeners.iter().position(|l| l.event == event && l.handler == handler) {
+        let p = EventEmitter::payload_mut(&cx, ee)
+            .ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
+        if let Some(pos) = p
+            .listeners
+            .iter()
+            .position(|l| l.event == event && l.handler == handler)
+        {
             p.listeners.remove(pos);
         }
         Ok(ee)
@@ -82,7 +104,8 @@ impl EventEmitter {
     fn remove_all<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
         let ee = cc.this(&cx);
         let event = cc.arg(&cx, 0).raw();
-        let p = EventEmitter::payload_mut(&cx, ee).ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
+        let p = EventEmitter::payload_mut(&cx, ee)
+            .ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
         p.listeners.retain(|l| l.event != event);
         Ok(ee)
     }
@@ -99,7 +122,8 @@ impl EventEmitter {
         // borrow is held across the handler calls below (handlers may re-enter
         // the emitter).
         let pending: Vec<(ZqRawValue, bool)> = {
-            let p = EventEmitter::payload_mut(&cx, ee).ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
+            let p = EventEmitter::payload_mut(&cx, ee)
+                .ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
             p.listeners
                 .iter()
                 .filter(|l| l.event == event)
@@ -112,20 +136,25 @@ impl EventEmitter {
 
         // Forward (event, ...payload) to every handler.
         let mut args: Vec<ZqValue<'a>> = Vec::with_capacity(cc.len());
-        args.push(cx.wrap_value(event));
+        args.push(ZqValue::from(event));
         for i in 1..cc.len() {
             args.push(cc.arg(&cx, i));
         }
         for &(handler, _) in &pending {
-            cx.call_function(cx.wrap_value(handler), cx.undefined(), &args)?;
+            cx.call_function(ZqValue::from(handler), cx.undefined(), &args)?;
         }
 
         // Drop one-time listeners after dispatch.
         if pending.iter().any(|&(_, once)| once) {
-            let once_handlers: Vec<ZqRawValue> =
-                pending.iter().filter(|&&(_, o)| o).map(|&(h, _)| h).collect();
-            let p = EventEmitter::payload_mut(&cx, ee).ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
-            p.listeners.retain(|l| l.event != event || !once_handlers.contains(&l.handler));
+            let once_handlers: Vec<ZqRawValue> = pending
+                .iter()
+                .filter(|&&(_, o)| o)
+                .map(|&(h, _)| h)
+                .collect();
+            let p = EventEmitter::payload_mut(&cx, ee)
+                .ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
+            p.listeners
+                .retain(|l| l.event != event || !once_handlers.contains(&l.handler));
         }
         Ok(cx.bool(true))
     }
@@ -152,7 +181,11 @@ impl EventEmitter {
             Ok(cx.undefined())
         } else {
             let v = PRIVATE_MODE.with(|c| c.get());
-            if v == 0 { Ok(cx.undefined()) } else { Ok(cx.wrap_value(v)) }
+            if v == 0 {
+                Ok(cx.undefined())
+            } else {
+                Ok(ZqValue::from(v))
+            }
         }
     }
 

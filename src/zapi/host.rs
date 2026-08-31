@@ -5,9 +5,9 @@ use std::ffi::c_void;
 
 use libloading::Library;
 use zuqe_zapi::ffi::{
-    ZQ_FIELD_BOOL, ZQ_FIELD_CLASS, ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC, ZQ_FIELD_GETSET, ZQ_FIELD_INT,
-    ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED, ZQ_FIELD_VALUE, ZqApi, ZqCallbackInfoS, ZqEnv, ZqEnvS,
-    ZqFieldDef, ZqModuleInfo, ZqRawValue,
+    ZQ_ABI_VERSION, ZQ_API_VERSION, ZQ_FIELD_BOOL, ZQ_FIELD_CLASS, ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC,
+    ZQ_FIELD_GETSET, ZQ_FIELD_INT, ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED, ZQ_FIELD_VALUE, ZqApi,
+    ZqCallbackInfoS, ZqEnv, ZqEnvS, ZqFieldDef, ZqModuleInfo, ZqRawValue,
 };
 
 use crate::{JSValue, ModuleDef, ScopedContext, class::ClassID, function::Callback};
@@ -285,6 +285,26 @@ impl<'a> ScopedContext<'a> {
 
         unsafe { module_register_fn(api_ptr, &mut md_info) };
 
+        // Validate ABI compatibility: the extension's binary layout must match
+        // the host's layout exactly. Mismatch means struct fields or function
+        // signatures differ — using them would be UB.
+        let ext_abi = md_info.abi_version();
+        if ext_abi != ZQ_ABI_VERSION {
+            return Err(self.throw_reference_error(&format!(
+                "zapi module '{}': ABI version mismatch (host={}, ext={})",
+                file_url, ZQ_ABI_VERSION, ext_abi
+            )));
+        }
+        // Validate API capability: the host must provide at least the API tier
+        // the extension requires. Lower host API means missing functions.
+        let ext_api = md_info.api_version();
+        if ext_api > ZQ_API_VERSION {
+            return Err(self.throw_reference_error(&format!(
+                "zapi module '{}': API version too new (host={}, ext={})",
+                file_url, ZQ_API_VERSION, ext_api
+            )));
+        }
+
         // Pre-pass: snapshot the exports and register every CLASS field (host
         // needs the class registered before module evaluation). The `ZqFieldDef`
         // array is leaked by the extension, so names/pointers stay valid for the
@@ -306,7 +326,6 @@ impl<'a> ScopedContext<'a> {
                 }
                 let mut env = ZqEnvS {
                     ctx: (self as *mut ScopedContext).cast::<c_void>(),
-                    trace: std::ptr::null_mut(),
                     rt: std::ptr::null_mut(),
                 };
                 let r = unsafe { register_class(&mut env, def.class_def) };

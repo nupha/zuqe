@@ -5,8 +5,8 @@ use std::ffi::c_void;
 
 use once_cell::sync::Lazy;
 use zuqe_zapi::ffi::{
-    ZQ_ABI_VERSION, ZqApi, ZqCallbackInfoS, ZqClassDef, ZqConvertFn, ZqEnv, ZqEnvS, ZqFieldDef,
-    ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn, ZqRawValue, ZqWakeHandleS, ZqWorkFn,
+    ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn,
+    ZqJobRunFn, ZqJobTraceFn, ZqRawValue, ZqWakeHandleS,
 };
 
 use crate::{JSValue, ScopedContext, class::ClassID};
@@ -17,7 +17,6 @@ pub(crate) unsafe fn env_from_ctx(ctx: &mut ScopedContext) -> ZqEnvS {
     let rt_raw: *const crate::RuntimeImpl = &*ctx.rt_ptr();
     ZqEnvS {
         ctx: (ctx as *mut ScopedContext).cast::<c_void>(),
-        trace: std::ptr::null_mut::<ZqGcTraceCtxS>(),
         rt: rt_raw as *mut c_void,
     }
 }
@@ -289,10 +288,9 @@ fn zapi_gc_trace_bridge(
     }
     let def = unsafe { &*(def_ptr as *const ZqClassDef) };
     if let Some(gc_trace) = def.gc_trace {
-        let mut trace_ctx = ZqGcTraceCtxS {
-            inner: (gcx as *mut gc_lite::GcTraceCtx).cast::<c_void>(),
-        };
-        unsafe { gc_trace(&mut trace_ctx, payload_opaque) };
+        let trace_ctx: &mut ZqGcTraceCtxS =
+            unsafe { std::mem::transmute::<&mut gc_lite::GcTraceCtx, _>(gcx) };
+        unsafe { gc_trace(trace_ctx, payload_opaque) };
     }
 }
 
@@ -465,13 +463,9 @@ unsafe extern "C" fn zapi_get_native_ptr(_env: ZqEnv, obj: ZqRawValue) -> *mut c
         .unwrap_or(std::ptr::null_mut())
 }
 
-unsafe extern "C" fn zapi_gc_add_trace(
-    _env: ZqEnv,
-    trace_ctx: *mut ZqGcTraceCtxS,
-    val: ZqRawValue,
-) -> i32 {
+unsafe extern "C" fn zapi_gc_mark(gcx: *mut ZqGcTraceCtxS, val: ZqRawValue) -> i32 {
     let gcx: &mut gc_lite::GcTraceCtx =
-        unsafe { &mut *((*trace_ctx).inner as *mut gc_lite::GcTraceCtx) };
+        unsafe { std::mem::transmute::<&mut ZqGcTraceCtxS, _>(&mut *gcx) };
     let jsval = JSValue(val, std::marker::PhantomData);
     gc_lite::GcTrace::trace(&jsval, gcx);
     0
@@ -487,10 +481,8 @@ struct ZapiTraceReg {
 /// Runtime-side adapter: `(gcx, opaque)` → extension `(tc, opaque)`.
 fn zapi_gc_trace_adapter(gcx: &mut gc_lite::GcTraceCtx, reg: *mut c_void) {
     let reg = unsafe { &*(reg as *const ZapiTraceReg) };
-    let mut tc = ZqGcTraceCtxS {
-        inner: (gcx as *mut gc_lite::GcTraceCtx).cast::<c_void>(),
-    };
-    unsafe { (reg.cb)(&mut tc, reg.opaque) };
+    let tc: &mut ZqGcTraceCtxS = unsafe { std::mem::transmute(gcx) };
+    unsafe { (reg.cb)(tc, reg.opaque) };
 }
 
 unsafe extern "C" fn zapi_set_gc_trace_func(
@@ -508,7 +500,6 @@ unsafe extern "C" fn zapi_set_gc_trace_func(
 }
 
 /// Extension-side job callbacks: see `ZqJobRunFn` / `ZqJobTraceFn` in ffi.
-
 /// GC node for a queued job: forwards tracing to the extension so JS values
 /// held inside `data` stay reachable across collections.
 struct ZqJobNode {
@@ -519,10 +510,8 @@ struct ZqJobNode {
 impl crate::microtask::JobGcTrace for ZqJobNode {
     fn job_trace_values(&self, gcx: &mut gc_lite::GcTraceCtx) {
         if let Some(f) = self.trace {
-            let mut tc = ZqGcTraceCtxS {
-                inner: (gcx as *mut gc_lite::GcTraceCtx).cast::<c_void>(),
-            };
-            unsafe { f(self.data, &mut tc) };
+            let tc: &mut ZqGcTraceCtxS = unsafe { std::mem::transmute(gcx) };
+            unsafe { f(self.data, tc) };
         }
     }
 }
@@ -725,7 +714,19 @@ pub(crate) static ZQ_API_TABLE: Lazy<Box<ZqApi>> = Lazy::new(new_zapi);
 /// 构造 host 侧的 `ZqApi` 表，填充全部函数指针，返回堆分配的 Box。
 pub(crate) fn new_zapi() -> Box<ZqApi> {
     Box::new(ZqApi {
-        version: ZQ_ABI_VERSION,
+        // host-provided constant value handles
+        value_undefined: crate::JSValue::UNDEFINED.0,
+        value_null: crate::JSValue::NULL.0,
+        value_true: crate::JSValue::TRUE.0,
+        value_false: crate::JSValue::FALSE.0,
+        value_nan: crate::JSValue::NAN.0,
+        value_zero: crate::JSValue::ZERO.0,
+        value_one: crate::JSValue::from(1i32).0,
+        value_negative_one: crate::JSValue::from(-1i32).0,
+        value_infinity: crate::JSValue::from(f64::INFINITY).0,
+        value_minus_infinity: crate::JSValue::from(f64::NEG_INFINITY).0,
+        value_exception: crate::JSValue::EXCEPTION.0,
+
         new_number: zapi_new_number,
         new_string_utf8: zapi_new_string_utf8,
         new_symbol: zapi_new_symbol,
@@ -744,7 +745,7 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
 
         get_global: zapi_get_global,
         call_function: zapi_call_function,
-        gc_add_trace: zapi_gc_add_trace,
+        gc_mark: zapi_gc_mark,
         register_class: zapi_register_class,
         new_instance: zapi_new_instance,
         get_native_ptr: zapi_get_native_ptr,
@@ -766,18 +767,5 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
 
         take_exception: zapi_take_exception,
         exception: zapi_exception,
-
-        // host-provided constant value handles
-        value_undefined: crate::JSValue::UNDEFINED.0,
-        value_null: crate::JSValue::NULL.0,
-        value_true: crate::JSValue::TRUE.0,
-        value_false: crate::JSValue::FALSE.0,
-        value_nan: crate::JSValue::NAN.0,
-        value_zero: crate::JSValue::ZERO.0,
-        value_one: crate::JSValue::from(1i32).0,
-        value_negative_one: crate::JSValue::from(-1i32).0,
-        value_infinity: crate::JSValue::from(f64::INFINITY).0,
-        value_minus_infinity: crate::JSValue::from(f64::NEG_INFINITY).0,
-        value_exception: crate::JSValue::EXCEPTION.0,
     })
 }
