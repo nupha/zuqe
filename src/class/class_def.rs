@@ -121,6 +121,11 @@ pub struct ClassDef {
     pub(crate) on_finalize: Option<ClassFinalizeFn>,
     /// class instance dispose handler
     pub(crate) on_finalize_opaque: Option<ClassFinalizeOpaqueFn>,
+    /// class def unregister handler.
+    pub(crate) on_unregister: Option<ClassUnregisterFn>,
+    /// to trace JSValues stored in an instance's payload (opaque)
+    pub(crate) on_gc_trace: Option<ClassGcTraceFn>,
+
     /// owned-payload free channel, uniform for ALL classes: builtin classes
     /// are wired by the generator (`wire_builtin_payload_drops`, called right
     /// after `register_builtin_classes`), user classes by `def_native_object!`
@@ -129,36 +134,52 @@ pub struct ClassDef {
     /// payload — their payloads are never freed here. `finalize` looks the
     /// callback up by class_id and frees through it.
     pub(crate) payload_drop: Option<unsafe fn(*mut c_void)>,
-    /// class def unregister handler.
-    pub(crate) on_unregister: Option<ClassUnregisterFn>,
-    /// to trace JSValues stored in an instance's payload (opaque)
-    pub(crate) on_gc_trace: Option<ClassGcTraceFn>,
+
+    /// Debug-only type ledger: `type_name::<P>()` of the payload type this
+    /// class expects. Set at registration time — by `build_stdclass.rs` for
+    /// builtins, by `def_native_object!` for user classes. Used by
+    /// `PayloadPtr::new` and `create_class_instance_with_payload` to catch
+    /// type mismatches early (prevents silent UB from wrong-type drops).
+    #[cfg(debug_assertions)]
+    pub(crate) payload_type_name: Option<&'static str>,
 }
 
 impl Default for ClassDef {
     fn default() -> Self {
-        Self {
-            name: "",
-            name_atom: Atom::NULL,
-
-            call: None,
-            exotic: None,
-            on_initialize: ClassInitType::Normal {
-                proto_entries: &[],
-                ctor: None,
-                extends_class: None,
-            },
-            on_finalize: None,
-            on_finalize_opaque: None,
-            payload_drop: None,
-            on_unregister: None,
-            on_gc_trace: None,
-        }
+        Self::DEFAULT
     }
 }
 
 impl ClassDef {
-    /// Create user-defined class def with proto entries and optional ctor def
+    /// Const-compatible default, usable in `const fn` constructors where
+    /// `Default::default()` is not available.
+    const DEFAULT: Self = Self {
+        name: "",
+        name_atom: Atom::NULL,
+        call: None,
+        exotic: None,
+
+        on_initialize: ClassInitType::Normal {
+            proto_entries: &[],
+            ctor: None,
+            extends_class: None,
+        },
+        on_finalize: None,
+        on_finalize_opaque: None,
+        on_unregister: None,
+        on_gc_trace: None,
+
+        payload_drop: None,
+        #[cfg(debug_assertions)]
+        payload_type_name: None,
+    };
+}
+
+impl ClassDef {
+    /// Create user-defined class def with proto entries and optional ctor def.
+    ///
+    /// All hooks start as `None`; use the builder methods (`.on_call()`,
+    /// `.on_finalize()`, `.payload_drop()`, etc.) to set them explicitly.
     pub fn new(
         name: &'static str,
         proto_entries: &'static [FieldDef],
@@ -167,19 +188,12 @@ impl ClassDef {
         debug_assert!(!name.is_empty());
         Self {
             name,
-            name_atom: Atom::NULL,
-            call: None,
-            exotic: None,
-            on_unregister: None,
             on_initialize: ClassInitType::Normal {
                 proto_entries,
                 ctor,
                 extends_class: None,
             },
-            on_finalize: None,
-            on_finalize_opaque: None,
-            payload_drop: None,
-            on_gc_trace: None,
+            ..Self::DEFAULT
         }
     }
 
@@ -195,19 +209,12 @@ impl ClassDef {
         debug_assert!(!name.is_empty());
         Self {
             name,
-            name_atom: Atom::NULL,
-            call: None,
-            exotic: None,
-            on_unregister: None,
             on_initialize: ClassInitType::Normal {
                 proto_entries,
                 extends_class: Some(extends_class),
                 ctor,
             },
-            on_finalize: None,
-            on_finalize_opaque: None,
-            payload_drop: None,
-            on_gc_trace: None,
+            ..Self::DEFAULT
         }
     }
 
@@ -229,56 +236,39 @@ impl ClassDef {
         debug_assert!(!name.is_empty());
         Self {
             name,
-            name_atom: Atom::NULL,
-            call: None,
-            exotic: None,
-
-            on_unregister: None,
             on_initialize: ClassInitType::InitFn(init_fn),
-            on_finalize: None,
-            on_finalize_opaque: None,
-            payload_drop: None,
-            on_gc_trace: None,
+            ..Self::DEFAULT
         }
     }
 
-    /// Create builtin class def
+    /// Create builtin class def.
+    ///
+    /// Builtin class ids are compile-time constants (`JS_CLASS_*`), assigned
+    /// sequentially by `build_stdclass.rs` from `CLASS_DEF_LIST`. All hooks
+    /// start as `None`; the generator wires `payload_drop` via
+    /// `wire_builtin_payload_drops` after registration.
     pub(crate) const fn builtin(
         name: Atom,
         proto_entries: &'static [FieldDef],
         ctor: Option<ClassCtorDef>,
     ) -> Self {
         Self {
-            name: "",
             name_atom: name,
-            call: None,
-            exotic: None,
-            on_unregister: None,
             on_initialize: ClassInitType::Normal {
                 proto_entries,
                 ctor,
                 extends_class: None,
             },
-            on_finalize: None,
-            on_finalize_opaque: None,
-            payload_drop: None,
-            on_gc_trace: None,
+            ..Self::DEFAULT
         }
     }
 
-    /// Create builtin class def with customized init func
+    /// Create builtin class def with customized init func.
     pub(crate) const fn builtin_with_init_func(name: Atom, init_fn: ClassInitializeFn) -> Self {
         Self {
-            name: "",
             name_atom: name,
-            call: None,
-            exotic: None,
-            on_unregister: None,
             on_initialize: ClassInitType::InitFn(init_fn),
-            on_finalize: None,
-            on_finalize_opaque: None,
-            payload_drop: None,
-            on_gc_trace: None,
+            ..Self::DEFAULT
         }
     }
 
@@ -331,6 +321,18 @@ impl ClassDef {
     /// Set GC mark callback for tracing JSValues in opaque payload.
     pub const fn on_gc_trace(mut self, f: ClassGcTraceFn) -> Self {
         self.on_gc_trace = Some(f);
+        self
+    }
+
+    /// Set the expected payload type name for debug-only type checking.
+    ///
+    /// Used by `PayloadPtr::new` and `create_class_instance_with_payload` to
+    /// catch type mismatches early. Builtin classes get this from the
+    /// generated `payload_type_name` function; user classes from the
+    /// `def_native_object!` macro.
+    #[cfg(debug_assertions)]
+    pub const fn payload_type_name(mut self, name: Option<&'static str>) -> Self {
+        self.payload_type_name = name;
         self
     }
 

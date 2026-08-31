@@ -17,6 +17,20 @@ use crate::{
 };
 
 impl RuntimeImpl {
+    /// Single funnel for all class registrations — both builtin and user
+    /// classes go through here.
+    ///
+    /// # Id allocation contract
+    ///
+    /// | Source | Id range | Allocator |
+    /// |--------|----------|-----------|
+    /// | Builtin | `1..USER_CLASS_ID_START` | Compile-time constants (`JS_CLASS_*`), sequential from `CLASS_DEF_LIST` in `build_stdclass.rs` |
+    /// | User | `USER_CLASS_ID_START..=u16::MAX` | Runtime serial (`user_class_id_serial`), monotonically increasing per `register_class_def` call |
+    ///
+    /// The two ranges are disjoint and exhaustive for `ClassID` (u16).
+    /// A slot occupied by a builtin cannot be overwritten by a user class and
+    /// vice versa — the debug assertion on `name_atom.is_null()` catches
+    /// accidental collisions.
     fn register_class_internal(
         &mut self,
         class_id: ClassID,
@@ -52,6 +66,15 @@ impl RuntimeImpl {
         Ok(())
     }
 
+    /// Register builtin classes from a compile-time table.
+    ///
+    /// Called once during `RuntimeImpl::create()` with the generated
+    /// `BUILTIN_CLASS_DEFS` table starting at `JS_CLASS_OBJECT`. Each class
+    /// gets a fixed compile-time id (`start_id + index`), disjoint from the
+    /// user-class serial range.
+    ///
+    /// After registration, `wire_builtin_payload_drops` must be called to
+    /// connect the per-class `payload_drop` callbacks.
     pub(crate) fn register_builtin_classes(
         &mut self,
         tab: &[&ClassDef],
@@ -65,7 +88,15 @@ impl RuntimeImpl {
         Ok(())
     }
 
-    /// Register a non-builtin class
+    /// Register a user-defined (non-builtin) class, returning its runtime
+    /// class id.
+    ///
+    /// The id is assigned from `user_class_id_serial` (starts at
+    /// `USER_CLASS_ID_START`), monotonically increasing. Returns `Err` with
+    /// `Exception::TooManyClasses` if the serial would overflow `u16::MAX`.
+    ///
+    /// Both `register_class_def` and `register_builtin_classes` funnel into
+    /// `register_class_internal`, which enforces slot-uniqueness.
     pub fn register_class_def(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
         debug_assert!(!class_def.name.is_empty());
 

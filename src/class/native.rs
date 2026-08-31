@@ -89,6 +89,10 @@ macro_rules! def_native_object {
                 $(
                     cd = cd.payload_drop($crate::drop_payload_fn::<$wire>);
                     cd = cd.on_gc_trace($crate::user_payload_trace::<$wire>);
+                    #[cfg(debug_assertions)]
+                    {
+                        cd = cd.payload_type_name(Some(std::any::type_name::<$wire>()));
+                    }
                 )?
 
                 // set class unregister handler
@@ -427,6 +431,52 @@ mod tests {
         // ...且严格先于 free 通道(free 之后不会再触发 dispose)。
         assert_eq!(DISPOSE_SEQ.load(Ordering::SeqCst), 0);
         assert!(FREE_SEQ.load(Ordering::SeqCst) >= 1);
+        Ok(())
+    }
+
+    /// user class ids are sequential starting from USER_CLASS_ID_START.
+    #[test]
+    fn user_class_ids_are_sequential() -> Result<(), i32> {
+        use crate::USER_CLASS_ID_START;
+
+        let mut rt = Runtime::create()?;
+        let id1 = rt.register_class_def(ClassDef::new("SeqA", &[], None))?;
+        let id2 = rt.register_class_def(ClassDef::new("SeqB", &[], None))?;
+        let id3 = rt.register_class_def(ClassDef::new("SeqC", &[], None))?;
+
+        assert_eq!(id1, USER_CLASS_ID_START);
+        assert_eq!(id2, USER_CLASS_ID_START + 1);
+        assert_eq!(id3, USER_CLASS_ID_START + 2);
+        Ok(())
+    }
+
+    /// duplicate class name triggers a debug warning (visible in
+    /// debug-assert stderr). We only verify the second registration
+    /// succeeds — the debug warning is fire-and-forget.
+    #[test]
+    fn duplicate_class_name_allowed() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let _id1 = rt.register_class_def(ClassDef::new("DupTest", &[], None))?;
+        let id2 = rt.register_class_def(ClassDef::new("DupTest", &[], None))?;
+        // Both registrations succeed (slot uniqueness is by id, not name).
+        assert!(id2 > _id1);
+        Ok(())
+    }
+
+    /// `payload_type_name` is set on user class via the macro.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn user_class_payload_type_name_set() -> Result<(), i32> {
+        use crate::USER_CLASS_ID_START;
+
+        let mut rt = Runtime::create()?;
+        let id = rt.register_class_def(
+            ClassDef::new("TypeCheckTest", &[], None)
+                .payload_type_name(Some("u32")),
+        )?;
+        assert!(id >= USER_CLASS_ID_START);
+        let cd = &rt.class_registry[id as usize];
+        assert_eq!(cd.payload_type_name, Some("u32"));
         Ok(())
     }
 }

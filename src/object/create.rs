@@ -144,6 +144,23 @@ impl<'c> ScopedContext<'c> {
             let _ = self.throw_internal_error("expect non-builtin class");
             return Err(-1);
         }
+
+        #[cfg(debug_assertions)]
+        {
+            let expected = self
+                .rt()
+                .class_registry
+                .get(class_id as usize)
+                .and_then(|cd| cd.payload_type_name);
+            if let Some(expected) = expected {
+                debug_assert!(
+                    expected == std::any::type_name::<P>(),
+                    "payload type mismatch for user class {class_id}: registry expects {expected}, got {}",
+                    std::any::type_name::<P>(),
+                );
+            }
+        }
+
         let payload = PayloadPtr::new(class_id, payload);
         self.ordinary_create_from_constructor_payload(new_target, payload)
     }
