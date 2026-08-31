@@ -5,23 +5,24 @@ mod class_array;
 
 pub use class_array::*;
 
-use crate::{
-    Atom,
-    class::{ClassCtorDef, ClassDef},
-};
+use crate::class::ClassDef;
 
-pub(crate) static CLASS_DEF_ARRAY: ClassDef = ClassDef::builtin(
-    Atom::CONST_Array,
+crate::def_native_object!(
+    builtin,
+    "Array",
+    CLASS_DEF_ARRAY,
+    class_id: (crate::JS_CLASS_ARRAY, crate::Atom::CONST_Array),
+    crate::array::ArrayPayload,
     js_array_proto_funcs,
     Some(
-        ClassCtorDef::new(js_array_constructor, 1, true)
+        crate::class::ClassCtorDef::new(js_array_constructor, 1, true)
             .entries(js_array_funcs)
             .expose_to_global(),
-    ),
+    )
 );
 
 pub(crate) static CLASS_DEF_ARRAY_ITERATOR: ClassDef = ClassDef::builtin(
-    Atom::CONST_Array_Iterator,
+    crate::Atom::CONST_Array_Iterator,
     js_array_iterator_proto_funcs,
     None,
 );

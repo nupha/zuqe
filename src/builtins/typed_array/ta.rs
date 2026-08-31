@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::UnsafeCell, ffi::c_void, ops::DerefMut};
+use std::cell::UnsafeCell;
 
 use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
@@ -15,10 +15,7 @@ use crate::{
     class::ClassID,
     context::ScopedContext,
     function::{Callback, NativeFunction},
-    object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, TypedArray,
-    },
-    runtime::RuntimeImpl,
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, TypedArray},
     value::JSValue,
 };
 
@@ -342,16 +339,6 @@ impl TypedArray {
         Ok(())
     }
 
-    pub(crate) const fn class_finalize(_rt: &mut RuntimeImpl, _isa: *mut c_void, _id: usize) {
-        // Hint: TypedArray underlaying ArrayBuffer object could have been disposed,
-        // calling ta.array_buffer() like following may cause undefined behaviour.
-        // if let Some(ta) = isa.typed_array() {
-        //     ta.array_buffer()
-        //         .payload_mut()
-        //         .remove_typed_array_weakref(rt, id);
-        // }
-    }
-
     /// create TypedArray instance with given ArrayBuffer, offset and count.
     ///
     /// Note: `count` is number of elements, not bytes.
@@ -372,7 +359,10 @@ impl TypedArray {
 
         #[cfg(not(feature = "big_int"))]
         {
-            if matches!(class_id, JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY) {
+            if matches!(
+                class_id,
+                JS_CLASS_BIG_INT64_ARRAY | JS_CLASS_BIG_UINT64_ARRAY
+            ) {
                 return Err(ctx.throw_type_error(&format!(
                     "typed array for {} is unsupported",
                     if class_id == JS_CLASS_BIG_INT64_ARRAY {
@@ -621,7 +611,9 @@ impl TypedArray {
 
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut TypedArrayPayload {
-        unsafe { self.0.as_mut() }.payload_typed_array_mut().unwrap()
+        unsafe { self.0.as_mut() }
+            .payload_typed_array_mut()
+            .unwrap()
     }
 
     /// check if the TypedArray is detached.

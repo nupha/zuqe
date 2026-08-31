@@ -7,22 +7,30 @@ mod re;
 
 pub use {class_regexp::*, class_regexp_iter::*, re::*};
 
-pub use crate::object::RegExp;
+use crate::object::RegExp;
 
-use crate::{
-    Atom,
-    class::{ClassCtorDef, ClassDef},
-};
-
-pub(crate) static CLASS_DEF_REGEXP: ClassDef = ClassDef::builtin(
-    Atom::CONST_RegExp,
+crate::def_native_object!(
+    builtin,
+    "RegExp",
+    CLASS_DEF_REGEXP,
+    class_id: (crate::JS_CLASS_REGEXP, crate::Atom::CONST_RegExp),
+    crate::builtins::regexp::RegExpData,
     js_regexp_proto_funcs,
     Some(
-        ClassCtorDef::new(js_regexp_constructor, 2, true)
+        crate::class::ClassCtorDef::new(js_regexp_constructor, 2, true)
             .entries(js_regexp_funcs)
-            .expose_to_global(),
-    ),
+            .expose_to_global()
+    )
 );
 
-pub(crate) static CLASS_DEF_REGEXP_STRING_ITERATOR: ClassDef =
-    ClassDef::builtin_with_init_func(Atom::CONST_RegExp_String_Iterator, RegExp::class_init);
+crate::def_native_object!(
+    builtin,
+    "RegExp String Iterator",
+    CLASS_DEF_REGEXP_STRING_ITERATOR,
+    class_id: (
+        crate::JS_CLASS_REGEXP_STRING_ITERATOR,
+        crate::Atom::CONST_RegExp_String_Iterator,
+    ),
+    crate::builtins::regexp::RegExpStringIterPayload, (), None,
+    init_fn: RegExp::class_init
+);

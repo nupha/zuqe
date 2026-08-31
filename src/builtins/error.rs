@@ -4,7 +4,7 @@
 use std::{borrow::Cow, ops::Deref};
 
 use crate::{
-    ClassCtorDef, ClassDef, FieldDef, JS_CLASS_ERROR,
+    ClassCtorDef, FieldDef, JS_CLASS_ERROR,
     atom::Atom,
     builtins::iterator::iterator_to_array,
     context::{ContextPtr, ScopedContext},
@@ -95,10 +95,9 @@ pub(crate) fn js_error_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
 pub(crate) fn js_aggregate_error_constructor(ctx: &mut ScopedContext, errors: JSValue) -> JSValue {
     let err_proto = ctx.error_protos[ErrorKind::Aggregate as usize].as_object();
 
-    if let Ok(mut obj) = ctx.create_instance_with_proto_payload(
-        err_proto,
-        PayloadPtr::none(JS_CLASS_ERROR),
-    ) {
+    if let Ok(mut obj) =
+        ctx.create_instance_with_proto_payload(err_proto, PayloadPtr::none(JS_CLASS_ERROR))
+    {
         obj.define_property_value(
             ctx,
             Atom::CONST_errors,
@@ -158,13 +157,17 @@ pub(crate) const js_error_proto_funcs: &[FieldDef] = &[
     FieldDef::STR("message", "", JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE),
 ];
 
-pub(crate) static CLASS_DEF_ERROR: ClassDef = ClassDef::builtin(
-    Atom::CONST_Error,
+crate::def_native_object!(
+    builtin,
+    "Error",
+    CLASS_DEF_ERROR,
+    class_id: (JS_CLASS_ERROR, Atom::CONST_Error),
+    (),
     js_error_proto_funcs,
     Some(
         ClassCtorDef::new(js_error_constructor, 1, true)
             .magic(-1)
             .entries(js_error_funcs)
             .expose_to_global(),
-    ),
+    )
 );

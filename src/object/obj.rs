@@ -702,15 +702,10 @@ impl ObjectImpl {
         // call class finalize handler + free payload memory.
         let class_def = rt.class_registry[class_id as usize];
         let id = self.id();
-        if class_id >= crate::USER_CLASS_ID_START {
-            // User class: notify on_dispose while the payload pointer is
-            // still valid (notification only — the engine owns and frees
-            // owned payloads itself).
-            if let Some(f) = class_def.on_finalize_opaque {
-                f(&mut *rt, ptr, class_id as usize, id);
-            }
-        } else if let Some(cb) = class_def.on_finalize {
-            cb(&mut *rt, ptr, id);
+
+        // Unified finalize: all classes (builtin + user) go through on_finalize
+        if let Some(f) = class_def.on_finalize {
+            f(&mut *rt, ptr, class_id as usize, id);
         }
 
         // Unified free channel, keyed by class_id alone: every payload-owning

@@ -6,7 +6,7 @@
 use icu::locale::Locale;
 
 use crate::{
-    Atom, ClassCtorDef, ClassDef, ScopedContext,
+    ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
@@ -44,10 +44,14 @@ pub(crate) enum ListType {
     Unit,
 }
 
-pub(crate) static CLASS_DEF_LIST_FORMAT: ClassDef = ClassDef::builtin(
-    Atom::CONST_ListFormat,
+crate::def_native_object!(
+    builtin,
+    "ListFormat",
+    CLASS_DEF_LIST_FORMAT,
+    class_id: (crate::JS_CLASS_INTL_LIST_FORMAT, crate::Atom::CONST_ListFormat),
+    crate::builtins::intl::list_format::ListFormatData,
     js_list_format_proto_funcs,
-    Some(ClassCtorDef::new(js_list_format_constructor, 0, true)),
+    Some(crate::class::ClassCtorDef::new(js_list_format_constructor, 0, true))
 );
 
 pub(crate) fn js_list_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -82,12 +86,9 @@ pub(crate) fn js_list_format_constructor(ctx: &mut ScopedContext, cc: CallContex
         }
     }
 
-    let instance = ctx.ordinary_create_from_constructor_class(
-        cc.this(),
-        crate::JS_CLASS_INTL_LIST_FORMAT,
-        data,
-    )
-    .map_err(|_| -1)?;
+    let instance = ctx
+        .ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LIST_FORMAT, data)
+        .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 

@@ -6,7 +6,7 @@
 use icu::locale::Locale;
 
 use crate::{
-    Atom, ClassCtorDef, ClassDef, ScopedContext,
+    ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
@@ -127,10 +127,14 @@ fn bstyle_str(s: BStyle) -> &'static str {
     }
 }
 
-pub(crate) static CLASS_DEF_DURATION_FORMAT: ClassDef = ClassDef::builtin(
-    Atom::CONST_DurationFormat,
+crate::def_native_object!(
+    builtin,
+    "DurationFormat",
+    CLASS_DEF_DURATION_FORMAT,
+    class_id: (crate::JS_CLASS_INTL_DURATION_FORMAT, crate::Atom::CONST_DurationFormat),
+    crate::builtins::intl::duration_format::DurationFormatData,
     js_duration_format_proto_funcs,
-    Some(ClassCtorDef::new(js_duration_format_constructor, 0, true)),
+    Some(crate::class::ClassCtorDef::new(js_duration_format_constructor, 0, true))
 );
 
 /// `GetOption(options, key, "string", values, fallback)`.

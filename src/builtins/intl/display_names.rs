@@ -6,7 +6,7 @@
 use icu::locale::Locale;
 
 use crate::{
-    Atom, ClassCtorDef, ClassDef, ScopedContext,
+    ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
@@ -54,10 +54,14 @@ pub(crate) enum DisplayType {
     DateTimeField,
 }
 
-pub(crate) static CLASS_DEF_DISPLAY_NAMES: ClassDef = ClassDef::builtin(
-    Atom::CONST_DisplayNames,
+crate::def_native_object!(
+    builtin,
+    "DisplayNames",
+    CLASS_DEF_DISPLAY_NAMES,
+    class_id: (crate::JS_CLASS_INTL_DISPLAY_NAMES, crate::Atom::CONST_DisplayNames),
+    crate::builtins::intl::display_names::DisplayNamesData,
     js_display_names_proto_funcs,
-    Some(ClassCtorDef::new(js_display_names_constructor, 2, true)),
+    Some(crate::class::ClassCtorDef::new(js_display_names_constructor, 2, true))
 );
 
 pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

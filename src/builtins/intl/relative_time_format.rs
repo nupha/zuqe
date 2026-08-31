@@ -6,7 +6,7 @@
 use icu::locale::Locale;
 
 use crate::{
-    Atom, ClassCtorDef, ClassDef, ScopedContext,
+    ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
@@ -44,14 +44,18 @@ pub(crate) enum RelNumeric {
     Auto,
 }
 
-pub(crate) static CLASS_DEF_RELATIVE_TIME_FORMAT: ClassDef = ClassDef::builtin(
-    Atom::CONST_RelativeTimeFormat,
+crate::def_native_object!(
+    builtin,
+    "RelativeTimeFormat",
+    CLASS_DEF_RELATIVE_TIME_FORMAT,
+    class_id: (crate::JS_CLASS_INTL_RELATIVE_TIME_FORMAT, crate::Atom::CONST_RelativeTimeFormat),
+    crate::builtins::intl::relative_time_format::RelativeTimeFormatData,
     js_relative_time_format_proto_funcs,
-    Some(ClassCtorDef::new(
+    Some(crate::class::ClassCtorDef::new(
         js_relative_time_format_constructor,
         0,
-        true,
-    )),
+        true
+    ))
 );
 
 pub(crate) fn js_relative_time_format_constructor(
@@ -124,12 +128,13 @@ pub(crate) fn js_relative_time_format_constructor(
         ns_opt.map(|s| Box::leak(s.into_boxed_str()) as &'static str);
     data.locale = super::common::resolve_locale_keys(data.locale, &[("nu", ns_static)]);
 
-    let instance = ctx.ordinary_create_from_constructor_class(
-        cc.this(),
-        crate::JS_CLASS_INTL_RELATIVE_TIME_FORMAT,
-        data,
-    )
-    .map_err(|_| -1)?;
+    let instance = ctx
+        .ordinary_create_from_constructor_class(
+            cc.this(),
+            crate::JS_CLASS_INTL_RELATIVE_TIME_FORMAT,
+            data,
+        )
+        .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 

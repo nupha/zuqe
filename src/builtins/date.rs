@@ -9,7 +9,7 @@ use std::{
 use gc_lite::GcTrace;
 
 use crate::{
-    ClassDef, JS_CLASS_DATE,
+    JS_CLASS_DATE,
     atom::{Atom, AtomKind},
     context::ScopedContext,
     error::JSResult,
@@ -932,13 +932,9 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         // invoked as a function, returns toString()
         datetime_format(ctx, tm.into(), 0x13).map(JSValue::make_string)
     } else {
-        ctx.ordinary_create_from_constructor_class(
-            new_target,
-            JS_CLASS_DATE,
-            tm,
-        )
-        .map(JSValue::from)
-        .map_err(|_| -1)
+        ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_DATE, tm)
+            .map(JSValue::from)
+            .map_err(|_| -1)
     }
 }
 
@@ -1255,12 +1251,16 @@ const js_date_funcs: &[FieldDef] = &[
     FieldDef::FUNC("UTC", 7, js_Date_UTC, 0),
 ];
 
-pub(crate) static CLASS_DEF_DATE: ClassDef = ClassDef::builtin(
-    Atom::CONST_Date,
+crate::def_native_object!(
+    builtin,
+    "Date",
+    CLASS_DEF_DATE,
+    class_id: (JS_CLASS_DATE, crate::Atom::CONST_Date),
+    Datetime,
     js_date_proto_funcs,
     Some(
         crate::class::ClassCtorDef::new(js_date_constructor, 7, true)
             .entries(js_date_funcs)
             .expose_to_global(),
-    ),
+    )
 );

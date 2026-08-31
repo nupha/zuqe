@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-
 use crate::{
-    ClassDef, JS_CLASS_BOOLEAN,
+    JS_CLASS_BOOLEAN,
     atom::Atom,
     context::ScopedContext,
     error::JSResult,
@@ -16,13 +15,9 @@ pub fn js_boolean_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     let b = cc.arg(0).to_bool().unwrap_or(true);
 
     if !new_target.is_undefined() {
-        ctx.ordinary_create_from_constructor_class(
-            new_target,
-            JS_CLASS_BOOLEAN,
-            b,
-        )
-        .map(JSValue::from)
-        .map_err(|_| -1)
+        ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_BOOLEAN, b)
+            .map(JSValue::from)
+            .map_err(|_| -1)
     } else {
         Ok(b.into())
     }
@@ -54,8 +49,12 @@ pub const js_boolean_proto_funcs: &[FieldDef] = &[
     FieldDef::FUNC("valueOf", 0, js_boolean_valueOf, 0),
 ];
 
-pub(crate) static CLASS_DEF_BOOLEAN: ClassDef = ClassDef::builtin(
-    crate::Atom::CONST_Boolean,
+crate::def_native_object!(
+    builtin,
+    "Boolean",
+    CLASS_DEF_BOOLEAN,
+    class_id: (JS_CLASS_BOOLEAN, crate::Atom::CONST_Boolean),
+    bool,
     js_boolean_proto_funcs,
-    Some(crate::class::ClassCtorDef::new(js_boolean_constructor, 1, true).expose_to_global()),
+    Some(crate::class::ClassCtorDef::new(js_boolean_constructor, 1, true).expose_to_global())
 );

@@ -6,12 +6,16 @@ mod proto;
 
 pub use {func::*, proto::*};
 
-pub(crate) static CLASS_DEF_OBJECT: crate::ClassDef = crate::ClassDef::builtin(
-    crate::Atom::CONST_Object,
+crate::def_native_object!(
+    builtin,
+    "Object",
+    CLASS_DEF_OBJECT,
+    class_id: (crate::JS_CLASS_OBJECT, crate::Atom::CONST_Object),
+    (),
     js_object_proto_funcs,
     Some(
         crate::class::ClassCtorDef::new(func::js_object_constructor, 1, true)
             .entries(js_object_funcs)
             .expose_to_global(),
-    ),
+    )
 );

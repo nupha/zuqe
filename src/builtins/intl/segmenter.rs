@@ -10,7 +10,7 @@ use icu::segmenter::{
 };
 
 use crate::{
-    Atom, Callback, ClassCtorDef, ClassDef, ScopedContext,
+    Callback, ScopedContext,
     builtins::iterator::make_iterator_next_result,
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -40,10 +40,14 @@ pub(crate) enum SegmentGranularity {
     Sentence,
 }
 
-pub(crate) static CLASS_DEF_SEGMENTER: ClassDef = ClassDef::builtin(
-    Atom::CONST_Segmenter,
+crate::def_native_object!(
+    builtin,
+    "Segmenter",
+    CLASS_DEF_SEGMENTER,
+    class_id: (crate::JS_CLASS_INTL_SEGMENTER, crate::Atom::CONST_Segmenter),
+    crate::builtins::intl::segmenter::SegmenterData,
     js_segmenter_proto_funcs,
-    Some(ClassCtorDef::new(js_segmenter_constructor, 0, true)),
+    Some(crate::class::ClassCtorDef::new(js_segmenter_constructor, 0, true))
 );
 
 /// Bound-data slots shared by the Segments/Iterator native functions.
@@ -60,7 +64,7 @@ pub(crate) fn js_segmenter_constructor(ctx: &mut ScopedContext, cc: CallContext)
     if new_target.is_undefined() {
         return Err(ctx.throw_type_error("Intl.Segmenter must be called with 'new'"));
     }
-    
+
     let locale = resolve_segmenter_locale(ctx, cc.arg(0))?;
     let options = cc.arg(1);
 
@@ -85,12 +89,9 @@ pub(crate) fn js_segmenter_constructor(ctx: &mut ScopedContext, cc: CallContext)
         locale,
         granularity,
     };
-    let instance = ctx.ordinary_create_from_constructor_class(
-        new_target,
-        crate::JS_CLASS_INTL_SEGMENTER,
-        data,
-    )
-    .map_err(|_| -1)?;
+    let instance = ctx
+        .ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_SEGMENTER, data)
+        .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 

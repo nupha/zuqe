@@ -6,11 +6,11 @@
 use icu::locale::Locale as IcuLocale;
 
 use crate::{
-    Atom, ClassCtorDef, ClassDef, ScopedContext,
+    ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_CONFIGURABLE},
+    object::JS_PROP_CONFIGURABLE,
     value::JSValue,
 };
 
@@ -32,25 +32,63 @@ impl GcTrace for LocaleData {
     fn trace(&self, _tr: &mut GcTraceCtx) {}
 }
 
-pub(crate) static CLASS_DEF_LOCALE: ClassDef = ClassDef::builtin(
-    Atom::CONST_Locale,
+crate::def_native_object!(
+    builtin,
+    "Locale",
+    CLASS_DEF_LOCALE,
+    class_id: (crate::JS_CLASS_INTL_LOCALE, crate::Atom::CONST_Locale),
+    crate::builtins::intl::locale::LocaleData,
     js_locale_proto_funcs,
-    Some(ClassCtorDef::new(js_locale_constructor, 1, true)),
+    Some(crate::class::ClassCtorDef::new(js_locale_constructor, 1, true))
 );
 
 /// UN M.49 numeric region codes mapped to canonical alpha-2 (UTS 35
 /// territoryAlias; partial table covering common codes).
 // ponytail: partial alias table, extend when more numeric regions are exercised
 const NUMERIC_REGION_ALIAS: &[(&str, &str)] = &[
-    ("036", "AU"), ("040", "AT"), ("056", "BE"), ("076", "BR"), ("124", "CA"),
-    ("156", "CN"), ("158", "TW"), ("203", "CZ"), ("208", "DK"), ("246", "FI"),
-    ("250", "FR"), ("276", "DE"), ("300", "GR"), ("344", "HK"), ("356", "IN"),
-    ("360", "ID"), ("372", "IE"), ("380", "IT"), ("392", "JP"), ("408", "KP"),
-    ("410", "KR"), ("442", "LU"), ("458", "MY"), ("484", "MX"), ("528", "NL"),
-    ("554", "NZ"), ("578", "NO"), ("608", "PH"), ("616", "PL"), ("620", "PT"),
-    ("643", "RU"), ("702", "SG"), ("704", "VN"), ("705", "SI"), ("724", "ES"),
-    ("752", "SE"), ("756", "CH"), ("764", "TH"), ("792", "TR"), ("804", "UA"),
-    ("818", "EG"), ("826", "GB"), ("840", "US"),
+    ("036", "AU"),
+    ("040", "AT"),
+    ("056", "BE"),
+    ("076", "BR"),
+    ("124", "CA"),
+    ("156", "CN"),
+    ("158", "TW"),
+    ("203", "CZ"),
+    ("208", "DK"),
+    ("246", "FI"),
+    ("250", "FR"),
+    ("276", "DE"),
+    ("300", "GR"),
+    ("344", "HK"),
+    ("356", "IN"),
+    ("360", "ID"),
+    ("372", "IE"),
+    ("380", "IT"),
+    ("392", "JP"),
+    ("408", "KP"),
+    ("410", "KR"),
+    ("442", "LU"),
+    ("458", "MY"),
+    ("484", "MX"),
+    ("528", "NL"),
+    ("554", "NZ"),
+    ("578", "NO"),
+    ("608", "PH"),
+    ("616", "PL"),
+    ("620", "PT"),
+    ("643", "RU"),
+    ("702", "SG"),
+    ("704", "VN"),
+    ("705", "SI"),
+    ("724", "ES"),
+    ("752", "SE"),
+    ("756", "CH"),
+    ("764", "TH"),
+    ("792", "TR"),
+    ("804", "UA"),
+    ("818", "EG"),
+    ("826", "GB"),
+    ("840", "US"),
 ];
 
 pub(crate) fn js_locale_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -84,12 +122,9 @@ pub(crate) fn js_locale_constructor(ctx: &mut ScopedContext, cc: CallContext) ->
         }
     }
 
-    let instance = ctx.ordinary_create_from_constructor_class(
-        cc.this(),
-        crate::JS_CLASS_INTL_LOCALE,
-        data,
-    )
-    .map_err(|_| -1)?;
+    let instance = ctx
+        .ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LOCALE, data)
+        .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 
@@ -147,13 +182,14 @@ fn js_locale_getters(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             Some(raw) => make_str(ctx, raw.as_bytes().to_vec())?,
             None => make_str(ctx, l.id.to_string().into_bytes())?,
         },
-        5 => keyword_getter(ctx, l, "ca")?, // calendar
-        6 => keyword_getter(ctx, l, "co")?, // collation
-        7 => keyword_getter(ctx, l, "nu")?, // numberingSystem
-        8 => variants_getter(ctx, l)?,      // variants
-        9 => keyword_getter(ctx, l, "kf")?, // caseFirst
+        5 => keyword_getter(ctx, l, "ca")?,  // calendar
+        6 => keyword_getter(ctx, l, "co")?,  // collation
+        7 => keyword_getter(ctx, l, "nu")?,  // numberingSystem
+        8 => variants_getter(ctx, l)?,       // variants
+        9 => keyword_getter(ctx, l, "kf")?,  // caseFirst
         10 => keyword_getter(ctx, l, "hc")?, // hourCycle
-        11 => JSValue::from(               // numeric: boolean, false when absent
+        11 => JSValue::from(
+            // numeric: boolean, false when absent
             super::common::locale_extension_raw(l, "kn").is_some_and(|v| v.is_empty()),
         ),
         _ => unreachable!(),
@@ -162,11 +198,7 @@ fn js_locale_getters(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 /// Read a Unicode extension keyword from the locale (`None` 锟?undefined).
 /// Key-only keywords serialize as "".
-fn keyword_getter(
-    ctx: &mut ScopedContext,
-    l: &IcuLocale,
-    key: &str,
-) -> Result<JSValue, i32> {
+fn keyword_getter(ctx: &mut ScopedContext, l: &IcuLocale, key: &str) -> Result<JSValue, i32> {
     Ok(match super::common::locale_extension_raw(l, key) {
         Some(v) => make_str(ctx, v.into_bytes())?,
         None => JSValue::UNDEFINED,
@@ -178,13 +210,12 @@ fn variants_getter(ctx: &mut ScopedContext, l: &IcuLocale) -> Result<JSValue, i3
     if l.id.variants.is_empty() {
         return Ok(JSValue::UNDEFINED);
     }
-    let joined = l
-        .id
-        .variants
-        .iter()
-        .map(|v| v.to_string())
-        .collect::<Vec<_>>()
-        .join("-");
+    let joined =
+        l.id.variants
+            .iter()
+            .map(|v| v.to_string())
+            .collect::<Vec<_>>()
+            .join("-");
     make_str(ctx, joined.into_bytes())
 }
 
@@ -260,12 +291,9 @@ fn js_locale_maximize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         locale: l,
         raw: this.raw.clone(),
     };
-    let instance = ctx.ordinary_create_from_constructor_class(
-        cc.this(),
-        crate::JS_CLASS_INTL_LOCALE,
-        data,
-    )
-    .map_err(|_| -1)?;
+    let instance = ctx
+        .ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LOCALE, data)
+        .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 
@@ -285,12 +313,9 @@ fn js_locale_minimize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         locale: l,
         raw: this.raw.clone(),
     };
-    let instance = ctx.ordinary_create_from_constructor_class(
-        cc.this(),
-        crate::JS_CLASS_INTL_LOCALE,
-        data,
-    )
-    .map_err(|_| -1)?;
+    let instance = ctx
+        .ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LOCALE, data)
+        .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 
@@ -379,14 +404,10 @@ fn apply_locale_options(
         }
         set_unicode_keyword(&mut data.locale, "co", &s)?;
     }
-    if let Some(s) =
-        get_string_option(ctx, &obj, "hourCycle", &["h11", "h12", "h23", "h24"])?
-    {
+    if let Some(s) = get_string_option(ctx, &obj, "hourCycle", &["h11", "h12", "h23", "h24"])? {
         set_unicode_keyword(&mut data.locale, "hc", &s)?;
     }
-    if let Some(s) =
-        get_string_option(ctx, &obj, "caseFirst", &["upper", "lower", "false"])?
-    {
+    if let Some(s) = get_string_option(ctx, &obj, "caseFirst", &["upper", "lower", "false"])? {
         set_unicode_keyword(&mut data.locale, "kf", &s)?;
     }
     let numeric = obj.get_property_str(ctx, "numeric")?;
@@ -395,9 +416,7 @@ fn apply_locale_options(
         let b = numeric.to_bool()?;
         set_unicode_keyword(&mut data.locale, "kn", if b { "" } else { "false" })?;
     }
-    if let Some(s) =
-        get_string_option(ctx, &obj, "numberingSystem", &[])?
-    {
+    if let Some(s) = get_string_option(ctx, &obj, "numberingSystem", &[])? {
         if !super::number_format::is_valid_bcp47_type(&s) {
             return Err(ctx.throw_range_error("Invalid numberingSystem"));
         }

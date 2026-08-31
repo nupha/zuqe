@@ -13,36 +13,80 @@ mod iter_zip;
 mod iterator;
 
 pub use {a_iter::*, array_iter::*, async_iter::*, iter::*};
-
-pub use crate::object::{AsyncFromSyncIterator, AsyncIterableIterator};
 pub(crate) use {
     iter_concat::*, iter_helper::*, iter_shared::*, iter_wrap::*, iter_zip::*, iterator::*,
 };
 
-use crate::{Atom, ClassDef};
+use crate::object::{AsyncFromSyncIterator, AsyncIterableIterator};
 
-pub(crate) static CLASS_DEF_FOR_IN_ITERATOR: ClassDef =
-    ClassDef::builtin(Atom::CONST_ForInIterPayload, &[], None);
-
-pub(crate) static CLASS_DEF_ASYNC_FROM_SYNC_ITERATOR: ClassDef =
-    ClassDef::builtin_with_init_func(Atom::CONST_empty_string, AsyncFromSyncIterator::class_init);
-
-pub(crate) static CLASS_DEF_ASYNC_ITERABLE_ITERATOR: ClassDef = ClassDef::builtin_with_init_func(
-    Atom::CONST_AsyncIterableIterator,
-    AsyncIterableIterator::class_init,
+crate::def_native_object!(
+    builtin,
+    "ForInIterator",
+    CLASS_DEF_FOR_IN_ITERATOR,
+    class_id: (crate::JS_CLASS_FOR_IN_ITERATOR, crate::Atom::CONST_ForInIterPayload),
+    crate::builtins::iterator::ForInIterPayload,
+    &[],
+    None
 );
 
-pub(crate) static CLASS_DEF_ITERATOR: ClassDef =
-    ClassDef::builtin_with_init_func(Atom::CONST_Iterator, js_iterator_class_init);
+crate::def_native_object!(
+    builtin,
+    "AsyncFromSyncIterator",
+    CLASS_DEF_ASYNC_FROM_SYNC_ITERATOR,
+    class_id: (crate::JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, crate::Atom::CONST_empty_string),
+    crate::builtins::iterator::JSAsyncFromSyncIteratorData, (), None,
+    init_fn: AsyncFromSyncIterator::class_init
+);
 
-pub(crate) static CLASS_DEF_ITERATOR_HELPER: ClassDef =
-    ClassDef::builtin_with_init_func(Atom::CONST_empty_string, js_iterator_helper_class_init);
+crate::def_native_object!(
+    builtin,
+    "AsyncIterableIterator",
+    CLASS_DEF_ASYNC_ITERABLE_ITERATOR,
+    class_id: (crate::JS_CLASS_ASYNC_ITERABLE_ITERATOR, crate::Atom::CONST_AsyncIterableIterator),
+    crate::builtins::iterator::AsyncIterPayload, (), None,
+    init_fn: AsyncIterableIterator::class_init
+);
 
-pub(crate) static CLASS_DEF_ITERATOR_WRAP: ClassDef =
-    ClassDef::builtin_with_init_func(Atom::CONST_empty_string, js_iterator_wrap_class_init);
+crate::def_native_object!(
+    builtin,
+    "Iterator",
+    CLASS_DEF_ITERATOR,
+    class_id: (crate::JS_CLASS_ITERATOR, crate::Atom::CONST_Iterator),
+    init_fn: js_iterator_class_init
+);
 
-pub(crate) static CLASS_DEF_ITERATOR_CONCAT: ClassDef =
-    ClassDef::builtin_with_init_func(Atom::CONST_empty_string, js_iterator_concat_class_init);
+crate::def_native_object!(
+    builtin,
+    "IteratorHelper",
+    CLASS_DEF_ITERATOR_HELPER,
+    class_id: (crate::JS_CLASS_ITERATOR_HELPER, crate::Atom::CONST_empty_string),
+    crate::builtins::iterator::IteratorHelperData, (), None,
+    init_fn: js_iterator_helper_class_init
+);
 
-pub(crate) static CLASS_DEF_ITERATOR_ZIP: ClassDef =
-    ClassDef::builtin_with_init_func(Atom::CONST_empty_string, js_iterator_zip_class_init);
+crate::def_native_object!(
+    builtin,
+    "IteratorWrap",
+    CLASS_DEF_ITERATOR_WRAP,
+    class_id: (crate::JS_CLASS_ITERATOR_WRAP, crate::Atom::CONST_empty_string),
+    crate::builtins::iterator::IteratorWrapData, (), None,
+    init_fn: js_iterator_wrap_class_init
+);
+
+crate::def_native_object!(
+    builtin,
+    "IteratorConcat",
+    CLASS_DEF_ITERATOR_CONCAT,
+    class_id: (crate::JS_CLASS_ITERATOR_CONCAT, crate::Atom::CONST_empty_string),
+    crate::builtins::iterator::IteratorConcatData, (), None,
+    init_fn: js_iterator_concat_class_init
+);
+
+crate::def_native_object!(
+    builtin,
+    "IteratorZip",
+    CLASS_DEF_ITERATOR_ZIP,
+    class_id: (crate::JS_CLASS_ITERATOR_ZIP, crate::Atom::CONST_empty_string),
+    crate::builtins::iterator::IteratorZipData, (), None,
+    init_fn: js_iterator_zip_class_init
+);

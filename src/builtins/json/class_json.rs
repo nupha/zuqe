@@ -2,9 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_RAWJSON,
-    atom::Atom,
-    class::ClassDef,
+    Atom, JS_CLASS_RAWJSON,
     context::{ScopeResult, ScopedContext},
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -17,7 +15,15 @@ use crate::{
     value::JSValue,
 };
 
-pub(crate) static CLASS_DEF_RAWJSON: ClassDef = ClassDef::builtin(Atom::CONST_RawJSON, &[], None);
+crate::def_native_object!(
+    builtin,
+    "RawJSON",
+    CLASS_DEF_RAWJSON,
+    class_id: (crate::JS_CLASS_RAWJSON, crate::Atom::CONST_RawJSON),
+    (),
+    &[],
+    None
+);
 
 fn js_json_stringify(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0);

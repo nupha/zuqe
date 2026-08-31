@@ -8,26 +8,32 @@ pub use {abuf::*, class_arraybuffer::*};
 
 pub use crate::object::ArrayBuffer;
 
-use crate::{Atom, class::ClassDef};
-
-pub(crate) static CLASS_DEF_ARRAY_BUFFER: ClassDef = ClassDef::builtin(
-    Atom::CONST_ArrayBuffer,
+crate::def_native_object!(
+    builtin,
+    "ArrayBuffer",
+    CLASS_DEF_ARRAY_BUFFER,
+    class_id: (crate::JS_CLASS_ARRAY_BUFFER, crate::Atom::CONST_ArrayBuffer),
+    crate::builtins::array_buffer::ArrayBufferPayload,
     js_array_buffer_proto_funcs,
     Some(
         crate::class::ClassCtorDef::new(js_array_buffer_constructor, 1, false)
             .entries(js_array_buffer_funcs)
             .expose_to_global(),
     ),
-)
-.on_finalize(ArrayBuffer::class_finalize);
+    on_finalize: ArrayBuffer::class_finalize
+);
 
-pub(crate) static CLASS_DEF_SHARED_ARRAY_BUFFER: ClassDef = ClassDef::builtin(
-    Atom::CONST_SharedArrayBuffer,
+crate::def_native_object!(
+    builtin,
+    "SharedArrayBuffer",
+    CLASS_DEF_SHARED_ARRAY_BUFFER,
+    class_id: (crate::JS_CLASS_SHARED_ARRAY_BUFFER, crate::Atom::CONST_SharedArrayBuffer),
+    crate::builtins::array_buffer::ArrayBufferPayload,
     js_shared_array_buffer_proto_funcs,
     Some(
         crate::class::ClassCtorDef::new(js_shared_array_buffer_constructor, 1, false)
             .entries(js_shared_array_buffer_funcs)
             .expose_to_global(),
     ),
-)
-.on_finalize(ArrayBuffer::class_finalize);
+    on_finalize: ArrayBuffer::class_finalize
+);

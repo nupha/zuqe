@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    ClassCtorDef, ClassDef,
+    ClassCtorDef,
     atom::{Atom, AtomKind},
     context::ScopedContext,
     error::JSResult,
@@ -163,14 +163,18 @@ pub const js_symbol_funcs: &[FieldDef] = &[
 /// `to_atom` returns the *existing* interned atom for the symbol's descriptor,
 /// so every use of the same Symbol value maps to the same property.
 
-pub(crate) static CLASS_DEF_SYMBOL: ClassDef = ClassDef::builtin(
-    crate::Atom::CONST_Symbol,
+crate::def_native_object!(
+    builtin,
+    "Symbol",
+    CLASS_DEF_SYMBOL,
+    class_id: (crate::JS_CLASS_SYMBOL, crate::Atom::CONST_Symbol),
+    crate::string::StringRef,
     js_symbol_proto_funcs,
     Some(
         ClassCtorDef::new(js_symbol_constructor, 0, true)
             .entries(js_symbol_funcs)
             .expose_to_global(),
-    ),
+    )
 );
 
 #[cfg(test)]

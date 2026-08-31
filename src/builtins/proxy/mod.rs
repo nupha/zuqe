@@ -6,11 +6,15 @@ mod proxy;
 
 pub use {class_proxy::*, proxy::*};
 
-pub use crate::object::Proxy;
+use crate::object::Proxy;
 
-use crate::{Atom, class::ClassDef};
-
-pub(crate) static CLASS_DEF_PROXY: ClassDef =
-    ClassDef::builtin_with_init_func(Atom::CONST_Proxy, Proxy::class_init)
-        .exotic(&js_proxy_exotic_methods)
-        .on_call(Proxy::class_call);
+crate::def_native_object!(
+    builtin,
+    "Proxy",
+    CLASS_DEF_PROXY,
+    class_id: (crate::JS_CLASS_PROXY, crate::Atom::CONST_Proxy),
+    crate::builtins::proxy::ProxyPayload, (), None,
+    init_fn: Proxy::class_init,
+    exotic: &js_proxy_exotic_methods,
+    on_call: Proxy::class_call
+);

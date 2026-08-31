@@ -6,7 +6,7 @@
 use icu::plurals::{PluralRuleType, PluralRules as IcuPluralRules};
 
 use crate::{
-    Atom, ClassCtorDef, ClassDef, ScopedContext,
+    ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
@@ -34,15 +34,19 @@ impl GcTrace for PluralRulesData {
     fn trace(&self, _tr: &mut GcTraceCtx) {}
 }
 
-pub(crate) static CLASS_DEF_PLURAL_RULES: ClassDef = ClassDef::builtin(
-    Atom::CONST_PluralRules,
+crate::def_native_object!(
+    builtin,
+    "PluralRules",
+    CLASS_DEF_PLURAL_RULES,
+    class_id: (crate::JS_CLASS_INTL_PLURAL_RULES, crate::Atom::CONST_PluralRules),
+    crate::builtins::intl::plural_rules::PluralRulesData,
     js_plural_rules_proto_funcs,
-    Some(ClassCtorDef::new(js_plural_rules_constructor, 0, false)),
+    Some(crate::class::ClassCtorDef::new(js_plural_rules_constructor, 0, false))
 );
 
 pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
-       let locale = resolve_locale(ctx, cc.arg(0))?;
+    let locale = resolve_locale(ctx, cc.arg(0))?;
     let options = cc.arg(1);
 
     let obj = if options.is_undefined() {
@@ -214,12 +218,9 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
         notation,
         compact_display,
     };
-    let instance = ctx.ordinary_create_from_constructor_class(
-        new_target,
-        crate::JS_CLASS_INTL_PLURAL_RULES,
-        data,
-    )
-    .map_err(|_| -1)?;
+    let instance = ctx
+        .ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_PLURAL_RULES, data)
+        .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }
 

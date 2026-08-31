@@ -9,7 +9,7 @@ use icu::locale::{
 };
 
 use crate::{
-    Atom, ClassCtorDef, ClassDef, ScopedContext,
+    ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
@@ -52,10 +52,14 @@ pub(crate) enum CaseFirst {
     Lower,
 }
 
-pub(crate) static CLASS_DEF_COLLATOR: ClassDef = ClassDef::builtin(
-    Atom::CONST_Collator,
+crate::def_native_object!(
+    builtin,
+    "Collator",
+    CLASS_DEF_COLLATOR,
+    class_id: (crate::JS_CLASS_INTL_COLLATOR, crate::Atom::CONST_Collator),
+    crate::builtins::intl::collator::CollatorData,
     js_collator_proto_funcs,
-    Some(ClassCtorDef::new(js_collator_constructor, 0, true)),
+    Some(crate::class::ClassCtorDef::new(js_collator_constructor, 0, true))
 );
 
 /// Build a `CollatorData` from `(locales, options)`, used by both the
@@ -300,11 +304,7 @@ pub(crate) fn js_collator_constructor(ctx: &mut ScopedContext, cc: CallContext) 
     let new_target = cc.this();
     let data = build_collator_data(ctx, cc.arg(0), cc.arg(1))?;
     let instance = ctx
-        .ordinary_create_from_constructor_class(
-            new_target,
-            crate::JS_CLASS_INTL_COLLATOR,
-            data,
-        )
+        .ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_COLLATOR, data)
         .map_err(|_| -1)?;
     Ok(JSValue::from(instance))
 }

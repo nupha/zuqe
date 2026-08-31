@@ -42,34 +42,47 @@ pub mod regexp;
 pub mod weakref;
 
 use crate::{
-    Atom, ClassCtorDef, class::ClassDef, context::ScopedContext, error::JSResult,
-    function::CallContext, module::js_module_ns_exotic_methods,
+    ClassCtorDef, context::ScopedContext, error::JSResult, function::CallContext,
+    module::js_module_ns_exotic_methods,
 };
 
-//
-// simple class defs
-//
-
-pub(crate) static CLASS_DEF_MODULE_NS: ClassDef =
-    ClassDef::builtin(Atom::CONST_Object, &[], None).exotic(&js_module_ns_exotic_methods);
+crate::def_native_object!(
+    builtin,
+    "ModuleNamespace",
+    CLASS_DEF_MODULE_NS,
+    class_id: (crate::JS_CLASS_MODULE_NS, crate::Atom::CONST_Object),
+    (),
+    &[],
+    None,
+    exotic: &js_module_ns_exotic_methods
+);
 
 #[cfg(feature = "big_int")]
-pub(crate) static CLASS_DEF_BIG_INT: ClassDef = ClassDef::builtin(
-    Atom::CONST_BigInt,
-    bigint::js_bigint_proto_funcs,
+crate::def_native_object!(
+    builtin,
+    "BigInt",
+    CLASS_DEF_BIG_INT,
+    class_id: (crate::JS_CLASS_BIG_INT, crate::Atom::CONST_BigInt),
+    crate::bigint::BigIntRef,
+    crate::builtins::bigint::js_bigint_proto_funcs,
     Some(
-        ClassCtorDef::new(bigint::js_bigint_constructor, 1, true)
-            .entries(bigint::js_bigint_funcs)
+        ClassCtorDef::new(crate::builtins::bigint::js_bigint_constructor, 1, true)
+            .entries(crate::builtins::bigint::js_bigint_funcs)
             .expose_to_global(),
-    ),
+    )
 );
 
 #[cfg(not(feature = "big_int"))]
-pub(crate) static CLASS_DEF_BIG_INT: ClassDef = ClassDef::builtin(Atom::CONST_BigInt, &[], None);
+crate::def_native_object!(
+    builtin,
+    "BigInt",
+    CLASS_DEF_BIG_INT,
+    class_id: (crate::JS_CLASS_BIG_INT, crate::Atom::CONST_BigInt),
+    (),
+    &[],
+    None
+);
 
-//
-// common proto methods
-//
 pub(crate) const fn js_get_this(_: &mut ScopedContext, cc: CallContext) -> JSResult {
     Ok(cc.this())
 }

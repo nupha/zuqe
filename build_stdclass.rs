@@ -156,30 +156,48 @@ impl PayloadKey {
             #[cfg(feature = "builtin_regexp")]
             PayloadKey::RegExp => Some("Box<crate::builtins::regexp::RegExpData>"),
             PayloadKey::ForInIterator => Some("Box<crate::builtins::iterator::ForInIterPayload>"),
-            PayloadKey::ArrayBuffer => Some("Box<crate::builtins::array_buffer::ArrayBufferPayload>"),
+            PayloadKey::ArrayBuffer => {
+                Some("Box<crate::builtins::array_buffer::ArrayBufferPayload>")
+            }
             PayloadKey::TypedArray => Some("Box<crate::builtins::typed_array::TypedArrayPayload>"),
             #[cfg(feature = "big_int")]
             PayloadKey::BigInt => Some("crate::bigint::BigIntRef"),
             #[cfg(feature = "intl402")]
             PayloadKey::IntlCollator => Some("Box<crate::builtins::intl::collator::CollatorData>"),
             #[cfg(feature = "intl402")]
-            PayloadKey::IntlDateTimeFormat => Some("Box<crate::builtins::intl::date_time_format::DateTimeFormatData>"),
+            PayloadKey::IntlDateTimeFormat => {
+                Some("Box<crate::builtins::intl::date_time_format::DateTimeFormatData>")
+            }
             #[cfg(feature = "intl402")]
-            PayloadKey::IntlDurationFormat => Some("Box<crate::builtins::intl::duration_format::DurationFormatData>"),
+            PayloadKey::IntlDurationFormat => {
+                Some("Box<crate::builtins::intl::duration_format::DurationFormatData>")
+            }
             #[cfg(feature = "intl402")]
-            PayloadKey::IntlDisplayNames => Some("Box<crate::builtins::intl::display_names::DisplayNamesData>"),
+            PayloadKey::IntlDisplayNames => {
+                Some("Box<crate::builtins::intl::display_names::DisplayNamesData>")
+            }
             #[cfg(feature = "intl402")]
-            PayloadKey::IntlListFormat => Some("Box<crate::builtins::intl::list_format::ListFormatData>"),
+            PayloadKey::IntlListFormat => {
+                Some("Box<crate::builtins::intl::list_format::ListFormatData>")
+            }
             #[cfg(feature = "intl402")]
             PayloadKey::IntlLocale => Some("Box<crate::builtins::intl::locale::LocaleData>"),
             #[cfg(feature = "intl402")]
-            PayloadKey::IntlNumberFormat => Some("Box<crate::builtins::intl::number_format::NumberFormatData>"),
+            PayloadKey::IntlNumberFormat => {
+                Some("Box<crate::builtins::intl::number_format::NumberFormatData>")
+            }
             #[cfg(feature = "intl402")]
-            PayloadKey::IntlPluralRules => Some("Box<crate::builtins::intl::plural_rules::PluralRulesData>"),
+            PayloadKey::IntlPluralRules => {
+                Some("Box<crate::builtins::intl::plural_rules::PluralRulesData>")
+            }
             #[cfg(feature = "intl402")]
-            PayloadKey::IntlRelativeTimeFormat => Some("Box<crate::builtins::intl::relative_time_format::RelativeTimeFormatData>"),
+            PayloadKey::IntlRelativeTimeFormat => {
+                Some("Box<crate::builtins::intl::relative_time_format::RelativeTimeFormatData>")
+            }
             #[cfg(feature = "intl402")]
-            PayloadKey::IntlSegmenter => Some("Box<crate::builtins::intl::segmenter::SegmenterData>"),
+            PayloadKey::IntlSegmenter => {
+                Some("Box<crate::builtins::intl::segmenter::SegmenterData>")
+            }
             PayloadKey::DataView => Some("Box<crate::builtins::typed_array::DataViewPayload>"),
             #[cfg(feature = "builtin_mapset")]
             PayloadKey::MapSet => Some("Box<crate::builtins::mapset::JSMapState>"),
@@ -187,26 +205,40 @@ impl PayloadKey {
             PayloadKey::MapSetIterator => Some("Box<crate::builtins::mapset::JSMapIteratorData>"),
             PayloadKey::ArrayIterator => Some("Box<crate::builtins::iterator::ArrayIterPayload>"),
             #[cfg(feature = "builtin_regexp")]
-            PayloadKey::RegExpStringIterator => Some("Box<crate::builtins::regexp::RegExpStringIterPayload>"),
+            PayloadKey::RegExpStringIterator => {
+                Some("Box<crate::builtins::regexp::RegExpStringIterPayload>")
+            }
             PayloadKey::Generator => Some("Box<crate::builtins::generator::GeneratorPayload>"),
             #[cfg(feature = "builtin_proxy")]
             PayloadKey::Proxy => Some("Box<crate::builtins::proxy::ProxyPayload>"),
             PayloadKey::Promise => Some("Box<crate::builtins::promise::PromisePayload>"),
-            PayloadKey::PromiseResolvingFunction => Some("Box<crate::builtins::promise::PromiseResolvePayload>"),
+            PayloadKey::PromiseResolvingFunction => {
+                Some("Box<crate::builtins::promise::PromiseResolvePayload>")
+            }
             PayloadKey::AsyncFunctionResolving => Some("crate::function::AsyncState"),
-            PayloadKey::AsyncFromSyncIterator => Some("Box<crate::builtins::iterator::JSAsyncFromSyncIteratorData>"),
+            PayloadKey::AsyncFromSyncIterator => {
+                Some("Box<crate::builtins::iterator::JSAsyncFromSyncIteratorData>")
+            }
             PayloadKey::AsyncGenerator => Some("Box<crate::builtins::generator::AGenPayload>"),
-            PayloadKey::AsyncIterableIterator => Some("Box<crate::builtins::iterator::AsyncIterPayload>"),
-            PayloadKey::IteratorHelper => Some("Box<crate::builtins::iterator::IteratorHelperData>"),
+            PayloadKey::AsyncIterableIterator => {
+                Some("Box<crate::builtins::iterator::AsyncIterPayload>")
+            }
+            PayloadKey::IteratorHelper => {
+                Some("Box<crate::builtins::iterator::IteratorHelperData>")
+            }
             PayloadKey::IteratorWrap => Some("Box<crate::builtins::iterator::IteratorWrapData>"),
-            PayloadKey::IteratorConcat => Some("Box<crate::builtins::iterator::IteratorConcatData>"),
+            PayloadKey::IteratorConcat => {
+                Some("Box<crate::builtins::iterator::IteratorConcatData>")
+            }
             PayloadKey::IteratorZip => Some("Box<crate::builtins::iterator::IteratorZipData>"),
             #[cfg(feature = "builtin_date")]
             PayloadKey::Datetime => Some("crate::builtins::date::Datetime"),
             #[cfg(feature = "builtin_weakref")]
             PayloadKey::WeakRef => Some("Box<crate::builtins::weakref::WeakRefData>"),
             #[cfg(feature = "builtin_weakref")]
-            PayloadKey::FinalizationRegistry => Some("Box<crate::builtins::weakref::FinalizationRegistryData>"),
+            PayloadKey::FinalizationRegistry => {
+                Some("Box<crate::builtins::weakref::FinalizationRegistryData>")
+            }
         }
     }
 }
@@ -222,10 +254,8 @@ struct ClassInfo {
     const_name: &'static str,
     class_def: &'static str,
     key: PayloadKey,
-    /// narrow object wrapper type this class maps to (name-matched, at most
-    /// one). `None` = this class does not participate in any narrow type.
-    /// The narrow types are aggregated from `CLASS_DEF_LIST` by this field.
     narrow: Option<&'static str>,
+    migrated: bool,
 }
 
 impl ClassInfo {
@@ -235,6 +265,7 @@ impl ClassInfo {
             class_def,
             key,
             narrow: None,
+            migrated: false,
         }
     }
 
@@ -249,114 +280,140 @@ impl ClassInfo {
             class_def,
             key,
             narrow: Some(narrow),
+            migrated: false,
+        }
+    }
+
+    const fn migrated(const_name: &'static str, class_def: &'static str, key: PayloadKey) -> Self {
+        ClassInfo {
+            const_name,
+            class_def,
+            key,
+            narrow: None,
+            migrated: true,
+        }
+    }
+
+    const fn migrated_narrow(
+        const_name: &'static str,
+        class_def: &'static str,
+        key: PayloadKey,
+        narrow: &'static str,
+    ) -> Self {
+        ClassInfo {
+            const_name,
+            class_def,
+            key,
+            narrow: Some(narrow),
+            migrated: true,
         }
     }
 }
 
 const CLASS_DEF_LIST: &[ClassInfo] = &[
     // CORE CLASSES START
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "OBJECT",
         "crate::builtins::object::CLASS_DEF_OBJECT",
         PayloadKey::None,
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "ARRAY",
         "crate::builtins::array::CLASS_DEF_ARRAY",
         PayloadKey::Array,
         "Array",
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "ERROR",
         "crate::builtins::error::CLASS_DEF_ERROR",
         PayloadKey::None,
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "NUMBER",
         "crate::builtins::number::CLASS_DEF_NUMBER",
         PayloadKey::Value,
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "BOOLEAN",
         "crate::builtins::boolean::CLASS_DEF_BOOLEAN",
         PayloadKey::Bool,
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "STRING",
         "crate::builtins::string::CLASS_DEF_STRING",
         PayloadKey::String,
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "SYMBOL",
         "crate::builtins::symbol::CLASS_DEF_SYMBOL",
         PayloadKey::String,
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "ARGUMENTS",
         "crate::builtins::arguments::CLASS_DEF_ARGUMENTS",
         PayloadKey::Array,
         "Array",
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "MAPPED_ARGUMENTS",
         "crate::builtins::arguments::CLASS_DEF_MAPPED_ARGUMENTS",
         PayloadKey::None,
     ),
     #[cfg(feature = "builtin_date")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "DATE",
         "crate::builtins::date::CLASS_DEF_DATE",
         PayloadKey::Datetime,
     ),
     // CORE CLASSES END
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "MODULE_NS",
         "crate::builtins::CLASS_DEF_MODULE_NS",
         PayloadKey::None,
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "C_FUNCTION",
         "crate::builtins::function::CLASS_DEF_C_FUNCTION",
         PayloadKey::NativeFunc,
         "NativeFunction",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "BYTECODE_FUNCTION",
         "crate::builtins::function::CLASS_DEF_BYTECODE_FUNCTION",
         PayloadKey::BcFunction,
         "BytecodeFunction",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "BOUND_FUNCTION",
         "crate::builtins::function::CLASS_DEF_BOUND_FUNCTION",
         PayloadKey::BoundFunction,
         "BoundFunction",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "C_FUNCTION_DATA",
         "crate::builtins::function::CLASS_DEF_C_FUNCTION_DATA",
         PayloadKey::NativeFunc,
         "NativeFunction",
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "FOR_IN_ITERATOR",
         "crate::builtins::iterator::CLASS_DEF_FOR_IN_ITERATOR",
         PayloadKey::ForInIterator,
     ),
     #[cfg(feature = "builtin_regexp")]
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "REGEXP",
         "crate::builtins::regexp::CLASS_DEF_REGEXP",
         PayloadKey::RegExp,
         "RegExp",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "ARRAY_BUFFER",
         "crate::builtins::array_buffer::CLASS_DEF_ARRAY_BUFFER",
         PayloadKey::ArrayBuffer,
         "ArrayBuffer",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "SHARED_ARRAY_BUFFER",
         "crate::builtins::array_buffer::CLASS_DEF_SHARED_ARRAY_BUFFER",
         PayloadKey::ArrayBuffer,
@@ -365,99 +422,99 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     //
     // start of typed arrays
     //
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "UINT8C_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_UINT8C_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "INT8_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_INT8_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "UINT8_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_UINT8_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "INT16_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_INT16_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "UINT16_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_UINT16_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "INT32_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_INT32_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "UINT32_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_UINT32_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "BIG_INT64_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_BIG_INT64_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "BIG_UINT64_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_BIG_UINT64_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "FLOAT16_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_FLOAT16_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "FLOAT32_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_FLOAT32_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "FLOAT64_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_FLOAT64_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
     // end of typed arrays
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "DATAVIEW",
         "crate::builtins::typed_array::CLASS_DEF_DATAVIEW",
         PayloadKey::DataView,
         "DataView",
     ),
     #[cfg(feature = "big_int")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "BIG_INT",
         "crate::builtins::CLASS_DEF_BIG_INT",
         PayloadKey::BigInt,
     ),
     #[cfg(not(feature = "big_int"))]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "BIG_INT",
         "crate::builtins::CLASS_DEF_BIG_INT",
         PayloadKey::None,
     ),
     #[cfg(feature = "builtin_json")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "RAWJSON",
         "crate::builtins::json::CLASS_DEF_RAWJSON",
         PayloadKey::None,
@@ -466,42 +523,42 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     // map set and iterators
     //
     #[cfg(feature = "builtin_mapset")]
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "MAP",
         "crate::builtins::mapset::CLASS_DEF_MAP",
         PayloadKey::MapSet,
         "MapSet",
     ),
     #[cfg(feature = "builtin_mapset")]
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "SET",
         "crate::builtins::mapset::CLASS_DEF_SET",
         PayloadKey::MapSet,
         "MapSet",
     ),
     #[cfg(feature = "builtin_mapset")]
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "WEAKMAP",
         "crate::builtins::mapset::CLASS_DEF_WEAK_MAP",
         PayloadKey::MapSet,
         "MapSet",
     ),
     #[cfg(feature = "builtin_mapset")]
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "WEAKSET",
         "crate::builtins::mapset::CLASS_DEF_WEAK_SET",
         PayloadKey::MapSet,
         "MapSet",
     ),
     #[cfg(feature = "builtin_mapset")]
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "MAP_ITERATOR",
         "crate::builtins::mapset::CLASS_DEF_MAP_ITERATOR",
         PayloadKey::MapSetIterator,
         "MapIterator",
     ),
     #[cfg(feature = "builtin_mapset")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "SET_ITERATOR",
         "crate::builtins::mapset::CLASS_DEF_SET_ITERATOR",
         PayloadKey::MapSetIterator,
@@ -517,7 +574,7 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
         PayloadKey::ArrayIterator,
     ),
     #[cfg(feature = "builtin_regexp")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "REGEXP_STRING_ITERATOR",
         "crate::builtins::regexp::CLASS_DEF_REGEXP_STRING_ITERATOR",
         PayloadKey::RegExpStringIterator,
@@ -525,12 +582,12 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     //
     //
     //
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "GENERATOR",
         "crate::builtins::generator::CLASS_DEF_GENERATOR",
         PayloadKey::Generator,
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "GENERATOR_FUNCTION",
         "crate::builtins::generator::CLASS_DEF_GENERATOR_FUNCTION",
         PayloadKey::BcFunction,
@@ -540,7 +597,7 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     // Proxy
     //
     #[cfg(feature = "builtin_proxy")]
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "PROXY",
         "crate::builtins::proxy::CLASS_DEF_PROXY",
         PayloadKey::Proxy,
@@ -549,58 +606,58 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     //
     // Async stuff
     //
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "PROMISE",
         "crate::builtins::promise::CLASS_DEF_PROMISE",
         PayloadKey::Promise,
         "Promise",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "PROMISE_RESOLVE_FUNCTION",
         "crate::builtins::promise::CLASS_DEF_PROMISE_RESOLVE_FUNCTION",
         PayloadKey::PromiseResolvingFunction,
         "PromiseResolveFunc",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "PROMISE_REJECT_FUNCTION",
         "crate::builtins::promise::CLASS_DEF_PROMISE_REJECT_FUNCTION",
         PayloadKey::PromiseResolvingFunction,
         "PromiseResolveFunc",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "ASYNC_FUNCTION",
         "crate::builtins::function::CLASS_DEF_ASYNC_FUNCTION",
         PayloadKey::BcFunction,
         "AsyncFunction",
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "ASYNC_FUNCTION_RESOLVE",
         "crate::builtins::function::CLASS_DEF_ASYNC_FUNCTION_RESOLVE",
         PayloadKey::AsyncFunctionResolving,
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "ASYNC_FUNCTION_REJECT",
         "crate::builtins::function::CLASS_DEF_ASYNC_FUNCTION_REJECT",
         PayloadKey::AsyncFunctionResolving,
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "ASYNC_FROM_SYNC_ITERATOR",
         "crate::builtins::iterator::CLASS_DEF_ASYNC_FROM_SYNC_ITERATOR",
         PayloadKey::AsyncFromSyncIterator,
         "AsyncFromSyncIterator",
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "ASYNC_GENERATOR",
         "crate::builtins::generator::CLASS_DEF_ASYNC_GENERATOR",
         PayloadKey::AsyncGenerator,
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "ASYNC_GENERATOR_FUNCTION", // depends on ASYNC_GENERATOR
         "crate::builtins::generator::CLASS_DEF_ASYNC_GENERATOR_FUNCTION",
         PayloadKey::BcFunction,
         "AsyncGeneratorFunction",
     ),
-    ClassInfo::narrow_type(
+    ClassInfo::migrated_narrow(
         "ASYNC_ITERABLE_ITERATOR",
         "crate::builtins::iterator::CLASS_DEF_ASYNC_ITERABLE_ITERATOR",
         PayloadKey::AsyncIterableIterator,
@@ -609,39 +666,39 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     //
     // ES2024+ Iterator global object
     //
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "ITERATOR",
         "crate::builtins::iterator::CLASS_DEF_ITERATOR",
         PayloadKey::None,
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "ITERATOR_HELPER",
         "crate::builtins::iterator::CLASS_DEF_ITERATOR_HELPER",
         PayloadKey::IteratorHelper,
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "ITERATOR_WRAP",
         "crate::builtins::iterator::CLASS_DEF_ITERATOR_WRAP",
         PayloadKey::IteratorWrap,
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "ITERATOR_CONCAT",
         "crate::builtins::iterator::CLASS_DEF_ITERATOR_CONCAT",
         PayloadKey::IteratorConcat,
     ),
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "ITERATOR_ZIP",
         "crate::builtins::iterator::CLASS_DEF_ITERATOR_ZIP",
         PayloadKey::IteratorZip,
     ),
     #[cfg(feature = "builtin_weakref")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "WEAKREF",
         "crate::builtins::weakref::CLASS_DEF_WEAKREF",
         PayloadKey::WeakRef,
     ),
     #[cfg(feature = "builtin_weakref")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "FINALIZATION_REGISTRY",
         "crate::builtins::weakref::CLASS_DEF_FINALIZATION_REGISTRY",
         PayloadKey::FinalizationRegistry,
@@ -651,61 +708,61 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     // ids form the contiguous range `JS_CLASS_INTL_COLLATOR ..= JS_CLASS_INTL_SEGMENTER`.
     //
     #[cfg(feature = "intl402")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "INTL_COLLATOR",
         "crate::builtins::intl::collator::CLASS_DEF_COLLATOR",
         PayloadKey::IntlCollator,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "INTL_DATE_TIME_FORMAT",
         "crate::builtins::intl::date_time_format::CLASS_DEF_DATE_TIME_FORMAT",
         PayloadKey::IntlDateTimeFormat,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "INTL_DURATION_FORMAT",
         "crate::builtins::intl::duration_format::CLASS_DEF_DURATION_FORMAT",
         PayloadKey::IntlDurationFormat,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "INTL_DISPLAY_NAMES",
         "crate::builtins::intl::display_names::CLASS_DEF_DISPLAY_NAMES",
         PayloadKey::IntlDisplayNames,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "INTL_LIST_FORMAT",
         "crate::builtins::intl::list_format::CLASS_DEF_LIST_FORMAT",
         PayloadKey::IntlListFormat,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "INTL_LOCALE",
         "crate::builtins::intl::locale::CLASS_DEF_LOCALE",
         PayloadKey::IntlLocale,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "INTL_NUMBER_FORMAT",
         "crate::builtins::intl::number_format::CLASS_DEF_NUMBER_FORMAT",
         PayloadKey::IntlNumberFormat,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "INTL_PLURAL_RULES",
         "crate::builtins::intl::plural_rules::CLASS_DEF_PLURAL_RULES",
         PayloadKey::IntlPluralRules,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "INTL_RELATIVE_TIME_FORMAT",
         "crate::builtins::intl::relative_time_format::CLASS_DEF_RELATIVE_TIME_FORMAT",
         PayloadKey::IntlRelativeTimeFormat,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::class_def(
+    ClassInfo::migrated(
         "INTL_SEGMENTER",
         "crate::builtins::intl::segmenter::CLASS_DEF_SEGMENTER",
         PayloadKey::IntlSegmenter,
@@ -713,30 +770,13 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
 ];
 
 pub fn gen_std_class_defs(outfile: &Path) {
-    let mut cdefs = Vec::<String>::with_capacity(128);
     let mut consts = Vec::<String>::with_capacity(128);
-    let mut drops = Vec::<String>::with_capacity(128);
 
     let mut async_start: Option<usize> = None;
     let mut async_end: Option<usize> = None;
 
-    // builtin class defs
-    //
-    cdefs.push("pub(crate) const BUILTIN_CLASS_DEFS: &[&ClassDef] = &[".to_string());
-
-    // per-class payload free channel, index-aligned with the class ids below
-    // (index = id - 1). Wired into `ClassDef::payload_drop` right after
-    // `register_builtin_classes` so that ALL classes — builtin and user —
-    // free their payloads through the drop callback registered in the class
-    // registry. Classes without a payload type (PayloadKey::None) stay None:
-    // their payload is always null.
-    drops.push(
-        "/// @generated by build_stdclass.rs. DO NOT EDIT.".to_string(),
-    );
-    drops.push(
-        "pub(crate) const BUILTIN_PAYLOAD_DROPS: &[Option<unsafe fn(*mut std::ffi::c_void)>] = &["
-            .to_string(),
-    );
+    let mut register_lines = Vec::<String>::with_capacity(128);
+    let mut wire_drop_lines = Vec::<String>::with_capacity(128);
 
     for (i, cdef) in CLASS_DEF_LIST.iter().enumerate() {
         match cdef.const_name {
@@ -749,24 +789,27 @@ pub fn gen_std_class_defs(outfile: &Path) {
             _ => {}
         }
 
-        cdefs.push(format!(
-            "// #{i}: id={} {}\n&{},",
-            i + 1,
-            cdef.const_name,
-            cdef.class_def
-        ));
-
-        drops.push(format!("// #{i}: id={} {}", i + 1, cdef.const_name));
-        match payload_drop_expr(cdef.key) {
-            Some(expr) => drops.push(format!("Some({expr}),")),
-            None => drops.push("None,".to_string()),
-        }
-
         consts.push(format!(
             "pub const JS_CLASS_{}:ClassID={};",
             cdef.const_name,
             i + 1
         ));
+
+        if cdef.migrated {
+            register_lines.push(format!("    {}::register(rt)?;", cdef.class_def));
+        } else {
+            register_lines.push(format!(
+                "    rt.register_builtin_class(JS_CLASS_{}, {})?;",
+                cdef.const_name, cdef.class_def
+            ));
+
+            if let Some(drop_expr) = payload_drop_expr(cdef.key) {
+                wire_drop_lines.push(format!(
+                    "    rt.class_registry[JS_CLASS_{} as usize].payload_drop = Some({});",
+                    cdef.const_name, drop_expr
+                ));
+            }
+        }
     }
 
     consts.push(format!(
@@ -774,33 +817,27 @@ pub fn gen_std_class_defs(outfile: &Path) {
         CLASS_DEF_LIST.len() + 1
     ));
 
-    cdefs.push("];".to_string());
-    drops.push("];".to_string());
-
-    let lines = [
+    let mut lines = vec![
         "use crate::{class::{ClassID, ClassDef}};\n".to_string(),
         consts.join("\n"),
-        "".to_string(),
-        cdefs.join("\n"),
-        "".to_string(),
-        drops.join("\n"),
         String::new(),
-        "pub(crate) fn wire_builtin_payload_drops(rt: &mut crate::RuntimeImpl) {".to_string(),
-        "    debug_assert!(".to_string(),
-        "        rt.class_registry.len() >= BUILTIN_PAYLOAD_DROPS.len() + 1,".to_string(),
-        "        \"builtin classes must be registered before wiring payload drops\",".to_string(),
-        "    );".to_string(),
-        "    for (i, free) in BUILTIN_PAYLOAD_DROPS.iter().enumerate() {".to_string(),
-        "        rt.class_registry[i + 1].payload_drop = *free;".to_string(),
-        "    }".to_string(),
-        "}".to_string(),
-        "// end of std class".to_string(),
-        format!(
-            "pub const STD_CLASS_DEFS_ASYNC_INDEX_RANGE: std::ops::RangeInclusive<usize> = {}..={};",
-            async_start.unwrap(),
-            async_end.unwrap()
-        ),
+        "pub(crate) fn register_all_builtin_classes(rt: &mut crate::RuntimeImpl) -> Result<(), i32> {"
+            .to_string(),
     ];
+    lines.extend(register_lines);
+    if !wire_drop_lines.is_empty() {
+        lines.push(String::new());
+        lines.push("    // Wire payload_drop for non-migrated builtin classes".to_string());
+        lines.extend(wire_drop_lines);
+    }
+    lines.push("    Ok(())".to_string());
+    lines.push("}".to_string());
+    lines.push("// end of std class".to_string());
+    lines.push(format!(
+        "pub const STD_CLASS_DEFS_ASYNC_INDEX_RANGE: std::ops::RangeInclusive<usize> = {}..={};",
+        async_start.unwrap(),
+        async_end.unwrap()
+    ));
 
     std::fs::write(outfile, lines.join("\n")).unwrap();
 

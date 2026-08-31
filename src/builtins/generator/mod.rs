@@ -8,22 +8,40 @@ pub(crate) use {a_gen::*, r#gen::*};
 
 pub(crate) use crate::object::{AsyncGeneratorFunction, GeneratorFunction};
 
-use crate::{Atom, class::ClassDef};
-
-pub(crate) static CLASS_DEF_GENERATOR: ClassDef =
-    ClassDef::builtin_with_init_func(Atom::CONST_Generator, GeneratorFunction::class_init);
-
-pub(crate) static CLASS_DEF_GENERATOR_FUNCTION: ClassDef =
-    ClassDef::builtin_with_init_func(Atom::CONST_Function, GeneratorFunction::class_init)
-        .on_call(js_generator_function_call);
-
-pub(crate) static CLASS_DEF_ASYNC_GENERATOR: ClassDef = ClassDef::builtin_with_init_func(
-    Atom::CONST_AsyncGenerator,
-    AsyncGeneratorFunction::class_init,
+crate::def_native_object!(
+    builtin,
+    "Generator",
+    CLASS_DEF_GENERATOR,
+    class_id: (crate::JS_CLASS_GENERATOR, crate::Atom::CONST_Generator),
+    crate::builtins::generator::GeneratorPayload, (), None,
+    init_fn: GeneratorFunction::class_init
 );
 
-pub(crate) static CLASS_DEF_ASYNC_GENERATOR_FUNCTION: ClassDef = ClassDef::builtin_with_init_func(
-    Atom::CONST_AsyncGeneratorFunction,
-    AsyncGeneratorFunction::class_init,
-)
-.on_call(AsyncGeneratorFunction::class_call);
+crate::def_native_object!(
+    builtin,
+    "GeneratorFunction",
+    CLASS_DEF_GENERATOR_FUNCTION,
+    class_id: (crate::JS_CLASS_GENERATOR_FUNCTION, crate::Atom::CONST_Function),
+    crate::function::BFuncPayload, (), None,
+    init_fn: GeneratorFunction::class_init,
+    on_call: js_generator_function_call
+);
+
+crate::def_native_object!(
+    builtin,
+    "AsyncGenerator",
+    CLASS_DEF_ASYNC_GENERATOR,
+    class_id: (crate::JS_CLASS_ASYNC_GENERATOR, crate::Atom::CONST_AsyncGenerator),
+    crate::builtins::generator::AGenPayload, (), None,
+    init_fn: AsyncGeneratorFunction::class_init
+);
+
+crate::def_native_object!(
+    builtin,
+    "AsyncGeneratorFunction",
+    CLASS_DEF_ASYNC_GENERATOR_FUNCTION,
+    class_id: (crate::JS_CLASS_ASYNC_GENERATOR_FUNCTION, crate::Atom::CONST_AsyncGeneratorFunction),
+    crate::function::BFuncPayload, (), None,
+    init_fn: AsyncGeneratorFunction::class_init,
+    on_call: AsyncGeneratorFunction::class_call
+);

@@ -6,7 +6,7 @@
 use icu::{decimal::DecimalFormatter, locale::Locale};
 
 use crate::{
-    Atom, ClassCtorDef, ClassDef, ScopedContext,
+    ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
@@ -83,10 +83,14 @@ pub(crate) enum RoundingMode {
     Trunc,
 }
 
-pub(crate) static CLASS_DEF_NUMBER_FORMAT: ClassDef = ClassDef::builtin(
-    Atom::CONST_NumberFormat,
+crate::def_native_object!(
+    builtin,
+    "NumberFormat",
+    CLASS_DEF_NUMBER_FORMAT,
+    class_id: (crate::JS_CLASS_INTL_NUMBER_FORMAT, crate::Atom::CONST_NumberFormat),
+    crate::builtins::intl::number_format::NumberFormatData,
     js_number_format_proto_funcs,
-    Some(ClassCtorDef::new_legacy(js_number_format_constructor, 0)),
+    Some(crate::class::ClassCtorDef::new_legacy(js_number_format_constructor, 0))
 );
 
 /// Validate a BCP-47 `type`-like value: `3*8alphanum *("-" (3*8alphanum))`.

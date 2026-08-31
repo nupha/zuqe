@@ -1,5 +1,6 @@
 use crate::{
-    Atom, ClassDef, JSValue, ScopedContext, class::ClassExoticMethods, object::JS_PROP_NO_EXOTIC,
+    Atom, JSValue, ScopedContext, array::ArrayPayload, class::ClassExoticMethods,
+    object::JS_PROP_NO_EXOTIC,
 };
 
 fn js_arguments_define_own_property(
@@ -45,8 +46,23 @@ pub(crate) const js_arguments_exotic_methods: ClassExoticMethods = ClassExoticMe
     set_prototype: None,
 };
 
-pub(crate) static CLASS_DEF_ARGUMENTS: ClassDef =
-    ClassDef::builtin(Atom::CONST_Arguments, &[], None).exotic(&js_arguments_exotic_methods);
+crate::def_native_object!(
+    builtin,
+    "Arguments",
+    CLASS_DEF_ARGUMENTS,
+    class_id: (crate::JS_CLASS_ARGUMENTS, crate::Atom::CONST_Arguments),
+    ArrayPayload,
+    &[],
+    None,
+    exotic: &js_arguments_exotic_methods
+);
 
-pub(crate) static CLASS_DEF_MAPPED_ARGUMENTS: ClassDef =
-    ClassDef::builtin(Atom::CONST_Arguments, &[], None);
+crate::def_native_object!(
+    builtin,
+    "Arguments",
+    CLASS_DEF_MAPPED_ARGUMENTS,
+    class_id: (crate::JS_CLASS_MAPPED_ARGUMENTS, crate::Atom::CONST_Arguments),
+    (),
+    &[],
+    None
+);

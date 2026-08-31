@@ -5,16 +5,15 @@ mod class_def;
 mod native;
 mod using;
 
-use gc_lite::GcTraceCtx;
-
+pub(crate) use class_def::*;
 pub use {
     class_def::{ClassCtorDef, ClassDef},
     native::*,
 };
 
-pub(crate) use {class_def::*, using::*};
-
 use std::ffi::c_void;
+
+use gc_lite::GcTraceCtx;
 
 use crate::{
     atom::Atom,
@@ -27,15 +26,10 @@ use crate::{
 
 pub type ClassID = u16;
 
-/// Class instance finalize callback, called from `ObjectImpl::drop()` when a class instance is garbage collected.
-pub type ClassFinalizeFn = fn(rt: &mut RuntimeImpl, isa: *mut c_void, id: usize);
-/// free user class instance handler
-pub(crate) type ClassFinalizeOpaqueFn = fn(
-    rt: &mut RuntimeImpl,
-    payload_opaque: *mut c_void,
-    class_id: usize,
-    id: usize,
-);
+/// Class instance finalize callback, called from `ObjectImpl::finalize()` when a
+/// class instance is garbage collected. Unified for both builtin and user classes.
+pub type ClassFinalizeFn =
+    fn(rt: &mut RuntimeImpl, payload_ptr: *mut c_void, class_id: usize, id: usize);
 /// class unregister handler.
 ///
 /// # Note

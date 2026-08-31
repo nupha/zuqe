@@ -384,7 +384,7 @@ unsafe extern "C" fn zapi_register_class(env: ZqEnv, class_def: *const ZqClassDe
     if def.finalize.is_some() {
         // Per-class dispatch: the host forwards this object's ClassID, which
         // maps to its own ZqClassDef in `zapi_class_map` (one entry per class).
-        cd = cd.on_dispose(|rt, payload_opaque, class_id, _| {
+        cd = cd.on_finalize(|rt, payload_opaque, class_id, _| {
             let def_ptr = rt
                 .zapi_class_map
                 .lock()
@@ -392,6 +392,7 @@ unsafe extern "C" fn zapi_register_class(env: ZqEnv, class_def: *const ZqClassDe
                 .get(&(class_id as u16))
                 .copied()
                 .unwrap_or(0);
+
             if def_ptr != 0 {
                 let def = unsafe { &*(def_ptr as *const ZqClassDef) };
                 if std::env::var_os("ZUQE_ZAPI_DEBUG").is_some() {

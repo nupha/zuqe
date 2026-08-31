@@ -8,8 +8,7 @@ use gc_lite::GcTrace;
 use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
 
 use crate::{
-    BUILTIN_CLASS_DEFS, Context, JS_CLASS_OBJECT, ScopedContext, USER_CLASS_ID_START,
-    wire_builtin_payload_drops,
+    Context, ScopedContext, USER_CLASS_ID_START,
     atom::{Atom, AtomRegistry},
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions, promise::JSHostPromiseRejectionTracker,
@@ -21,6 +20,7 @@ use crate::{
     module::{ModuleLoadFn, ModuleNormalizeFn},
     object::Promise,
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
+    register_all_builtin_classes,
     stack_frame::{ExecMode, FrameIndex, StackFrameArena},
     utils::js_get_stack_pointer,
     value::JSValue,
@@ -290,11 +290,7 @@ impl RuntimeImpl {
         };
 
         rt.init_const_atoms();
-        rt.register_builtin_classes(BUILTIN_CLASS_DEFS, JS_CLASS_OBJECT)?;
-        // Wire the generated per-builtin-class payload drop callbacks so that
-        // finalize frees builtin payloads through the registry like user
-        // classes (no objects exist yet — nothing can carry a payload).
-        wire_builtin_payload_drops(&mut rt);
+        register_all_builtin_classes(&mut rt)?;
 
         JS_UpdateStackTop(&mut rt);
 

@@ -66,6 +66,21 @@ impl RuntimeImpl {
         Ok(())
     }
 
+    /// Register a builtin class with a pre-assigned compile-time class_id.
+    ///
+    /// Validates that `class_id` is in the builtin range (`< USER_CLASS_ID_START`)
+    /// and that `class_def.name_atom` is non-null (pre-allocated). Delegates to
+    /// `register_class_internal` for slot management.
+    pub(crate) fn register_builtin_class(
+        &mut self,
+        class_id: ClassID,
+        class_def: ClassDef,
+    ) -> Result<(), i32> {
+        debug_assert!(class_id > 0 && class_id < USER_CLASS_ID_START);
+        debug_assert!(!class_def.name_atom.is_null());
+        self.register_class_internal(class_id, class_def)
+    }
+
     /// Register builtin classes from a compile-time table.
     ///
     /// Called once during `RuntimeImpl::create()` with the generated

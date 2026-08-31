@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-
 use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    Atom, ClassDef, JS_CLASS_FINALIZATION_REGISTRY, JS_CLASS_WEAKREF,
+    JS_CLASS_FINALIZATION_REGISTRY, JS_CLASS_WEAKREF,
     atom::AtomKind,
-    class::ClassCtorDef,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
     function::{CallContext, FieldDef},
@@ -93,10 +91,14 @@ static WEAKREF_PROTO_FUNCS: &[FieldDef] = &[
     FieldDef::STR("[Symbol.toStringTag]", "WeakRef", JS_PROP_CONFIGURABLE),
 ];
 
-pub(crate) static CLASS_DEF_WEAKREF: ClassDef = ClassDef::builtin(
-    Atom::CONST_WeakRef,
+crate::def_native_object!(
+    builtin,
+    "WeakRef",
+    CLASS_DEF_WEAKREF,
+    class_id: (crate::JS_CLASS_WEAKREF, crate::Atom::CONST_WeakRef),
+    crate::builtins::weakref::WeakRefData,
     WEAKREF_PROTO_FUNCS,
-    Some(ClassCtorDef::new(js_weakref_constructor, 1, false).expose_to_global()),
+    Some(crate::class::ClassCtorDef::new(js_weakref_constructor, 1, false).expose_to_global())
 );
 
 //
@@ -236,11 +238,7 @@ fn js_finrec_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     let obj = ctx
-        .ordinary_create_from_constructor_class(
-            new_target,
-            JS_CLASS_FINALIZATION_REGISTRY,
-            data,
-        )
+        .ordinary_create_from_constructor_class(new_target, JS_CLASS_FINALIZATION_REGISTRY, data)
         .map_err(|_| -1)?;
 
     Ok(JSValue::from(obj))
@@ -374,8 +372,15 @@ static FINREC_PROTO_FUNCS: &[FieldDef] = &[
     ),
 ];
 
-pub(crate) static CLASS_DEF_FINALIZATION_REGISTRY: ClassDef = ClassDef::builtin(
-    Atom::CONST_FinalizationRegistry,
+crate::def_native_object!(
+    builtin,
+    "FinalizationRegistry",
+    CLASS_DEF_FINALIZATION_REGISTRY,
+    class_id: (
+        crate::JS_CLASS_FINALIZATION_REGISTRY,
+        crate::Atom::CONST_FinalizationRegistry,
+    ),
+    crate::builtins::weakref::FinalizationRegistryData,
     FINREC_PROTO_FUNCS,
-    Some(ClassCtorDef::new(js_finrec_constructor, 1, false).expose_to_global()),
+    Some(crate::class::ClassCtorDef::new(js_finrec_constructor, 1, false).expose_to_global())
 );

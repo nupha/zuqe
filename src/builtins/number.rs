@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{borrow::Cow};
+use std::borrow::Cow;
 
 use crate::{
-    ClassDef, JS_CLASS_NUMBER,
+    JS_CLASS_NUMBER,
     builtins::global::{MAGIC_NUM_IS_FINITE, MAGIC_NUM_IS_NAN, js_global_isNaN_isFinite},
     context::ScopedContext,
     error::JSResult,
@@ -32,13 +32,9 @@ pub fn js_number_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 
     let new_target = cc.this();
     if !new_target.is_undefined() {
-        ctx.ordinary_create_from_constructor_class(
-            new_target,
-            JS_CLASS_NUMBER,
-            val,
-        )
-        .map(JSValue::from)
-        .map_err(|_| -1)
+        ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_NUMBER, val)
+            .map(JSValue::from)
+            .map_err(|_| -1)
     } else {
         Ok(val)
     }
@@ -304,12 +300,16 @@ pub const js_number_funcs: &[FieldDef] = &[
     FieldDef::FLOAT64("MIN_SAFE_INTEGER", -9007199254740991.0, 0), // ES6
 ];
 
-pub(crate) static CLASS_DEF_NUMBER: ClassDef = ClassDef::builtin(
-    crate::Atom::CONST_Number,
+crate::def_native_object!(
+    builtin,
+    "Number",
+    CLASS_DEF_NUMBER,
+    class_id: (JS_CLASS_NUMBER, crate::Atom::CONST_Number),
+    JSValue,
     js_number_proto_funcs,
     Some(
         crate::class::ClassCtorDef::new(js_number_constructor, 1, true)
             .entries(js_number_funcs)
             .expose_to_global(),
-    ),
+    )
 );

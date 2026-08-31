@@ -7,8 +7,8 @@ use crate::{
     Callback, ClassID, FieldDef,
     atom::Atom,
     class::{
-        ClassCallFn, ClassFinalizeOpaqueFn, ClassGcTraceFn, ClassInitializeFn, ClassUnregisterFn,
-        GetPrototypeFn, SetPrototypeFn,
+        ClassCallFn, ClassGcTraceFn, ClassInitializeFn, ClassUnregisterFn, GetPrototypeFn,
+        SetPrototypeFn,
     },
     context::ScopedContext,
     function::{CallbackFn, NativeFunction},
@@ -16,8 +16,8 @@ use crate::{
 };
 
 use super::{
-    ClassFinalizeFn, DefineOwnPropertyFn, DeletePropertyFn, GetOwnPropertyFn,
-    GetOwnPropertyNamesFn, GetPropertyFn, HasPropertyFn, SetPropertyFn,
+    DefineOwnPropertyFn, DeletePropertyFn, GetOwnPropertyFn, GetOwnPropertyNamesFn, GetPropertyFn,
+    HasPropertyFn, SetPropertyFn,
 };
 
 /// class has extends inherits
@@ -117,10 +117,8 @@ pub struct ClassDef {
 
     /// initialize class proto, constructor to context
     on_initialize: ClassInitType,
-    /// class instance finalize callback, callbed before Object::drop()
-    pub(crate) on_finalize: Option<ClassFinalizeFn>,
-    /// class instance dispose handler
-    pub(crate) on_finalize_opaque: Option<ClassFinalizeOpaqueFn>,
+    /// class instance finalize callback, called before Object::drop()
+    pub(crate) on_finalize: Option<super::ClassFinalizeFn>,
     /// class def unregister handler.
     pub(crate) on_unregister: Option<ClassUnregisterFn>,
     /// to trace JSValues stored in an instance's payload (opaque)
@@ -165,7 +163,6 @@ impl ClassDef {
             extends_class: None,
         },
         on_finalize: None,
-        on_finalize_opaque: None,
         on_unregister: None,
         on_gc_trace: None,
 
@@ -188,6 +185,30 @@ impl ClassDef {
         debug_assert!(!name.is_empty());
         Self {
             name,
+            on_initialize: ClassInitType::Normal {
+                proto_entries,
+                ctor,
+                extends_class: None,
+            },
+            ..Self::DEFAULT
+        }
+    }
+
+    /// Create class def with a pre-allocated name atom.
+    ///
+    /// Like `ClassDef::new()` but uses the provided `atom` directly instead of
+    /// deriving it from `name` at registration time. Intended for builtin classes
+    /// whose atoms are compile-time constants (`Atom::CONST_*`).
+    pub fn new_with_atom(
+        name: &'static str,
+        atom: Atom,
+        proto_entries: &'static [FieldDef],
+        ctor: Option<ClassCtorDef>,
+    ) -> Self {
+        debug_assert!(!name.is_empty());
+        Self {
+            name,
+            name_atom: atom,
             on_initialize: ClassInitType::Normal {
                 proto_entries,
                 ctor,
@@ -282,22 +303,12 @@ impl ClassDef {
         self
     }
 
-    /// Set class finalize callback of builtin class def. Called from `ObjectImpl::drop()`.
+    /// Set class instance finalize callback. Called before payload is freed.
     ///
-    /// This method is for builtin class def only. User class def should use on_dispose (which is a public api) instead.
-    pub(crate) const fn on_finalize(mut self, f: ClassFinalizeFn) -> Self {
-        self.on_finalize = Some(f);
-        self
-    }
-
-    /// Set class instance dispose handler.
-    ///
-    /// This callback is invoked when a user-class instance dies, **before**
-    /// the payload is freed by `payload_drop`. It is a notification only: the
-    /// engine does not own opaque payloads (zapi), and owned payloads are
-    /// freed separately via [`ClassDef::payload_drop`].
-    pub const fn on_dispose(mut self, f: ClassFinalizeOpaqueFn) -> Self {
-        self.on_finalize_opaque.replace(f);
+    /// Unified for both builtin and user classes. The callback receives the
+    /// payload pointer, class_id, and object id.
+    pub const fn on_finalize(mut self, f: super::ClassFinalizeFn) -> Self {
+        self.on_finalize.replace(f);
         self
     }
 

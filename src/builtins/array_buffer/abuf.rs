@@ -213,7 +213,7 @@ impl ArrayBufferPayload {
 
 impl ArrayBuffer {
     /// also used for SharedArrayBuffer
-    pub fn class_finalize(rt: &mut RuntimeImpl, ptr: *mut c_void, _id: usize) {
+    pub fn class_finalize(rt: &mut RuntimeImpl, ptr: *mut c_void, _class_id: usize, _id: usize) {
         // free data content
         let abuf = unsafe { &*(ptr as *const ArrayBufferPayload) };
         match abuf.data() {

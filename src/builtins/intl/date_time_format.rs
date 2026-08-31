@@ -6,7 +6,7 @@
 use icu::locale::Locale;
 
 use crate::{
-    Atom, ClassCtorDef, ClassDef, ScopedContext,
+    ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
@@ -64,10 +64,14 @@ pub(crate) enum DateField {
     Numeric,
 }
 
-pub(crate) static CLASS_DEF_DATE_TIME_FORMAT: ClassDef = ClassDef::builtin(
-    Atom::CONST_DateTimeFormat,
+crate::def_native_object!(
+    builtin,
+    "DateTimeFormat",
+    CLASS_DEF_DATE_TIME_FORMAT,
+    class_id: (crate::JS_CLASS_INTL_DATE_TIME_FORMAT, crate::Atom::CONST_DateTimeFormat),
+    crate::builtins::intl::date_time_format::DateTimeFormatData,
     js_date_time_format_proto_funcs,
-    Some(ClassCtorDef::new_legacy(js_date_time_format_constructor, 0)),
+    Some(crate::class::ClassCtorDef::new_legacy(js_date_time_format_constructor, 0))
 );
 
 /// Default components to apply when none are explicitly requested, used by the
