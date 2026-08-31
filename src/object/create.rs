@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
-
 use gc_lite::{GcNode, GcTrace};
 
 use crate::{
@@ -15,14 +13,6 @@ use crate::{
 };
 
 impl<'c> ScopedContext<'c> {
-    // ── value-payload family ────────────────────────────────────────────
-    //
-    // For raw payload values (bool, JSValue, data structs, ...) that do NOT
-    // know their class: `class_id` appears exactly once at the call site and
-    // is the single binding point (`IntoPayloadPtr` is implemented only for
-    // registered payload types, so a pre-built `PayloadPtr` cannot enter
-    // this family — use the `*_payload` family instead).
-
     /// Create new class instance with prototype `proto`, `class_id` and `payload`.
     ///
     /// `payload` is consumed: on failure it is freed automatically.
@@ -32,7 +22,7 @@ impl<'c> ScopedContext<'c> {
         class_id: ClassID,
         payload: impl IntoPayloadPtr,
     ) -> Result<Object, i32> {
-        self.create_instance_with_proto_payload(proto, payload.into_payload_ptr(class_id))
+        self.create_instance_using_proto(proto, payload.into_payload_ptr(class_id))
     }
 
     #[inline(always)]
@@ -45,7 +35,7 @@ impl<'c> ScopedContext<'c> {
             class_id < USER_CLASS_ID_START,
             "create_instance_with_class is for builtin class only"
         );
-        self.create_instance_with_payload(payload.into_payload_ptr(class_id))
+        self.create_instance(payload.into_payload_ptr(class_id))
     }
 
     /// Create an instance whose prototype comes from `ctor.prototype`, with
@@ -71,7 +61,7 @@ impl<'c> ScopedContext<'c> {
             }
         };
 
-        self.create_instance_with_proto_payload(proto, payload)
+        self.create_instance_using_proto(proto, payload)
     }
 
     #[inline(always)]
@@ -85,7 +75,7 @@ impl<'c> ScopedContext<'c> {
     }
 
     /// Create new class instance with prototype `proto` and a pre-built payload.
-    pub(crate) fn create_instance_with_proto_payload(
+    pub(crate) fn create_instance_using_proto(
         &mut self,
         proto: Option<Object>,
         payload: PayloadPtr,
@@ -98,12 +88,9 @@ impl<'c> ScopedContext<'c> {
     }
 
     /// Create new class instance with the class proto and a payload
-    pub(crate) fn create_instance_with_payload(
-        &mut self,
-        payload: PayloadPtr,
-    ) -> Result<Object, i32> {
+    pub(crate) fn create_instance(&mut self, payload: PayloadPtr) -> Result<Object, i32> {
         let proto = self.class_proto(payload.class_id());
-        self.create_instance_with_proto_payload(proto, payload)
+        self.create_instance_using_proto(proto, payload)
     }
 
     /// Create an instance owning a typed payload `P`.
@@ -136,47 +123,29 @@ impl<'c> ScopedContext<'c> {
             }
         }
 
-        let payload = PayloadPtr::new(class_id, payload);
-        self.ordinary_create_from_constructor_payload(new_target, payload)
+        self.ordinary_create_from_constructor_payload(
+            new_target,
+            PayloadPtr::new(class_id, payload),
+        )
     }
 
-    /// Create a user-class instance with an engine-unowned opaque payload.
-    ///
-    /// The pointer is stored as-is and passed back verbatim in the class's
-    /// trace/dispose callbacks; the engine never frees or dereferences it
-    /// (zapi usage).
-    pub(crate) fn create_class_instance_with_opaque(
-        &mut self,
-        new_target: JSValue,
-        class_id: ClassID,
-        opaque: *mut c_void,
-    ) -> Result<Object, i32> {
-        if class_id < USER_CLASS_ID_START {
-            let _ = self.throw_internal_error("expect non-builtin class");
-            return Err(-1);
-        }
-        let payload = PayloadPtr::opaque(class_id, opaque);
-        self.ordinary_create_from_constructor_payload(new_target, payload)
-    }
-
+    /// Create a class instance without payload.
     #[inline(always)]
     pub fn create_class_instance(
         &mut self,
         new_target: JSValue,
         class_id: ClassID,
     ) -> Result<Object, i32> {
-        self.create_class_instance_with_opaque(new_target, class_id, std::ptr::null_mut())
+        self.ordinary_create_from_constructor_payload(new_target, PayloadPtr::none(class_id))
     }
 
     #[inline(always)]
     pub fn create_base_object_with_proto(&mut self, proto: Option<Object>) -> Result<Object, i32> {
-        self.create_instance_with_proto_payload(proto, PayloadPtr::none(crate::JS_CLASS_OBJECT))
-            .map_err(|_| -1)
+        self.create_instance_using_proto(proto, PayloadPtr::none(crate::JS_CLASS_OBJECT))
     }
 
     #[inline(always)]
     pub fn create_base_object(&mut self) -> Result<Object, i32> {
-        self.create_instance_with_payload(PayloadPtr::none(crate::JS_CLASS_OBJECT))
-            .map_err(|_| -1)
+        self.create_instance(PayloadPtr::none(crate::JS_CLASS_OBJECT))
     }
 }

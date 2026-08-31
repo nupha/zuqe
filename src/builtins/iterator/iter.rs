@@ -95,7 +95,6 @@ impl ForInIterPayload {
         }
 
         ctx.create_instance_with_proto_class(None, crate::JS_CLASS_FOR_IN_ITERATOR, *it)
-            .map_err(|_| -1)
     }
 
     /// build property-enumeration-list for `obj`.

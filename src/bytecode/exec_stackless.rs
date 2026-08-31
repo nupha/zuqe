@@ -653,7 +653,7 @@ impl Bytecode {
                             }
                             SpecialObject::MappedArguments => {
                                 let object_proto = realm_scope.class_proto(JS_CLASS_OBJECT);
-                                let mut obj = match realm_scope.create_instance_with_proto_payload(
+                                let mut obj = match realm_scope.create_instance_using_proto(
                                     object_proto,
                                     PayloadPtr::none(JS_CLASS_MAPPED_ARGUMENTS),
                                 ) {

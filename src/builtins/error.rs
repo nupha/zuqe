@@ -38,7 +38,7 @@ pub(crate) fn js_error_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
     debug_assert!(proto.is_object());
 
     let mut obj = ctx
-        .create_instance_with_proto_payload(
+        .create_instance_using_proto(
             Object::try_from(proto).ok(),
             PayloadPtr::none(JS_CLASS_ERROR),
         )
@@ -96,7 +96,7 @@ pub(crate) fn js_aggregate_error_constructor(ctx: &mut ScopedContext, errors: JS
     let err_proto = ctx.error_protos[ErrorKind::Aggregate as usize].as_object();
 
     if let Ok(mut obj) =
-        ctx.create_instance_with_proto_payload(err_proto, PayloadPtr::none(JS_CLASS_ERROR))
+        ctx.create_instance_using_proto(err_proto, PayloadPtr::none(JS_CLASS_ERROR))
     {
         obj.define_property_value(
             ctx,

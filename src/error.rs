@@ -180,7 +180,7 @@ impl<'c> ScopedContext<'c> {
     ) -> Option<Object> {
         let proto = self.error_protos[kind as usize].as_object();
         if let Ok(mut err_obj) =
-            self.create_instance_with_proto_payload(proto, PayloadPtr::none(JS_CLASS_ERROR))
+            self.create_instance_using_proto(proto, PayloadPtr::none(JS_CLASS_ERROR))
         {
             let s = self.create_string_from_str(message);
             let _ = err_obj.define_property_value(

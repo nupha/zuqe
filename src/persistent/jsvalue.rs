@@ -507,6 +507,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                     .map_err(|_| {
                         BytecodeSerializeError::InvalidValue("oom in closure object".into())
                     })?;
+                    
                 let func_name = if bc_ref.func_name.is_null() {
                     Atom::CONST_empty_string
                 } else {

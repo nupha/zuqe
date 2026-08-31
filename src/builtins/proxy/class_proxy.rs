@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-
 use crate::{
     Callback, JS_CLASS_PROXY, ScopedContext,
     atom::Atom,
@@ -22,13 +21,11 @@ pub fn js_proxy_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         return Err(ctx.throw_type_error_not_an_object());
     };
 
-    let mut obj = ctx
-        .create_instance_with_proto_class(
-            None,
-            JS_CLASS_PROXY,
-            ProxyPayload::new(target, handler.into()),
-        )
-        .map_err(|_| -1)?;
+    let mut obj = ctx.create_instance_with_proto_class(
+        None,
+        JS_CLASS_PROXY,
+        ProxyPayload::new(target, handler.into()),
+    )?;
 
     obj.set_flag_constructor(target.is_constructor());
 

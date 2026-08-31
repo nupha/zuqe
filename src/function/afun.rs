@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-
 use crate::{
     Atom, JS_CLASS_ASYNC_FUNCTION_REJECT, JS_CLASS_ASYNC_FUNCTION_RESOLVE,
     builtins::promise::{Promise, js_promise_resolve},
@@ -235,17 +234,15 @@ impl AsyncState {
         let state = AsyncState::from(self.gc_ref());
 
         for i in 0..2 {
-            let func_obj = ctx
-                .create_instance_with_proto_class(
-                    Some(ctx.function_proto()),
-                    if i == 0 {
-                        JS_CLASS_ASYNC_FUNCTION_RESOLVE
-                    } else {
-                        JS_CLASS_ASYNC_FUNCTION_REJECT
-                    },
-                    state,
-                )
-                .map_err(|_| -1)?;
+            let func_obj = ctx.create_instance_with_proto_class(
+                Some(ctx.function_proto()),
+                if i == 0 {
+                    JS_CLASS_ASYNC_FUNCTION_RESOLVE
+                } else {
+                    JS_CLASS_ASYNC_FUNCTION_REJECT
+                },
+                state,
+            )?;
 
             resolving_funcs[i] = func_obj.into();
         }

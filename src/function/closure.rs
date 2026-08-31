@@ -439,8 +439,7 @@ impl Bytecode {
                     proto.or_else(|| ctx.class_proto(class_id)),
                     class_id,
                     BFuncPayload::new(*self, captures),
-                )
-                .map_err(|_| -1)?
+                )?
                 .gc_ref(),
             )
         };

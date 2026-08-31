@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
@@ -85,8 +84,7 @@ impl BoundFunction {
                     this_val,
                     bind_args,
                 },
-            )
-            .map_err(|_| -1)?
+            )?
         };
 
         debug_assert_eq!(bound.class_id(), JS_CLASS_BOUND_FUNCTION);

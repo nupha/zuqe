@@ -358,8 +358,7 @@ impl NativeFunction {
                     JS_CLASS_C_FUNCTION
                 },
                 p,
-            )
-            .map_err(|_| -1)?
+            )?
         };
 
         if matches!(

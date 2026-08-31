@@ -210,7 +210,6 @@ macro_rules! def_native_object {
             ) -> Result<Self, i32> {
                 ctx.create_class_instance(new_target, <Self as $crate::NativeObject>::class_id())
                     .map(Self)
-                    .map_err(|_| -1)
             }
         }
     };
@@ -582,6 +581,7 @@ macro_rules! def_native_object {
             }
 
             /// create an instance of the class with attached payload
+            #[inline(always)]
             pub fn new_instance(
                 ctx: &mut $crate::ScopedContext,
                 new_target: $crate::JSValue,
@@ -589,7 +589,6 @@ macro_rules! def_native_object {
             ) -> Result<Self, i32> {
                 ctx.create_class_instance_with_payload(new_target, <Self as $crate::NativeObject>::class_id(), payload)
                     .map(Self)
-                    .map_err(|_| -1)
             }
         }
     };

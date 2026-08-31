@@ -27,13 +27,15 @@ pub type ModuleNormalizeFn = fn(
     ctx: &mut ScopedContext,
     base_name: &Url,
     name: &str,
-    opaque: *mut ::core::ffi::c_void) -> Result<Url, i32>;
+    opaque: *mut ::core::ffi::c_void,
+) -> Result<Url, i32>;
 
 pub type ModuleLoadFn = fn(
     ctx: &mut ScopedContext,
     module_name: &Url,
     attrs: JSValue,
-    opaque: *mut ::core::ffi::c_void) -> Result<ModuleDef, i32>;
+    opaque: *mut ::core::ffi::c_void,
+) -> Result<ModuleDef, i32>;
 
 pub(crate) trait ModuleInitFn:
     Fn(&mut ScopedContext, &ModuleDef) -> Result<(), i32>
@@ -305,8 +307,7 @@ impl ModuleDefImpl {
                 Some(ctx.function_proto()),
                 JS_CLASS_BYTECODE_FUNCTION,
                 p,
-            )
-            .map_err(|_| -1)?
+            )?
             .into()
         };
 
@@ -504,7 +505,8 @@ impl RuntimeImpl {
         &mut self,
         norm_func: Option<ModuleNormalizeFn>,
         load_func: ModuleLoadFn,
-        opaque: *mut std::ffi::c_void) {
+        opaque: *mut std::ffi::c_void,
+    ) {
         self.module_normalize_func = norm_func;
         self.module_load_func = Some(load_func);
         self.module_load_opaque = opaque;

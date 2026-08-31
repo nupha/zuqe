@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_ERROR, JS_CLASS_OBJECT,
     array::ArrayPayload,
@@ -11,9 +10,7 @@ use crate::{
     context::{ContextImpl, ScopedContext},
     error::STD_ERROR_NAMES,
     function::{Callback, NativeFunction, js_function_proto},
-    object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, Object, Shape,
-    },
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, Object, Shape},
     value::JSValue,
 };
 
@@ -91,13 +88,11 @@ impl<'c> ScopedContext<'c> {
         // Array
         {
             // 1. make Array prototype object
-            let array_proto = self
-                .create_instance_with_proto_class(
-                    object.into(),
-                    JS_CLASS_ARRAY,
-                    ArrayPayload::default(),
-                )
-                .map_err(|_| -1)?;
+            let array_proto = self.create_instance_with_proto_class(
+                object.into(),
+                JS_CLASS_ARRAY,
+                ArrayPayload::default(),
+            )?;
             self.class_slots[JS_CLASS_ARRAY as usize].proto = Some(array_proto);
 
             // 2. make default shape for Array

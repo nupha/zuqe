@@ -614,14 +614,16 @@ impl Promise {
                 promise: *self,
                 resolved: resolved_flag.clone(), // flag is shared between two functions
             });
-            let class_id = if i == 0 {
-                crate::JS_CLASS_PROMISE_RESOLVE_FUNCTION
-            } else {
-                crate::JS_CLASS_PROMISE_REJECT_FUNCTION
-            };
-            let func = ctx
-                .create_instance_with_proto_class(Some(func_proto), class_id, *p)
-                .map_err(|_| -1)?;
+            let func = ctx.create_instance_with_proto_class(
+                Some(func_proto),
+                if i == 0 {
+                    crate::JS_CLASS_PROMISE_RESOLVE_FUNCTION
+                } else {
+                    crate::JS_CLASS_PROMISE_REJECT_FUNCTION
+                },
+                *p,
+            )?;
+            
             js_function_set_properties(ctx, func, Atom::CONST_empty_string, 1)?;
             resolving_funcs[i as usize] = func.into();
         }

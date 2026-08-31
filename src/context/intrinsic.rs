@@ -252,7 +252,7 @@ impl<'c> ScopedContext<'c> {
             .create_instance_with_proto_class(
                 self.class_proto(JS_CLASS_OBJECT),
                 JS_CLASS_NUMBER,
-                JSValue::from(0.0),
+                JSValue::ZERO,
             )
             .unwrap();
         proto.install_fields(self, js_number_proto_funcs).unwrap();
