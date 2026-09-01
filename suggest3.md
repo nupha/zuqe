@@ -1,7 +1,7 @@
 # 统一 Builtin Class 与 User Native Class 的注册范式
 
-> **状态: Phase 0-5.5 已完成 (commit cd956910)**
-> Phase 6 (清理) 待后续完成。
+> **状态: Phase 0-6 已完成**
+> Phase 6 清理已在 commit 91e9e2a7 及之前完成。
 
 ## 1. 统一后的设计
 
@@ -190,14 +190,26 @@ pub fn new_with_atom(
 3. `@impl` 和 `@builtin-impl` 宏规则生成 `class_name()` 返回 `CLASS_NAME` 常量
 4. `TryFrom<JSValue>` 实现改用 `NativeObject::from_value()`
 
-### Phase 6: 清理 ⏳
+### Phase 6: 清理 ✅
 
-**待完成** — 所有 builtin class 已迁移，以下代码可安全删除：
+**已完成** — 以下清理已执行：
 
-1. **`src/class/class_def.rs`**: 删除 `ClassDef::builtin()` 和 `ClassDef::builtin_with_init_func()` 方法（不再有调用者）
-2. **`src/class/using.rs`**: 删除 `RuntimeImpl::register_builtin_classes()` 方法（不再有调用者）
-3. **`build_stdclass.rs`**: 删除 `payload_drop_expr()` 函数和 `wire_builtin_payload_drops()` 生成逻辑
-4. **`src/class/mod.rs`**: 清理未使用的类型引用
+1. **`src/class/class_def.rs`**: `ClassDef::builtin()` 和 `ClassDef::builtin_with_init_func()` 已删除
+2. **`src/class/using.rs`**: `RuntimeImpl::register_builtin_classes()` 已删除，替换为 `build_stdclass.rs` 生成的独立函数 `register_all_builtin_classes()`
+3. **`build_stdclass.rs`**: `wire_builtin_payload_drops()` 函数已删除，逻辑内联到 `gen_std_class_defs()` 生成的 `register_all_builtin_classes()` 中（`payload_drop_expr()` 保留，为非迁移类生成 `drop_payload_fn`）
+4. **`src/class/mod.rs`**: 未使用的类型引用已清理
+
+### Phase 7: PayloadPtr 简化 ✅
+
+**commit 18a9ac60, 91e9e2a7**
+
+1. 删除 `IntoPayloadPtr` trait（`src/object/payload_access.rs`）及其 build-time 生成的 impl（`build_stdclass.rs`）
+2. 删除 `ScopedContext::create_instance_with_proto_class`、`create_instance_with_class`、`ordinary_create_from_constructor_class` 三个包装函数
+3. 全部 ~60 个调用点改为直接调用 `PayloadPtr::new(class_id, payload)`
+4. 清理 `ScopedContext` 实例创建 API：
+   - `create_class_instance_with_payload` → `create_class_instance`
+   - `create_class_instance` (无 payload) → `create_class_instance_no_payload`
+   - `create_instance_using_proto` → `create_instance_with_proto`
 
 ## 3. 关键技术细节
 
