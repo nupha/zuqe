@@ -86,14 +86,15 @@ pub fn js_create_array_iterator(ctx: &mut ScopedContext, cc: CallContext) -> JSR
         (JS_CLASS_ARRAY_ITERATOR, JSValue::from(this.objectify(ctx)?))
     };
 
-    let isa = Box::new(ArrayIterPayload {
-        val: UnsafeCell::new(obj),
-        idx: UnsafeCell::new(0),
-        kind,
-    });
-    ctx.create_instance(PayloadPtr::new(class_id, *isa))
-        .map(JSValue::from)
-        .map_err(|_| -1)
+    ctx.create_instance(PayloadPtr::new(
+        class_id,
+        ArrayIterPayload {
+            val: UnsafeCell::new(obj),
+            idx: UnsafeCell::new(0),
+            kind,
+        },
+    ))
+    .map(JSValue::from)
 }
 
 pub(crate) fn js_array_iterator_next(

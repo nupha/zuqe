@@ -154,7 +154,7 @@ pub fn deserialize_object(inp: &mut DeserializeCtx) -> Result<JSValue, BytecodeS
     let mut obj = {
         let sc = &mut *inp.ctx;
         if cid == JS_CLASS_ARRAY {
-            sc.create_instance_using_proto(
+            sc.create_instance_with_proto(
                 Some(proto),
                 PayloadPtr::new(JS_CLASS_ARRAY, crate::array::ArrayPayload::new(Vec::new())),
             )

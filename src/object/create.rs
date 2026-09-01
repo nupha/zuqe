@@ -12,6 +12,25 @@ use crate::{
 };
 
 impl<'c> ScopedContext<'c> {
+    /// Create new class instance with prototype `proto` and a pre-built payload.
+    pub(crate) fn create_instance_with_proto(
+        &mut self,
+        proto: Option<Object>,
+        payload: PayloadPtr,
+    ) -> Result<Object, i32> {
+        let shape = match self.rt().find_shape_by_proto(proto) {
+            Some(sh) => sh,
+            None => Shape::create(self, proto, 0)?,
+        };
+        ObjectImpl::create(self, Some(shape), payload)
+    }
+
+    /// Create new class instance with the class proto and a payload
+    pub(crate) fn create_instance(&mut self, payload: PayloadPtr) -> Result<Object, i32> {
+        let proto = self.class_proto(payload.class_id());
+        self.create_instance_with_proto(proto, payload)
+    }
+
     /// Create an instance whose prototype comes from `ctor.prototype`, with
     /// a pre-built payload (the class comes from the payload).
     pub(crate) fn ordinary_create_from_constructor_payload(
@@ -35,36 +54,37 @@ impl<'c> ScopedContext<'c> {
             }
         };
 
-        self.create_instance_using_proto(proto, payload)
+        self.create_instance_with_proto(proto, payload)
     }
 
-    /// Create new class instance with prototype `proto` and a pre-built payload.
-    pub(crate) fn create_instance_using_proto(
-        &mut self,
-        proto: Option<Object>,
-        payload: PayloadPtr,
-    ) -> Result<Object, i32> {
-        let shape = match self.rt().find_shape_by_proto(proto) {
-            Some(sh) => sh,
-            None => Shape::create(self, proto, 0)?,
-        };
-        ObjectImpl::create(self, Some(shape), payload)
+    /// Create base Object
+    #[inline(always)]
+    pub fn create_base_object(&mut self) -> Result<Object, i32> {
+        self.create_instance(PayloadPtr::none(crate::JS_CLASS_OBJECT))
     }
 
-    /// Create new class instance with the class proto and a payload
-    pub(crate) fn create_instance(&mut self, payload: PayloadPtr) -> Result<Object, i32> {
-        let proto = self.class_proto(payload.class_id());
-        self.create_instance_using_proto(proto, payload)
+    /// Create base Object with prototype `proto`
+    #[inline(always)]
+    pub fn create_base_object_with_proto(&mut self, proto: Option<Object>) -> Result<Object, i32> {
+        self.create_instance_with_proto(proto, PayloadPtr::none(crate::JS_CLASS_OBJECT))
     }
 
-    /// Create an instance owning a typed payload `P`.
+    /// Create a class instance without payload.
     ///
-    /// The engine takes ownership: on instance death the payload is freed via
-    /// the monomorphized `drop_payload_fn::<P>` wired into the class's
-    /// `payload_drop` (which `def_native_object!` registers), and traced via
-    /// `user_payload_trace::<P>`. `P` must implement [`GcTrace`] (typically
-    /// `#[derive(GcTrace)]`).
-    pub fn create_class_instance_with_payload<P: GcTrace>(
+    /// This is only for def_native_object! use. Don't call this directly.
+    #[inline(always)]
+    pub fn create_class_instance_no_payload(
+        &mut self,
+        new_target: JSValue,
+        class_id: ClassID,
+    ) -> Result<Object, i32> {
+        self.ordinary_create_from_constructor_payload(new_target, PayloadPtr::none(class_id))
+    }
+
+    /// Create a class instance owning a typed payload `P`.
+    ///
+    /// This is only for def_native_object! use. Don't call this directly.
+    pub fn create_class_instance<P: GcTrace>(
         &mut self,
         new_target: JSValue,
         class_id: ClassID,
@@ -91,25 +111,5 @@ impl<'c> ScopedContext<'c> {
             new_target,
             PayloadPtr::new(class_id, payload),
         )
-    }
-
-    /// Create a class instance without payload.
-    #[inline(always)]
-    pub fn create_class_instance(
-        &mut self,
-        new_target: JSValue,
-        class_id: ClassID,
-    ) -> Result<Object, i32> {
-        self.ordinary_create_from_constructor_payload(new_target, PayloadPtr::none(class_id))
-    }
-
-    #[inline(always)]
-    pub fn create_base_object_with_proto(&mut self, proto: Option<Object>) -> Result<Object, i32> {
-        self.create_instance_using_proto(proto, PayloadPtr::none(crate::JS_CLASS_OBJECT))
-    }
-
-    #[inline(always)]
-    pub fn create_base_object(&mut self) -> Result<Object, i32> {
-        self.create_instance(PayloadPtr::none(crate::JS_CLASS_OBJECT))
     }
 }

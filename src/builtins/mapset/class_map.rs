@@ -356,7 +356,6 @@ pub(crate) fn js_create_map_iterator(ctx: &mut ScopedContext, cc: CallContext) -
         JS_CLASS_MAP_ITERATOR + (cc.magic() & 1) as ClassID,
         isa,
     ))
-    .map_err(|_| -1)
     .map(JSValue::from)
 }
 
@@ -495,10 +494,11 @@ fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i3
 
 /// create an empty Set instance with the given capacity.
 fn create_empty_set(ctx: &mut ScopedContext, capacity: usize) -> Result<JSValue, i32> {
-    let state = JSMapState::new(false, capacity);
-    ctx.create_instance(PayloadPtr::new(JS_CLASS_SET, state))
-        .map_err(|_| -1)
-        .map(JSValue::from)
+    ctx.create_instance(PayloadPtr::new(
+        JS_CLASS_SET,
+        JSMapState::new(false, capacity),
+    ))
+    .map(JSValue::from)
 }
 
 /// Call iterator.return() if it exists.

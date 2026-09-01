@@ -208,7 +208,7 @@ macro_rules! def_native_object {
                 ctx: &mut $crate::ScopedContext,
                 new_target: $crate::JSValue,
             ) -> Result<Self, i32> {
-                ctx.create_class_instance(new_target, <Self as $crate::NativeObject>::class_id())
+                ctx.create_class_instance_no_payload(new_target, <Self as $crate::NativeObject>::class_id())
                     .map(Self)
             }
         }
@@ -342,7 +342,7 @@ macro_rules! def_native_object {
                 new_target: $crate::JSValue,
                 payload: $payload_ty,
             ) -> Result<Self, i32> {
-                ctx.create_class_instance_with_payload(new_target, <Self as $crate::NativeObject>::class_id(), payload)
+                ctx.create_class_instance(new_target, <Self as $crate::NativeObject>::class_id(), payload)
                     .map(Self)
                     .map_err(|_| -1)
             }
@@ -476,9 +476,8 @@ macro_rules! def_native_object {
                 ctx: &mut $crate::ScopedContext,
                 new_target: $crate::JSValue,
             ) -> Result<Self, i32> {
-                ctx.create_class_instance(new_target, <Self as $crate::NativeObject>::class_id())
+                ctx.create_class_instance_no_payload(new_target, <Self as $crate::NativeObject>::class_id())
                     .map(Self)
-                    .map_err(|_| -1)
             }
         }
     };
@@ -587,7 +586,7 @@ macro_rules! def_native_object {
                 new_target: $crate::JSValue,
                 payload: $payload_ty,
             ) -> Result<Self, i32> {
-                ctx.create_class_instance_with_payload(new_target, <Self as $crate::NativeObject>::class_id(), payload)
+                ctx.create_class_instance(new_target, <Self as $crate::NativeObject>::class_id(), payload)
                     .map(Self)
             }
         }
@@ -813,7 +812,7 @@ mod tests {
         // collection until the scope pops (the context's root scope outlives
         // the test).
         ctx.with_new_scope(|cx| {
-            let _obj = cx.create_class_instance_with_payload(
+            let _obj = cx.create_class_instance(
                 JSValue::UNDEFINED,
                 class_id,
                 DispPayload { magic: 0xCAFE },

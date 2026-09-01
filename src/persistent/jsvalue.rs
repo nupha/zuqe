@@ -497,7 +497,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                 let proto = self.ctx.class_proto(class_id);
                 let mut obj = self
                     .ctx
-                    .create_instance_using_proto(proto, PayloadPtr::new(class_id, payload))
+                    .create_instance_with_proto(proto, PayloadPtr::new(class_id, payload))
                     .map_err(|_| {
                         BytecodeSerializeError::InvalidValue("oom in closure object".into())
                     })?;

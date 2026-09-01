@@ -88,7 +88,7 @@ impl<'c> ScopedContext<'c> {
         // Array
         {
             // 1. make Array prototype object
-            let array_proto = self.create_instance_using_proto(
+            let array_proto = self.create_instance_with_proto(
                 object.into(),
                 PayloadPtr::new(JS_CLASS_ARRAY, ArrayPayload::default()),
             )?;

@@ -350,7 +350,7 @@ impl NativeFunction {
                 realm: ctx.gc_ref().into(),
                 data: binding_data,
             };
-            ctx.create_instance_using_proto(
+            ctx.create_instance_with_proto(
                 Some(proto),
                 PayloadPtr::new(
                     if has_binding_data {

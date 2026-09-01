@@ -616,7 +616,7 @@ impl Promise {
                 promise: *self,
                 resolved: resolved_flag.clone(), // flag is shared between two functions
             };
-            let func = ctx.create_instance_using_proto(
+            let func = ctx.create_instance_with_proto(
                 Some(func_proto),
                 PayloadPtr::new(
                     if i == 0 {

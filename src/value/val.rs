@@ -772,9 +772,9 @@ impl JSValue {
                 self.as_string_unchecked()
                     .objectify(ctx, JSValue::UNDEFINED)
             },
-            JSValueTag::Int | JSValueTag::Float64 => ctx
-                .create_instance(PayloadPtr::new(JS_CLASS_NUMBER, *self))
-                .map_err(|_| -1),
+            JSValueTag::Int | JSValueTag::Float64 => {
+                ctx.create_instance(PayloadPtr::new(JS_CLASS_NUMBER, *self))
+            }
             JSValueTag::Bool => {
                 ctx.create_instance(PayloadPtr::new(JS_CLASS_BOOLEAN, self.payload_i32() != 0))
             }
@@ -794,6 +794,7 @@ impl JSValue {
                 #[cfg(not(debug_assertions))]
                 Err(-1)
             }
+
             _ => Err(ctx.throw_type_error_not_an_object()),
         }
     }

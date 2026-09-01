@@ -94,7 +94,7 @@ impl ForInIterPayload {
             }
         }
 
-        ctx.create_instance_using_proto(None, PayloadPtr::new(crate::JS_CLASS_FOR_IN_ITERATOR, it))
+        ctx.create_instance_with_proto(None, PayloadPtr::new(crate::JS_CLASS_FOR_IN_ITERATOR, it))
     }
 
     /// build property-enumeration-list for `obj`.
@@ -387,6 +387,7 @@ impl JSValue {
         let Some(method) = self.get_method(ctx, Atom::CONST_Symbol_iterator)? else {
             return Ok(None);
         };
+
         let sync_it = method.call(ctx, *self, &[])?.ensure_object(ctx)?;
         if is_async {
             // method [Symbol.asyncIterator] is not defined:
@@ -401,7 +402,6 @@ impl JSValue {
                 },
             ))
             .map(Some)
-            .map_err(|_| -1)
         } else {
             Ok(Some(sync_it))
         }

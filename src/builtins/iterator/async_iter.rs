@@ -209,18 +209,14 @@ impl AsyncIterableIterator {
         ctx: &mut ScopedContext,
         fetcher: impl AsyncIteratorFetcher + 'static,
     ) -> Result<Self, i32> {
-        let data = AsyncIterPayload {
-            fetcher: Some(Rc::new(fetcher)),
-            completed: false,
-        };
-        let obj = ctx
-            .create_instance(PayloadPtr::new(
-                crate::JS_CLASS_ASYNC_ITERABLE_ITERATOR,
-                data,
-            ))
-            .map_err(|_| -1)?;
-
-        Ok(Self(obj.0))
+        ctx.create_instance(PayloadPtr::new(
+            crate::JS_CLASS_ASYNC_ITERABLE_ITERATOR,
+            AsyncIterPayload {
+                fetcher: Some(Rc::new(fetcher)),
+                completed: false,
+            },
+        ))
+        .map(|o| Self(o.0))
     }
 
     /// Convert data D to JSValue closure returns:

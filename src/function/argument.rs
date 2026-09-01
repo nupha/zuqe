@@ -18,7 +18,7 @@ use super::JS_MAX_LOCAL_VARS;
 /// Make Arguments class instance with values.
 pub(crate) fn js_build_arguments(ctx: &mut ScopedContext, values: &[JSValue]) -> JSValue {
     let object_proto = ctx.class_proto(JS_CLASS_OBJECT);
-    let mut obj = if let Ok(o) = ctx.create_instance_using_proto(
+    let mut obj = if let Ok(o) = ctx.create_instance_with_proto(
         object_proto,
         PayloadPtr::new(JS_CLASS_ARGUMENTS, ArrayPayload::default()),
     ) {

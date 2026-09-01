@@ -136,7 +136,7 @@ pub struct ClassDef {
     /// Debug-only type ledger: `type_name::<P>()` of the payload type this
     /// class expects. Set at registration time — by `build_stdclass.rs` for
     /// builtins, by `def_native_object!` for user classes. Used by
-    /// `PayloadPtr::new` and `create_class_instance_with_payload` to catch
+    /// `PayloadPtr::new` and `create_class_instance` to catch
     /// type mismatches early (prevents silent UB from wrong-type drops).
     #[cfg(debug_assertions)]
     pub(crate) payload_type_name: Option<&'static str>,
@@ -306,7 +306,7 @@ impl ClassDef {
 
     /// Set the expected payload type name for debug-only type checking.
     ///
-    /// Used by `PayloadPtr::new` and `create_class_instance_with_payload` to
+    /// Used by `PayloadPtr::new` and `create_class_instance` to
     /// catch type mismatches early. Builtin classes get this from the
     /// generated `payload_type_name` function; user classes from the
     /// `def_native_object!` macro.

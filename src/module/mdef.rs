@@ -303,7 +303,7 @@ impl ModuleDefImpl {
 
         self.bytecode = {
             let p = BFuncPayload::new(bc, var_refs);
-            ctx.create_instance_using_proto(
+            ctx.create_instance_with_proto(
                 Some(ctx.function_proto()),
                 PayloadPtr::new(JS_CLASS_BYTECODE_FUNCTION, p),
             )?

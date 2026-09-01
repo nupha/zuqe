@@ -234,7 +234,7 @@ impl AsyncState {
         let state = AsyncState::from(self.gc_ref());
 
         for i in 0..2 {
-            let func_obj = ctx.create_instance_using_proto(
+            let func_obj = ctx.create_instance_with_proto(
                 Some(ctx.function_proto()),
                 PayloadPtr::new(
                     if i == 0 {

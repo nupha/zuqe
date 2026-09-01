@@ -76,7 +76,7 @@ impl BoundFunction {
 
         let mut bound = {
             let p = ctx.function_proto();
-            ctx.create_instance_using_proto(
+            ctx.create_instance_with_proto(
                 Some(p),
                 PayloadPtr::new(
                     JS_CLASS_BOUND_FUNCTION,

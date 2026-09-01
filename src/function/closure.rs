@@ -436,7 +436,7 @@ impl Bytecode {
         let mut obj = {
             let class_id = self.func_kind().class_id();
             BCWrapper(
-                ctx.create_instance_using_proto(
+                ctx.create_instance_with_proto(
                     proto.or_else(|| ctx.class_proto(class_id)),
                     PayloadPtr::new(class_id, BFuncPayload::new(*self, captures)),
                 )?

@@ -260,9 +260,7 @@ fn js_json_rawJSON(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     // Create a RAWJSON object
-    let mut obj = ctx
-        .create_instance(PayloadPtr::none(JS_CLASS_RAWJSON))
-        .map_err(|_| -1)?;
+    let mut obj = ctx.create_instance(PayloadPtr::none(JS_CLASS_RAWJSON))?;
 
     // Set the rawJSON property (enumerable, non-writable, non-configurable)
     obj.define_property_value(
