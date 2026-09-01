@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ptr::NonNull;
+use std::{collections::HashMap, ptr::NonNull};
 
-use crate::{context::ScopedContext, function::FunctionDef, number::IntOrFloat};
+use crate::{context::ScopedContext, function::FunctionDef, number::IntOrFloat, string::StringRef};
 
 use super::tokenize::{Token, TokenData, TokenKind};
 
@@ -72,6 +72,12 @@ pub struct JSParseState<'s> {
     /// Enables parsing of JSON superset syntax
     #[cfg(feature = "builtin_json")]
     pub(crate) ext_json: bool,
+
+    /// JSON string interning cache: deduplicates string values during
+    /// `JSON.parse` by reusing existing GC nodes for identical content.
+    /// Only active during `json_parse`; `None` for regular JS parsing.
+    #[cfg(feature = "builtin_json")]
+    pub(crate) string_intern: Option<HashMap<Vec<u8>, StringRef>>,
 }
 
 impl Drop for JSParseState<'_> {
@@ -123,6 +129,8 @@ impl<'s> JSParseState<'s> {
 
             #[cfg(feature = "builtin_json")]
             ext_json: false,
+            #[cfg(feature = "builtin_json")]
+            string_intern: None,
         }
     }
 

@@ -490,10 +490,21 @@ impl<'s> JSParseState<'s> {
                 let source_end = (self.buf_ptr as usize) - (self.input.as_ptr() as usize);
 
                 let sbuf = self.token.data.take_string().unwrap();
-                val = self
-                    .ctx()
-                    .create_string_with_buf(sbuf)
-                    .map(JSValue::make_string)?;
+                let sref = self.ctx().create_string_with_buf(sbuf)?;
+
+                // String interning: reuse an existing GC node when the same
+                // string content has been seen before in this parse.
+                if let Some(cache) = self.string_intern.as_mut() {
+                    let k = sref.encode_utf8_bytes(false);
+                    val = if let Some(existing) = cache.get(k.as_ref()) {
+                        JSValue::make_string(*existing)
+                    } else {
+                        cache.insert(k.into_owned(), sref);
+                        JSValue::make_string(sref)
+                    };
+                } else {
+                    val = JSValue::make_string(sref);
+                }
 
                 if let Some(pr) = record {
                     pr.value = val;
@@ -567,8 +578,10 @@ impl<'s> JSParseState<'s> {
     }
 
     pub fn json_parse(&mut self, record: Option<&mut JSONParseRecord>) -> JSResult {
+        self.string_intern = Some(std::collections::HashMap::new());
         self.json_next_token()?;
         let val = self.json_parse_value(record)?;
+        self.string_intern.take(); // release interned strings for GC
 
         if unlikely(self.token.kind != TokenKind::EOF) {
             Err(self.throw_syntax_error("unexpected data at the end"))
