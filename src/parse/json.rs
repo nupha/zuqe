@@ -9,7 +9,7 @@ use crate::{
     number::{ATOD_ACCEPT_BIN_OCT, js_aton},
     object::JS_PROP_C_W_E,
     runtime::js_check_stack_overflow,
-    string::{CharCodeDecoder, Utf8Stream},
+    string::{CharCodeDecoder, StringBuf, Utf8Stream},
     utils::unlikely,
     value::JSValue,
 };
@@ -106,18 +106,26 @@ impl<'s> JSParseState<'s> {
                         break;
                     } else {
                         input.seek_relative(1); // skip starting quote
-                        if self
-                            .parse_string(&mut input, quote as _, None, true)
-                            .is_ok()
-                        {
-                            debug_assert_eq!(input.peek_relative(-1).unwrap(), quote);
-                            self.buf_ptr =
-                                input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
-                            return Ok(());
-                        } else {
-                            todo = Some(Todo::Fail);
-                            break;
+                        // Fast path: most JSON strings are plain UTF-8 with no
+                        // escapes or control chars. Bulk-copy the raw byte run
+                        // instead of decoding char-by-char; fall back to the
+                        // general parser only when an escape/control appears.
+                        if !self.json_string_plain(&mut input, quote as _) {
+                            if self
+                                .parse_string(&mut input, quote as _, None, true)
+                                .is_ok()
+                            {
+                                debug_assert_eq!(input.peek_relative(-1).unwrap(), quote);
+                                self.buf_ptr =
+                                    input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+                                return Ok(());
+                            } else {
+                                todo = Some(Todo::Fail);
+                                break;
+                            }
                         }
+                        self.buf_ptr = input.current_ptr().map_or(self.input_end, |p| p.as_ptr());
+                        return Ok(());
                     }
                 }
                 c @ (b'\r' | b'\n') => {
@@ -313,6 +321,36 @@ impl<'s> JSParseState<'s> {
             self.token.kind = TokenKind::ERROR;
             Err(-1)
         }
+    }
+
+    /// Fast-path JSON string scanner: if the remainder is a plain string
+    /// (no backslash escape, no control char, closes at `sep`), fill the
+    /// token directly from the raw UTF-8 run. Returns true when consumed.
+    fn json_string_plain(&mut self, inp: &mut Utf8Stream, sep: u8) -> bool {
+        let start = inp.remainder();
+        let end = start
+            .iter()
+            .position(|&c| c == sep || c == b'\\' || c < 0x20);
+        let Some(len) = end else {
+            return false; // unterminated; let general parser report the error
+        };
+        if start[len] != sep {
+            return false; // escape or control char present; slow path
+        }
+        let data = start[..len].to_vec();
+        let sbuf = match StringBuf::from_utf8(data) {
+            Ok(s) => s,
+            // from_utf8 only fails on allocation; report the same error path
+            // by falling back to the general parser (which will rethrow).
+            Err(_) => return false,
+        };
+        self.token.kind = TokenKind::STRING;
+        self.token.data = TokenData::Str {
+            str: sbuf,
+            sep: sep as i32,
+        };
+        inp.seek_relative((len + 1) as i32); // content + closing quote
+        true
     }
 
     fn json_parse_ident(&mut self, inp: &mut Utf8Stream, first_char: u8) -> Result<Atom, i32> {
