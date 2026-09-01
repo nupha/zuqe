@@ -314,12 +314,7 @@ unsafe extern "C" fn zapi_register_class(env: ZqEnv, class_def: *const ZqClassDe
     let leaked: &'static str = Box::leak(name.to_string().into_boxed_str());
 
     fn zapi_class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
-        let o = ctx
-            .create_instance_with_proto_payload(
-                None,
-                PayloadPtr::opaque(class_id, std::ptr::null_mut()),
-            )
-            .map_err(|_| -1)?;
+        let o = ctx.create_instance_with_proto(None, PayloadPtr::none(class_id))?;
         ctx.class_slots[class_id as usize].proto = Some(o);
 
         // Build the constructor (ClassCtorDef equivalent): a constructor-flagged
@@ -448,7 +443,10 @@ unsafe extern "C" fn zapi_new_instance(
     let Some(cid) = class_id else {
         return ZQ_API_TABLE.value_exception;
     };
-    match ctx.create_class_instance_with_opaque(JSValue::UNDEFINED, cid, payload) {
+    match ctx.ordinary_create_from_constructor_payload(
+        JSValue::UNDEFINED,
+        PayloadPtr::opaque(cid, payload),
+    ) {
         Ok(obj) => JSValue::from(obj).0,
         Err(_) => ZQ_API_TABLE.value_exception,
     }

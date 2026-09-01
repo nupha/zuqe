@@ -102,10 +102,7 @@ impl PayloadPtr {
     /// from the handle, so even a payload-less handle must know its class.
     #[inline]
     pub(crate) fn none(class_id: ClassID) -> Self {
-        debug_assert!(
-            class_id > 0 && class_id < USER_CLASS_ID_START,
-            "payload-less classes are builtin classes"
-        );
+        debug_assert!(class_id > 0, "invalid class id");
         #[cfg(debug_assertions)]
         debug_assert!(
             payload_type_name(class_id).is_none(),
