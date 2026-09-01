@@ -13,7 +13,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     make_bounded_channel,
-    object::{AsyncIterableIterator, JS_PROP_CONFIGURABLE, ObjectImpl},
+    object::{AsyncIterableIterator, JS_PROP_CONFIGURABLE, ObjectImpl, PayloadPtr},
     value::JSValue,
 };
 
@@ -209,16 +209,15 @@ impl AsyncIterableIterator {
         ctx: &mut ScopedContext,
         fetcher: impl AsyncIteratorFetcher + 'static,
     ) -> Result<Self, i32> {
-        let data = Box::new(AsyncIterPayload {
+        let data = AsyncIterPayload {
             fetcher: Some(Rc::new(fetcher)),
             completed: false,
-        });
-
+        };
         let obj = ctx
-            .create_instance_with_class(
+            .create_instance(PayloadPtr::new(
                 crate::JS_CLASS_ASYNC_ITERABLE_ITERATOR,
-                *data,
-            )
+                data,
+            ))
             .map_err(|_| -1)?;
 
         Ok(Self(obj.0))
@@ -290,10 +289,7 @@ impl AsyncIterableIterator {
         }
         #[cfg(not(debug_assertions))]
         unsafe {
-            self.0
-                .as_ref()
-                .payload_async_iterator()
-                .unwrap_unchecked()
+            self.0.as_ref().payload_async_iterator().unwrap_unchecked()
         }
     }
 
@@ -301,11 +297,16 @@ impl AsyncIterableIterator {
     pub fn payload_mut(&mut self) -> &mut AsyncIterPayload {
         #[cfg(debug_assertions)]
         {
-            unsafe { self.0.as_mut() }.payload_async_iterator_mut().unwrap()
+            unsafe { self.0.as_mut() }
+                .payload_async_iterator_mut()
+                .unwrap()
         }
         #[cfg(not(debug_assertions))]
         unsafe {
-            self.0.as_mut().payload_async_iterator_mut().unwrap_unchecked()
+            self.0
+                .as_mut()
+                .payload_async_iterator_mut()
+                .unwrap_unchecked()
         }
     }
 

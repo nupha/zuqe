@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_OBJECT,
     array::{ArrayPayload, alloc_fast_array_slots},
@@ -9,6 +8,7 @@ use crate::{
     context::ScopedContext,
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_WRITABLE, JSProperty,
+        PayloadPtr,
     },
     value::JSValue,
 };
@@ -18,10 +18,9 @@ use super::JS_MAX_LOCAL_VARS;
 /// Make Arguments class instance with values.
 pub(crate) fn js_build_arguments(ctx: &mut ScopedContext, values: &[JSValue]) -> JSValue {
     let object_proto = ctx.class_proto(JS_CLASS_OBJECT);
-    let mut obj = if let Ok(o) = ctx.create_instance_with_proto_class(
+    let mut obj = if let Ok(o) = ctx.create_instance_using_proto(
         object_proto,
-        JS_CLASS_ARGUMENTS,
-        ArrayPayload::default(),
+        PayloadPtr::new(JS_CLASS_ARGUMENTS, ArrayPayload::default()),
     ) {
         o
     } else {

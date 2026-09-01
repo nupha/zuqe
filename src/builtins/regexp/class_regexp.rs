@@ -390,7 +390,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &mut ScopedContext, cc: CallContext) -> JS
     regexp.set_property(ctx, Atom::CONST_lastIndex, last_index.into())?;
 
     // make regexp string iterator object
-    ctx.create_instance_with_class(
+    ctx.create_instance(PayloadPtr::new(
         JS_CLASS_REGEXP_STRING_ITERATOR,
         RegExpStringIterPayload::new(
             regexp.try_into().unwrap(),
@@ -400,9 +400,8 @@ pub fn js_regexp_Symbol_matchAll(ctx: &mut ScopedContext, cc: CallContext) -> JS
                 .chars()
                 .any(|(_, c)| matches!(c, CharCode::Char('u') | CharCode::Char('v'))),
         ),
-    )
+    ))
     .map(JSValue::from)
-    .map_err(|_| -1)
 }
 
 /// Get the RegExpData payload if `obj` is a RegExp instance (throws if not).

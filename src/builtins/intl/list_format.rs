@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, PayloadPtr},
     value::JSValue,
 };
 
@@ -86,8 +86,11 @@ pub(crate) fn js_list_format_constructor(ctx: &mut ScopedContext, cc: CallContex
         }
     }
 
-    ctx.ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LIST_FORMAT, data)
-        .map(JSValue::from)
+    ctx.ordinary_create_from_constructor_payload(
+        cc.this(),
+        PayloadPtr::new(crate::JS_CLASS_INTL_LIST_FORMAT, data),
+    )
+    .map(JSValue::from)
 }
 
 fn js_list_format_format(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

@@ -11,7 +11,7 @@ use crate::{
     function::{Bytecode, BytecodeImpl},
     module::ModuleDefImpl,
     number::{Float64Union, JS_DTOA_VAR_FORMAT, f64_stringify},
-    object::{Object, ObjectImpl},
+    object::{Object, ObjectImpl, PayloadPtr},
     string::{RopeImpl, StringImpl, StringRef},
     utils::{hash_usize, unlikely},
     value::HINT_STRING,
@@ -362,7 +362,9 @@ impl JSValue {
         } else if self.tag() == JSValueTag::Object {
             // Boolean objects (e.g. `new Boolean(true)`) must unwrap their
             // stored primitive, not be rejected as a non-boolean.
-            unsafe { self.as_object_unchecked() }.payload_bool().copied()
+            unsafe { self.as_object_unchecked() }
+                .payload_bool()
+                .copied()
         } else {
             None
         }
@@ -453,7 +455,7 @@ impl JSValue {
             // unwrap String object
             let o = unsafe { self.as_object_unchecked() };
             if o.class_id() == JS_CLASS_STRING {
-o.payload_string().copied()
+                o.payload_string().copied()
             } else {
                 None
             }
@@ -771,32 +773,20 @@ impl JSValue {
                     .objectify(ctx, JSValue::UNDEFINED)
             },
             JSValueTag::Int | JSValueTag::Float64 => ctx
-                .create_instance_with_class(
-                    JS_CLASS_NUMBER,
-                    *self,
-                )
+                .create_instance(PayloadPtr::new(JS_CLASS_NUMBER, *self))
                 .map_err(|_| -1),
-            JSValueTag::Bool => ctx
-                .create_instance_with_class(
-                    JS_CLASS_BOOLEAN,
-                    self.payload_i32() != 0,
-                )
-                .map_err(|_| -1),
-
-            JSValueTag::Symbol => ctx
-                .create_instance_with_class(
-                    JS_CLASS_SYMBOL,
-                    unsafe { self.as_string_unchecked() },
-                )
-                .map_err(|_| -1),
+            JSValueTag::Bool => {
+                ctx.create_instance(PayloadPtr::new(JS_CLASS_BOOLEAN, self.payload_i32() != 0))
+            }
+            JSValueTag::Symbol => ctx.create_instance(PayloadPtr::new(JS_CLASS_SYMBOL, unsafe {
+                self.as_string_unchecked()
+            })),
 
             #[cfg(feature = "big_int")]
             JSValueTag::BigInt => ctx
-                .create_instance_with_class(
-                    crate::JS_CLASS_BIG_INT,
-                    unsafe { self.as_bigint_unchecked() },
-                )
-                .map_err(|_| -1),
+                .create_instance(PayloadPtr::new(crate::JS_CLASS_BIG_INT, unsafe {
+                    self.as_bigint_unchecked()
+                })),
 
             JSValueTag::Exception => {
                 #[cfg(debug_assertions)]
@@ -867,7 +857,7 @@ mod serde_json_support {
     use crate::{
         Array, IntOrFloat, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext,
         builtins::iterator::JSIteratorKindEnum,
-        object::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, Object},
+        object::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, Object, PayloadPtr},
         value::JSValue,
     };
 

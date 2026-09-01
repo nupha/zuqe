@@ -7,6 +7,7 @@ use crate::{
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
+    object::PayloadPtr,
     value::JSValue,
 };
 
@@ -14,8 +15,11 @@ pub fn js_boolean_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     let new_target = cc.this();
     let b = cc.arg(0).to_bool().unwrap_or(true);
     if !new_target.is_undefined() {
-        ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_BOOLEAN, b)
-            .map(JSValue::from)
+        ctx.ordinary_create_from_constructor_payload(
+            new_target,
+            PayloadPtr::new(JS_CLASS_BOOLEAN, b),
+        )
+        .map(JSValue::from)
     } else {
         Ok(b.into())
     }

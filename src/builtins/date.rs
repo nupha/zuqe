@@ -14,6 +14,7 @@ use crate::{
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
+    object::PayloadPtr,
     string::{CharCode, StringBuf, StringRef},
     value::{HINT_FORCE_ORDINARY, HINT_NONE, HINT_NUMBER, HINT_STRING, JSValue},
 };
@@ -932,7 +933,7 @@ pub fn js_date_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         // invoked as a function, returns toString()
         datetime_format(ctx, tm.into(), 0x13).map(JSValue::make_string)
     } else {
-        ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_DATE, tm)
+        ctx.ordinary_create_from_constructor_payload(new_target, PayloadPtr::new(JS_CLASS_DATE, tm))
             .map(JSValue::from)
     }
 }

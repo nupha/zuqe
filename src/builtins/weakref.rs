@@ -9,7 +9,7 @@ use crate::{
     context::{ContextPtr, ScopedContext},
     error::JSResult,
     function::{CallContext, FieldDef},
-    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl},
+    object::{JS_PROP_CONFIGURABLE, Object, ObjectImpl, PayloadPtr},
     value::JSValue,
 };
 
@@ -50,8 +50,11 @@ fn js_weakref_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         return Err(ctx.throw_type_error("WeakRef target must be an object"));
     };
 
-    ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_WEAKREF, WeakRefData { target })
-        .map(JSValue::from)
+    ctx.ordinary_create_from_constructor_payload(
+        new_target,
+        PayloadPtr::new(JS_CLASS_WEAKREF, WeakRefData { target }),
+    )
+    .map(JSValue::from)
 }
 
 fn js_weakref_deref(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -230,8 +233,11 @@ fn js_finrec_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         realm: ctx_ptr,
     };
 
-    ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_FINALIZATION_REGISTRY, data)
-        .map(JSValue::from)
+    ctx.ordinary_create_from_constructor_payload(
+        new_target,
+        PayloadPtr::new(JS_CLASS_FINALIZATION_REGISTRY, data),
+    )
+    .map(JSValue::from)
 }
 
 fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

@@ -12,7 +12,7 @@ use crate::{
     function::{CallContext, Callback, FieldDef},
     object::{
         JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
-        JS_PROP_ENUMERABLE, JS_PROP_WRITABLE,
+        JS_PROP_ENUMERABLE, JS_PROP_WRITABLE, PayloadPtr,
     },
     value::JSValue,
 };
@@ -227,7 +227,7 @@ fn js_iterator_concat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     let concat = ctx
-        .create_instance_with_class(
+        .create_instance(PayloadPtr::new(
             crate::JS_CLASS_ITERATOR_CONCAT,
             IteratorConcatData {
                 values,
@@ -236,7 +236,7 @@ fn js_iterator_concat(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 next: Cell::new(JSValue::UNDEFINED),
                 running: Cell::new(false),
             },
-        )
+        ))
         .map_err(|_| -1)?;
 
     Ok(concat.into())
@@ -272,13 +272,13 @@ fn js_iterator_from(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     let wrap = ctx
-        .create_instance_with_class(
+        .create_instance(PayloadPtr::new(
             crate::JS_CLASS_ITERATOR_WRAP,
             IteratorWrapData {
                 obj: iter_obj,
                 next,
             },
-        )
+        ))
         .map_err(|_| -1)?;
 
     Ok(wrap.into())
@@ -509,10 +509,7 @@ fn js_iterator_zip(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     let obj = ctx
-        .create_instance_with_class(
-            crate::JS_CLASS_ITERATOR_ZIP,
-            zip_data,
-        )
+        .create_instance(PayloadPtr::new(crate::JS_CLASS_ITERATOR_ZIP, zip_data))
         .map_err(|_| -1)?;
 
     Ok(obj.into())
@@ -617,12 +614,8 @@ fn js_iterator_zipKeyed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         unequal_length: Cell::new(false),
         yielded: Cell::new(false),
     };
-
     let obj = ctx
-        .create_instance_with_class(
-            crate::JS_CLASS_ITERATOR_ZIP,
-            zip_data,
-        )
+        .create_instance(PayloadPtr::new(crate::JS_CLASS_ITERATOR_ZIP, zip_data))
         .map_err(|_| -1)?;
 
     Ok(obj.into())
@@ -692,24 +685,22 @@ fn js_create_iterator_helper(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     // Read .next (GetIteratorDirect)
     let next = this_obj.get_property(ctx, Atom::CONST_next)?;
 
-    let helper = ctx
-        .create_instance_with_class(
-            crate::JS_CLASS_ITERATOR_HELPER,
-            super::IteratorHelperData {
-                obj: this_obj,
-                next,
-                func,
-                inner: Cell::new(JSValue::UNDEFINED),
-                inner_next: Cell::new(JSValue::UNDEFINED),
-                has_inner: Cell::new(false),
-                count: Cell::new(count),
-                kind,
-                executing: Cell::new(false),
-                done: Cell::new(false),
-                source_closed: Cell::new(false),
-            },
-        )
-        .map_err(|_| -1)?;
+    let helper = ctx.create_instance(PayloadPtr::new(
+        crate::JS_CLASS_ITERATOR_HELPER,
+        super::IteratorHelperData {
+            obj: this_obj,
+            next,
+            func,
+            inner: Cell::new(JSValue::UNDEFINED),
+            inner_next: Cell::new(JSValue::UNDEFINED),
+            has_inner: Cell::new(false),
+            count: Cell::new(count),
+            kind,
+            executing: Cell::new(false),
+            done: Cell::new(false),
+            source_closed: Cell::new(false),
+        },
+    ))?;
 
     Ok(helper.into())
 }

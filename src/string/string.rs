@@ -22,7 +22,7 @@ use crate::{
     number::{ATOD_ACCEPT_BIN_OCT, IntOrFloat, NumValue, js_aton},
     object::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,
-        check_define_prop_flags,
+        PayloadPtr, check_define_prop_flags,
     },
     runtime::RuntimePtr,
     string::{CharCode, StringCharIter, StringData},
@@ -251,7 +251,8 @@ impl StringImpl {
     pub fn objectify(&self, ctx: &mut ScopedContext, ctor: JSValue) -> Result<Object, i32> {
         let len = self.len();
         let s: StringRef = self.gc_ref().into();
-        let mut o = ctx.ordinary_create_from_constructor_class(ctor, JS_CLASS_STRING, s)?;
+        let mut o = ctx
+            .ordinary_create_from_constructor_payload(ctor, PayloadPtr::new(JS_CLASS_STRING, s))?;
         o.define_property_value(ctx, Atom::CONST_length, JSValue::from(len as u32), 0)?;
         Ok(o)
     }

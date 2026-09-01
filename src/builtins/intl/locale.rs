@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::JS_PROP_CONFIGURABLE,
+    object::{JS_PROP_CONFIGURABLE, PayloadPtr},
     value::JSValue,
 };
 
@@ -122,8 +122,11 @@ pub(crate) fn js_locale_constructor(ctx: &mut ScopedContext, cc: CallContext) ->
         }
     }
 
-    ctx.ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LOCALE, data)
-        .map(JSValue::from)
+    ctx.ordinary_create_from_constructor_payload(
+        cc.this(),
+        PayloadPtr::new(crate::JS_CLASS_INTL_LOCALE, data),
+    )
+    .map(JSValue::from)
 }
 
 /// Canonicalize `tag` into a `LocaleData`; RangeError when invalid.
@@ -289,8 +292,11 @@ fn js_locale_maximize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         locale: l,
         raw: this.raw.clone(),
     };
-    ctx.ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LOCALE, data)
-        .map(JSValue::from)
+    ctx.ordinary_create_from_constructor_payload(
+        cc.this(),
+        PayloadPtr::new(crate::JS_CLASS_INTL_LOCALE, data),
+    )
+    .map(JSValue::from)
 }
 
 fn js_locale_minimize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -309,8 +315,11 @@ fn js_locale_minimize(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         locale: l,
         raw: this.raw.clone(),
     };
-    ctx.ordinary_create_from_constructor_class(cc.this(), crate::JS_CLASS_INTL_LOCALE, data)
-        .map(JSValue::from)
+    ctx.ordinary_create_from_constructor_payload(
+        cc.this(),
+        PayloadPtr::new(crate::JS_CLASS_INTL_LOCALE, data),
+    )
+    .map(JSValue::from)
 }
 
 fn apply_locale_options(

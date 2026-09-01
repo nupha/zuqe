@@ -4,40 +4,14 @@
 use gc_lite::{GcNode, GcTrace};
 
 use crate::{
-    USER_CLASS_ID_START,
     atom::Atom,
     class::ClassID,
     context::{ContextPtr, ScopedContext},
-    object::{IntoPayloadPtr, Object, ObjectImpl, PayloadPtr, Shape},
+    object::{Object, ObjectImpl, PayloadPtr, Shape},
     value::JSValue,
 };
 
 impl<'c> ScopedContext<'c> {
-    /// Create new class instance with prototype `proto`, `class_id` and `payload`.
-    ///
-    /// `payload` is consumed: on failure it is freed automatically.
-    pub(crate) fn create_instance_with_proto_class(
-        &mut self,
-        proto: Option<Object>,
-        class_id: ClassID,
-        payload: impl IntoPayloadPtr,
-    ) -> Result<Object, i32> {
-        self.create_instance_using_proto(proto, payload.into_payload_ptr(class_id))
-    }
-
-    #[inline(always)]
-    pub(crate) fn create_instance_with_class(
-        &mut self,
-        class_id: ClassID,
-        payload: impl IntoPayloadPtr,
-    ) -> Result<Object, i32> {
-        debug_assert!(
-            class_id < USER_CLASS_ID_START,
-            "create_instance_with_class is for builtin class only"
-        );
-        self.create_instance(payload.into_payload_ptr(class_id))
-    }
-
     /// Create an instance whose prototype comes from `ctor.prototype`, with
     /// a pre-built payload (the class comes from the payload).
     pub(crate) fn ordinary_create_from_constructor_payload(
@@ -62,16 +36,6 @@ impl<'c> ScopedContext<'c> {
         };
 
         self.create_instance_using_proto(proto, payload)
-    }
-
-    #[inline(always)]
-    pub(crate) fn ordinary_create_from_constructor_class(
-        &mut self,
-        ctor: JSValue,
-        class_id: ClassID,
-        payload: impl IntoPayloadPtr,
-    ) -> Result<Object, i32> {
-        self.ordinary_create_from_constructor_payload(ctor, payload.into_payload_ptr(class_id))
     }
 
     /// Create new class instance with prototype `proto` and a pre-built payload.

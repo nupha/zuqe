@@ -8,7 +8,7 @@ use crate::{
     array::alloc_fast_array_slots,
     context::ScopedContext,
     error::JSResult,
-    object::{BoundFunction, Object},
+    object::{BoundFunction, Object, PayloadPtr},
     string::{JS_ConcatString3, StringRef},
     value::JSValue,
 };
@@ -76,17 +76,18 @@ impl BoundFunction {
 
         let mut bound = {
             let p = ctx.function_proto();
-            ctx.create_instance_with_proto_class(
+            ctx.create_instance_using_proto(
                 Some(p),
-                JS_CLASS_BOUND_FUNCTION,
-                BoundFunctionPayload {
-                    func_obj,
-                    this_val,
-                    bind_args,
-                },
+                PayloadPtr::new(
+                    JS_CLASS_BOUND_FUNCTION,
+                    BoundFunctionPayload {
+                        func_obj,
+                        this_val,
+                        bind_args,
+                    },
+                ),
             )?
         };
-
         debug_assert_eq!(bound.class_id(), JS_CLASS_BOUND_FUNCTION);
 
         bound.set_flag_constructor(func_obj.is_constructor());

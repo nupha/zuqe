@@ -13,7 +13,7 @@ use crate::{
     atom::Atom,
     class::ClassID,
     context::ScopedContext,
-    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, RegExp},
+    object::{JS_PROP_C_W_E, JS_PROP_THROW, JS_PROP_WRITABLE, Object, PayloadPtr, RegExp},
     string::{CharCode, StringData, StringRef},
     value::JSValue,
 };
@@ -268,11 +268,14 @@ impl RegExp {
     pub(crate) fn from(
         ctx: &mut ScopedContext,
         ctor: JSValue,
-        re: Box<RegExpData>,
+        re: RegExpData,
     ) -> Result<Self, i32> {
         let mut o = Self(
-            ctx.ordinary_create_from_constructor_class(ctor, JS_CLASS_REGEXP, *re)?
-                .0,
+            ctx.ordinary_create_from_constructor_payload(
+                ctor,
+                PayloadPtr::new(JS_CLASS_REGEXP, re),
+            )?
+            .0,
         );
         o.define_property_value(
             ctx,
@@ -290,7 +293,7 @@ impl RegExp {
         pattern: StringData,
         flags: StringData,
     ) -> Result<Self, i32> {
-        RegExpData::create(ctx, pattern, flags).and_then(|re| Self::from(ctx, ctor, Box::new(re)))
+        RegExpData::create(ctx, pattern, flags).and_then(|re| Self::from(ctx, ctor, re))
     }
 
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {

@@ -10,14 +10,14 @@ use std::{
 use gc_lite::{GcRef, GcTrace};
 
 use crate::{
-    JS_CLASS_PROMISE, JobState, Receiver, Sender, TryRecvError,
+    JS_CLASS_PROMISE, JobState, Receiver, TryRecvError,
     atom::Atom,
     builtins::error::js_aggregate_error_constructor,
     context::{ContextImpl, ScopedContext},
     error::JSResult,
     function::{CallContext, Callback, NativeFunction, js_function_set_properties},
     make_bounded_channel,
-    object::{JS_PROP_C_W_E, Object, ObjectImpl, Promise},
+    object::{JS_PROP_C_W_E, Object, ObjectImpl, PayloadPtr, Promise},
     value::JSValue,
 };
 
@@ -291,15 +291,18 @@ impl Promise {
         executor.ensure_callable(ctx)?;
 
         // create Promise instance
-        let isa = Box::new(PromisePayload {
+        let isa = PromisePayload {
             state: PromiseState::Pending,
             reactions: [Vec::new(), Vec::new()],
             result: JSValue::UNDEFINED,
             is_handled: false,
-        });
+        };
         let promise = Self(
-            ctx.ordinary_create_from_constructor_class(ctor, JS_CLASS_PROMISE, *isa)?
-                .0,
+            ctx.ordinary_create_from_constructor_payload(
+                ctor,
+                PayloadPtr::new(JS_CLASS_PROMISE, isa),
+            )?
+            .0,
         );
 
         let rr = promise.create_resolving_functions(ctx)?;
@@ -419,10 +422,9 @@ impl Promise {
         job: impl Fn(&mut ScopedContext, Promise, &[JSValue; 2]) -> Result<JobState, i32> + 'static,
     ) -> Result<Self, i32> {
         let promise = Self(
-            ctx.ordinary_create_from_constructor_class(
+            ctx.ordinary_create_from_constructor_payload(
                 JSValue::UNDEFINED,
-                JS_CLASS_PROMISE,
-                PromisePayload::default(),
+                PayloadPtr::new(JS_CLASS_PROMISE, PromisePayload::default()),
             )?
             .0,
         );
@@ -610,20 +612,22 @@ impl Promise {
         let func_proto = ctx.function_proto();
 
         for i in 0..2 {
-            let p = Box::new(PromiseResolvePayload {
+            let p = PromiseResolvePayload {
                 promise: *self,
                 resolved: resolved_flag.clone(), // flag is shared between two functions
-            });
-            let func = ctx.create_instance_with_proto_class(
+            };
+            let func = ctx.create_instance_using_proto(
                 Some(func_proto),
-                if i == 0 {
-                    crate::JS_CLASS_PROMISE_RESOLVE_FUNCTION
-                } else {
-                    crate::JS_CLASS_PROMISE_REJECT_FUNCTION
-                },
-                *p,
+                PayloadPtr::new(
+                    if i == 0 {
+                        crate::JS_CLASS_PROMISE_RESOLVE_FUNCTION
+                    } else {
+                        crate::JS_CLASS_PROMISE_REJECT_FUNCTION
+                    },
+                    p,
+                ),
             )?;
-            
+
             js_function_set_properties(ctx, func, Atom::CONST_empty_string, 1)?;
             resolving_funcs[i as usize] = func.into();
         }

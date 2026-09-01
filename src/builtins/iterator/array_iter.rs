@@ -10,6 +10,7 @@ use crate::{
     builtins::typed_array::TypedArray,
     error::JSResult,
     function::{CallContext, IteratorState},
+    object::PayloadPtr,
     value::JSValue,
 };
 
@@ -90,7 +91,7 @@ pub fn js_create_array_iterator(ctx: &mut ScopedContext, cc: CallContext) -> JSR
         idx: UnsafeCell::new(0),
         kind,
     });
-    ctx.create_instance_with_class(class_id, *isa)
+    ctx.create_instance(PayloadPtr::new(class_id, *isa))
         .map(JSValue::from)
         .map_err(|_| -1)
 }

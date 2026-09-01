@@ -10,7 +10,7 @@ use crate::{
     context::{ContextImpl, ScopedContext},
     error::STD_ERROR_NAMES,
     function::{Callback, NativeFunction, js_function_proto},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, Object, Shape},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_LENGTH, JS_PROP_WRITABLE, Object, PayloadPtr, Shape},
     value::JSValue,
 };
 
@@ -88,10 +88,9 @@ impl<'c> ScopedContext<'c> {
         // Array
         {
             // 1. make Array prototype object
-            let array_proto = self.create_instance_with_proto_class(
+            let array_proto = self.create_instance_using_proto(
                 object.into(),
-                JS_CLASS_ARRAY,
-                ArrayPayload::default(),
+                PayloadPtr::new(JS_CLASS_ARRAY, ArrayPayload::default()),
             )?;
             self.class_slots[JS_CLASS_ARRAY as usize].proto = Some(array_proto);
 

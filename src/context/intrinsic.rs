@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_ARRAY_ITERATOR, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION,
     JS_CLASS_ERROR, JS_CLASS_NUMBER, JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_STRING_ITERATOR,
@@ -21,7 +20,7 @@ use crate::{
     function::{BytecodeFunction, Callback, FunctionKind, NativeFunction},
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
-        JS_PROP_HAS_SET, JS_PROP_WRITABLE,
+        JS_PROP_HAS_SET, JS_PROP_WRITABLE, PayloadPtr,
     },
     stack_frame::ExecMode,
     value::JSValue,
@@ -249,10 +248,9 @@ impl<'c> ScopedContext<'c> {
 
     pub(super) fn intrinsic_base_number(&mut self) {
         let mut proto = self
-            .create_instance_with_proto_class(
+            .create_instance_using_proto(
                 self.class_proto(JS_CLASS_OBJECT),
-                JS_CLASS_NUMBER,
-                JSValue::ZERO,
+                PayloadPtr::new(JS_CLASS_NUMBER, JSValue::ZERO),
             )
             .unwrap();
         proto.install_fields(self, js_number_proto_funcs).unwrap();
@@ -273,10 +271,9 @@ impl<'c> ScopedContext<'c> {
 
     pub(super) fn intrinsic_base_boolean(&mut self) {
         let mut proto = self
-            .create_instance_with_proto_class(
+            .create_instance_using_proto(
                 self.class_proto(JS_CLASS_OBJECT),
-                JS_CLASS_BOOLEAN,
-                false,
+                PayloadPtr::new(JS_CLASS_BOOLEAN, false),
             )
             .unwrap();
         proto.install_fields(self, js_boolean_proto_funcs).unwrap();
@@ -300,10 +297,9 @@ impl<'c> ScopedContext<'c> {
         let empty_str = Atom::CONST_empty_string.force_string(self).unwrap();
         let string_proto = {
             let mut o = self
-                .create_instance_with_proto_class(
+                .create_instance_using_proto(
                     self.class_proto(JS_CLASS_OBJECT),
-                    JS_CLASS_STRING,
-                    empty_str,
+                    PayloadPtr::new(JS_CLASS_STRING, empty_str),
                 )
                 .unwrap();
             o.install_fields(self, js_string_proto_funcs).unwrap();

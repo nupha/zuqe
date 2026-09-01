@@ -139,19 +139,3 @@ impl Drop for PayloadPtr {
         }
     }
 }
-
-/// Payload argument bound of the `*_class` create helpers. Implementations
-/// are generated per registered payload type (see `build_stdclass.rs
-/// gen_payload_accessors`), so only types the trace dispatch knows can
-/// become a payload — anything else (including a wrongly re-boxed `Box<T>`)
-/// fails at compile time.
-///
-/// Deliberately NOT implemented for [`PayloadPtr`]: a pre-built handle
-/// already carries its class, and the `*_class` helpers take `class_id` —
-/// passing a handle there would duplicate the class id with nothing keeping
-/// the copies in sync. Handle callers must use the `*_payload` helpers,
-/// which take no `class_id` at all; the type system keeps the two families
-/// apart.
-pub(crate) trait IntoPayloadPtr {
-    fn into_payload_ptr(self, class_id: ClassID) -> PayloadPtr;
-}

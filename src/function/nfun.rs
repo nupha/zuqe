@@ -11,7 +11,7 @@ use crate::{
     builtins::iterator::make_iterator_next_result,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
-    object::{NativeFunction, Object, ObjectImpl},
+    object::{NativeFunction, Object, ObjectImpl, PayloadPtr},
     runtime::js_check_stack_overflow,
     stack_frame::{ExecMode, FrameAllocError, FrameState, StackFrameArena},
     value::JSValue,
@@ -350,14 +350,16 @@ impl NativeFunction {
                 realm: ctx.gc_ref().into(),
                 data: binding_data,
             };
-            ctx.create_instance_with_proto_class(
+            ctx.create_instance_using_proto(
                 Some(proto),
-                if has_binding_data {
-                    JS_CLASS_C_FUNCTION_DATA
-                } else {
-                    JS_CLASS_C_FUNCTION
-                },
-                p,
+                PayloadPtr::new(
+                    if has_binding_data {
+                        JS_CLASS_C_FUNCTION_DATA
+                    } else {
+                        JS_CLASS_C_FUNCTION
+                    },
+                    p,
+                ),
             )?
         };
 

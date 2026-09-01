@@ -15,7 +15,7 @@ use crate::{
     class::ClassID,
     context::ScopedContext,
     function::{Callback, NativeFunction},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, TypedArray},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, ObjectImpl, PayloadPtr, TypedArray},
     value::JSValue,
 };
 
@@ -350,12 +350,7 @@ impl TypedArray {
         count: usize,
         class_id: ClassID,
     ) -> Result<Self, i32> {
-        let ta = Box::new(TypedArrayPayload::new(
-            array_buffer,
-            class_id,
-            offset,
-            count,
-        )?);
+        let ta = TypedArrayPayload::new(array_buffer, class_id, offset, count)?;
 
         #[cfg(not(feature = "big_int"))]
         {
@@ -374,8 +369,8 @@ impl TypedArray {
             }
         }
 
-        let isa = *ta;
-        let ta = ctx.ordinary_create_from_constructor_class(new_target, class_id, isa)?;
+        let ta = ctx
+            .ordinary_create_from_constructor_payload(new_target, PayloadPtr::new(class_id, ta))?;
 
         // establish mutual references between TypedArray <==> ArrayBuffer
         {

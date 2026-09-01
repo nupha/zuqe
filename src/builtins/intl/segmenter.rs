@@ -15,7 +15,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, PayloadPtr},
     value::JSValue,
 };
 
@@ -89,8 +89,11 @@ pub(crate) fn js_segmenter_constructor(ctx: &mut ScopedContext, cc: CallContext)
         locale,
         granularity,
     };
-    ctx.ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_SEGMENTER, data)
-        .map(JSValue::from)
+    ctx.ordinary_create_from_constructor_payload(
+        new_target,
+        PayloadPtr::new(crate::JS_CLASS_INTL_SEGMENTER, data),
+    )
+    .map(JSValue::from)
 }
 
 /// GetOption for string-valued options: read the property, coerce via

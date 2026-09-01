@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, PayloadPtr},
     value::JSValue,
 };
 
@@ -78,10 +78,9 @@ pub(crate) fn js_display_names_constructor(ctx: &mut ScopedContext, cc: CallCont
         fallback_str: "code",
         language_display: "dialect",
     };
-    let mut instance = ctx.ordinary_create_from_constructor_class(
+    let mut instance = ctx.ordinary_create_from_constructor_payload(
         cc.this(),
-        crate::JS_CLASS_INTL_DISPLAY_NAMES,
-        default_data,
+        PayloadPtr::new(crate::JS_CLASS_INTL_DISPLAY_NAMES, default_data),
     )?;
 
     // Step 3+: argument validation

@@ -8,7 +8,7 @@ use crate::{
     context::ScopedContext,
     error::JSResult,
     function::{AsyncState, BCWrapper, BytecodeFunction, Callback, FunctionKind, NativeFunction},
-    object::{AsyncFunction, JS_PROP_CONFIGURABLE},
+    object::{AsyncFunction, JS_PROP_CONFIGURABLE, PayloadPtr},
     value::JSValue,
 };
 
@@ -234,14 +234,16 @@ impl AsyncState {
         let state = AsyncState::from(self.gc_ref());
 
         for i in 0..2 {
-            let func_obj = ctx.create_instance_with_proto_class(
+            let func_obj = ctx.create_instance_using_proto(
                 Some(ctx.function_proto()),
-                if i == 0 {
-                    JS_CLASS_ASYNC_FUNCTION_RESOLVE
-                } else {
-                    JS_CLASS_ASYNC_FUNCTION_REJECT
-                },
-                state,
+                PayloadPtr::new(
+                    if i == 0 {
+                        JS_CLASS_ASYNC_FUNCTION_RESOLVE
+                    } else {
+                        JS_CLASS_ASYNC_FUNCTION_REJECT
+                    },
+                    state,
+                ),
             )?;
 
             resolving_funcs[i] = func_obj.into();

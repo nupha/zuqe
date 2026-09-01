@@ -17,7 +17,7 @@ use crate::{
     function::{
         AsyncState, BytecodeFunction, CallContext, Callback, FieldDef, FunctionKind, NativeFunction,
     },
-    object::{AsyncGeneratorFunction, JS_PROP_CONFIGURABLE, Object, ObjectImpl},
+    object::{AsyncGeneratorFunction, JS_PROP_CONFIGURABLE, Object, ObjectImpl, PayloadPtr},
     utils::unlikely,
     value::JSValue,
 };
@@ -443,8 +443,10 @@ impl AsyncGeneratorFunction {
         s.async_state.resume(ctx)?;
 
         // create AsyncGenerator object
-        let mut obj =
-            ctx.ordinary_create_from_constructor_class(func_obj, JS_CLASS_ASYNC_GENERATOR, *s)?;
+        let mut obj = ctx.ordinary_create_from_constructor_payload(
+            func_obj,
+            PayloadPtr::new(JS_CLASS_ASYNC_GENERATOR, *s),
+        )?;
 
         // set generator to obj weakref
         let w = obj.downgrade();

@@ -6,7 +6,7 @@ use crate::{
     atom::Atom,
     error::JSResult,
     function::{CallContext, FieldDef, NativeFunction},
-    object::JS_PROP_C_W_E,
+    object::{JS_PROP_C_W_E, PayloadPtr},
     value::JSValue,
 };
 
@@ -21,10 +21,9 @@ pub fn js_proxy_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         return Err(ctx.throw_type_error_not_an_object());
     };
 
-    let mut obj = ctx.create_instance_with_proto_class(
+    let mut obj = ctx.create_instance_using_proto(
         None,
-        JS_CLASS_PROXY,
-        ProxyPayload::new(target, handler.into()),
+        PayloadPtr::new(JS_CLASS_PROXY, ProxyPayload::new(target, handler.into())),
     )?;
 
     obj.set_flag_constructor(target.is_constructor());

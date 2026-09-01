@@ -16,7 +16,7 @@ use crate::{
     function::{CallContext, FieldDef},
     gc::GcHeapExt,
     number::MAX_SAFE_INTEGER,
-    object::{JS_PROP_CONFIGURABLE, Object},
+    object::{JS_PROP_CONFIGURABLE, Object, PayloadPtr},
     value::JSValue,
 };
 
@@ -79,7 +79,7 @@ pub(crate) fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JS
     let isa = JSMapState::new(is_weak, 8);
     let class_id = JS_CLASS_MAP + magic as ClassID;
     let obj = ctx
-        .ordinary_create_from_constructor_class(new_target, class_id, isa)
+        .ordinary_create_from_constructor_payload(new_target, PayloadPtr::new(class_id, isa))
         .map(JSValue::from)?;
 
     let arr = if cc.length() > 0 {
@@ -352,9 +352,12 @@ pub(crate) fn js_create_map_iterator(ctx: &mut ScopedContext, cc: CallContext) -
         kind,
         index: 0,
     };
-    ctx.create_instance_with_class(JS_CLASS_MAP_ITERATOR + (cc.magic() & 1) as ClassID, isa)
-        .map_err(|_| -1)
-        .map(JSValue::from)
+    ctx.create_instance(PayloadPtr::new(
+        JS_CLASS_MAP_ITERATOR + (cc.magic() & 1) as ClassID,
+        isa,
+    ))
+    .map_err(|_| -1)
+    .map(JSValue::from)
 }
 
 pub const js_map_proto_funcs: &[FieldDef] = &[
@@ -493,7 +496,7 @@ fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i3
 /// create an empty Set instance with the given capacity.
 fn create_empty_set(ctx: &mut ScopedContext, capacity: usize) -> Result<JSValue, i32> {
     let state = JSMapState::new(false, capacity);
-    ctx.create_instance_with_class(JS_CLASS_SET, state)
+    ctx.create_instance(PayloadPtr::new(JS_CLASS_SET, state))
         .map_err(|_| -1)
         .map(JSValue::from)
 }

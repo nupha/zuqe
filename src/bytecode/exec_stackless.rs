@@ -384,11 +384,11 @@ impl Bytecode {
                 realm_scope.build_backtrace_to(err_val, None, 0);
             }
 
-            if let Some((new_pc, new_sp)) = unsafe {
-                (*arena_ptr).find_catch_in_frame(cur_frame_idx, realm_scope)
-            } {
+            if let Some((new_pc, new_sp)) =
+                unsafe { (*arena_ptr).find_catch_in_frame(cur_frame_idx, realm_scope) }
+            {
+                save_sp!(new_sp as i32);
                 unsafe {
-                    save_sp!(new_sp as i32);
                     pc = pc_base.add(new_pc);
                     sp = sp_base.add(new_sp);
                 }
@@ -2408,9 +2408,7 @@ impl Bytecode {
                     OpCode::REGEXP => {
                         #[cfg(feature = "builtin_regexp")]
                         if let Some(re_id) = SP_VAL!(-1).as_int() {
-                            let re = Box::new(
-                                realm_scope.rt().regexp_precompiled[re_id as usize].clone(),
-                            );
+                            let re = realm_scope.rt().regexp_precompiled[re_id as usize].clone();
                             let regexp = crate::builtins::regexp::RegExp::from(
                                 realm_scope,
                                 JSValue::UNDEFINED,
@@ -3384,9 +3382,9 @@ impl Bytecode {
                         realm_scope.build_backtrace_to(err_val, None, 0);
                     }
 
-                    if let Some((new_pc, new_sp)) = unsafe {
-                        (*arena_ptr).find_catch_in_frame(cur_frame_idx, realm_scope)
-                    } {
+                    if let Some((new_pc, new_sp)) =
+                        unsafe { (*arena_ptr).find_catch_in_frame(cur_frame_idx, realm_scope) }
+                    {
                         unsafe {
                             save_sp!(new_sp as i32);
                             pc = pc_base.add(new_pc);
@@ -3428,6 +3426,7 @@ impl Bytecode {
                 } => {
                     save_pc!(pc.offset_from(pc_base) as usize);
                     save_sp!(sp.offset_from(sp_base) as i32);
+
                     return ExecAction::CallBytecodeCrossRealm {
                         callee_bc,
                         callee_frame_idx,

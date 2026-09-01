@@ -18,7 +18,7 @@ use crate::{
     },
     gcref_wrapper,
     module::{ExportEntry, ExportType, ImportEntry, JSModuleStatus, ModuleDependency},
-    object::{JS_PROP_C_W_E, JS_PROP_WRITABLE, Object},
+    object::{JS_PROP_C_W_E, JS_PROP_WRITABLE, Object, PayloadPtr},
     runtime::RuntimeImpl,
     value::JSValue,
 };
@@ -303,10 +303,9 @@ impl ModuleDefImpl {
 
         self.bytecode = {
             let p = BFuncPayload::new(bc, var_refs);
-            ctx.create_instance_with_proto_class(
+            ctx.create_instance_using_proto(
                 Some(ctx.function_proto()),
-                JS_CLASS_BYTECODE_FUNCTION,
-                p,
+                PayloadPtr::new(JS_CLASS_BYTECODE_FUNCTION, p),
             )?
             .into()
         };

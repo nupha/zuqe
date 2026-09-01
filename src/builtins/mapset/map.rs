@@ -10,7 +10,7 @@ use crate::{
     builtins::weakref::can_be_held_weakly,
     class::ClassID,
     context::{ContextImpl, ScopedContext},
-    object::{MapSet, Object, ObjectImpl},
+    object::{MapSet, Object, ObjectImpl, PayloadPtr},
     utils::hash_usize,
     value::JSValue,
 };
@@ -383,12 +383,7 @@ impl MapSet {
     }
 
     pub fn from_entries(ctx: &mut ScopedContext, entries: JSMapState) -> Result<Self, i32> {
-        let obj = ctx
-            .create_instance_with_class(
-                JS_CLASS_MAP,
-                entries,
-            )
-            .map_err(|_| -1)?;
-        obj.try_into().map_err(|_| -1)
+        ctx.create_instance(PayloadPtr::new(JS_CLASS_MAP, entries))
+            .map(|o| Self(o.0))
     }
 }

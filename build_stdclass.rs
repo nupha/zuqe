@@ -141,7 +141,7 @@ impl PayloadKey {
     }
 
     /// Rust type path for this payload kind, used by codegen to emit
-    /// `drop_payload_fn::<T>`, `trace_payload`, `IntoPayloadPtr` impls, etc.
+    /// `drop_payload_fn::<T>`, `trace_payload` impls, etc.
     /// Returns `None` for `PayloadKey::None` (payload-less classes).
     pub fn type_str(&self) -> Option<&'static str> {
         match self {
@@ -874,7 +874,6 @@ pub fn gen_payload_accessors(outfile: &Path) {
     let mut trace_arms = Vec::<String>::new();
     let mut name_arms = Vec::<String>::new();
     let mut get_payload_methods = Vec::<String>::new();
-    let mut into_payload_ptr_impls = std::collections::BTreeSet::<&str>::new();
 
     // Collect unique (PayloadKey, type_str) pairs from CLASS_DEF_LIST
     let mut seen = std::collections::BTreeSet::<PayloadKey>::new();
@@ -919,8 +918,6 @@ pub fn gen_payload_accessors(outfile: &Path) {
             "{class_id_pattern} => Some(std::any::type_name::<{inner_ty}>()),"
         ));
 
-        into_payload_ptr_impls.insert(inner_ty);
-
         get_payload_methods.push(format!(
             "#[inline(always)]\npub const fn payload_{k}(&self) -> Option<&{inner_ty}> {{ \
              match self.class_id() {{ {class_id_pattern} => Some(unsafe {{ &*(self.payload as *const {inner_ty}) }}), _ => None }} }}"
@@ -955,20 +952,6 @@ pub fn gen_payload_accessors(outfile: &Path) {
         "        _ => None".into(),
         "    }".into(),
         "}".into(),
-        String::new(),
-        // Compile-time allow-list: only payload types registered in
-        // CLASS_PAYLOAD_TYPE implement IntoPayloadPtr, so a call site passing a
-        // wrong type (e.g. an already-boxed Box<T> where T is expected) fails
-        // to compile instead of double-boxing and corrupting the heap.
-        into_payload_ptr_impls
-            .iter()
-            .map(|ty| {
-                format!(
-                    "impl IntoPayloadPtr for {ty} {{\n    #[inline]\n    fn into_payload_ptr(self, class_id: ClassID) -> PayloadPtr {{ PayloadPtr::new(class_id, self) }}\n}}"
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
         String::new(),
         "impl crate::object::ObjectImpl {".into(),
         get_payload_methods.join("\n"),

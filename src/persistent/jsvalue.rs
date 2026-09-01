@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
-
 use crate::{
     Atom, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BYTECODE_FUNCTION,
     JS_CLASS_C_FUNCTION, JS_CLASS_GENERATOR_FUNCTION, JSValue, JSValueTag, ScopedContext,
     atom::AtomKind,
     bigint::BigIntRef,
-    function::{BFuncPayload, Bytecode, FunctionKind, VarRef},
-    object::{LazyInit, Object},
+    function::{BFuncPayload, Bytecode, VarRef},
+    object::{LazyInit, Object, PayloadPtr},
     string::StringRef,
 };
 
@@ -499,24 +497,19 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                 let proto = self.ctx.class_proto(class_id);
                 let mut obj = self
                     .ctx
-                    .create_instance_with_proto_class(
-                        proto,
-                        class_id,
-                        payload,
-                    )
+                    .create_instance_using_proto(proto, PayloadPtr::new(class_id, payload))
                     .map_err(|_| {
                         BytecodeSerializeError::InvalidValue("oom in closure object".into())
                     })?;
-                    
-                let func_name = if bc_ref.func_name.is_null() {
-                    Atom::CONST_empty_string
-                } else {
-                    bc_ref.func_name
-                };
+
                 crate::function::js_function_set_properties(
                     self.ctx,
                     obj,
-                    func_name,
+                    if bc_ref.func_name.is_null() {
+                        Atom::CONST_empty_string
+                    } else {
+                        bc_ref.func_name
+                    },
                     bc_ref.attrs.defined_arg_count as i32,
                 )
                 .map_err(|_| {

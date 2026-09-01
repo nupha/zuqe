@@ -14,7 +14,7 @@ use crate::{
     function::{CallContext, Callback, FieldDef, IteratorState},
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_SET_ENUM, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E,
-        JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_THROW, Object, PropertyKey,
+        JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_THROW, Object, PayloadPtr, PropertyKey,
     },
     value::JSValue,
 };
@@ -59,14 +59,14 @@ impl ForInIterPayload {
             Some(val.objectify(ctx)?)
         };
 
-        let mut it = Box::new(ForInIterPayload {
+        let mut it = ForInIterPayload {
             obj,
             idx: 0,
             prop_count: 0,
             in_prototype_chain: false,
             is_array: false,
             prop_enums: Box::new([]),
-        });
+        };
 
         if let Some(mut ob) = it.obj {
             if ob.flags().is_fast_array() {
@@ -94,7 +94,7 @@ impl ForInIterPayload {
             }
         }
 
-        ctx.create_instance_with_proto_class(None, crate::JS_CLASS_FOR_IN_ITERATOR, *it)
+        ctx.create_instance_using_proto(None, PayloadPtr::new(crate::JS_CLASS_FOR_IN_ITERATOR, it))
     }
 
     /// build property-enumeration-list for `obj`.
@@ -392,14 +392,14 @@ impl JSValue {
             // method [Symbol.asyncIterator] is not defined:
             // wrap [Symbol.iterator]() object into an AsyncFromSyncIterator
             let next_method = sync_it.get_property(ctx, Atom::CONST_next)?;
-            ctx.create_instance_with_class(
+            ctx.create_instance(PayloadPtr::new(
                 crate::JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,
                 JSAsyncFromSyncIteratorData {
                     obj: sync_it,
                     next_method,
                     closed: Cell::new(false),
                 },
-            )
+            ))
             .map(Some)
             .map_err(|_| -1)
         } else {

@@ -12,6 +12,7 @@ use crate::{
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
         JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE, LazyInit, Object,
+        PayloadPtr,
     },
     stack_frame::{FrameIndex, StackFrameArena},
     value::JSValue,
@@ -435,10 +436,9 @@ impl Bytecode {
         let mut obj = {
             let class_id = self.func_kind().class_id();
             BCWrapper(
-                ctx.create_instance_with_proto_class(
+                ctx.create_instance_using_proto(
                     proto.or_else(|| ctx.class_proto(class_id)),
-                    class_id,
-                    BFuncPayload::new(*self, captures),
+                    PayloadPtr::new(class_id, BFuncPayload::new(*self, captures)),
                 )?
                 .gc_ref(),
             )

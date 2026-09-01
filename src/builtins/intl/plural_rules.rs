@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, PayloadPtr},
     value::JSValue,
 };
 
@@ -218,8 +218,11 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
         notation,
         compact_display,
     };
-    ctx.ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_PLURAL_RULES, data)
-        .map(JSValue::from)
+    ctx.ordinary_create_from_constructor_payload(
+        new_target,
+        PayloadPtr::new(crate::JS_CLASS_INTL_PLURAL_RULES, data),
+    )
+    .map(JSValue::from)
 }
 
 fn js_plural_rules_select(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

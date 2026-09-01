@@ -409,10 +409,14 @@ type Waiter = Arc<(Mutex<bool>, Condvar)>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct WaitKey {
-    /// Identity of the shared buffer (`Arc::as_ptr`).
     sab: usize,
-    /// Byte offset of the waited element within the buffer.
     off: usize,
+}
+
+impl std::fmt::Debug for WaitKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "WaitKey(sab={:#x}, off={})", self.sab, self.off)
+    }
 }
 
 struct WaitRegistry {

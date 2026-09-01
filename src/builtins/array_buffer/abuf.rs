@@ -15,7 +15,7 @@ use crate::{
     context::ScopedContext,
     error::{JS_ThrowTypeErrorDetachedArrayBuffer, JSResult},
     function::CallContext,
-    object::{ArrayBuffer, Object, ObjectImpl},
+    object::{ArrayBuffer, Object, ObjectImpl, PayloadPtr},
     runtime::RuntimeImpl,
     utils::unlikely,
     value::JSValue,
@@ -251,14 +251,16 @@ impl ArrayBuffer {
         });
 
         // create array buffer or shared array buffer instance
-        ctx.ordinary_create_from_constructor_class(
+        ctx.ordinary_create_from_constructor_payload(
             new_target,
-            if !shared {
-                crate::JS_CLASS_ARRAY_BUFFER
-            } else {
-                crate::JS_CLASS_SHARED_ARRAY_BUFFER
-            },
-            *ab,
+            PayloadPtr::new(
+                if !shared {
+                    crate::JS_CLASS_ARRAY_BUFFER
+                } else {
+                    crate::JS_CLASS_SHARED_ARRAY_BUFFER
+                },
+                *ab,
+            ),
         )
         .map(|o| ArrayBuffer(o.0))
     }
@@ -304,14 +306,16 @@ impl ArrayBuffer {
             opaque,
         });
         let mut obj = ctx
-            .ordinary_create_from_constructor_class(
+            .ordinary_create_from_constructor_payload(
                 new_target,
-                if !shared {
-                    crate::JS_CLASS_ARRAY_BUFFER
-                } else {
-                    crate::JS_CLASS_SHARED_ARRAY_BUFFER
-                },
-                *isa,
+                PayloadPtr::new(
+                    if !shared {
+                        crate::JS_CLASS_ARRAY_BUFFER
+                    } else {
+                        crate::JS_CLASS_SHARED_ARRAY_BUFFER
+                    },
+                    *isa,
+                ),
             )
             .map(|o| Self(o.0))?;
 

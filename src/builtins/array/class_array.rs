@@ -21,7 +21,10 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     number::MAX_SAFE_INTEGER,
-    object::{JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, Object},
+    object::{
+        JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, Object,
+        PayloadPtr,
+    },
     runtime::js_check_stack_overflow,
     string::{StringBuf, StringRef},
     value::JSValue,
@@ -59,10 +62,9 @@ pub(crate) fn js_array_constructor(ctx: &mut ScopedContext, cc: CallContext) -> 
         (list, len)
     };
 
-    let mut arr = Array::try_from(ctx.ordinary_create_from_constructor_class(
+    let mut arr = Array::try_from(ctx.ordinary_create_from_constructor_payload(
         new_target,
-        crate::JS_CLASS_ARRAY,
-        ArrayPayload::new(values),
+        PayloadPtr::new(crate::JS_CLASS_ARRAY, ArrayPayload::new(values)),
     )?)
     .unwrap();
 

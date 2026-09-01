@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, PayloadPtr},
     value::JSValue,
 };
 
@@ -229,10 +229,9 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
     if !new_target.is_callable() {
         let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
         let instance = ctx
-            .ordinary_create_from_constructor_class(
+            .ordinary_create_from_constructor_payload(
                 JSValue::UNDEFINED,
-                crate::JS_CLASS_INTL_NUMBER_FORMAT,
-                data,
+                PayloadPtr::new(crate::JS_CLASS_INTL_NUMBER_FORMAT, data),
             )
             .map(JSValue::from)?;
 
@@ -255,8 +254,11 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
     }
 
     let data = build_number_format_data(ctx, cc.arg(0), cc.arg(1))?;
-    ctx.ordinary_create_from_constructor_class(new_target, crate::JS_CLASS_INTL_NUMBER_FORMAT, data)
-        .map(JSValue::from)
+    ctx.ordinary_create_from_constructor_payload(
+        new_target,
+        PayloadPtr::new(crate::JS_CLASS_INTL_NUMBER_FORMAT, data),
+    )
+    .map(JSValue::from)
 }
 
 /// Build `NumberFormatData` directly (no JS option plumbing) for internal

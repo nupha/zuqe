@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
-
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_OBJECT, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JSValue,
     ScopedContext,
     atom::Atom,
-    object::JSPropertyDescriptor,
+    object::{JSPropertyDescriptor, PayloadPtr},
     persistent::{BytecodeSerializeError, DeserializeCtx, SerializeCtx},
 };
 
@@ -156,10 +154,9 @@ pub fn deserialize_object(inp: &mut DeserializeCtx) -> Result<JSValue, BytecodeS
     let mut obj = {
         let sc = &mut *inp.ctx;
         if cid == JS_CLASS_ARRAY {
-            sc.create_instance_with_proto_class(
+            sc.create_instance_using_proto(
                 Some(proto),
-                JS_CLASS_ARRAY,
-                crate::array::ArrayPayload::new(Vec::new()),
+                PayloadPtr::new(JS_CLASS_ARRAY, crate::array::ArrayPayload::new(Vec::new())),
             )
             .map_err(|_| BytecodeSerializeError::InvalidValue("cannot create array".into()))?
         } else {

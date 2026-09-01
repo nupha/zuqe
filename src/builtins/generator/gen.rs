@@ -11,7 +11,7 @@ use crate::{
         AsyncState, BytecodeFunction, CallContext, FieldDef, FunctionKind, IteratorState,
         NativeFunction,
     },
-    object::{GeneratorFunction, JS_PROP_CONFIGURABLE},
+    object::{GeneratorFunction, JS_PROP_CONFIGURABLE, PayloadPtr},
     value::JSValue,
 };
 
@@ -154,7 +154,7 @@ pub(super) fn js_generator_function_call(
     p.resume(ctx)?;
 
     // create Generator instance
-    ctx.ordinary_create_from_constructor_class(func_obj, JS_CLASS_GENERATOR, *p)
+    ctx.ordinary_create_from_constructor_payload(func_obj, PayloadPtr::new(JS_CLASS_GENERATOR, *p))
         .map(JSValue::from)
 }
 

@@ -4,8 +4,11 @@
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_DATAVIEW, builtins::array_buffer::ArrayBuffer, context::ScopedContext,
-    object::DataView, value::JSValue,
+    JS_CLASS_DATAVIEW,
+    builtins::array_buffer::ArrayBuffer,
+    context::ScopedContext,
+    object::{DataView, PayloadPtr},
+    value::JSValue,
 };
 
 #[derive(Debug)]
@@ -30,7 +33,7 @@ impl GcTrace for DataViewPayload {
 impl DataViewPayload {
     /// create typed array payload with underlying array buffer `buffer`,
     /// offset in array buffer and type array element count.
-    fn new(buffer: ArrayBuffer, offset: usize, len: usize, length_tracked: bool) -> Box<Self> {
+    fn new(buffer: ArrayBuffer, offset: usize, len: usize, length_tracked: bool) -> Self {
         // the buffer may already be detached: argument coercion in the
         // constructor can run user code. DataView::create() throws right
         // after instance creation, and every accessor re-checks detachment
@@ -41,12 +44,12 @@ impl DataViewPayload {
                 || offset + len <= buffer.payload().byte_length()
         );
 
-        Box::new(Self {
+        Self {
             buffer,
             offset: offset as u32,
             byte_length: len as u32,
             length_tracked,
-        })
+        }
     }
 
     /// get underlaying ArrayBuffer object.
@@ -143,10 +146,12 @@ impl DataView {
         byte_length: usize,
         length_tracked: bool,
     ) -> Result<Self, i32> {
-        let o = ctx.ordinary_create_from_constructor_class(
+        let o = ctx.ordinary_create_from_constructor_payload(
             ctor,
-            JS_CLASS_DATAVIEW,
-            *DataViewPayload::new(array_buffer, offset, byte_length, length_tracked),
+            PayloadPtr::new(
+                JS_CLASS_DATAVIEW,
+                DataViewPayload::new(array_buffer, offset, byte_length, length_tracked),
+            ),
         )?;
 
         // §25.3.2.1 steps 11-14: reading `newTarget.prototype` can run user

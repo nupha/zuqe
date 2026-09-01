@@ -13,6 +13,7 @@ use crate::{
         ATOD_ACCEPT_PREFIX_AFTER_SIGN, ATOD_INT_ONLY, JS_DTOA_FIXED_FORMAT, JS_DTOA_FORCE_EXP,
         JS_DTOA_FRAC_FORMAT, JS_DTOA_VAR_FORMAT, NumValue, f64_stringify, is_safe_integer, js_aton,
     },
+    object::PayloadPtr,
     utils::unlikely,
     value::JSValue,
 };
@@ -32,8 +33,11 @@ pub fn js_number_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 
     let new_target = cc.this();
     if !new_target.is_undefined() {
-        ctx.ordinary_create_from_constructor_class(new_target, JS_CLASS_NUMBER, val)
-            .map(JSValue::from)
+        ctx.ordinary_create_from_constructor_payload(
+            new_target,
+            PayloadPtr::new(JS_CLASS_NUMBER, val),
+        )
+        .map(JSValue::from)
     } else {
         Ok(val)
     }

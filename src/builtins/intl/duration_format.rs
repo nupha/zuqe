@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, PayloadPtr},
     value::JSValue,
 };
 
@@ -308,10 +308,9 @@ fn js_duration_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
         .with_numbering_system(None)
     };
 
-    ctx.ordinary_create_from_constructor_class(
+    ctx.ordinary_create_from_constructor_payload(
         new_target,
-        crate::JS_CLASS_INTL_DURATION_FORMAT,
-        data,
+        PayloadPtr::new(crate::JS_CLASS_INTL_DURATION_FORMAT, data),
     )
     .map(JSValue::from)
 }

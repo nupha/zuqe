@@ -10,7 +10,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE},
+    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, PayloadPtr},
     value::JSValue,
 };
 
@@ -105,10 +105,9 @@ pub(crate) fn js_date_time_format_constructor(
         let data =
             build_date_time_format_data(ctx, cc.arg(0), cc.arg(1), DateTimeDefaults::Standard)?;
         let instance = ctx
-            .ordinary_create_from_constructor_class(
+            .ordinary_create_from_constructor_payload(
                 JSValue::UNDEFINED,
-                crate::JS_CLASS_INTL_DATE_TIME_FORMAT,
-                data,
+                PayloadPtr::new(crate::JS_CLASS_INTL_DATE_TIME_FORMAT, data),
             )
             .map(JSValue::from)?;
 
@@ -131,10 +130,9 @@ pub(crate) fn js_date_time_format_constructor(
     }
 
     let data = build_date_time_format_data(ctx, cc.arg(0), cc.arg(1), DateTimeDefaults::Standard)?;
-    ctx.ordinary_create_from_constructor_class(
+    ctx.ordinary_create_from_constructor_payload(
         new_target,
-        crate::JS_CLASS_INTL_DATE_TIME_FORMAT,
-        data,
+        PayloadPtr::new(crate::JS_CLASS_INTL_DATE_TIME_FORMAT, data),
     )
     .map(JSValue::from)
 }
