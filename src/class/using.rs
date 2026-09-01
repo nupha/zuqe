@@ -73,6 +73,7 @@ impl RuntimeImpl {
     /// Validates that `class_id` is in the builtin range (`< USER_CLASS_ID_START`)
     /// and that `class_def.name_atom` is non-null (pre-allocated). Delegates to
     /// `register_class_internal` for slot management.
+    #[inline(always)]
     pub(crate) fn register_builtin_class(
         &mut self,
         class_id: ClassID,
