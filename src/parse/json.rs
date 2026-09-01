@@ -9,7 +9,7 @@ use crate::{
     number::{ATOD_ACCEPT_BIN_OCT, js_aton},
     object::JS_PROP_C_W_E,
     runtime::js_check_stack_overflow,
-    string::{CharCodeDecoder, StringRef, Utf8Stream, escape_str},
+    string::{CharCodeDecoder, Utf8Stream},
     utils::unlikely,
     value::JSValue,
 };
@@ -331,7 +331,14 @@ impl<'s> JSParseState<'s> {
             inp.seek_relative(1);
         }
 
-        Atom::from_str(self.ctx(), std::str::from_utf8(&buf).map_err(|_| -1)?)
+        let ident = std::str::from_utf8(&buf).map_err(|_| -1)?;
+        match ident {
+            "true" => return Ok(Atom::CONST_true),
+            "false" => return Ok(Atom::CONST_false),
+            "null" => return Ok(Atom::CONST_null),
+            _ => {}
+        }
+        Atom::from_str(self.ctx(), ident)
     }
 
     fn json_parse_value(&mut self, record: Option<&mut JSONParseRecord>) -> JSResult {
@@ -348,11 +355,12 @@ impl<'s> JSParseState<'s> {
                 if self.token.kind != TokenKind::Char('}') {
                     loop {
                         let prop_name = if self.token.kind == TokenKind::STRING {
-                            let t = escape_str(&self.token.data.string().unwrap().to_utf8())
-                                .to_string();
+                            // sink the decoded token buffer directly into an atom;
+                            // no re-escaping / intermediate copies.
+                            let sbuf = self.token.data.take_string().unwrap();
                             let ctx = self.ctx();
-                            let s = StringRef::create_utf8(ctx, t.into_bytes())?;
-                            Atom::from_string(ctx, s, AtomKind::String)?
+                            ctx.create_string_with_buf(sbuf)?
+                                .to_atom(ctx, AtomKind::String)?
                         } else if self.ext_json && self.token.kind == TokenKind::IDENT {
                             self.token.data.ident_atom().unwrap()
                         } else {
