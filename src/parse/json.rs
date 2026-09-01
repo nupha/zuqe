@@ -460,10 +460,6 @@ impl<'s> JSParseState<'s> {
                             elements.push(child_record);
                         }
 
-                        if lst.len() == lst.capacity() {
-                            lst.try_reserve(32)
-                                .map_err(|_| self.ctx().throw_out_of_memory())?;
-                        }
                         lst.push(el);
 
                         if self.token.kind != TokenKind::Char(',') {
@@ -478,8 +474,6 @@ impl<'s> JSParseState<'s> {
                     }
                 }
 
-                // make Array
-                lst.shrink_to_fit();
                 val = crate::array::Array::from_values(self.ctx(), lst)?.into();
 
                 json_parse_expect(self, b']')?;
@@ -527,10 +521,8 @@ impl<'s> JSParseState<'s> {
                 let source_start = (self.token.ptr as usize) - (self.input.as_ptr() as usize);
                 let source_end = (self.buf_ptr as usize) - (self.input.as_ptr() as usize);
 
-                val = match self.token.data.ident_atom().unwrap() {
-                    Atom::CONST_true => JSValue::TRUE,
-                    Atom::CONST_false => JSValue::FALSE,
-                    Atom::CONST_null => JSValue::NULL,
+                val = match self.token.data.ident_atom().unwrap().const_value() {
+                    Some(v) => v,
                     _ => {
                         if self.token.kind == TokenKind::EOF {
                             self.throw_syntax_error("unexpected end of input");

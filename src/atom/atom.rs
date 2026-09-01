@@ -297,6 +297,21 @@ impl Atom {
     pub fn to_utf8(&self, rt: &RuntimeImpl) -> String {
         self.with_utf8(rt, |s| s.into_owned())
     }
+
+    /// Return the JSValue for this const atom if it is a JSON primitive
+    /// (true / false / null), otherwise None.
+    #[inline(always)]
+    pub fn const_value(&self) -> Option<JSValue> {
+        if *self == Atom::CONST_true {
+            Some(JSValue::TRUE)
+        } else if *self == Atom::CONST_false {
+            Some(JSValue::FALSE)
+        } else if *self == Atom::CONST_null {
+            Some(JSValue::NULL)
+        } else {
+            None
+        }
+    }
 }
 
 pub const JS_ATOM_HASH_SYMBOL: u32 = 0;
