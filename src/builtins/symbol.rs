@@ -151,18 +151,6 @@ pub const js_symbol_funcs: &[FieldDef] = &[
     FieldDef::FUNC("keyFor", 1, js_symbol_keyFor, 0),
 ];
 
-/// Recipe for builtin authors: a Symbol value is used as a property key by
-/// converting it to its atom and passing that to the ordinary property ops —
-///
-/// ```ignore
-/// let key = sym.to_atom(ctx)?;                       // symbol -> key
-/// obj.define_property_value(ctx, key, val, flags)?;  // [[DefineOwnProperty]]
-/// let v = obj.get_property_value(ctx, sym)?;         // [[Get]] (MOP-observable)
-/// ```
-///
-/// `to_atom` returns the *existing* interned atom for the symbol's descriptor,
-/// so every use of the same Symbol value maps to the same property.
-
 crate::def_native_object!(
     builtin,
     "Symbol",

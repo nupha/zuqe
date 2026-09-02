@@ -12,12 +12,13 @@ mod iter_wrap;
 mod iter_zip;
 mod iterator;
 
-pub use {a_iter::*, array_iter::*, async_iter::*, iter::*};
+pub use {
+    crate::object::{AsyncFromSyncIterator, AsyncIterableIterator},
+    {a_iter::*, array_iter::*, async_iter::*, iter::*},
+};
 pub(crate) use {
     iter_concat::*, iter_helper::*, iter_shared::*, iter_wrap::*, iter_zip::*, iterator::*,
 };
-
-use crate::object::{AsyncFromSyncIterator, AsyncIterableIterator};
 
 crate::def_native_object!(
     builtin,

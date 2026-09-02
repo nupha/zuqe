@@ -427,7 +427,7 @@ impl ObjectImpl {
         #[cfg(debug_assertions)]
         {
             let cid = obj.class_id();
-            let cname = obj.class_name().to_utf8(ctx.rt());
+            let cname = obj.class_name_str().to_string();
             obj.gc_node_mut()
                 .debug_set_dbg_string(format!("[ObjectImpl] class={} ({cname})", cid).into());
         }
@@ -486,16 +486,15 @@ impl ObjectImpl {
         self.obj_flags.class_id()
     }
 
-    /// Get object class name atom.
+    /// Get object class name str.
     #[inline(always)]
-    pub fn class_name(&self) -> &Atom {
+    pub fn class_name_str(&self) -> &str {
         debug_assert!((self.class_id() as usize) < self.rt.class_registry.len());
         unsafe {
-            &self
-                .rt
+            self.rt
                 .class_registry
                 .get_unchecked(self.class_id() as usize)
-                .name_atom
+                .name
         }
     }
 

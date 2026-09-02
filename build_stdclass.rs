@@ -799,7 +799,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
             register_lines.push(format!("    {}::register(rt)?;", cdef.class_def));
         } else {
             register_lines.push(format!(
-                "    rt.register_builtin_class(JS_CLASS_{}, {})?;",
+                "    rt.register_builtin_class_def(JS_CLASS_{}, {})?;",
                 cdef.const_name, cdef.class_def
             ));
 
@@ -919,11 +919,11 @@ pub fn gen_payload_accessors(outfile: &Path) {
         ));
 
         get_payload_methods.push(format!(
-            "#[inline(always)]\npub const fn payload_{k}(&self) -> Option<&{inner_ty}> {{ \
+            "#[inline]\npub const fn payload_{k}(&self) -> Option<&{inner_ty}> {{ \
              match self.class_id() {{ {class_id_pattern} => Some(unsafe {{ &*(self.payload as *const {inner_ty}) }}), _ => None }} }}"
         ));
         get_payload_methods.push(format!(
-            "#[inline(always)]\npub fn payload_{k}_mut(&mut self) -> Option<&mut {inner_ty}> {{ \
+            "#[inline]\npub fn payload_{k}_mut(&mut self) -> Option<&mut {inner_ty}> {{ \
              match self.class_id() {{ {class_id_pattern} => Some(unsafe {{ &mut *(self.payload as *mut {inner_ty}) }}), _ => None }} }}"
         ));
     }

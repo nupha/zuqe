@@ -109,13 +109,11 @@ fn format_int(n: i64, opts: &InspectOptions) -> String {
     let neg = n < 0;
     let s = n.unsigned_abs().to_string();
     let mut out = String::new();
-    let mut cnt = 0;
-    for &b in s.as_bytes().iter().rev() {
+    for (cnt, &b) in s.as_bytes().iter().rev().enumerate() {
         if cnt > 0 && cnt % 3 == 0 {
             out.push('_');
         }
         out.push(b as char);
-        cnt += 1;
     }
     let mut res: String = out.chars().rev().collect();
     if neg {
@@ -169,13 +167,12 @@ fn quote_string(s: &str, budget: usize, _sep: char) -> String {
     let mut out = String::new();
     out.push(q);
     let limit = if len <= budget { len } else { budget };
-    let mut shown = 0;
-    for ch in s.chars() {
+
+    for (shown, ch) in s.chars().enumerate() {
         if shown >= limit {
             break;
         }
         escape_char(ch, q, &mut out);
-        shown += 1;
     }
     if len > budget {
         out.push_str(&format!("... {} more characters", len - budget));
@@ -189,10 +186,6 @@ fn get_str_opt(ctx: &mut ScopedContext, obj: &Object, key: &str) -> Option<Strin
         .ok()
         .and_then(|v| v.as_string(false))
         .map(|s| s.encode_utf8(false).into_owned())
-}
-
-fn class_name_str(ctx: &mut ScopedContext, obj: &Object) -> String {
-    obj.class_name().to_utf8(ctx.rt()).to_string()
 }
 
 /// Lay out a group of entries as `open ... close`, choosing single-line or multi-line based on compact / breakLength.
@@ -242,18 +235,19 @@ fn key_rendering(ctx: &mut ScopedContext, atom: &Atom, opts: &InspectOptions) ->
         let display = colorize(&s, C_KEY, opts);
         return (format!("0:{:020}", n), display);
     }
-    if let Ok(kv) = atom.to_value(ctx) {
-        if kv.is_symbol() {
-            let d = kv
-                .as_symbol(false)
-                .map(|x| x.encode_utf8(false).into_owned())
-                .unwrap_or_default();
-            let raw = format!("Symbol({})", d);
-            let display = colorize(&raw, C_KEY, opts);
-            return (format!("2:{}", d), display);
-        }
+    if let Ok(kv) = atom.to_value(ctx)
+        && kv.is_symbol()
+    {
+        let d = kv
+            .as_symbol(false)
+            .map(|x| x.encode_utf8(false).into_owned())
+            .unwrap_or_default();
+        let raw = format!("Symbol({})", d);
+        let display = colorize(&raw, C_KEY, opts);
+        return (format!("2:{}", d), display);
     }
     ctx.clear_exception();
+
     let s = atom.to_utf8(ctx.rt()).to_string();
     let q = quote_string(&s, opts.max_string_length, '\'');
     let display = colorize(&q, C_KEY, opts);
@@ -415,16 +409,18 @@ fn format_object(
         }
     };
     let mut entries: Vec<(String, String)> = Vec::new();
-    stack.push(obj.clone());
+    stack.push(*obj);
     for pk in keys {
         let (sort_key, display_key) = key_rendering(ctx, &pk.atom, opts);
         let value = read_prop_value(ctx, val, obj, pk.atom, opts, level, stack);
         entries.push((sort_key, format!("{}: {}", display_key, value)));
     }
     stack.pop();
+
     if opts.sorted {
         entries.sort_by(|a, b| a.0.cmp(&b.0));
     }
+
     let displays: Vec<String> = entries.into_iter().map(|e| e.1).collect();
     format_block("{ ", &displays, " }", opts, level)
 }
@@ -443,7 +439,8 @@ fn format_array(
     let mut empty_run: usize = 0;
     let mut i = 0usize;
     let mut truncated = false;
-    stack.push(obj.clone());
+
+    stack.push(*obj);
     while i < len {
         if entries.len() >= max {
             truncated = true;
@@ -473,6 +470,7 @@ fn format_array(
         }
     }
     stack.pop();
+
     format_block("[", &entries, "]", opts, level)
 }
 
@@ -483,17 +481,15 @@ fn format_typed_array(
     level: usize,
     stack: &mut Vec<Object>,
 ) -> String {
-    let cn = class_name_str(ctx, obj);
-    let count = match obj.payload_typed_array() {
-        Some(ta) => ta.count() as usize,
-        None => 0,
-    };
+    let count = obj.payload_typed_array().map_or(0, |ta| ta.count());
     let max = opts.max_array_length;
     let mut entries: Vec<String> = Vec::new();
     let mut empty_run: usize = 0;
     let mut i = 0usize;
     let mut truncated = false;
-    stack.push(obj.clone());
+
+    stack.push(*obj);
+
     while i < count {
         if entries.len() >= max {
             truncated = true;
@@ -523,8 +519,9 @@ fn format_typed_array(
         }
     }
     stack.pop();
+
     let block = format_block("[", &entries, "]", opts, level);
-    format!("{}(", cn).to_string() + &block
+    format!("{}({})", obj.class_name_str(), block)
 }
 
 fn format_mapset(
@@ -534,7 +531,7 @@ fn format_mapset(
     level: usize,
     stack: &mut Vec<Object>,
 ) -> String {
-    let cn = class_name_str(ctx, obj);
+    let cn = obj.class_name_str();
     let ms = match obj.payload_mapset() {
         Some(ms) => ms,
         None => return format!("{} {{}}", cn),
@@ -542,9 +539,10 @@ fn format_mapset(
     if ms.is_weak() {
         return format!("{} {{ <items unknown> }}", cn);
     }
+
     let is_set = cn == "Set";
     let mut entries: Vec<String> = Vec::new();
-    stack.push(obj.clone());
+    stack.push(*obj);
     for e in ms.iter() {
         if is_set {
             // Set elements are stored in key() (value() is always undefined)
@@ -556,11 +554,13 @@ fn format_mapset(
         }
     }
     stack.pop();
+
     let mut head = String::new();
     head.push_str(&cn);
     head.push('(');
     head.push_str(&ms.len().to_string());
     head.push_str(") {");
+
     format_block(&head, &entries, "}", opts, level)
 }
 
@@ -568,7 +568,7 @@ fn format_error(ctx: &mut ScopedContext, obj: &mut Object, opts: &InspectOptions
     // Node: inspect(Error) prints err.stack (of the form "Name: message\n    at ...").
     let name = get_str_opt(ctx, obj, "name")
         .filter(|n| !n.is_empty())
-        .unwrap_or_else(|| class_name_str(ctx, obj));
+        .unwrap_or_else(|| obj.class_name_str().to_string());
     let msg = get_str_opt(ctx, obj, "message").unwrap_or_default();
     let mut s = if msg.is_empty() {
         name
@@ -586,7 +586,7 @@ fn format_error(ctx: &mut ScopedContext, obj: &mut Object, opts: &InspectOptions
 }
 
 fn collapse_tag(ctx: &mut ScopedContext, obj: &Object, opts: &InspectOptions) -> String {
-    let cn = class_name_str(ctx, obj);
+    let cn = obj.class_name_str();
     let s = if cn == "Object" {
         "[Object]".to_string()
     } else if cn == "Array" {
@@ -661,31 +661,29 @@ fn inspect(
     };
 
     // circular reference
-    if stack.iter().any(|o| *o == obj) {
+    if stack.contains(&obj) {
         return colorize("[Circular]", C_SPECIAL, opts);
     }
     // depth collapse
-    if let Some(d) = opts.depth {
-        if level > d {
-            return collapse_tag(ctx, &obj, opts);
-        }
+    if let Some(d) = opts.depth
+        && level > d
+    {
+        return collapse_tag(ctx, &obj, opts);
     }
     // custom inspect hook
-    if opts.custom_inspect {
-        if let Some(s) = try_custom_inspect(ctx, val, &mut obj, opts, level) {
-            return s;
-        }
+    if opts.custom_inspect
+        && let Some(s) = try_custom_inspect(ctx, val, &mut obj, opts, level)
+    {
+        return s;
     }
 
-    let cn = class_name_str(ctx, &obj);
+    let cn = obj.class_name_str();
 
     // Proxy
-    if cn == "Proxy" {
-        if !opts.show_proxy {
-            return colorize("[Proxy]", C_SPECIAL, opts);
-        }
-        // engine does not directly expose target/handler: fall back to plain object traversal
+    if cn == "Proxy" && !opts.show_proxy {
+        return colorize("[Proxy]", C_SPECIAL, opts);
     }
+    // engine does not directly expose target/handler: fall back to plain object traversal
     // TypedArray
     if obj.payload_typed_array().is_some() {
         return format_typed_array(ctx, &mut obj, opts, level, stack);
@@ -695,16 +693,16 @@ fn inspect(
         return format_array(ctx, &mut obj, opts, level, stack);
     }
     // RegExp
-    if cn == "RegExp" {
-        if let Ok(s) = val.to_string(ctx) {
-            return colorize(&s.encode_utf8(false).into_owned(), C_REGEXP, opts);
-        }
+    if cn == "RegExp"
+        && let Ok(s) = val.to_string(ctx)
+    {
+        return colorize(&s.encode_utf8(false), C_REGEXP, opts);
     }
     // Date
-    if cn == "Date" {
-        if let Ok(s) = val.to_string(ctx) {
-            return colorize(&s.encode_utf8(false).into_owned(), C_DATE, opts);
-        }
+    if cn == "Date"
+        && let Ok(s) = val.to_string(ctx)
+    {
+        return colorize(&s.encode_utf8(false), C_DATE, opts);
     }
     // Error
     if cn.ends_with("Error") || cn == "Error" {
@@ -714,6 +712,7 @@ fn inspect(
     if obj.payload_mapset().is_some() {
         return format_mapset(ctx, &mut obj, opts, level, stack);
     }
+
     // plain object
     format_object(ctx, val, &mut obj, opts, level, stack)
 }

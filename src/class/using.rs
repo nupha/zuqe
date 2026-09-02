@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
-
-use gc_lite::GcTrace;
-
 use crate::{
     FieldDef, USER_CLASS_ID_START,
     atom::Atom,
@@ -13,9 +9,8 @@ use crate::{
     context::{ProtoCtorPair, ScopedContext},
     error::Exception,
     function::{Callback, CallbackFn, NativeFunction},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, PayloadPtr},
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object},
     runtime::RuntimeImpl,
-    value::JSValue,
 };
 
 impl RuntimeImpl {
@@ -39,6 +34,7 @@ impl RuntimeImpl {
         class_def: ClassDef,
     ) -> Result<(), i32> {
         debug_assert!(class_id > 0);
+        debug_assert!(!class_def.name.is_empty());
         debug_assert!(!class_def.name_atom.is_null());
 
         #[cfg(debug_assertions)]
@@ -71,31 +67,19 @@ impl RuntimeImpl {
     /// Register a builtin class with a pre-assigned compile-time class_id.
     ///
     /// Validates that `class_id` is in the builtin range (`< USER_CLASS_ID_START`)
-    /// and that `class_def.name_atom` is non-null (pre-allocated). Delegates to
-    /// `register_class_internal` for slot management.
+    /// and that `class_def.name_atom` is non-null (pre-allocated).
     #[inline(always)]
-    pub(crate) fn register_builtin_class(
+    pub(crate) fn register_builtin_class_def(
         &mut self,
         class_id: ClassID,
         class_def: ClassDef,
     ) -> Result<(), i32> {
         debug_assert!(class_id > 0 && class_id < USER_CLASS_ID_START);
-        debug_assert!(!class_def.name_atom.is_null());
         self.register_class_internal(class_id, class_def)
     }
 
-    /// Register a user-defined (non-builtin) class, returning its runtime
-    /// class id.
-    ///
-    /// The id is assigned from `user_class_id_serial` (starts at
-    /// `USER_CLASS_ID_START`), monotonically increasing. Returns `Err` with
-    /// `Exception::TooManyClasses` if the serial would overflow `u16::MAX`.
-    ///
-    /// Both `register_class_def` and `register_builtin_classes` funnel into
-    /// `register_class_internal`, which enforces slot-uniqueness.
+    /// Register a user-defined (non-builtin) class, returning its runtime class id.
     pub fn register_class_def(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
-        debug_assert!(!class_def.name.is_empty());
-
         class_def.name_atom = {
             let a = Atom::root_str(self, class_def.name)?;
             debug_assert!(!a.is_small_int());
@@ -119,12 +103,6 @@ impl RuntimeImpl {
 
         self.register_class_internal(class_id, class_def)?;
         Ok(class_id)
-    }
-
-    /// Register a user-defined (non-builtin) class
-    #[deprecated(note = "renamed to register_class_def")]
-    pub fn register_class(&mut self, class_def: ClassDef) -> Result<ClassID, i32> {
-        self.register_class_def(class_def)
     }
 
     pub fn is_class_registered(&self, class_id: ClassID) -> bool {

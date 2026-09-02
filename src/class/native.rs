@@ -33,9 +33,9 @@ pub unsafe trait NativeObject: Clone + TryFrom<JSValue> + TryFrom<Object> {
         }
     }
 
-    /// Safely convert from `&JSValue` to `Option<Self>`.
+    /// Safely convert from `JSValue` to `Option<Self>`.
     #[inline(always)]
-    fn from_value(val: &JSValue) -> Option<Self> {
+    fn from_value(val: JSValue) -> Option<Self> {
         let obj = val.as_object()?;
         Self::from_object(&obj).cloned()
     }
@@ -51,7 +51,7 @@ impl Object {
 impl JSValue {
     #[deprecated(note = "use NativeObject::from_value() instead")]
     pub fn as_native_object<O: NativeObject>(&self) -> Option<O> {
-        NativeObject::from_value(self)
+        NativeObject::from_value(*self)
     }
 }
 
@@ -161,7 +161,7 @@ macro_rules! def_native_object {
 
             #[inline(always)]
             fn try_from(v: $crate::JSValue) -> Result<Self, Self::Error> {
-                <Self as $crate::NativeObject>::from_value(&v).ok_or(-1)
+                <Self as $crate::NativeObject>::from_value(v).ok_or(-1)
             }
         }
 
@@ -370,12 +370,12 @@ macro_rules! def_native_object {
             pub const CLASS_NAME: &str = $name;
 
             #[inline(always)]
-            pub fn as_object(&self) -> &$crate::Object {
+            pub const fn as_object(&self) -> &$crate::Object {
                 &self.0
             }
 
             #[inline(always)]
-            pub fn as_object_mut(&mut self) -> &mut $crate::Object {
+            pub const fn as_object_mut(&mut self) -> &mut $crate::Object {
                 &mut self.0
             }
 
@@ -395,7 +395,7 @@ macro_rules! def_native_object {
 
                 $(cd = cd.on_unregister($on_unregister);)?
 
-                rt.register_builtin_class($class_id.0, cd)?;
+                rt.register_builtin_class_def($class_id.0, cd)?;
                 Ok($class_id.0)
             }
         }
@@ -433,7 +433,7 @@ macro_rules! def_native_object {
 
             #[inline(always)]
             fn try_from(v: $crate::JSValue) -> Result<Self, Self::Error> {
-                <Self as $crate::NativeObject>::from_value(&v).ok_or(-1)
+                <Self as $crate::NativeObject>::from_value(v).ok_or(-1)
             }
         }
 
@@ -538,7 +538,7 @@ macro_rules! def_native_object {
                 }
             }
 
-            pub fn payload_of<'a>(val: &'a $crate::JSValue) -> Option<&'a $payload_ty> {
+            pub fn payload_of(val: &$crate::JSValue) -> Option<&$payload_ty> {
                 let o = val.as_object()?;
                 if o.class_id() != <Self as $crate::NativeObject>::class_id() {
                     return None;
@@ -551,7 +551,7 @@ macro_rules! def_native_object {
                 }
             }
 
-            pub fn payload_mut_of<'a>(val: &'a mut $crate::JSValue) -> Option<&'a mut $payload_ty> {
+            pub fn payload_mut_of(val: &mut $crate::JSValue) -> Option<&mut $payload_ty> {
                 let o = val.as_object()?;
                 if o.class_id() != <Self as $crate::NativeObject>::class_id() {
                     return None;
