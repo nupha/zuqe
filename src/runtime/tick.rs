@@ -6,7 +6,7 @@ use std::time::Instant;
 use gc_lite::GcNode;
 
 use crate::{
-    Exception,
+    Exception, WakeSender,
     context::{ContextPtr, ScopedContext},
     microtask::JobState,
 };
@@ -26,6 +26,15 @@ impl<'c> ScopedContext<'c> {
         self.rt().wake_handle()
     }
 
+    /// Create a bounded channel whose sender wakes this event loop
+    /// automatically on every send and on drop. The `n` parameter is the
+    /// channel capacity. Pair it with a channel poller job so a `Parked`
+    /// round is woken by the producer.
+    pub fn make_channel<D: Send + 'static>(&self, n: usize) -> (WakeSender<D>, crate::Receiver<D>) {
+        let (tx, rx) = crate::channel::make_bounded_channel_raw(n);
+        (WakeSender::wrap(tx, self.wake_handle()), rx)
+    }
+
     /// Create an unbounded channel whose sender wakes this event loop
     /// automatically on every send and on drop (all senders gone). Pair it
     /// with a channel poller job so a `Parked` round is woken by the
@@ -35,9 +44,9 @@ impl<'c> ScopedContext<'c> {
     /// `D` need not be `Send`: JS-thread-only channels (e.g. carrying
     /// `Object` handles) are supported; `send_async` (for cross-thread
     /// producers) does require `Send`.
-    pub fn make_wake_channel<D: 'static>(&self) -> (crate::WakeSender<D>, crate::Receiver<D>) {
-        let (tx, rx) = crate::make_local_unbounded_channel();
-        (crate::WakeSender::wrap(tx, self.wake_handle()), rx)
+    pub fn make_local_channel<D: 'static>(&self) -> (WakeSender<D>, crate::Receiver<D>) {
+        let (tx, rx) = crate::channel::make_local_unbounded_channel_raw();
+        (WakeSender::wrap(tx, self.wake_handle()), rx)
     }
 
     /// Advise the event-loop driver of the earliest time a polling job needs

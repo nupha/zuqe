@@ -16,7 +16,6 @@ use crate::{
     context::{ContextImpl, ScopedContext},
     error::JSResult,
     function::{CallContext, Callback, NativeFunction, js_function_set_properties},
-    make_bounded_channel,
     object::{JS_PROP_C_W_E, Object, ObjectImpl, PayloadPtr, Promise},
     value::JSValue,
 };
@@ -490,8 +489,7 @@ impl Promise {
         ctx: &mut ScopedContext,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
     ) -> Result<(Self, crate::WakeSender<D>), i32> {
-        let (tx, rx) = make_bounded_channel::<D>(1);
-        let tx = crate::WakeSender::wrap(tx, ctx.wake_handle());
+        let (tx, rx) = ctx.make_channel(1);
         let promise = Promise::create_with_receiver(ctx, rx, convert)?;
         Ok((promise, tx))
     }
@@ -540,8 +538,7 @@ impl Promise {
         ctx: &mut ScopedContext,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
     ) -> Result<(Self, crate::WakeSender<D>), i32> {
-        let (tx, rx) = make_bounded_channel::<D>(1);
-        let tx = crate::WakeSender::wrap(tx, ctx.wake_handle());
+        let (tx, rx) = ctx.make_channel(1);
         let promise = Promise::create_with_receiver_hold_when_awaited(ctx, rx, convert)?;
         Ok((promise, tx))
     }

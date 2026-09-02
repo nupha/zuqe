@@ -6,13 +6,12 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    Receiver, Sender, TryRecvError,
+    Receiver, TryRecvError, WakeSender,
     builtins::promise::{Promise, PromiseResultSlot},
     class::ClassID,
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, FieldDef},
-    make_bounded_channel,
     object::{AsyncIterableIterator, JS_PROP_CONFIGURABLE, ObjectImpl, PayloadPtr},
     value::JSValue,
 };
@@ -240,8 +239,8 @@ impl AsyncIterableIterator {
     pub fn create_with_channel<D: Send + 'static>(
         ctx: &mut ScopedContext,
         convert: impl Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + Send + 'static,
-    ) -> Result<(Self, Sender<D>), i32> {
-        let (tx, rx) = make_bounded_channel::<D>(1);
+    ) -> Result<(Self, WakeSender<D>), i32> {
+        let (tx, rx) = ctx.make_channel(1);
         let iter = Self::create_with_receiver(ctx, rx, convert)?;
         Ok((iter, tx))
     }

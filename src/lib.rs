@@ -71,43 +71,41 @@ pub use builtins::iterator::JSIteratorKindEnum;
 //
 #[cfg(not(feature = "crossbeam_channel"))]
 mod channel {
-    pub type Sender<D> = std::sync::mpsc::SyncSender<D>;
+    pub(crate) type Sender<D> = std::sync::mpsc::SyncSender<D>;
     pub type Receiver<D> = std::sync::mpsc::Receiver<D>;
     pub type TryRecvError = std::sync::mpsc::TryRecvError;
     pub type TrySendError<T> = std::sync::mpsc::TrySendError<T>;
     pub type SendError<T> = std::sync::mpsc::SendError<T>;
 
-    pub fn make_bounded_channel<D: Send + 'static>(n: usize) -> (Sender<D>, Receiver<D>) {
+    #[inline(always)]
+    pub(crate) fn make_bounded_channel_raw<D: Send + 'static>(
+        n: usize,
+    ) -> (Sender<D>, Receiver<D>) {
         std::sync::mpsc::sync_channel(n)
     }
 
-    /// The std backend has no unbounded `SyncSender`; map to a 0-capacity
-    /// rendezvous channel (send blocks until the receiver takes it).
-    pub fn make_unbounded_channel<D: Send + 'static>() -> (Sender<D>, Receiver<D>) {
-        std::sync::mpsc::sync_channel(0)
-    }
-
-    pub fn make_local_unbounded_channel<D: 'static>() -> (Sender<D>, Receiver<D>) {
+    #[inline(always)]
+    pub(crate) fn make_local_unbounded_channel_raw<D: 'static>() -> (Sender<D>, Receiver<D>) {
         std::sync::mpsc::sync_channel(0)
     }
 }
 #[cfg(feature = "crossbeam_channel")]
 mod channel {
-    pub type Sender<D> = crossbeam::channel::Sender<D>;
+    pub(crate) type Sender<D> = crossbeam::channel::Sender<D>;
     pub type Receiver<D> = crossbeam::channel::Receiver<D>;
     pub type TryRecvError = crossbeam::channel::TryRecvError;
     pub type TrySendError<T> = crossbeam::channel::TrySendError<T>;
     pub type SendError<T> = crossbeam::channel::SendError<T>;
 
-    pub fn make_bounded_channel<D: Send + 'static>(n: usize) -> (Sender<D>, Receiver<D>) {
+    #[inline(always)]
+    pub(crate) fn make_bounded_channel_raw<D: Send + 'static>(
+        n: usize,
+    ) -> (Sender<D>, Receiver<D>) {
         crossbeam::channel::bounded(n)
     }
 
-    pub fn make_unbounded_channel<D: Send + 'static>() -> (Sender<D>, Receiver<D>) {
-        crossbeam::channel::unbounded()
-    }
-
-    pub fn make_local_unbounded_channel<D: 'static>() -> (Sender<D>, Receiver<D>) {
+    #[inline(always)]
+    pub(crate) fn make_local_unbounded_channel_raw<D: 'static>() -> (Sender<D>, Receiver<D>) {
         crossbeam::channel::unbounded()
     }
 }
@@ -124,8 +122,7 @@ pub(crate) use channel::*;
 /// This is the infrastructure-level guarantee behind the "every `Again`
 /// waiting point must have a wake source" contract: producers cannot forget
 /// to wake, because the sender does it for them. Obtain one via
-/// [`crate::ScopedContext::wake_channel`] (created with the loop's handle)
-/// or [`WakeSender::wrap`].
+/// [`crate::ScopedContext::wake_channel`]
 pub struct WakeSender<D> {
     tx: Sender<D>,
     wake: WakeHandle,
