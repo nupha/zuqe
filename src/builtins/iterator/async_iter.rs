@@ -6,7 +6,7 @@ use std::{cell::RefCell, rc::Rc, sync::Arc};
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    Receiver, TryRecvError, WakeSender,
+    TryRecvError, WakeReceiver, WakeSender,
     builtins::promise::{Promise, PromiseResultSlot},
     class::ClassID,
     context::ScopedContext,
@@ -94,7 +94,7 @@ impl AsyncIterPayload {
 
 /// Channel-backed fetcher
 struct ChannelFetcher<D> {
-    rx: RefCell<Option<Receiver<D>>>,
+    rx: RefCell<Option<WakeReceiver<D>>>,
 
     /// convert returns:
     /// - `Ok(Some(v))`    — yield `v`, iteration continues.
@@ -224,7 +224,7 @@ impl AsyncIterableIterator {
     /// - `Err(_)`         — error, reject the promise.
     pub fn create_with_receiver<D: Send + 'static>(
         ctx: &mut ScopedContext,
-        rx: Receiver<D>,
+        rx: WakeReceiver<D>,
         convert: impl Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + Send + 'static,
     ) -> Result<Self, i32> {
         Self::create(

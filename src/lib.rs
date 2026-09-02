@@ -71,7 +71,7 @@ pub use builtins::iterator::JSIteratorKindEnum;
 //
 #[cfg(not(feature = "crossbeam_channel"))]
 mod channel {
-    pub(crate) type Sender<D> = std::sync::mpsc::SyncSender<D>;
+    pub type Sender<D> = std::sync::mpsc::SyncSender<D>;
     pub type Receiver<D> = std::sync::mpsc::Receiver<D>;
     pub type TryRecvError = std::sync::mpsc::TryRecvError;
     pub type TrySendError<T> = std::sync::mpsc::TrySendError<T>;
@@ -91,7 +91,7 @@ mod channel {
 }
 #[cfg(feature = "crossbeam_channel")]
 mod channel {
-    pub(crate) type Sender<D> = crossbeam::channel::Sender<D>;
+    pub type Sender<D> = crossbeam::channel::Sender<D>;
     pub type Receiver<D> = crossbeam::channel::Receiver<D>;
     pub type TryRecvError = crossbeam::channel::TryRecvError;
     pub type TrySendError<T> = crossbeam::channel::TrySendError<T>;
@@ -139,7 +139,7 @@ impl<D> Clone for WakeSender<D> {
 
 impl<D> WakeSender<D> {
     /// Attach a wake handle to an existing raw sender.
-    pub const fn wrap(tx: Sender<D>, wake: WakeHandle) -> Self {
+    pub(crate) const fn wrap(tx: Sender<D>, wake: WakeHandle) -> Self {
         Self { tx, wake }
     }
 
@@ -185,6 +185,37 @@ impl<D> Drop for WakeSender<D> {
         // poll — wake the parked loop so it happens now. Cheap no-op when
         // the loop is running or already gone.
         self.wake.wake();
+    }
+}
+
+/// The receiving half of a channel created via [`ScopedContext::wake_channel`]
+/// or [`ScopedContext::make_channel`]. This is a newtype over [`Receiver<D>`]
+/// that serves as proof the corresponding sender is a [`WakeSender`] — APIs
+/// that need guaranteed wake semantics accept `WakeReceiver` instead of the
+/// raw `Receiver`.
+pub struct WakeReceiver<D>(Receiver<D>);
+
+impl<D> Clone for WakeReceiver<D> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<D> WakeReceiver<D> {
+    /// Wrap a raw receiver. Use [`ScopedContext::make_channel`] or
+    /// [`ScopedContext::make_local_channel`] instead — this is for special
+    /// cases where the wake mechanism is provided externally (e.g. POSIX
+    /// signal handlers using `wake_from_signal`).
+    pub fn new(rx: Receiver<D>) -> Self {
+        Self(rx)
+    }
+
+    pub fn try_recv(&self) -> Result<D, TryRecvError> {
+        self.0.try_recv()
+    }
+
+    pub fn inner(&self) -> &Receiver<D> {
+        &self.0
     }
 }
 

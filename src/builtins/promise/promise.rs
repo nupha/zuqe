@@ -10,7 +10,7 @@ use std::{
 use gc_lite::{GcRef, GcTrace};
 
 use crate::{
-    JS_CLASS_PROMISE, JobState, Receiver, TryRecvError,
+    JS_CLASS_PROMISE, JobState, TryRecvError, WakeReceiver,
     atom::Atom,
     builtins::error::js_aggregate_error_constructor,
     context::{ContextImpl, ScopedContext},
@@ -449,7 +449,7 @@ impl Promise {
     /// with an internal error.
     pub fn create_with_receiver<D: Send + 'static>(
         ctx: &mut ScopedContext,
-        rx: Receiver<D>,
+        rx: WakeReceiver<D>,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
     ) -> Result<Self, i32> {
         let convert_slot = Rc::new(RefCell::new(Some(convert)));
@@ -501,7 +501,7 @@ impl Promise {
     /// alive, while an awaited child still does.
     pub fn create_with_receiver_hold_when_awaited<D: Send + 'static>(
         ctx: &mut ScopedContext,
-        rx: Receiver<D>,
+        rx: WakeReceiver<D>,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
     ) -> Result<Self, i32> {
         let convert_slot = Rc::new(RefCell::new(Some(convert)));

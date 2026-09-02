@@ -30,9 +30,12 @@ impl<'c> ScopedContext<'c> {
     /// automatically on every send and on drop. The `n` parameter is the
     /// channel capacity. Pair it with a channel poller job so a `Parked`
     /// round is woken by the producer.
-    pub fn make_channel<D: Send + 'static>(&self, n: usize) -> (WakeSender<D>, crate::Receiver<D>) {
+    pub fn make_channel<D: Send + 'static>(
+        &self,
+        n: usize,
+    ) -> (WakeSender<D>, crate::WakeReceiver<D>) {
         let (tx, rx) = crate::channel::make_bounded_channel_raw(n);
-        (WakeSender::wrap(tx, self.wake_handle()), rx)
+        (WakeSender::wrap(tx, self.wake_handle()), crate::WakeReceiver::new(rx))
     }
 
     /// Create an unbounded channel whose sender wakes this event loop
@@ -44,9 +47,11 @@ impl<'c> ScopedContext<'c> {
     /// `D` need not be `Send`: JS-thread-only channels (e.g. carrying
     /// `Object` handles) are supported; `send_async` (for cross-thread
     /// producers) does require `Send`.
-    pub fn make_local_channel<D: 'static>(&self) -> (WakeSender<D>, crate::Receiver<D>) {
+    pub fn make_local_channel<D: 'static>(
+        &self,
+    ) -> (WakeSender<D>, crate::WakeReceiver<D>) {
         let (tx, rx) = crate::channel::make_local_unbounded_channel_raw();
-        (WakeSender::wrap(tx, self.wake_handle()), rx)
+        (WakeSender::wrap(tx, self.wake_handle()), crate::WakeReceiver::new(rx))
     }
 
     /// Advise the event-loop driver of the earliest time a polling job needs
