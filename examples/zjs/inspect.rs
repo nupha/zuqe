@@ -585,7 +585,7 @@ fn format_error(ctx: &mut ScopedContext, obj: &mut Object, opts: &InspectOptions
     colorize(&s, C_SPECIAL, opts)
 }
 
-fn collapse_tag(ctx: &mut ScopedContext, obj: &Object, opts: &InspectOptions) -> String {
+fn collapse_tag(obj: &Object, opts: &InspectOptions) -> String {
     let cn = obj.class_name_str();
     let s = if cn == "Object" {
         "[Object]".to_string()
@@ -668,7 +668,7 @@ fn inspect(
     if let Some(d) = opts.depth
         && level > d
     {
-        return collapse_tag(ctx, &obj, opts);
+        return collapse_tag(&obj, opts);
     }
     // custom inspect hook
     if opts.custom_inspect

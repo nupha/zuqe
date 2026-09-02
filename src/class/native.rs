@@ -60,18 +60,23 @@ impl JSValue {
 /// Optionally supports `extends: $class_id` for inheritance — see `@register` doc.
 #[macro_export]
 macro_rules! def_native_object {
-    // ── @struct: generate struct definition and built-in impls ──
-    // `@wire_user_payload` is passed only by the with-payload variants: it
-    // wires the monomorphized free (`drop_payload_fn::<P>`) and gc-trace
-    // (`user_payload_trace::<P>`) channels into the class def. Both fns carry
-    // a `P: GcTrace` bound, so a payload type that is not `GcTrace` (e.g. a
-    // missing `#[derive(GcTrace)]`) fails to compile right at the macro call.
-    (@struct $name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
+    // ── @struct_core: shared struct definition + trait impls ──
+    // Generates the struct, CLASS_NAME, as_object methods, register, thread-local
+    // (native only), and the conversion trait impls shared by every class.
+    // `$kind` is the literal `native` (runtime class_id via thread-local) or
+    // `builtin` (compile-time class_id). The register body is written inline so
+    // all metavariables share the hygiene context of the `register()` parameter
+    // `rt`.
+    (@struct_core $name:expr, $native_ty:ident, $proto_entries:expr, $ctor:expr, $kind:tt
+        $(, class_id: $class_id:expr)?
         $(, extends: $extends_class:expr)?
         $(, on_class_register: $on_register:expr)?
         $(, on_class_unregister: $on_unregister:expr)?
-        $(, @wire_user_payload: $wire:ty)?) => {
-        /// Native object type
+        $(, @wire_user_payload: $wire:ty)?
+        $(, init_fn: $init_fn:expr)?
+        $(, on_finalize: $on_finalize:expr)?
+        $(, exotic: $exotic:expr)?
+        $(, on_call: $on_call:expr)?) => {
         #[repr(transparent)]
         #[derive(Debug, Clone, Copy, PartialEq)]
         pub struct $native_ty($crate::Object);
@@ -79,36 +84,31 @@ macro_rules! def_native_object {
         impl $native_ty {
             pub const CLASS_NAME: &str = $name;
 
-            thread_local! {
-                static CLASS_ID: std::cell::Cell<$crate::ClassID> = const { std::cell::Cell::new(0) };
-            }
+            $crate::def_native_object!(@thread_local_if_native $native_ty, $kind);
 
             #[inline(always)]
-            pub fn as_object(&self) -> &$crate::Object {
+            pub const fn as_object(&self) -> &$crate::Object {
                 &self.0
             }
 
             #[inline(always)]
-            pub fn as_object_mut(&mut self) -> &mut $crate::Object {
+            pub const fn as_object_mut(&mut self) -> &mut $crate::Object {
                 &mut self.0
             }
 
-            /// register this native class to runtime, returns class id.
             pub fn register(rt: &mut $crate::RuntimeImpl) -> Result<$crate::ClassID, i32> {
-                debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), 0, "class has been registered");
-
-                // call on_register handler
                 $($on_register(rt);)?
-
-                // Default: no extends (normal class)
-                let mut cd = $crate::ClassDef::new($name, $proto_entries, $ctor);
-                // If extends: was provided, use new_extends helper
-                $(
-                    cd = $crate::ClassDef::new_extends($name, $proto_entries, $ctor, $extends_class);
-                )?
-
-                // Owned payload: engine-side free + gc-trace channels,
-                // monomorphized on the payload type.
+                let mut cd = $crate::def_native_object!(@make_cd $name, $proto_entries, $ctor, $kind
+                    $(, class_id: $class_id)?
+                    $(, extends: $extends_class)?
+                    $(, init_fn: $init_fn)?);
+                $crate::def_native_object!(@apply_extra cd, $kind
+                    $(, extends: $extends_class)?
+                    $(, @wire_user_payload: $wire)?
+                    $(, init_fn: $init_fn)?
+                    $(, on_finalize: $on_finalize)?
+                    $(, exotic: $exotic)?
+                    $(, on_call: $on_call)?);
                 $(
                     cd = cd.payload_drop($crate::drop_payload_fn::<$wire>);
                     cd = cd.on_gc_trace($crate::user_payload_trace::<$wire>);
@@ -117,14 +117,9 @@ macro_rules! def_native_object {
                         cd = cd.payload_type_name(Some(std::any::type_name::<$wire>()));
                     }
                 )?
-
-                // set class unregister handler
                 $(cd = cd.on_unregister($on_unregister);)?
-
-                let class_id = rt.register_class_def(cd)?;
-                Self::CLASS_ID.with(|x| x.set(class_id));
-
-                Ok(class_id)
+                $crate::def_native_object!(@register_finish cd, $native_ty, rt, $kind
+                    $(, class_id: $class_id)?)
             }
         }
 
@@ -179,6 +174,74 @@ macro_rules! def_native_object {
             }
         }
     };
+
+    // ── @thread_local_if_native: emit thread-local CLASS_ID for native,
+    // nothing for builtin (compile-time constant via `@builtin-impl`).
+    (@thread_local_if_native $native_ty:ident, native) => {
+        thread_local! {
+            static CLASS_ID: std::cell::Cell<$crate::ClassID> = const { std::cell::Cell::new(0) };
+        }
+    };
+    (@thread_local_if_native $native_ty:ident, builtin) => {};
+
+    // ── @make_cd: construct the ClassDef ──
+    (@make_cd $name:expr, $proto_entries:expr, $ctor:expr, native) => {
+        $crate::ClassDef::new($name, $proto_entries, $ctor)
+    };
+    (@make_cd $name:expr, $proto_entries:expr, $ctor:expr, native
+        , extends: $extends_class:expr) => {
+        $crate::ClassDef::new_extends($name, $proto_entries, $ctor, $extends_class)
+    };
+    (@make_cd $name:expr, $proto_entries:expr, $ctor:expr, builtin
+        , class_id: $class_id:expr) => {
+        $crate::ClassDef::new_with_atom($name, $class_id.1, $proto_entries, $ctor)
+    };
+    (@make_cd $name:expr, $proto_entries:expr, $ctor:expr, builtin
+        , class_id: $class_id:expr, extends: $extends_class:expr) => {{
+        let mut cd = $crate::ClassDef::new_extends($name, $proto_entries, $ctor, $extends_class);
+        cd.name_atom = $class_id.1;
+        cd
+    }};
+    (@make_cd $name:expr, $proto_entries:expr, $ctor:expr, builtin
+        , class_id: $class_id:expr, init_fn: $init_fn:expr) => {{
+        let mut cd = $crate::ClassDef::new_with($name, $init_fn);
+        cd.name_atom = $class_id.1;
+        cd
+    }};
+
+    // ── @apply_extra: apply builtin-only hooks (exotic/on_call/on_finalize) ──
+    (@apply_extra $cd:ident, builtin
+        $(, extends: $extends_class:expr)?
+        $(, @wire_user_payload: $wire:ty)?
+        $(, init_fn: $init_fn:expr)?
+        $(, on_finalize: $on_finalize:expr)?
+        $(, exotic: $exotic:expr)?
+        $(, on_call: $on_call:expr)?) => {
+        $($cd = $cd.exotic($exotic);)?
+        $($cd = $cd.on_call($on_call);)?
+        $($cd = $cd.on_finalize($on_finalize);)?
+    };
+    (@apply_extra $cd:ident, native
+        $(, extends: $extends_class:expr)?
+        $(, @wire_user_payload: $wire:ty)?
+        $(, init_fn: $init_fn:expr)?
+        $(, on_finalize: $on_finalize:expr)?
+        $(, exotic: $exotic:expr)?
+        $(, on_call: $on_call:expr)?) => {};
+
+    // ── @register_finish: register the ClassDef into the runtime ──
+    (@register_finish $cd:ident, $native_ty:ident, $rt:ident
+        , native) => {{
+        debug_assert_eq!(<$native_ty as $crate::NativeObject>::class_id(), 0, "class has been registered");
+        let class_id = $rt.register_class_def($cd)?;
+        <$native_ty>::CLASS_ID.with(|x| x.set(class_id));
+        Ok(class_id)
+    }};
+    (@register_finish $cd:ident, $native_ty:ident, $rt:ident
+        , builtin, class_id: $class_id:expr) => {{
+        $rt.register_builtin_class_def($class_id.0, $cd)?;
+        Ok($class_id.0)
+    }};
 
     // ── @impl: generate NativeObject trait impl ──
     (@impl $native_ty:ident) => {
@@ -192,44 +255,14 @@ macro_rules! def_native_object {
         }
     };
 
-    // ── @native-no-payload: without payload ──
-    (@native-no-payload $name:expr, $native_ty:ident, $proto_entries:expr, $ctor:expr
-        $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?) => {
-        $crate::def_native_object!(@struct $name, $native_ty, (), $proto_entries, $ctor
-            $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?);
-
-        impl $native_ty {
-            /// create an instance of the class
-            pub fn new_instance(
-                ctx: &mut $crate::ScopedContext,
-                new_target: $crate::JSValue,
-            ) -> Result<Self, i32> {
-                ctx.create_class_instance_no_payload(new_target, <Self as $crate::NativeObject>::class_id())
-                    .map(Self)
-            }
-        }
-    };
-
-    // ── @native-with-payload: with payload ──
-    (@native-with-payload $name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
-        $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?) => {
-        $crate::def_native_object!(@struct $name, $native_ty, $payload_ty, $proto_entries, $ctor
-            $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?
-            , @wire_user_payload: $payload_ty);
-
+    // ── @payload_accessors: shared payload accessor methods ──
+    // Generates payload(), payload_mut(), take_payload(), payload_of(),
+    // payload_mut_of(), take_payload_of() on the current type.
+    (@payload_accessors $native_ty:ident, $payload_ty:ty) => {
         impl $native_ty {
             /// get payload data
             pub fn payload(&self) -> Option<&$payload_ty> {
                 debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
-
                 let ptr = self.as_object().payload_raw();
                 if !ptr.is_null() {
                     Some(unsafe { &*ptr.cast::<$payload_ty>() })
@@ -241,283 +274,6 @@ macro_rules! def_native_object {
             /// get payload data mut
             pub fn payload_mut(&mut self) -> Option<&mut $payload_ty> {
                 debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
-
-                let ptr = self.as_object_mut().payload_raw();
-                if !ptr.is_null() {
-                    Some(unsafe { &mut *ptr.cast::<$payload_ty>() })
-                } else {
-                    None
-                }
-            }
-
-            pub fn take_payload(&mut self) -> Option<Box<$payload_ty>>{
-                debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
-                unsafe {
-                    let ptr = self.as_object_mut().replace_payload(std::ptr::null_mut());
-                    if !ptr.is_null() {
-                        Some(Box::from_raw(ptr.cast::<$payload_ty>()))
-                    } else {
-                        None
-                    }
-                }
-            }
-
-            /// Extract payload from a `JSValue` by class id check.
-            ///
-            /// Returns `Some(&'a $payload_ty)` if `val` is an object of this native class,
-            /// or `None` otherwise.
-            ///
-            /// The returned reference borrows from the GC heap. Its lifetime `'a` is tied to
-            /// the borrow of `val`, which keeps the underlying JS object (a GC root) alive for
-            /// as long as the payload reference is in use — preventing the object from being
-            /// reclaimed while the payload is still borrowed.
-            pub fn payload_of<'a>(val: &'a $crate::JSValue) -> Option<&'a $payload_ty> {
-                let o = val.as_object()?;
-                if o.class_id() != <Self as $crate::NativeObject>::class_id() {
-                    return None;
-                }
-                // Safety: the payload pointer points to a heap-allocated Box<$payload_ty>
-                // (created via Box::into_raw in new_instance). As long as the JS object
-                // is alive in the GC heap, this allocation remains valid.
-                let ptr = o.payload_raw();
-                if !ptr.is_null() {
-                    Some(unsafe { &*ptr.cast::<$payload_ty>() })
-                } else {
-                    None
-                }
-            }
-
-            /// Extract mutable payload from a `&mut JSValue` by class id check.
-            ///
-            /// Returns `Some(&'a mut $payload_ty)` if `val` is an object of this native
-            /// class, or `None` otherwise.
-            ///
-            /// # Safety
-            ///
-            /// The returned reference borrows from the GC heap, not from `val`. The caller
-            /// must ensure the underlying JS object remains uniquely GC-rooted for the
-            /// lifetime `'a` and that no aliasing `&mut` access to the payload exists.
-            pub fn payload_mut_of<'a>(val: &'a mut $crate::JSValue) -> Option<&'a mut $payload_ty> {
-                let mut o = val.as_object()?;
-                if o.class_id() != <Self as $crate::NativeObject>::class_id() {
-                    return None;
-                }
-                // Safety: the payload pointer points to a heap-allocated Box<$payload_ty>
-                // (created via Box::into_raw in new_instance). Mutability is gated by the
-                // &'a mut JSValue — the caller must not alias the payload during 'a.
-                let ptr = o.payload_raw();
-                if !ptr.is_null() {
-                    Some(unsafe { &mut *ptr.cast::<$payload_ty>() })
-                } else {
-                    None
-                }
-            }
-
-            /// Take (detach) the payload from a `&mut JSValue` by class id check.
-            ///
-            /// Returns `Some(Box<$payload_ty>)` if `val` is an object of this native
-            /// class with an attached payload, replacing the object's payload pointer
-            /// with null so ownership of the payload transfers to the caller. Returns
-            /// `None` otherwise (wrong class or already detached).
-            pub fn take_payload_of(val: &mut $crate::JSValue) -> Option<Box<$payload_ty>> {
-                let mut o = val.as_object()?;
-                if o.class_id() != <Self as $crate::NativeObject>::class_id() {
-                    return None;
-                }
-                // Safety: the payload pointer, if non-null, points to a
-                // heap-allocated Box<$payload_ty> created in new_instance.
-                unsafe {
-                    let ptr = o.replace_payload(std::ptr::null_mut());
-                    if !ptr.is_null() {
-                        Some(Box::from_raw(ptr.cast::<$payload_ty>()))
-                    } else {
-                        None
-                    }
-                }
-            }
-
-            /// create an instance of the class with attached payload
-            pub fn new_instance(
-                ctx: &mut $crate::ScopedContext,
-                new_target: $crate::JSValue,
-                payload: $payload_ty,
-            ) -> Result<Self, i32> {
-                ctx.create_class_instance(new_target, <Self as $crate::NativeObject>::class_id(), payload)
-                    .map(Self)
-                    .map_err(|_| -1)
-            }
-        }
-    };
-
-    // ── @builtin-struct: generate struct for builtin class ──
-    // No thread_local CLASS_ID — class_id is a compile-time constant.
-    // When init_fn is provided, $proto_entries/$ctor are ignored (use () for both).
-    (@builtin-struct $name:expr, $native_ty:ident, $class_id:expr, $proto_entries:expr, $ctor:expr
-        $(, on_finalize: $on_finalize:expr)?
-        $(, exotic: $exotic:expr)?
-        $(, on_call: $on_call:expr)?
-        $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?
-        $(, @wire_user_payload: $wire:ty)?
-        $(, init_fn: $init_fn:expr)?) => {
-        /// Native builtin object type
-        #[repr(transparent)]
-        #[derive(Debug, Clone, Copy, PartialEq)]
-        pub struct $native_ty($crate::Object);
-
-        impl $native_ty {
-            pub const CLASS_NAME: &str = $name;
-
-            #[inline(always)]
-            pub const fn as_object(&self) -> &$crate::Object {
-                &self.0
-            }
-
-            #[inline(always)]
-            pub const fn as_object_mut(&mut self) -> &mut $crate::Object {
-                &mut self.0
-            }
-
-            /// Register this builtin class to runtime using pre-assigned class_id.
-            pub fn register(rt: &mut $crate::RuntimeImpl) -> Result<$crate::ClassID, i32> {
-                $($on_register(rt);)?
-
-                // When init_fn is provided, use ClassDef::new_with() (custom init path).
-                // Otherwise, use ClassDef::new_with_atom() (normal proto+ctor path).
-                $crate::def_native_object!(@builtin_register cd, $name, $class_id, $proto_entries, $ctor
-                    $(, on_finalize: $on_finalize)?
-                    $(, exotic: $exotic)?
-                    $(, on_call: $on_call)?
-                    $(, extends: $extends_class)?
-                    $(, @wire_user_payload: $wire)?
-                    $(, init_fn: $init_fn)?);
-
-                $(cd = cd.on_unregister($on_unregister);)?
-
-                rt.register_builtin_class_def($class_id.0, cd)?;
-                Ok($class_id.0)
-            }
-        }
-
-        impl std::ops::Deref for $native_ty {
-            type Target = $crate::Object;
-
-            #[inline(always)]
-            fn deref(&self) -> &Self::Target {
-                &self.0
-            }
-        }
-
-        impl std::ops::DerefMut for $native_ty {
-            #[inline(always)]
-            fn deref_mut(&mut self) -> &mut Self::Target {
-                &mut self.0
-            }
-        }
-
-        impl TryFrom<$crate::Object> for $native_ty {
-            type Error = i32;
-
-            fn try_from(o: $crate::Object) -> Result<Self, Self::Error> {
-                if o.class_id() == <Self as $crate::NativeObject>::class_id() {
-                    Ok(Self(o))
-                } else {
-                    Err(-1)
-                }
-            }
-        }
-
-        impl TryFrom<$crate::JSValue> for $native_ty {
-            type Error = i32;
-
-            #[inline(always)]
-            fn try_from(v: $crate::JSValue) -> Result<Self, Self::Error> {
-                <Self as $crate::NativeObject>::from_value(v).ok_or(-1)
-            }
-        }
-
-        impl From<$native_ty> for $crate::Object {
-            #[inline(always)]
-            fn from(v: $native_ty) -> Self {
-                v.0.into()
-            }
-        }
-
-        impl From<$native_ty> for $crate::JSValue {
-            #[inline(always)]
-            fn from(v: $native_ty) -> Self {
-                v.0.into()
-            }
-        }
-    };
-
-    // ── @builtin-no-payload: builtin without payload ──
-    (@builtin-no-payload $name:expr, $native_ty:ident, $class_id:expr, $proto_entries:expr, $ctor:expr
-        $(, on_finalize: $on_finalize:expr)?
-        $(, exotic: $exotic:expr)?
-        $(, on_call: $on_call:expr)?
-        $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?
-        $(, init_fn: $init_fn:expr)?) => {
-        $crate::def_native_object!(@builtin-struct $name, $native_ty, $class_id, $proto_entries, $ctor
-            $(, on_finalize: $on_finalize)?
-            $(, exotic: $exotic)?
-            $(, on_call: $on_call)?
-            $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?
-            $(, init_fn: $init_fn)?);
-
-        impl $native_ty {
-            /// create an instance of the class
-            pub fn new_instance(
-                ctx: &mut $crate::ScopedContext,
-                new_target: $crate::JSValue,
-            ) -> Result<Self, i32> {
-                ctx.create_class_instance_no_payload(new_target, <Self as $crate::NativeObject>::class_id())
-                    .map(Self)
-            }
-        }
-    };
-
-    // ── @builtin-with-payload: builtin with payload ──
-    (@builtin-with-payload $name:expr, $native_ty:ident, $class_id:expr, $payload_ty:ty, $proto_entries:expr, $ctor:expr
-        $(, init_fn: $init_fn:expr)?
-        $(, on_finalize: $on_finalize:expr)?
-        $(, exotic: $exotic:expr)?
-        $(, on_call: $on_call:expr)?
-        $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?) => {
-        $crate::def_native_object!(@builtin-struct $name, $native_ty, $class_id, $proto_entries, $ctor
-            $(, on_finalize: $on_finalize)?
-            $(, exotic: $exotic)?
-            $(, on_call: $on_call)?
-            $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?
-            , @wire_user_payload: $payload_ty
-            $(, init_fn: $init_fn)?);
-
-        impl $native_ty {
-            /// get payload data
-            pub fn payload(&self) -> Option<&$payload_ty> {
-                debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
-
-                let ptr = self.as_object().payload_raw();
-                if !ptr.is_null() {
-                    Some(unsafe { &*ptr.cast::<$payload_ty>() })
-                } else {
-                    None
-                }
-            }
-
-            /// get payload data mut
-            pub fn payload_mut(&mut self) -> Option<&mut $payload_ty> {
-                debug_assert_eq!(<Self as $crate::NativeObject>::class_id(), self.as_object().class_id());
-
                 let ptr = self.as_object_mut().payload_raw();
                 if !ptr.is_null() {
                     Some(unsafe { &mut *ptr.cast::<$payload_ty>() })
@@ -578,7 +334,134 @@ macro_rules! def_native_object {
                     }
                 }
             }
+        }
+    };
 
+    // ── @native-no-payload: without payload ──
+    (@native-no-payload $name:expr, $native_ty:ident, $proto_entries:expr, $ctor:expr
+        $(, extends: $extends_class:expr)?
+        $(, on_class_register: $on_register:expr)?
+        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $crate::def_native_object!(@struct_core $name, $native_ty, $proto_entries, $ctor, native
+            $(, extends: $extends_class)?
+            $(, on_class_register: $on_register)?
+            $(, on_class_unregister: $on_unregister)?);
+
+        impl $native_ty {
+            /// create an instance of the class
+            pub fn new_instance(
+                ctx: &mut $crate::ScopedContext,
+                new_target: $crate::JSValue,
+            ) -> Result<Self, i32> {
+                ctx.create_class_instance_no_payload(new_target, <Self as $crate::NativeObject>::class_id())
+                    .map(Self)
+            }
+        }
+    };
+
+    // ── @native-with-payload: with payload ──
+    (@native-with-payload $name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
+        $(, extends: $extends_class:expr)?
+        $(, on_class_register: $on_register:expr)?
+        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $crate::def_native_object!(@struct_core $name, $native_ty, $proto_entries, $ctor, native
+            $(, extends: $extends_class)?
+            $(, on_class_register: $on_register)?
+            $(, on_class_unregister: $on_unregister)?
+            , @wire_user_payload: $payload_ty);
+
+        $crate::def_native_object!(@payload_accessors $native_ty, $payload_ty);
+
+        impl $native_ty {
+            /// create an instance of the class with attached payload
+            pub fn new_instance(
+                ctx: &mut $crate::ScopedContext,
+                new_target: $crate::JSValue,
+                payload: $payload_ty,
+            ) -> Result<Self, i32> {
+                ctx.create_class_instance(new_target, <Self as $crate::NativeObject>::class_id(), payload)
+                    .map(Self)
+                    .map_err(|_| -1)
+            }
+        }
+    };
+
+    // ── @builtin-struct: generate struct for builtin class ──
+    // No thread_local CLASS_ID — class_id is a compile-time constant.
+    // When init_fn is provided, $proto_entries/$ctor are ignored (use () for both).
+    (@builtin-struct $name:expr, $native_ty:ident, $class_id:expr, $proto_entries:expr, $ctor:expr
+        $(, on_finalize: $on_finalize:expr)?
+        $(, exotic: $exotic:expr)?
+        $(, on_call: $on_call:expr)?
+        $(, extends: $extends_class:expr)?
+        $(, on_class_register: $on_register:expr)?
+        $(, on_class_unregister: $on_unregister:expr)?
+        $(, @wire_user_payload: $wire:ty)?
+        $(, init_fn: $init_fn:expr)?) => {
+        $crate::def_native_object!(@struct_core $name, $native_ty, $proto_entries, $ctor, builtin
+            , class_id: $class_id
+            $(, extends: $extends_class)?
+            $(, on_class_register: $on_register)?
+            $(, on_class_unregister: $on_unregister)?
+            $(, @wire_user_payload: $wire)?
+            $(, init_fn: $init_fn)?
+            $(, on_finalize: $on_finalize)?
+            $(, exotic: $exotic)?
+            $(, on_call: $on_call)?);
+    };
+
+    // ── @builtin-no-payload: builtin without payload ──
+    (@builtin-no-payload $name:expr, $native_ty:ident, $class_id:expr, $proto_entries:expr, $ctor:expr
+        $(, on_finalize: $on_finalize:expr)?
+        $(, exotic: $exotic:expr)?
+        $(, on_call: $on_call:expr)?
+        $(, extends: $extends_class:expr)?
+        $(, on_class_register: $on_register:expr)?
+        $(, on_class_unregister: $on_unregister:expr)?
+        $(, init_fn: $init_fn:expr)?) => {
+        $crate::def_native_object!(@builtin-struct $name, $native_ty, $class_id, $proto_entries, $ctor
+            $(, on_finalize: $on_finalize)?
+            $(, exotic: $exotic)?
+            $(, on_call: $on_call)?
+            $(, extends: $extends_class)?
+            $(, on_class_register: $on_register)?
+            $(, on_class_unregister: $on_unregister)?
+            $(, init_fn: $init_fn)?);
+
+        impl $native_ty {
+            /// create an instance of the class
+            pub fn new_instance(
+                ctx: &mut $crate::ScopedContext,
+                new_target: $crate::JSValue,
+            ) -> Result<Self, i32> {
+                ctx.create_class_instance_no_payload(new_target, <Self as $crate::NativeObject>::class_id())
+                    .map(Self)
+            }
+        }
+    };
+
+    // ── @builtin-with-payload: builtin with payload ──
+    (@builtin-with-payload $name:expr, $native_ty:ident, $class_id:expr, $payload_ty:ty, $proto_entries:expr, $ctor:expr
+        $(, init_fn: $init_fn:expr)?
+        $(, on_finalize: $on_finalize:expr)?
+        $(, exotic: $exotic:expr)?
+        $(, on_call: $on_call:expr)?
+        $(, extends: $extends_class:expr)?
+        $(, on_class_register: $on_register:expr)?
+        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $crate::def_native_object!(@builtin-struct $name, $native_ty, $class_id, $proto_entries, $ctor
+            $(, on_finalize: $on_finalize)?
+            $(, exotic: $exotic)?
+            $(, on_call: $on_call)?
+            $(, extends: $extends_class)?
+            $(, on_class_register: $on_register)?
+            $(, on_class_unregister: $on_unregister)?
+            , @wire_user_payload: $payload_ty
+            $(, init_fn: $init_fn)?);
+
+        $crate::def_native_object!(@payload_accessors $native_ty, $payload_ty);
+
+        impl $native_ty {
             /// create an instance of the class with attached payload
             #[inline(always)]
             pub fn new_instance(
@@ -603,60 +486,6 @@ macro_rules! def_native_object {
             }
         }
     };
-
-    // ── @builtin_register: create ClassDef for builtin registration ──
-    // With init_fn: uses ClassDef::new_with() (custom init path)
-    // Without init_fn: uses ClassDef::new_with_atom() (normal proto+ctor path)
-    (@builtin_register $cd:ident, $name:expr, $class_id:expr, $proto_entries:expr, $ctor:expr
-        $(, on_finalize: $on_finalize:expr)?
-        $(, exotic: $exotic:expr)?
-        $(, on_call: $on_call:expr)?
-        $(, extends: $extends_class:expr)?
-        $(, @wire_user_payload: $wire:ty)?
-        $(, init_fn: $init_fn:expr)?) => {
-        // Use init_fn path or normal proto+ctor path
-        let mut $cd = $crate::def_native_object!(@builtin_make_cd $name, $class_id, $proto_entries, $ctor
-            $(, extends: $extends_class)?
-            $(, init_fn: $init_fn)?);
-        $(
-            $cd = $cd.exotic($exotic);
-        )?
-        $(
-            $cd = $cd.on_call($on_call);
-        )?
-        $(
-            $cd = $cd.on_finalize($on_finalize);
-        )?
-        $(
-            $cd = $cd.payload_drop($crate::drop_payload_fn::<$wire>);
-            $cd = $cd.on_gc_trace($crate::user_payload_trace::<$wire>);
-            #[cfg(debug_assertions)]
-            {
-                $cd = $cd.payload_type_name(Some(std::any::type_name::<$wire>()));
-            }
-        )?
-    };
-
-    // Helper: create ClassDef with or without init_fn
-    // With init_fn path
-    (@builtin_make_cd $name:expr, $class_id:expr, $_proto_entries:expr, $_ctor:expr
-        $(, extends: $_extends_class:expr)?
-        , init_fn: $init_fn:expr) => {{
-        let mut cd = $crate::ClassDef::new_with($name, $init_fn);
-        cd.name_atom = $class_id.1;
-        cd
-    }};
-    // Without init_fn, without extends
-    (@builtin_make_cd $name:expr, $class_id:expr, $proto_entries:expr, $ctor:expr) => {
-        $crate::ClassDef::new_with_atom($name, $class_id.1, $proto_entries, $ctor)
-    };
-    // Without init_fn, with extends
-    (@builtin_make_cd $name:expr, $class_id:expr, $proto_entries:expr, $ctor:expr
-        , extends: $extends_class:expr) => {{
-        let mut cd = $crate::ClassDef::new_extends($name, $proto_entries, $ctor, $extends_class);
-        cd.name_atom = $class_id.1;
-        cd
-    }};
 
     // ── Public: builtin no payload ──
     // def_native_object!(builtin, "Name", Type, class_id: (ID, ATOM), (), proto, ctor, ...)

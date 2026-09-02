@@ -17,8 +17,8 @@ use crate::{
 
 use super::{
     JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE,
-    JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, Shape,
-    payload_access,
+    JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, PayloadPtr,
+    Shape, payload_access,
 };
 
 /// TODO: use bitfield instead
@@ -193,12 +193,12 @@ pub struct ObjectImpl {
 }
 
 impl GcTrace for ObjectImpl {
-    fn trace(&self, tr: &mut GcTraceCtx) {
+    fn trace(&self, gcx: &mut GcTraceCtx) {
         // Shape is traced through the shape registry during GC mark,
         // so we do NOT trace self.shape here.
 
         for p in self.prop_values.iter() {
-            p.trace(tr);
+            p.trace(gcx);
         }
         // Trace the type-erased payload by class_id: user classes dispatch
         // through the registry (ClassDef.on_gc_trace, wired at registration —
@@ -209,20 +209,20 @@ impl GcTrace for ObjectImpl {
             // Hint: tr.opaque() holds the *const RuntimeImpl, set when heap
             // was created.
             debug_assert!(
-                !tr.opaque().is_null(),
+                !gcx.opaque().is_null(),
                 "GcTraceCtx must have opaque, which is the RuntimeImpl raw pointer"
             );
-            let rt = unsafe { &*(tr.opaque() as *const RuntimeImpl) };
+            let rt = unsafe { &*(gcx.opaque() as *const RuntimeImpl) };
             if !self.payload.is_null()
                 && let Some(f) = rt
                     .class_registry
                     .get(cid as usize)
                     .and_then(|c| c.on_gc_trace)
             {
-                f(self.payload, tr, cid as usize);
+                f(self.payload, gcx, cid as usize);
             }
         } else {
-            payload_access::trace_payload(cid, self.payload as *const c_void, tr);
+            payload_access::trace_payload(cid, self.payload as *const c_void, gcx);
         }
     }
 }
@@ -241,23 +241,12 @@ impl std::fmt::Display for ObjectImpl {
         #[cfg(debug_assertions)]
         {
             use gc_lite::GcNode;
-
             write!(
                 f,
                 "[{name} {:?} shape={:?}]",
                 self.gc_head(),
                 self.shape().map(|s| s.gc_head()),
             )
-
-            // write!(
-            //     f,
-            //     "[{name} {:?} shape={:?} proto={}]",
-            //     Object::from(self.gc_ref()),
-            //     self.shape().map(|s| s.gc_head()),
-            //     self.shape()
-            //         .and_then(|s| s.proto())
-            //         .map_or("<null>".to_string(), |x| x.to_string())
-            // )
         }
         #[cfg(not(debug_assertions))]
         {
@@ -276,15 +265,12 @@ impl ObjectImpl {
     pub(crate) fn create(
         ctx: &mut ScopedContext,
         mut shape: Option<Shape>,
-        payload: payload_access::PayloadPtr,
+        payload: PayloadPtr,
     ) -> Result<Object, i32> {
         let class_id = payload.class_id();
+
         #[cfg(debug_assertions)]
         {
-            // Invariant: a builtin class has a payload iff one is registered
-            // for it. A user class stores either a `Box<P>` inner pointer or
-            // an engine-unowned opaque pointer — either may be null (opaque
-            // / payload-less user classes), so nothing to assert there.
             if class_id < crate::USER_CLASS_ID_START {
                 debug_assert_eq!(
                     payload_access::payload_type_name(class_id).is_some(),
@@ -292,16 +278,16 @@ impl ObjectImpl {
                     "payload presence mismatch for builtin class {class_id}"
                 );
             }
-        }
-        #[cfg(debug_assertions)]
-        if let Some(sh) = &shape {
-            debug_assert!(
-                ctx.rt().is_shape_registered(sh),
-                "shape not registered in ObjectImpl::create: hash=0x{:x} use_count={}",
-                sh.hash,
-                sh.use_count,
-            );
-            debug_assert!(sh.use_count > 0);
+
+            if let Some(sh) = &shape {
+                debug_assert!(
+                    ctx.rt().is_shape_registered(sh),
+                    "shape not registered in ObjectImpl::create: hash=0x{:x} use_count={}",
+                    sh.hash,
+                    sh.use_count,
+                );
+                debug_assert!(sh.use_count > 0);
+            }
         }
 
         // alloc prop value slots, initializing with default value
@@ -412,13 +398,7 @@ impl ObjectImpl {
                 weak_refs: Vec::new(),
             })
             .map(Object)
-            .map_err(|_| {
-                // The half-built ObjectImpl came back by value (never entered
-                // the heap) and is dropped here; `payload` still owns the box
-                // and frees it on unwind of this function.
-                let _ = ctx.throw_out_of_memory();
-                -1
-            })?;
+            .map_err(|_| ctx.throw_out_of_memory())?;
 
         // Success: the payload pointer now lives in the heap-allocated
         // ObjectImpl — consume the handle without freeing.
@@ -434,13 +414,12 @@ impl ObjectImpl {
 
         if array_length_prop {
             // only for the Array prototype object
-            obj.add_own_property(
+            let _ = obj.add_own_property(
                 ctx,
                 Atom::CONST_length,
                 JS_PROP_WRITABLE | JS_PROP_LENGTH,
                 JSProperty::Normal(JSValue::ZERO),
-            )
-            .unwrap(); // can't fail
+            ); // can't fail
         }
 
         Ok(obj)

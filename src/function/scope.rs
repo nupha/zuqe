@@ -268,13 +268,6 @@ impl<'a> Iterator for ScopedVarsIterMut<'a> {
     }
 }
 
-impl<'a> ScopedVarsIterMut<'a> {
-    #[inline(always)]
-    pub const fn is_arg_scope(&self) -> bool {
-        self.cur_idx == ARG_SCOPE_END
-    }
-}
-
 impl FunctionDef {
     pub fn scoped_vars_iter<'a>(&self, scope: u16) -> ScopedVarsIter<'a> {
         let idx = self.scopes[scope as usize].first;

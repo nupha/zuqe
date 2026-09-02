@@ -550,7 +550,7 @@ fn js_async_generator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     if let Some(s) = obj
         .as_mut()
         .filter(|o| o.class_id() == JS_CLASS_ASYNC_GENERATOR)
-        .and_then(|mut o| o.payload_async_generator_mut())
+        .and_then(|o| o.payload_async_generator_mut())
     {
         let req = Box::new(JSAsyncGeneratorRequest {
             completion_type: cc.magic(),

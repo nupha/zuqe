@@ -36,7 +36,7 @@ fn js_map_iterator_next(
     let magic = cc.magic();
 
     let is_set = magic & 1 != 0;
-    let mut this = cc.this();
+    let this = cc.this();
 
     *state = IteratorState::NotDone;
 
@@ -53,7 +53,7 @@ fn js_map_iterator_next(
     let mut end = false;
 
     if let Some(obj) = it.obj {
-        let mut objv: JSValue = obj.into();
+        let objv: JSValue = obj.into();
         let ms_class = JS_CLASS_MAP + magic as ClassID;
         let mut ms_o = objv
             .as_object()

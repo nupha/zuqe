@@ -197,7 +197,7 @@ fn js_dataview_getValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 }
 
 fn js_dataview_setValue(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let mut this = cc.this();
+    let this = cc.this();
 
     let mut o = this
         .as_object()

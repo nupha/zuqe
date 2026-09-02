@@ -84,19 +84,6 @@ impl PayloadPtr {
         }
     }
 
-    /// An engine-unowned opaque payload (zapi): stored as-is, never freed or
-    /// dereferenced by the engine — passed back verbatim in trace/dispose
-    /// callbacks.
-    #[inline]
-    pub(crate) fn opaque(class_id: ClassID, ptr: *mut c_void) -> Self {
-        debug_assert!(class_id >= USER_CLASS_ID_START, "user class expected");
-        Self {
-            class_id,
-            ptr,
-            drop_fn: None,
-        }
-    }
-
     /// No payload (OBJECT, ERROR, RAWJSON, MODULE_NS, ...). The class id is
     /// still carried: `ObjectImpl::create` derives the object's class solely
     /// from the handle, so even a payload-less handle must know its class.
@@ -115,15 +102,29 @@ impl PayloadPtr {
         }
     }
 
+    /// An engine-unowned opaque payload (zapi): stored as-is, never freed or
+    /// dereferenced by the engine — passed back verbatim in trace/dispose
+    /// callbacks.
+    #[cfg(feature = "zapi")]
+    #[inline]
+    pub(crate) fn opaque(class_id: ClassID, ptr: *mut c_void) -> Self {
+        debug_assert!(class_id >= USER_CLASS_ID_START, "user class expected");
+        Self {
+            class_id,
+            ptr,
+            drop_fn: None,
+        }
+    }
+
     /// The class this payload belongs to. Single source of truth for the
     /// created object: `ObjectImpl::create` derives its class from here.
-    #[inline]
+    #[inline(always)]
     pub(crate) const fn class_id(&self) -> ClassID {
         self.class_id
     }
 
-    #[inline]
-    pub(crate) fn as_ptr(&self) -> *mut c_void {
+    #[inline(always)]
+    pub(crate) const fn as_ptr(&self) -> *mut c_void {
         self.ptr
     }
 }

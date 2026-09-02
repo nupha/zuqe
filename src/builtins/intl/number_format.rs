@@ -264,6 +264,7 @@ pub(crate) fn js_number_format_constructor(ctx: &mut ScopedContext, cc: CallCont
 /// Build `NumberFormatData` directly (no JS option plumbing) for internal
 /// users such as `DurationFormat`, which spec-constructs fresh NumberFormat
 /// instances per unit.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_nf_data(
     ctx: &mut ScopedContext,
     locale: &Locale,
@@ -472,7 +473,7 @@ fn apply_options(
     let min_int = obj.get_property_str(ctx, "minimumIntegerDigits")?;
     if !min_int.is_undefined() {
         let m = min_int.to_number(ctx)?.to_f64();
-        if m.is_nan() || m < 1.0 || m > 21.0 {
+        if m.is_nan() || !(1.0..=21.0).contains(&m) {
             return Err(ctx.throw_range_error("Invalid minimumIntegerDigits"));
         }
         data.min_integer_digits = m as i32;
@@ -514,14 +515,14 @@ fn apply_options(
     let max_frac = obj.get_property_str(ctx, "maximumFractionDigits")?;
     if !max_frac.is_undefined() {
         let m = max_frac.to_number(ctx)?.to_f64();
-        if m.is_nan() || m < 0.0 || m > 100.0 {
+        if m.is_nan() || !(0.0..=100.0).contains(&m) {
             return Err(ctx.throw_range_error("Invalid maximumFractionDigits"));
         }
         data.max_fraction_digits = m as i32;
     }
     if !min_frac.is_undefined() {
         let m = min_frac.to_number(ctx)?.to_f64();
-        if m.is_nan() || m < 0.0 || m > 100.0 {
+        if m.is_nan() || !(0.0..=100.0).contains(&m) {
             return Err(ctx.throw_range_error("Invalid minimumFractionDigits"));
         }
         data.min_fraction_digits = m as i32;
@@ -536,23 +537,21 @@ fn apply_options(
                 data.max_fraction_digits = 0;
             }
         }
-        Style::Currency => {
-            if max_frac.is_undefined() && min_frac.is_undefined() {
-                match data.notation {
-                    // The currency fraction-digit special handling only
-                    // applies to "standard" notation.
-                    Notation::Standard => {
-                        data.max_fraction_digits = 2;
-                        data.min_fraction_digits = 2;
-                    }
-                    Notation::CompactShort | Notation::CompactLong => {
-                        data.max_fraction_digits = 0;
-                        data.min_fraction_digits = 0;
-                    }
-                    _ => {
-                        data.max_fraction_digits = 3;
-                        data.min_fraction_digits = 0;
-                    }
+        Style::Currency if max_frac.is_undefined() && min_frac.is_undefined() => {
+            match data.notation {
+                // The currency fraction-digit special handling only
+                // applies to "standard" notation.
+                Notation::Standard => {
+                    data.max_fraction_digits = 2;
+                    data.min_fraction_digits = 2;
+                }
+                Notation::CompactShort | Notation::CompactLong => {
+                    data.max_fraction_digits = 0;
+                    data.min_fraction_digits = 0;
+                }
+                _ => {
+                    data.max_fraction_digits = 3;
+                    data.min_fraction_digits = 0;
                 }
             }
         }
@@ -615,7 +614,7 @@ fn js_number_format_format_bound(ctx: &mut ScopedContext, cc: CallContext) -> JS
         .ok_or_else(|| ctx.throw_type_error("not a NumberFormat"))?;
     let v = cc.arg(0);
     let s = format_value(ctx, this, v)?;
-    Ok(make_str(ctx, s.into_bytes())?)
+    make_str(ctx, s.into_bytes())
 }
 
 /// Format an integer value given as a decimal digit string (no sign, no
@@ -1008,7 +1007,7 @@ pub(crate) fn format_parts(
                 (this.min_significant_digits, this.max_significant_digits)
             {
                 let grouped = this.use_grouping
-                    && !(this.min_group2 && scaled_abs >= 1000.0 && scaled_abs < 10000.0);
+                    && !(this.min_group2 && (1000.0..10000.0).contains(&scaled_abs));
                 format_with_significant(
                     ctx,
                     scaled_abs,
@@ -1591,6 +1590,7 @@ fn round_to_fraction(n: f64, min: i32, max: i32) -> f64 {
     (n * p).round() / p
 }
 
+#[allow(clippy::too_many_arguments)]
 fn format_fixed(
     ctx: &mut ScopedContext,
     n: f64,
@@ -1714,7 +1714,7 @@ fn group_integer(digits: &str, grouping_sep: char, indian: bool) -> String {
         }
     } else {
         for (i, c) in chars.iter().enumerate() {
-            if i > 0 && (n - i) % 3 == 0 {
+            if i > 0 && (n - i).is_multiple_of(3) {
                 grouped.push(grouping_sep);
             }
             grouped.push(*c);
@@ -1723,6 +1723,7 @@ fn group_integer(digits: &str, grouping_sep: char, indian: bool) -> String {
     grouped
 }
 
+#[allow(clippy::too_many_arguments)]
 fn format_with_significant(
     ctx: &mut ScopedContext,
     n: f64,
@@ -1829,11 +1830,12 @@ fn format_with_significant(
     if use_grouping {
         insert_grouping(&mut out, grouping_sep, grouping_indian);
     }
-    if decimal_sep != '.' {
-        if let Some(i) = out.rfind('.') {
-            out.replace_range(i..=i, &decimal_sep.to_string());
-        }
+    if decimal_sep != '.'
+        && let Some(i) = out.rfind('.')
+    {
+        out.replace_range(i..=i, &decimal_sep.to_string());
     }
+
     Ok(out)
 }
 
@@ -1953,7 +1955,7 @@ fn js_number_format_formatToParts(ctx: &mut ScopedContext, cc: CallContext) -> J
         parts.push(obj.into());
     }
 
-    Ok(values_to_array(ctx, parts)?.into())
+    values_to_array(ctx, parts)
 }
 
 fn js_number_format_resolved_options(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

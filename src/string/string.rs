@@ -55,7 +55,9 @@ pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 
 /// String data + atom info
 pub struct StringImpl {
+    #[deprecated(note = "not used")]
     rt: RuntimePtr,
+
     /// string content
     content: StringData,
     /// if string is used as atom, this stores the atom info.
