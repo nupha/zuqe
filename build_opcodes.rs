@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum OpcodeKind {
@@ -67,7 +67,7 @@ macro_rules! def {
     };
 }
 
-static OP_CODES: Lazy<Vec<OpcodeDef>> = Lazy::new(|| {
+static OP_CODES: LazyLock<Vec<OpcodeDef>> = LazyLock::new(|| {
     let ops = vec![
         DEF!("invalid", 1, 0, 0, "NONE", false, Never),
         DEF!("push_i32", 5, 0, 1, "I32", false, Never),

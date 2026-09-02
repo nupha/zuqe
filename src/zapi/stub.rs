@@ -3,7 +3,7 @@
 
 use std::ffi::c_void;
 
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use zuqe_zapi::ffi::{
     ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn,
     ZqJobRunFn, ZqJobTraceFn, ZqRawValue, ZqWakeHandleS,
@@ -708,7 +708,7 @@ unsafe extern "C" fn zapi_call_constructor(env: ZqEnv, info: *mut ZqCallbackInfo
 }
 
 /// 全局共享的 ZqApi 表 — 纯函数指针，无运行时状态，多 Runtime 安全复用。
-pub(crate) static ZQ_API_TABLE: Lazy<Box<ZqApi>> = Lazy::new(new_zapi);
+pub(crate) static ZQ_API_TABLE: LazyLock<Box<ZqApi>> = LazyLock::new(new_zapi);
 
 /// 构造 host 侧的 `ZqApi` 表，填充全部函数指针，返回堆分配的 Box。
 pub(crate) fn new_zapi() -> Box<ZqApi> {
