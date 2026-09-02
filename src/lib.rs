@@ -111,6 +111,37 @@ mod channel {
 }
 pub(crate) use channel::*;
 
+/// The receiving half of a channel created via [`ScopedContext::wake_channel`]
+/// or [`ScopedContext::make_channel`]. This is a newtype over [`Receiver<D>`]
+/// that serves as proof the corresponding sender is a [`WakeSender`] — APIs
+/// that need guaranteed wake semantics accept `WakeReceiver` instead of the
+/// raw `Receiver`.
+pub struct WakeReceiver<D>(Receiver<D>);
+
+#[cfg(feature = "crossbeam_channel")]
+impl<D> Clone for WakeReceiver<D> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<D> WakeReceiver<D> {
+    #[inline(always)]
+    pub(crate) const fn from(rx: Receiver<D>) -> Self {
+        Self(rx)
+    }
+
+    #[inline(always)]
+    pub fn try_recv(&self) -> Result<D, TryRecvError> {
+        self.0.try_recv()
+    }
+
+    #[inline(always)]
+    pub const fn inner(&self) -> &Receiver<D> {
+        &self.0
+    }
+}
+
 /// A channel sender that wakes the parked event loop automatically:
 ///
 /// * every successful [`WakeSender::send`] / [`WakeSender::try_send`] /
@@ -139,7 +170,7 @@ impl<D> Clone for WakeSender<D> {
 
 impl<D> WakeSender<D> {
     /// Attach a wake handle to an existing raw sender.
-    pub(crate) const fn wrap(tx: Sender<D>, wake: WakeHandle) -> Self {
+    pub(crate) const fn from(tx: Sender<D>, wake: WakeHandle) -> Self {
         Self { tx, wake }
     }
 
@@ -185,37 +216,6 @@ impl<D> Drop for WakeSender<D> {
         // poll — wake the parked loop so it happens now. Cheap no-op when
         // the loop is running or already gone.
         self.wake.wake();
-    }
-}
-
-/// The receiving half of a channel created via [`ScopedContext::wake_channel`]
-/// or [`ScopedContext::make_channel`]. This is a newtype over [`Receiver<D>`]
-/// that serves as proof the corresponding sender is a [`WakeSender`] — APIs
-/// that need guaranteed wake semantics accept `WakeReceiver` instead of the
-/// raw `Receiver`.
-pub struct WakeReceiver<D>(Receiver<D>);
-
-impl<D> Clone for WakeReceiver<D> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-impl<D> WakeReceiver<D> {
-    /// Wrap a raw receiver. Use [`ScopedContext::make_channel`] or
-    /// [`ScopedContext::make_local_channel`] instead — this is for special
-    /// cases where the wake mechanism is provided externally (e.g. POSIX
-    /// signal handlers using `wake_from_signal`).
-    pub fn new(rx: Receiver<D>) -> Self {
-        Self(rx)
-    }
-
-    pub fn try_recv(&self) -> Result<D, TryRecvError> {
-        self.0.try_recv()
-    }
-
-    pub fn inner(&self) -> &Receiver<D> {
-        &self.0
     }
 }
 

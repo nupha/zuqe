@@ -6,7 +6,7 @@ use std::time::Instant;
 use gc_lite::GcNode;
 
 use crate::{
-    Exception, WakeSender,
+    Exception, WakeReceiver, WakeSender,
     context::{ContextPtr, ScopedContext},
     microtask::JobState,
 };
@@ -14,6 +14,7 @@ use crate::{
 use super::RuntimeImpl;
 
 impl<'c> ScopedContext<'c> {
+    #[inline(always)]
     pub fn add_tick_handler(&mut self, f: fn(&mut ScopedContext) -> bool) {
         self.tick_handlers.push(f);
     }
@@ -22,6 +23,7 @@ impl<'c> ScopedContext<'c> {
     /// the JS thread and move it into producer tasks/threads (channel senders
     /// etc.); calling `wake()` after pushing work re-ticks the parked loop.
     /// Per-runtime — holding handles of many runtimes at once is fine.
+    #[inline(always)]
     pub fn wake_handle(&self) -> crate::runtime::WakeHandle {
         self.rt().wake_handle()
     }
@@ -35,7 +37,10 @@ impl<'c> ScopedContext<'c> {
         n: usize,
     ) -> (WakeSender<D>, crate::WakeReceiver<D>) {
         let (tx, rx) = crate::channel::make_bounded_channel_raw(n);
-        (WakeSender::wrap(tx, self.wake_handle()), crate::WakeReceiver::new(rx))
+        (
+            WakeSender::from(tx, self.wake_handle()),
+            WakeReceiver::from(rx),
+        )
     }
 
     /// Create an unbounded channel whose sender wakes this event loop
@@ -47,11 +52,12 @@ impl<'c> ScopedContext<'c> {
     /// `D` need not be `Send`: JS-thread-only channels (e.g. carrying
     /// `Object` handles) are supported; `send_async` (for cross-thread
     /// producers) does require `Send`.
-    pub fn make_local_channel<D: 'static>(
-        &self,
-    ) -> (WakeSender<D>, crate::WakeReceiver<D>) {
+    pub fn make_local_channel<D: 'static>(&self) -> (WakeSender<D>, crate::WakeReceiver<D>) {
         let (tx, rx) = crate::channel::make_local_unbounded_channel_raw();
-        (WakeSender::wrap(tx, self.wake_handle()), crate::WakeReceiver::new(rx))
+        (
+            WakeSender::from(tx, self.wake_handle()),
+            WakeReceiver::from(rx),
+        )
     }
 
     /// Advise the event-loop driver of the earliest time a polling job needs
