@@ -625,8 +625,8 @@ unsafe extern "C" fn zapi_add_polling_job(
             let env = &mut env_s as *mut ZqEnvS as ZqEnv;
             match unsafe { run(data, env) } {
                 0 => Ok(crate::microtask::JobState::Done),
-                1 => Ok(crate::microtask::JobState::Again),
-                2 => Ok(crate::microtask::JobState::AgainNoHold),
+                1 => Ok(crate::microtask::JobState::Block),
+                2 => Ok(crate::microtask::JobState::Continue),
                 _ => Err(-1),
             }
         },

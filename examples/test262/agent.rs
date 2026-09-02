@@ -498,7 +498,7 @@ fn set_timeout(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue, i32>
     } else {
         0
     };
-    let cb = cb;
+
     let start = std::time::Instant::now();
     ctx.queue_job(
         move |cx| -> Result<zuqe::JobState, i32> {
@@ -508,7 +508,7 @@ fn set_timeout(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue, i32>
                 }
                 Ok(zuqe::JobState::Done)
             } else {
-                Ok(zuqe::JobState::Again)
+                Ok(zuqe::JobState::Block)
             }
         },
         cb,

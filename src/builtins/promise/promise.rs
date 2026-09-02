@@ -402,7 +402,7 @@ impl Promise {
                     crate::Exception::No,
                     "[promise create_with_job] job returned Ok(None) but left exception behind"
                 );
-                Ok(JobState::Again)
+                Ok(JobState::Block)
             }
             Err(_) => {
                 let err_val = cx.take_exception().to_value(cx);
@@ -521,9 +521,9 @@ impl Promise {
                 // Hold the loop only while the promise is observed; a
                 // fire-and-forget promise must not keep the process alive.
                 if promise.payload().has_reactions() {
-                    Ok(JobState::Again)
+                    Ok(JobState::Block)
                 } else {
-                    Ok(JobState::AgainNoHold)
+                    Ok(JobState::Continue)
                 }
             }
             Err(TryRecvError::Disconnected) => Err(cx.throw_internal_error("channel disconnected")),

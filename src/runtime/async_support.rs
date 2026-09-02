@@ -36,7 +36,7 @@ impl<'rt> std::future::Future for RunFuture<'rt> {
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
-            TickStatus::Parked(hint) => {
+            TickStatus::Park(hint) => {
                 // A polling job is waiting on IO or a timer deadline —
                 // suspend for real instead of hot-spinning. `park_for` arms
                 // the parker thread for the deadline and registers our waker

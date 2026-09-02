@@ -142,7 +142,7 @@ impl Promise {
                         );
                         Ok(JobState::Done)
                     } else {
-                        Ok(JobState::Again)
+                        Ok(JobState::Block)
                     }
                 }
             },

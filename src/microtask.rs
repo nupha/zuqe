@@ -7,18 +7,21 @@ use crate::{ScopedContext, context::ContextImpl, value::JSValue};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum JobState {
+    /// Job completed; removed from queue.
     Done,
-    Again,
-    /// Re-queued for the next tick like `Again`, but does NOT count as
-    /// `Parked`: the event loop may go idle — and the process exit — while
-    /// this job is still pending. Used by promises that only need polling
-    /// while observed (awaited / `.then`-ed); an unobserved promise must
-    /// not keep the process alive.
-    AgainNoHold,
+    /// Job is blocked waiting for an external event (I/O, Timer, Promise
+    /// resolve, …). Re-queued for the next tick **and** counts as parked:
+    /// the event loop must not exit while a blocked job is pending.
+    Block,
+    /// Job is still in progress and will be re-queued for the next tick,
+    /// but does NOT count as parked — the event loop may go idle (and the
+    /// process exit) while this job is pending. Used by promises that only
+    /// need polling while observed (awaited / `.then`-ed).
+    Continue,
 }
 
 /// A polling job running in background, known as 'micro task'.
-/// May return `Again` to be re-queued for the next tick.
+/// May return `Block` or `Continue` to be re-queued for the next tick.
 pub(crate) struct PollingJob {
     /// It's safe to call js functions inside this closure.
     runnable: Box<dyn Fn(&mut ScopedContext) -> Result<JobState, i32>>,
@@ -81,7 +84,7 @@ impl JobGcTrace for JSValue {
 }
 
 impl ContextImpl {
-    /// Add a pending micro-task (polling mode, may return `Again`).
+    /// Add a pending micro-task (polling mode, may return `Block` or `Continue`).
     pub fn queue_job<GCN, F>(&mut self, runnable: F, gc_trace_nodes: GCN)
     where
         GCN: JobGcTrace + 'static,

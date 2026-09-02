@@ -81,14 +81,14 @@ pub(super) enum TickStatus {
     /// caller should call `tick()` again immediately to advance.
     Progress,
     /// No real progress this round, but a polling job is still spinning on
-    /// `Again` (waiting on external IO or a timer deadline). Those jobs are
+    /// `Block` (waiting on external IO or a timer deadline). Those jobs are
     /// re-queued (never lost) but produced no new work. The `Option<Instant>`
     /// is the earliest deadline any such job reported via
     /// `set_poll_hint` (`None` = wait for external wake only). The caller
     /// decides: the sync loop suspends on a condvar, the async path parks via
     /// the parker thread (Pending), and the agent `drain_jobs` terminates —
-    /// so a pure-`Again` wait can never dead-loop or hot-spin.
-    Parked(Option<Instant>),
+    /// so a pure-`Block` wait can never dead-loop or hot-spin.
+    Park(Option<Instant>),
     /// The event loop is genuinely idle (no Progress, no Parked) or was
     /// interrupted. Every caller terminates its drive loop.
     Idle,
@@ -98,7 +98,7 @@ impl RuntimeImpl {
     /// Run background jobs for one round.
     pub(super) fn tick(&mut self) -> TickStatus {
         let mut had_progress = false;
-        let mut had_parked = false;
+        let mut had_blocked = false;
         let mut hint: Option<Instant> = None;
 
         for mut ctx in self.context_list.iter().copied() {
@@ -138,7 +138,7 @@ impl RuntimeImpl {
                         let gc_trace = self.gc_job.take();
 
                         match res {
-                            Ok(JobState::Again) => {
+                            Ok(JobState::Block) => {
                                 // Re-queue for the next round. A pending-channel
                                 // promise (fetch/fs/...) is waiting on IO; it only
                                 // resolves once the IO thread pushes a value into the
@@ -148,11 +148,11 @@ impl RuntimeImpl {
                                 // must be able to terminate. The job is safely
                                 // re-queued and will be polled again next round (or by
                                 // the next `tick()` caller), so it is never lost.
-                                had_parked = true;
+                                had_blocked = true;
                                 job.gc_trace = gc_trace;
                                 cx.polling_jobs.push_back(job);
                             }
-                            Ok(JobState::AgainNoHold) => {
+                            Ok(JobState::Continue) => {
                                 // Same re-queue safety as `Again`, but does NOT count
                                 // as `Parked`: an unobserved (fire-and-forget) promise
                                 // must not keep the event loop — and thus the process —
@@ -248,8 +248,8 @@ impl RuntimeImpl {
         // the earliest reported re-poll deadline so the driver can suspend.
         if had_progress {
             TickStatus::Progress
-        } else if had_parked {
-            TickStatus::Parked(hint)
+        } else if had_blocked {
+            TickStatus::Park(hint)
         } else {
             TickStatus::Idle
         }
