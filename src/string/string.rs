@@ -135,11 +135,8 @@ impl std::fmt::Debug for StringImpl {
 
 impl StringImpl {
     /// create StringImpl with string data, and atom info.
-    pub(crate) const fn new(
-        rt: RuntimePtr,
-        content: StringData,
-        atom_info: Option<AtomInfo>,
-    ) -> Self {
+    #[inline(always)]
+    pub(crate) const fn new(content: StringData, atom_info: Option<AtomInfo>) -> Self {
         StringImpl { content, atom_info }
     }
 
@@ -534,12 +531,14 @@ impl StringRef {
             // `self`, so the returned `&StringData` stays valid.
             if ri.flat.get().is_none() {
                 let data = rope_flatten_data(self);
+                let node = StringImpl::new(data, None);
+
                 let mut rt = ri.rt;
-                let node = StringImpl::new(rt, data, None);
                 let flat_g = match rt.gc_alloc_root(node) {
                     Ok(g) => g,
                     Err(_) => panic!("out of memory while flattening rope"),
                 };
+
                 // `gc_alloc_root` may have run GC and freed `self` (the node
                 // `ri` borrows) if it was unrooted. Re-validate before writing
                 // back into `ri.flat`.
@@ -733,7 +732,7 @@ impl StringRef {
         content: StringData,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
-        let s = StringImpl::new(rt, content, atom_info);
+        let s = StringImpl::new(content, atom_info);
         rt.gc_alloc_root(s).map(StringRef::from_flat).map_err(|_| {
             eprintln!("[O.o] alloc error");
             -1
@@ -746,11 +745,10 @@ impl StringRef {
         content: StringData,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
-        ctx.alloc_local(StringImpl::new(ctx.rt_ptr(), content, atom_info))
+        ctx.alloc_local(StringImpl::new(content, atom_info))
             .map(StringRef::from_flat)
             .map_err(|_| {
-                ctx.rt_mut().set_exception(Exception::OutOfMemory);
-                eprintln!("[O.o] alloc error");
+                ctx.throw(Exception::OutOfMemory);
                 -1
             })
     }

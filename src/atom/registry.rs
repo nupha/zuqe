@@ -238,8 +238,6 @@ impl RuntimeImpl {
             "must init atom registry only once"
         );
 
-        let mut rt_ptr = unsafe { RuntimePtr::from_raw(self) };
-
         self.atom_registry
             .const_atoms
             .reserve(ATOM_CONST_COUNT as usize);
@@ -248,6 +246,7 @@ impl RuntimeImpl {
             .hash_lut
             .reserve(ATOM_CONST_COUNT as usize + 64);
 
+        let mut rt_ptr = unsafe { RuntimePtr::from_raw(self) };
         let lst = &mut self.atom_registry.const_atoms;
         let lut = &mut self.atom_registry.hash_lut;
 
@@ -286,7 +285,6 @@ impl RuntimeImpl {
 
             let str = {
                 let ss = StringImpl::new(
-                    rt_ptr,
                     StringData::from_static(str),
                     Some(AtomInfo::new(
                         unsafe { NonZeroU32::new_unchecked(atom_id) },
