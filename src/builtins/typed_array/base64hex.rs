@@ -29,22 +29,22 @@ const URL_ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrst
 
 #[inline]
 #[allow(dead_code)]
-fn is_std_b64(ch: u8) -> bool {
+const fn is_std_b64(ch: u8) -> bool {
     matches!(ch, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'+' | b'/')
 }
 
 #[allow(dead_code)]
-fn is_url_b64(ch: u8) -> bool {
+const fn is_url_b64(ch: u8) -> bool {
     matches!(ch, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_')
 }
 
 #[inline]
-fn is_ascii_whitespace(ch: u8) -> bool {
+const fn is_ascii_whitespace(ch: u8) -> bool {
     matches!(ch, b' ' | b'\t' | b'\n' | b'\r' | 0x0C | 0x0B)
 }
 
 #[inline]
-fn hex_nibble(ch: u8) -> Option<u8> {
+const fn hex_nibble(ch: u8) -> Option<u8> {
     match ch {
         b'0'..=b'9' => Some(ch - b'0'),
         b'a'..=b'f' => Some(ch - b'a' + 10),
@@ -432,7 +432,7 @@ fn base64_encode(data: &[u8], alphabet: u8, omit_padding: bool) -> String {
     } else {
         STD_ALPHABET
     };
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
 
     for chunk in data.chunks(3) {
         let b0 = chunk[0] as u32;

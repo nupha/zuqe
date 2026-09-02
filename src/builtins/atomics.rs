@@ -26,7 +26,7 @@ use crate::{
 };
 
 /// Element metadata: (bit_width, signed, is_bigint)
-fn elem_info(cid: ClassID) -> Option<(u32, bool, bool)> {
+const fn elem_info(cid: ClassID) -> Option<(u32, bool, bool)> {
     Some(match cid {
         JS_CLASS_INT8_ARRAY => (8, true, false),
         JS_CLASS_UINT8_ARRAY => (8, false, false),
@@ -40,7 +40,7 @@ fn elem_info(cid: ClassID) -> Option<(u32, bool, bool)> {
     })
 }
 
-fn is_waitable(cid: ClassID) -> bool {
+const fn is_waitable(cid: ClassID) -> bool {
     matches!(
         cid,
         JS_CLASS_INT32_ARRAY
@@ -158,7 +158,8 @@ fn value_to_bits(
 }
 
 /// Sign-extend raw bits into the element's signed integer value.
-fn bits_to_signed(bits: u64, width: u32) -> i64 {
+#[inline(always)]
+const fn bits_to_signed(bits: u64, width: u32) -> i64 {
     let shift = 64 - width;
     ((bits << shift) as i64) >> shift
 }
@@ -207,7 +208,8 @@ fn write_bits(buf: &mut [u8], off: usize, width: u32, val: u64) {
     }
 }
 
-fn mask_for(width: u32) -> u64 {
+#[inline(always)]
+const fn mask_for(width: u32) -> u64 {
     if width == 64 {
         u64::MAX
     } else {
@@ -386,7 +388,7 @@ pub fn js_atomics_is_lock_free(ctx: &mut ScopedContext, cc: CallContext) -> JSRe
 // Atomics.pause
 // ---------------------------------------------------------------------------
 
-pub fn js_atomics_pause(_ctx: &mut ScopedContext, _cc: CallContext) -> JSResult {
+pub const fn js_atomics_pause(_ctx: &mut ScopedContext, _cc: CallContext) -> JSResult {
     // Spin-wait hint; no observable effect.
     Ok(JSValue::UNDEFINED)
 }
@@ -595,7 +597,7 @@ pub fn js_atomics_wait(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let expected_bits = value_to_bits(ctx, cc.arg(2), signed, is_bigint, width)?;
 
     if current != (expected_bits & mask) {
-        return Ok(str_val(ctx, "not-equal")?);
+        return str_val(ctx, "not-equal");
     }
 
     // Compute timeout in nanoseconds.
@@ -682,7 +684,7 @@ pub fn js_atomics_wait(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     drop_waiter(key, &waiter);
 
-    Ok(str_val(ctx, if woken { "ok" } else { "timed-out" })?)
+    str_val(ctx, if woken { "ok" } else { "timed-out" })
 }
 
 // ---------------------------------------------------------------------------
@@ -785,7 +787,7 @@ pub fn js_atomics_wait_async(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         (q.max(0.0) * 1e6) as i64
     };
 
-    let (promise, tx) = Promise::create_with_channel::<&'static str>(ctx, |cx, s| str_val(cx, s))?;
+    let (promise, tx) = Promise::create_with_channel::<&'static str>(ctx, str_val)?;
 
     let worker_key = key;
     let worker_waiter = waiter.clone();

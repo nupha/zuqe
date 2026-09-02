@@ -88,11 +88,11 @@ impl BigIntImpl {
         }
     }
 
-    /// Build a non-negative value from a `u64` magnitude (no allocation).
-    #[inline(always)]
-    pub(crate) fn from_u64(v: u64) -> Self {
-        BigIntImpl::from_parts(false, vec![v])
-    }
+    // /// Build a non-negative value from a `u64` magnitude (no allocation).
+    // #[inline(always)]
+    // pub(crate) fn from_u64(v: u64) -> Self {
+    //     BigIntImpl::from_parts(false, vec![v])
+    // }
 
     /// Build a value from an `i64` (no allocation).
     #[inline(always)]

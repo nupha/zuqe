@@ -124,10 +124,10 @@ pub(crate) fn is_structurally_valid_language_tag_allow_attrs(s: &str, allow_u_at
         // base level (where it may also be invalid), inside a private-use `x`
         // section where 1-char components are legal, and inside a `u` section
         // before its first component (`da-u-t-…` is invalid).
-        if section != 'x'
-            && p.len() == 1
+        if (u_any || section != 'u')
             && !p.bytes().next().is_some_and(|b| b.is_ascii_digit())
-            && !(section == 'u' && !u_any)
+            && p.len() == 1
+            && section != 'x'
         {
             let c = p.chars().next().unwrap().to_ascii_lowercase();
             // A singleton must be alphanumeric (`de-*` is invalid).
@@ -286,11 +286,11 @@ fn canonicalize_unicode_extensions(loc: &mut Locale) {
             let value_str = v.to_string();
             // Subdivision (`rg`/`sd`) values are already canonicalised by ICU4X.
             if let Some(canon) = unicode_type_alias(k, &value_str) {
-                replacements.push((k.clone(), canon.to_string()));
+                replacements.push((*k, canon.to_string()));
             } else if is_yes_true_key(k) && value_str == "yes" {
                 // yes → true; a "true" value serialises as no subtag (key-only),
                 // e.g. `und-u-kb-yes` → `und-u-kb`.
-                replacements.push((k.clone(), "true".to_string()));
+                replacements.push((*k, "true".to_string()));
             }
         }
         for (key, new_value) in replacements {
@@ -305,14 +305,14 @@ fn canonicalize_unicode_extensions(loc: &mut Locale) {
     // Transform-extension method (`m0`) deprecated value aliases (transformAlias).
     use icu::locale::extensions::transform;
     const M0_ALIASES: &[(&str, &str)] = &[("names", "prprname")];
-    if let Ok(m0_key) = "m0".parse::<transform::Key>() {
-        if let Some(v) = loc.extensions.transform.fields.get(&m0_key) {
-            let value_str = v.to_string();
-            if let Some((_, canon)) = M0_ALIASES.iter().find(|(a, _)| *a == value_str) {
-                if let Ok(nv) = transform::Value::try_from_str(canon) {
-                    loc.extensions.transform.fields.set(m0_key, nv);
-                }
-            }
+    if let Ok(m0_key) = "m0".parse::<transform::Key>()
+        && let Some(v) = loc.extensions.transform.fields.get(&m0_key)
+    {
+        let value_str = v.to_string();
+        if let Some((_, canon)) = M0_ALIASES.iter().find(|(a, _)| *a == value_str)
+            && let Ok(nv) = transform::Value::try_from_str(canon)
+        {
+            loc.extensions.transform.fields.set(m0_key, nv);
         }
     }
 }
@@ -561,7 +561,7 @@ pub(crate) fn resolve_locale_keys(
         .unicode
         .keywords
         .iter()
-        .map(|(k, _)| k.clone())
+        .map(|(k, _)| *k)
         .filter(|k| !relevant.iter().any(|rk| rk == k))
         .collect();
     for k in irrelevant {
@@ -590,10 +590,11 @@ pub(crate) fn resolve_locale_keys(
             // from the extension value strips the extension key (the option
             // wins). An unsupported option is ignored (the extension value is
             // kept).
-            if let Some(opt) = option_value {
-                if supported_option_value(key_str, &lang, opt) && *opt != ext_value_str {
-                    locale.extensions.unicode.keywords.remove(kw);
-                }
+            if let Some(opt) = option_value
+                && supported_option_value(key_str, &lang, opt)
+                && *opt != ext_value_str
+            {
+                locale.extensions.unicode.keywords.remove(kw);
             }
         }
     }
@@ -647,7 +648,7 @@ pub(crate) fn canonicalize_calendar_id(s: &str) -> &str {
 }
 
 /// Known CLDR calendar (ca) types.
-pub(crate) fn supported_calendars() -> &'static [&'static str] {
+pub(crate) const fn supported_calendars() -> &'static [&'static str] {
     &[
         "buddhist",
         "chinese",
@@ -676,7 +677,7 @@ pub(crate) fn supported_calendars() -> &'static [&'static str] {
 }
 
 /// Known CLDR numbering-system types (subset of the bcp47 `nu` type values).
-pub(crate) fn supported_numbering_systems() -> &'static [&'static str] {
+pub(crate) const fn supported_numbering_systems() -> &'static [&'static str] {
     &[
         "latn", "arab", "arabext", "armn", "armnlow", "beng", "cakm", "cham", "deva", "ethi",
         "fullwide", "geor", "grek", "greklow", "gujr", "guru", "hanidays", "hans", "hansfin",

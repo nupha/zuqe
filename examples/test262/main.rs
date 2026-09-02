@@ -36,7 +36,7 @@ unsafe extern "system" {
 }
 unsafe extern "system" fn veh_av_backtrace(ptrs: *mut ExceptionPointers) -> i32 {
     let rec = unsafe { (*ptrs).record };
-    if unsafe { (*rec).code } & 0xFFFF_FFFFu32 == 0xC000_0005 {
+    if unsafe { (*rec).code } == 0xC000_0005 {
         let kind = match unsafe { (*rec).info[0] } {
             0 => "READ",
             1 => "WRITE",
@@ -283,11 +283,11 @@ pub fn validate_config(cfg: &AppConfig, presets: &[PresetDef], require_preset: b
         std::process::exit(1);
     }
 
-    if let Some(suite) = cfg.suite.as_deref() {
-        if parse_suite(suite).is_none() {
-            eprintln!("error: unknown suite '{suite}'. valid suites: all, 262, 402");
-            std::process::exit(1);
-        }
+    if let Some(suite) = cfg.suite.as_deref()
+        && parse_suite(suite).is_none()
+    {
+        eprintln!("error: unknown suite '{suite}'. valid suites: all, 262, 402");
+        std::process::exit(1);
     }
 
     // `base_path` / `out_path`, if set, must be existing directories.

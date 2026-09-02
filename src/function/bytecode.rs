@@ -335,26 +335,6 @@ impl BytecodeImpl {
         self.attrs.need_home_object
     }
 
-    /// get nth const value
-    #[inline]
-    pub(crate) fn load_const(&self, nth: usize) -> Option<JSValue> {
-        if let Some((start, len)) = self.consts_section
-            && nth < len as usize
-        {
-            debug_assert_eq!(start, 0);
-            Some(unsafe {
-                *self
-                    .binary
-                    .as_ptr()
-                    .add(start as usize)
-                    .cast::<JSValue>()
-                    .add(nth)
-            })
-        } else {
-            None
-        }
-    }
-
     /// get nth arg or local var. for example:
     /// get 2nd var def: (2, false)
     /// get 3rd arg def: (3, true)

@@ -55,9 +55,6 @@ pub const JS_STRING_LEN_MAX: usize = (1 << 30) - 1;
 
 /// String data + atom info
 pub struct StringImpl {
-    #[deprecated(note = "not used")]
-    rt: RuntimePtr,
-
     /// string content
     content: StringData,
     /// if string is used as atom, this stores the atom info.
@@ -143,21 +140,12 @@ impl StringImpl {
         content: StringData,
         atom_info: Option<AtomInfo>,
     ) -> Self {
-        StringImpl {
-            rt,
-            content,
-            atom_info,
-        }
+        StringImpl { content, atom_info }
     }
 
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
-    }
-
-    #[inline(always)]
-    const fn rt(&self) -> RuntimePtr {
-        self.rt
     }
 
     /// Returns a reference to the underlying string content

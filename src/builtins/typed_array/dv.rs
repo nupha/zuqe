@@ -71,7 +71,7 @@ impl DataViewPayload {
     }
 
     #[inline(always)]
-    pub fn byte_length(&self) -> usize {
+    pub const fn byte_length(&self) -> usize {
         self.byte_length as _
     }
 

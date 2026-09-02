@@ -35,7 +35,7 @@ pub struct RegExpStringIterPayload {
 }
 
 impl RegExpStringIterPayload {
-    pub fn new(regexp: Object, str: StringRef, global: bool, unicode: bool) -> Self {
+    pub const fn new(regexp: Object, str: StringRef, global: bool, unicode: bool) -> Self {
         Self {
             iterating_regexp: regexp,
             iterated_string: str,
@@ -391,7 +391,7 @@ pub(super) fn make_regexp_capture_array(
     if !name_values.is_empty() {
         groups = ctx.create_base_object_with_proto(None)?.into();
         for (name, val) in &name_values {
-            groups.define_property_value_str(ctx, name, val.clone(), prop_flags)?;
+            groups.define_property_value_str(ctx, name, *val, prop_flags)?;
         }
     }
 
@@ -416,7 +416,7 @@ pub(super) fn make_regexp_capture_array(
         if !idx_name_values.is_empty() {
             let mut idxgrp = ctx.create_base_object_with_proto(None)?;
             for (name, val) in &idx_name_values {
-                idxgrp.define_property_value_str(ctx, name, val.clone(), prop_flags)?;
+                idxgrp.define_property_value_str(ctx, name, *val, prop_flags)?;
             }
             indices.define_property_value(ctx, Atom::CONST_groups, idxgrp.into(), prop_flags)?;
         } else {

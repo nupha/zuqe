@@ -119,13 +119,12 @@ fn js_evalScript(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     }
 
     let ret = ctx.with_new_scope(|cx| {
-        let res = cx.eval(
+        cx.eval(
             str.content().encode_utf8_bytes(true).as_ref(),
             &EvalName::Name("<evalScript>".into()),
             EvalType::Global,
             flags,
-        );
-        res
+        )
     });
 
     let lev = EVAL_SCRIPT_RECURSE.with(|s| {

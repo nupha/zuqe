@@ -52,41 +52,6 @@ impl<'c> ScopedContext<'c> {
         Ok(Some((v0, v1)))
     }
 
-    /// 'def_flags' is 0 or JS_PROP_CONFIGURABLE.
-    /// XXX: could support exotic global object.
-    #[deprecated]
-    pub(crate) fn define_global_function(
-        &mut self,
-        prop: Atom,
-        func: JSValue,
-        def_flags: u32,
-    ) -> Result<bool, i32> {
-        let mut gobj = self.global_obj();
-
-        let mut flags = JS_PROP_HAS_VALUE | JS_PROP_THROW;
-        let configurable = gobj
-            .find_shape_property(prop)
-            .map(|(_, flags)| flags & JS_PROP_CONFIGURABLE != 0)
-            .unwrap_or(true);
-        if configurable {
-            flags |= JS_PROP_ENUMERABLE
-                | JS_PROP_WRITABLE
-                | def_flags
-                | JS_PROP_HAS_CONFIGURABLE
-                | JS_PROP_HAS_WRITABLE
-                | JS_PROP_HAS_ENUMERABLE;
-        }
-
-        gobj.define_property(
-            self,
-            prop,
-            func,
-            JSValue::UNDEFINED,
-            JSValue::UNDEFINED,
-            flags,
-        )
-    }
-
     /// Define a global variable property.
     ///
     /// `def_flags` semantics:

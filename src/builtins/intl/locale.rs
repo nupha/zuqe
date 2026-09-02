@@ -116,10 +116,9 @@ pub(crate) fn js_locale_constructor(ctx: &mut ScopedContext, cc: CallContext) ->
             .variants
             .iter()
             .any(|v| v.to_string() == "gaulish")
+        && let Ok(xtg) = "xtg".parse::<icu::locale::LanguageIdentifier>()
     {
-        if let Ok(xtg) = "xtg".parse::<icu::locale::LanguageIdentifier>() {
-            data.locale.id = xtg;
-        }
+        data.locale.id = xtg;
     }
 
     ctx.ordinary_create_from_constructor_payload(
@@ -263,15 +262,19 @@ fn maximize_id(id: &mut icu::locale::LanguageIdentifier) {
         if let Ok(l) = lang.parse() {
             id.language = l;
         }
-        if id.script.is_none() && def_script.is_some() {
-            if let Ok(s) = def_script.unwrap().parse() {
-                id.script = Some(s);
-            }
+
+        if id.script.is_none()
+            && def_script.is_some()
+            && let Ok(s) = def_script.unwrap().parse()
+        {
+            id.script = Some(s);
         }
-        if id.region.is_none() && def_region.is_some() {
-            if let Ok(r) = def_region.unwrap().parse() {
-                id.region = Some(r);
-            }
+
+        if id.region.is_none()
+            && def_region.is_some()
+            && let Ok(r) = def_region.unwrap().parse()
+        {
+            id.region = Some(r);
         }
     } else {
         expander.maximize(id);

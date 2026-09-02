@@ -503,7 +503,7 @@ impl BigIntRef {
                 Self::zero(ctx)
             };
         }
-        if ai.limbs() == &[1] {
+        if ai.limbs() == [1] {
             // |a| == 1: result is ±1; even exponent keeps it positive.
             let sign = ai.sign() && (ei.limbs().first().is_some_and(|&l| l & 1 == 1));
             return Self::create(ctx, sign, vec![1]);
@@ -837,7 +837,7 @@ mod tests {
                 seed = seed
                     .wrapping_mul(6364136223846793005)
                     .wrapping_add(1442695040888963407);
-                (seed >> 33) as u64
+                seed >> 33
             };
             for _ in 0..2000 {
                 // build a dividend in [0, 2^192) and a divisor in [1, 2^128)
@@ -1015,7 +1015,7 @@ mod tests {
                 seed = seed
                     .wrapping_mul(6364136223846793005)
                     .wrapping_add(1442695040888963407);
-                (seed >> 33) as u64
+                seed >> 33
             };
             for _ in 0..200 {
                 let la = 33 + (next() % 8) as usize;
@@ -1066,7 +1066,7 @@ mod tests {
                 seed = seed
                     .wrapping_mul(6364136223846793005)
                     .wrapping_add(1442695040888963407);
-                (seed >> 33) as u64
+                seed >> 33
             };
             for _ in 0..200 {
                 // 3–6 random limbs → up to ~115 decimal digits (> 19, spans

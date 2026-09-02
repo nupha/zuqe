@@ -475,7 +475,7 @@ fn js_typed_array_set_internal(
         return Err(ctx.throw_type_error("out of bounds"));
     }
     let src_p = src.objectify(ctx)?;
-    let count = src_p.get_length_prop(ctx)? as i64;
+    let count = src_p.get_length_prop(ctx)?;
     if offset > dest_length {
         return Err(ctx.throw_range_error("invalid array length"));
     }
@@ -850,7 +850,7 @@ fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         if !tracked && oob {
             return Err(ctx.throw_type_error("out of bounds"));
         }
-        let effective_final = final_.min(current_len as usize);
+        let effective_final = final_.min(current_len);
         let copy_count = effective_final.saturating_sub(start);
 
         let Some(src) = this_val.as_object_TypedArray() else {
@@ -874,7 +874,7 @@ fn js_typed_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         if copy_count > 0
             && !same_store
             && src.class_id() == dst.class_id()
-            && (start + copy_count) <= current_len as usize
+            && (start + copy_count) <= current_len
             && dst.capacity() >= copy_count
             && src.capacity() >= start + copy_count
         {
@@ -1501,7 +1501,7 @@ fn js_typed_array_indexOf(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     // current length is below `len`; `k` is already clamped into [0, len].
     if special == special_includes && cc.arg(0).is_undefined() {
         let cur = ta.length();
-        let is_match = (k as usize) < len as usize && (cur as usize) < len as usize;
+        let is_match = (k as usize) < len as usize && cur < len as usize;
         return Ok(JSValue::from(is_match));
     }
 

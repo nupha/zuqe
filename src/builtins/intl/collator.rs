@@ -95,7 +95,7 @@ pub(crate) fn build_collator_data(
         match key.as_str() {
             "kn" => {
                 // `-u-kn` (no value) and `-u-kn-true` mean true; `-u-kn-false` means false.
-                numeric = !(val == "false");
+                numeric = val != "false";
             }
             "kf" => {
                 case_first = match val.as_str() {
@@ -222,10 +222,10 @@ pub(crate) fn build_collator_data(
         // matching; ICU4X ships no `de+search` tailoring, so emulate it via
         // phonebk. Other languages use the plain search type.
         let co_val = if lang == "de" { "phonebk" } else { "search" };
-        if let Ok(co_key) = "co".parse::<Key>() {
-            if let Ok(co_val) = Value::try_from_str(co_val) {
-                locale.extensions.unicode.keywords.set(co_key, co_val);
-            }
+        if let Ok(co_key) = "co".parse::<Key>()
+            && let Ok(co_val) = Value::try_from_str(co_val)
+        {
+            locale.extensions.unicode.keywords.set(co_key, co_val);
         }
     }
     let mut prefs = CollatorPreferences::from(&locale);

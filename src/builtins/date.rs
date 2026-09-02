@@ -271,7 +271,7 @@ fn ymdhms_to_secs(y: i64, m: usize, d: i32, h: i32, min: i32, s: i32) -> i64 {
     }
     let mut days = days_from_year(yy);
     for i in 0..mm {
-        let mut md = MONTH_DAYS[i as usize] as i64;
+        let mut md = MONTH_DAYS[i] as i64;
         if i == 1 {
             md += days_in_year(yy) - 365;
         }

@@ -227,13 +227,6 @@ impl<'a> Iterator for ScopedVarsIter<'a> {
     }
 }
 
-impl<'a> ScopedVarsIter<'a> {
-    #[inline(always)]
-    pub const fn is_arg_scope(&self) -> bool {
-        self.cur_idx == ARG_SCOPE_END
-    }
-}
-
 pub struct ScopedVarsIterMutItem<'a> {
     /// index of vardef
     pub idx: i32,

@@ -237,7 +237,7 @@ pub fn enabled_features(dec: &Decisions) -> Vec<String> {
         // Strict mode: only the features of the selected edition itself.
         dec.presets
             .get(dec.selected_index)
-            .map(|p| p.features.iter().cloned().collect())
+            .map(|p| p.features.to_vec())
             .unwrap_or_default()
     } else {
         dec.presets

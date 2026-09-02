@@ -325,7 +325,7 @@ fn js_regexp_compile(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 pub fn js_regexp_exec(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let str = cc.arg(0).to_string(ctx)?;
-    Ok(regexp_exec_default(ctx, cc.this(), str.into())?.map_or(JSValue::NULL, |a| a.into()))
+    Ok(regexp_exec_default(ctx, cc.this(), str)?.map_or(JSValue::NULL, |a| a.into()))
 }
 
 pub fn js_regexp_test(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -346,7 +346,7 @@ pub fn js_regexp_Symbol_match(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
         this.set_property(ctx, Atom::CONST_lastIndex, JSValue::from(0))?;
 
         let mut lst = Vec::<JSValue>::with_capacity(8);
-        while let Some(mat) = regexp_exec(ctx, this, str.into())? {
+        while let Some(mat) = regexp_exec(ctx, this, str)? {
             let match_str = mat.get_property_u32(ctx, 0)?.to_string(ctx)?;
             lst.push(JSValue::make_string(match_str));
 
@@ -372,7 +372,7 @@ pub fn js_regexp_Symbol_match(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
             Ok(JSValue::NULL)
         }
     } else {
-        regexp_exec(ctx, this, str.into()).map(|a| a.map_or(JSValue::NULL, |a| a.into()))
+        regexp_exec(ctx, this, str).map(|a| a.map_or(JSValue::NULL, |a| a.into()))
     }
 }
 
@@ -394,7 +394,7 @@ pub fn js_regexp_Symbol_matchAll(ctx: &mut ScopedContext, cc: CallContext) -> JS
         JS_CLASS_REGEXP_STRING_ITERATOR,
         RegExpStringIterPayload::new(
             regexp.try_into().unwrap(),
-            str.into(),
+            str,
             flags.index_of_char('g', 0).is_some(),
             flags
                 .chars()
@@ -473,7 +473,7 @@ pub fn js_regexp_Symbol_replace(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     let mut matche_list = SmallVec::<[Object; 10]>::new();
     let re_obj: JSValue = this_obj.into();
 
-    while let Some(mat) = regexp_exec(ctx, re_obj, str.into())? {
+    while let Some(mat) = regexp_exec(ctx, re_obj, str)? {
         matche_list.push(mat);
 
         if !is_global {
@@ -638,7 +638,7 @@ fn js_regexp_Symbol_search(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 
     let str = cc.arg(0).to_string(ctx)?;
 
-    let mat = regexp_exec(ctx, this_obj.into(), str.into())?;
+    let mat = regexp_exec(ctx, this_obj.into(), str)?;
     let cur_last_index = this_obj.get_property(ctx, Atom::CONST_lastIndex)?;
     if !cur_last_index.is_same(prev_last_index) {
         // restore original lastIndex
@@ -693,7 +693,7 @@ pub fn js_regexp_Symbol_split(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     let mut idx = 0_usize;
 
     if str.is_empty() {
-        if regexp_exec(ctx, splitter.into(), str.into())?.is_none() {
+        if regexp_exec(ctx, splitter.into(), str)?.is_none() {
             // not match: add tail, must be an empty str
             let emp_str_val =
                 JSValue::make_string(Atom::CONST_empty_string.force_string(ctx).unwrap());
@@ -710,7 +710,7 @@ pub fn js_regexp_Symbol_split(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
         // match regexp from `pos`
         splitter.set_property(ctx, Atom::CONST_lastIndex, JSValue::from(last_index as i32))?;
 
-        if let Some(m) = regexp_exec(ctx, splitter.into(), str.into())? {
+        if let Some(m) = regexp_exec(ctx, splitter.into(), str)? {
             let mut next_index = get_last_index(ctx, splitter.into())? as usize;
 
             if next_index > len {
@@ -864,7 +864,7 @@ fn encode_for_regexp_escape(
 
 /// ECMAScript WhiteSpace or LineTerminator code points (the ones not already
 /// handled by the ControlEscape table: TAB/VT/FF, LF/CR).
-fn is_whitespace_or_lineterminator(cp: u32) -> bool {
+const fn is_whitespace_or_lineterminator(cp: u32) -> bool {
     matches!(
         cp,
         0x0020 | 0x00a0 | 0x1680 | 0x2000
@@ -992,7 +992,7 @@ fn regexp_exec_default(
 
     if let Some(cap_list) = re.capture(str.content(), from) {
         let (arr, last_index) =
-            make_regexp_capture_array(ctx, str.into(), &cap_list, re_flags.has_indices())?;
+            make_regexp_capture_array(ctx, str, &cap_list, re_flags.has_indices())?;
 
         if re_flags.has_global() || re_flags.has_sticky() {
             this.set_property(ctx, Atom::CONST_lastIndex, JSValue::from(last_index as u32))?;
@@ -1032,5 +1032,5 @@ pub(super) fn regexp_exec(
         }
     }
 
-    regexp_exec_default(ctx, regexp, str.into()).map(|a| a.map(|a| a.into()))
+    regexp_exec_default(ctx, regexp, str).map(|a| a.map(|a| a.into()))
 }

@@ -333,9 +333,12 @@ impl ScopedContext<'_> {
     /// frame, Vec, cur_exception, etc.) before any call that might allocate.
     /// This is a no-op for primitive values or already-protected nodes.
     #[inline(always)]
-    pub(crate) fn gc_protect_transient(&self, _val: &JSValue) {
-        #[cfg(feature = "gc_protect_transient")]
-        self.gc_protect_transient_force(_val)
+    #[cfg(not(feature = "gc_protect_transient"))]
+    pub(crate) const fn gc_protect_transient(&self, _: &JSValue) {}
+    #[inline(always)]
+    #[cfg(feature = "gc_protect_transient")]
+    pub(crate) fn gc_protect_transient(&self, val: &JSValue) {
+        self.gc_protect_transient_force(val)
     }
 
     /// Force-version gc_protect_transient that always protects, regardless of

@@ -123,7 +123,7 @@ impl GcTrace for BFuncPayload {
 }
 
 impl BFuncPayload {
-    pub(crate) fn new(bytecode: Bytecode, captured_vars: Vec<VarRef>) -> Self {
+    pub(crate) const fn new(bytecode: Bytecode, captured_vars: Vec<VarRef>) -> Self {
         Self {
             bytecode,
             closure_var_refs: captured_vars,
@@ -228,7 +228,9 @@ impl BCWrapper {
     /// get bcfunction payload
     #[inline]
     pub fn payload_mut(&mut self) -> &mut BFuncPayload {
-        unsafe { self.0.as_mut() }.payload_bc_function_mut().unwrap()
+        unsafe { self.0.as_mut() }
+            .payload_bc_function_mut()
+            .unwrap()
     }
 
     pub(crate) fn method_set_home_object(&mut self, home_obj: Option<Object>) {
@@ -255,9 +257,11 @@ impl ObjectImpl {
             JS_CLASS_C_FUNCTION | JS_CLASS_C_FUNCTION_DATA => {
                 Ok(self.payload_native_func().unwrap().realm)
             }
-            JS_CLASS_BOUND_FUNCTION => {
-                self.payload_bound_function().unwrap().func_obj.realm(default)
-            }
+            JS_CLASS_BOUND_FUNCTION => self
+                .payload_bound_function()
+                .unwrap()
+                .func_obj
+                .realm(default),
             JS_CLASS_BYTECODE_FUNCTION
             | JS_CLASS_GENERATOR_FUNCTION
             | JS_CLASS_ASYNC_FUNCTION
@@ -424,7 +428,9 @@ impl BytecodeFunction {
 
     #[inline(always)]
     pub fn payload_mut(&mut self) -> &mut BFuncPayload {
-        unsafe { self.0.as_mut() }.payload_bc_function_mut().unwrap()
+        unsafe { self.0.as_mut() }
+            .payload_bc_function_mut()
+            .unwrap()
     }
 
     /// Run Bytecode Function in given scope.

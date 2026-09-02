@@ -125,7 +125,7 @@ impl TypedArrayPayload {
     /// mark the view out-of-bounds (used when the underlying resizable buffer
     /// is resized past the view's end).
     #[inline(always)]
-    pub(crate) fn set_out_of_bounds(&mut self, v: bool) {
+    pub(crate) const fn set_out_of_bounds(&mut self, v: bool) {
         self.out_of_bounds = v;
     }
 
@@ -160,7 +160,7 @@ impl TypedArrayPayload {
     }
 
     #[inline(always)]
-    pub(crate) fn set_length_tracked(&mut self, v: bool) {
+    pub(crate) const fn set_length_tracked(&mut self, v: bool) {
         self.length_tracked = v;
     }
 
@@ -180,7 +180,7 @@ impl TypedArrayPayload {
     /// set byte length of the view (used when the underlying resizable buffer
     /// is resized).
     #[inline(always)]
-    pub(crate) fn set_byte_length(&mut self, n: usize) {
+    pub(crate) const fn set_byte_length(&mut self, n: usize) {
         self.byte_length = n as _;
     }
 

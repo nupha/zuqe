@@ -40,12 +40,6 @@ pub(crate) enum ABufData {
 }
 
 impl ABufData {
-    /// for SharedArrayBuffer
-    #[inline(always)]
-    pub const fn is_shared(&self) -> bool {
-        matches!(self, Self::Shared(_))
-    }
-
     /// byte length
     pub fn len(&self) -> usize {
         match self {

@@ -55,7 +55,7 @@ pub struct MapEntry<'a> {
 
 impl<'a> MapEntry<'a> {
     /// The key of a Map entry. For a Set this is the stored element.
-    pub fn key(&self) -> JSValue {
+    pub const fn key(&self) -> JSValue {
         match self.pair {
             MapPair::Strong { key, .. } => *key,
             _ => JSValue::UNDEFINED,
@@ -63,7 +63,7 @@ impl<'a> MapEntry<'a> {
     }
 
     /// The value of a Map entry. For a Set this is `undefined`; use [`key`].
-    pub fn value(&self) -> JSValue {
+    pub const fn value(&self) -> JSValue {
         match self.pair {
             MapPair::Strong { value, .. } => *value,
             _ => JSValue::UNDEFINED,
@@ -146,9 +146,7 @@ impl JSMapState {
                 Some(MapPair::Weak { key: k, value: v }) => {
                     // A non-object (symbol) lookup key never matches an
                     // object-keyed weak slot.
-                    let Some(o) = key.as_object() else {
-                        return None;
-                    };
+                    let o = key.as_object()?;
                     k.upgrade(ctx.rt().gc_heap()).and_then(|k| {
                         if Object(k.into_raw()) == o {
                             *v = value;

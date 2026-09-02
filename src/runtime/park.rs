@@ -189,6 +189,7 @@ impl ParkState {
 
     /// Sync driver: block the calling thread until `wake()` (condvar
     /// notification) or `deadline` (`None` = indefinitely).
+    #[cfg(not(feature = "async_support"))]
     pub(crate) fn park_blocking(&self, deadline: Option<Instant>) {
         let mut g = self.inner.lock().unwrap();
         loop {

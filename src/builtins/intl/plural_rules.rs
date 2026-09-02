@@ -253,10 +253,10 @@ fn js_plural_rules_select(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
     };
     let cat = this.rules.category_for(operands);
     let s = plural_category_str(cat);
-    Ok(make_str(ctx, s.as_bytes().to_vec())?)
+    make_str(ctx, s.as_bytes().to_vec())
 }
 
-fn plural_category_str(cat: icu::plurals::PluralCategory) -> &'static str {
+const fn plural_category_str(cat: icu::plurals::PluralCategory) -> &'static str {
     use icu::plurals::PluralCategory::*;
     match cat {
         Zero => "zero",

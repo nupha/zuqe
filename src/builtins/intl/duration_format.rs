@@ -90,7 +90,7 @@ const SINGULAR: [&str; 10] = [
 
 /// Per-unit allowed styles (Table 1): date-like units have no numeric styles;
 /// ms/us/ns lack "2-digit".
-fn unit_styles(idx: usize) -> &'static [&'static str] {
+const fn unit_styles(idx: usize) -> &'static [&'static str] {
     match idx {
         0..=3 => &["long", "short", "narrow"],
         7..=9 => &["long", "short", "narrow", "numeric"],
@@ -108,7 +108,7 @@ fn ustyle_from_str(s: &str) -> UStyle {
     }
 }
 
-fn ustyle_str(s: UStyle) -> &'static str {
+const fn ustyle_str(s: UStyle) -> &'static str {
     match s {
         UStyle::Long => "long",
         UStyle::Short => "short",
@@ -118,7 +118,7 @@ fn ustyle_str(s: UStyle) -> &'static str {
     }
 }
 
-fn bstyle_str(s: BStyle) -> &'static str {
+const fn bstyle_str(s: BStyle) -> &'static str {
     match s {
         BStyle::Long => "long",
         BStyle::Short => "short",
@@ -163,7 +163,7 @@ fn get_fractional_digits(ctx: &mut ScopedContext, obj: &crate::Object) -> Result
         return Ok(None);
     }
     let n = v.to_number(ctx)?.to_f64();
-    if n.is_nan() || n < 0.0 || n > 9.0 {
+    if n.is_nan() || !(0.0..=9.0).contains(&n) {
         return Err(ctx.throw_range_error("Invalid fractionalDigits value"));
     }
     Ok(Some(n.floor() as i32))
@@ -221,11 +221,12 @@ fn get_unit_options(
 
     // ValidateDurationUnitStyle + 2-digit forcing for minutes/seconds inside a
     // numeric run.
-    if matches!(prev, Some(UStyle::Numeric) | Some(UStyle::TwoDigit)) {
-        if !matches!(style, UStyle::Numeric | UStyle::TwoDigit) {
-            return Err(ctx.throw_range_error("Invalid unit style after a numeric-styled unit"));
-        }
+    if matches!(prev, Some(UStyle::Numeric) | Some(UStyle::TwoDigit))
+        && !matches!(style, UStyle::Numeric | UStyle::TwoDigit)
+    {
+        return Err(ctx.throw_range_error("Invalid unit style after a numeric-styled unit"));
     }
+
     let mut style = style;
     if matches!(prev, Some(UStyle::Numeric) | Some(UStyle::TwoDigit)) && (5..=6).contains(&idx) {
         style = UStyle::TwoDigit;
@@ -252,10 +253,10 @@ fn js_duration_format_constructor(ctx: &mut ScopedContext, cc: CallContext) -> J
 
         // numberingSystem must match the BCP47 `type` nonterminal.
         let numbering_opt = get_option_string(ctx, &obj, "numberingSystem", &[])?;
-        if let Some(s) = &numbering_opt {
-            if !is_valid_bcp47_type(s) {
-                return Err(ctx.throw_range_error("Invalid numberingSystem value"));
-            }
+        if let Some(s) = &numbering_opt
+            && !is_valid_bcp47_type(s)
+        {
+            return Err(ctx.throw_range_error("Invalid numberingSystem value"));
         }
 
         let base_style =
@@ -691,7 +692,8 @@ fn js_duration_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext) 
         }
         vals.push(o.into());
     }
-    Ok(values_to_array(ctx, vals)?.into())
+
+    values_to_array(ctx, vals)
 }
 
 const js_duration_format_proto_funcs: &[FieldDef] = &[

@@ -154,17 +154,14 @@ pub(crate) fn build_date_time_format_data(
     for (k, v) in locale.extensions.unicode.keywords.iter() {
         let key = k.to_string();
         let val = v.to_string();
-        match key.as_str() {
-            "hc" => {
-                ext_hc = Some(match val.as_str() {
-                    "h11" => "h11",
-                    "h12" => "h12",
-                    "h23" => "h23",
-                    "h24" => "h24",
-                    _ => continue,
-                });
-            }
-            _ => {}
+        if key.as_str() == "hc" {
+            ext_hc = Some(match val.as_str() {
+                "h11" => "h11",
+                "h12" => "h12",
+                "h23" => "h23",
+                "h24" => "h24",
+                _ => continue,
+            });
         }
     }
 
@@ -705,7 +702,7 @@ fn js_date_time_format_format_bound(ctx: &mut ScopedContext, cc: CallContext) ->
     let arg = cc.arg(0);
     let provided = cc.length() > 0 && !arg.is_undefined();
     let s = format_date(ctx, this, arg, provided)?;
-    Ok(make_str(ctx, s.into_bytes())?)
+    make_str(ctx, s.into_bytes())
 }
 
 pub(crate) fn format_date(
@@ -861,7 +858,7 @@ fn format_two(f: DateField, v: i64) -> String {
     }
 }
 
-fn weekday_index(secs: i64) -> usize {
+const fn weekday_index(secs: i64) -> usize {
     // 1970-01-01 is Thursday. days since epoch mod 7.
     let days = secs.div_euclid(86400);
     let idx = ((days + 4).rem_euclid(7)) as usize; // 0=Sunday
@@ -886,15 +883,19 @@ fn weekday_name(f: DateField, idx: usize) -> String {
     }
 }
 
-fn month_names_narrow() -> [&'static str; 12] {
+#[inline(always)]
+const fn month_names_narrow() -> [&'static str; 12] {
     ["J", "F", "M", "A", "M", "J", "J", "A", "S", "O", "N", "D"]
 }
-fn month_names_short() -> [&'static str; 12] {
+
+#[inline(always)]
+const fn month_names_short() -> [&'static str; 12] {
     [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ]
 }
-fn month_names_long() -> [&'static str; 12] {
+
+const fn month_names_long() -> [&'static str; 12] {
     [
         "January",
         "February",
@@ -912,7 +913,7 @@ fn month_names_long() -> [&'static str; 12] {
 }
 
 // ── Simple epoch date arithmetic (proleptic Gregorian, in UTC) ──
-fn year_from_epoch(secs: i64) -> i64 {
+const fn year_from_epoch(secs: i64) -> i64 {
     let days = secs.div_euclid(86400);
     let year = 1970 + days.div_euclid(365);
     // refine using average 365.2425
@@ -921,17 +922,17 @@ fn year_from_epoch(secs: i64) -> i64 {
     y
 }
 
-fn month_from_epoch(secs: i64) -> u32 {
+const fn month_from_epoch(secs: i64) -> u32 {
     let days = secs.div_euclid(86400);
     civil_from_days(days).1
 }
 
-fn day_from_epoch(secs: i64) -> u32 {
+const fn day_from_epoch(secs: i64) -> u32 {
     let days = secs.div_euclid(86400);
     civil_from_days(days).2
 }
 
-fn time_from_epoch(secs: i64, millis: i64) -> (i64, i64, i64) {
+const fn time_from_epoch(secs: i64, millis: i64) -> (i64, i64, i64) {
     let s = secs.rem_euclid(86400);
     let h = s / 3600;
     let m = (s % 3600) / 60;
@@ -941,7 +942,7 @@ fn time_from_epoch(secs: i64, millis: i64) -> (i64, i64, i64) {
 }
 
 /// Convert days since epoch to (year, month, day). Howard Hinnant algorithm.
-fn civil_from_days(z: i64) -> (i64, u32, u32) {
+const fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719468;
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = z - era * 146097; // [0, 146096]
@@ -974,7 +975,7 @@ fn js_date_time_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext)
         o.set_property_str(ctx, "value", _v)?;
         parts.push(o.into());
     }
-    Ok(values_to_array(ctx, parts)?)
+    values_to_array(ctx, parts)
 }
 
 /// CLDR-style interval merge. Identical values collapse to a fully shared
@@ -1110,7 +1111,7 @@ fn js_date_time_format_format_range_to_parts(ctx: &mut ScopedContext, cc: CallCo
         o.set_property_str(ctx, "source", _s)?;
         parts.push(o.into());
     }
-    Ok(values_to_array(ctx, parts)?)
+    values_to_array(ctx, parts)
 }
 
 fn js_date_time_format_format_range(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -1152,7 +1153,7 @@ fn format_fields(
     } else {
         crate::builtins::date::Datetime::now().timestamp() as f64
     };
-    if ms.is_nan() || ms.is_infinite() || ms < -8.64e15 || ms > 8.64e15 {
+    if ms.is_nan() || ms.is_infinite() || !(-8.64e15..=8.64e15).contains(&ms) {
         return Err(ctx.throw_range_error("Invalid time value"));
     }
     let ms_clip = ms.trunc();
@@ -1431,9 +1432,7 @@ fn format_fields(
             parts.push(("dayPeriod".to_string(), suffix.trim().to_string()));
         }
         // timeStyle full/long append the zone name.
-        if this.time_style.is_some()
-            && matches!(this.time_style.as_deref(), Some("full") | Some("long"))
-        {
+        if this.time_style.is_some() && matches!(this.time_style, Some("full") | Some("long")) {
             let name = if this.time_zone == "UTC" {
                 if this.time_style == Some("full") {
                     "Coordinated Universal Time"

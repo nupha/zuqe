@@ -556,7 +556,7 @@ fn format_mapset(
     stack.pop();
 
     let mut head = String::new();
-    head.push_str(&cn);
+    head.push_str(cn);
     head.push('(');
     head.push_str(&ms.len().to_string());
     head.push_str(") {");

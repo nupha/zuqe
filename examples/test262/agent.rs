@@ -166,8 +166,8 @@ pub(crate) fn agents_hub() -> &'static AgentHub {
 // belong to (and never the next test's hub). This is what makes tests fully
 // isolated from one another.
 thread_local! {
-    static CURRENT_HUB: RefCell<Option<Arc<Hub>>> = RefCell::new(None);
-    static READY_SIG: RefCell<Option<Arc<(Mutex<bool>, Condvar)>>> = RefCell::new(None);
+    static CURRENT_HUB: RefCell<Option<Arc<Hub>>> = const { RefCell::new(None) };
+    static READY_SIG: RefCell<Option<Arc<(Mutex<bool>, Condvar)>>> = const { RefCell::new(None) };
 }
 
 /// Access the hub belonging to the current agent thread.
@@ -186,7 +186,7 @@ fn to_js_string(ctx: &mut ScopedContext, s: &str) -> Result<JSValue, i32> {
     Ok(JSValue::make_string(sr))
 }
 
-//// Set up the parent-side `$262.agent` object, installing it onto the given
+/// Set up the parent-side `$262.agent` object, installing it onto the given
 /// `$262` target object.
 pub fn setup_parent_agent(ctx: &mut ScopedContext, obj262: &mut Object) -> Result<(), i32> {
     let mut agent = ctx.create_base_object().map_err(|_| -1)?;
@@ -368,10 +368,10 @@ fn agent_broadcast(_ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue,
     }
 
     // Optional explicit SAB argument.
-    if let Ok(ab) = ArrayBuffer::try_from(cc.arg(1)) {
-        if let Some(data) = ab.shared_data() {
-            sab = Some(data);
-        }
+    if let Ok(ab) = ArrayBuffer::try_from(cc.arg(1))
+        && let Some(data) = ab.shared_data()
+    {
+        sab = Some(data);
     }
 
     let consumed = Arc::new((Mutex::new(false), Condvar::new()));
@@ -437,7 +437,7 @@ fn agent_safe_broadcast_async(ctx: &mut ScopedContext, cc: CallContext) -> Resul
             .unwrap();
     }
     // zhuque spawns exactly one agent per `start`; resolve with 1.
-    Promise::from_resolve_value(ctx, JSValue::from(1.0)).map(|p| JSValue::from(p))
+    Promise::from_resolve_value(ctx, JSValue::from(1.0)).map(JSValue::from)
 }
 
 /// `$262.agent.getReportAsync()` — resolves with the next report value sent by
@@ -448,7 +448,7 @@ fn agent_safe_broadcast_async(ctx: &mut ScopedContext, cc: CallContext) -> Resul
 fn agent_get_report_async(ctx: &mut ScopedContext, _cc: CallContext) -> Result<JSValue, i32> {
     let r = agents_hub().current().get_report();
     let v = to_js_string(ctx, &r)?;
-    Promise::from_resolve_value(ctx, v).map(|p| JSValue::from(p))
+    Promise::from_resolve_value(ctx, v).map(JSValue::from)
 }
 
 fn agent_get_report(ctx: &mut ScopedContext, _cc: CallContext) -> Result<JSValue, i32> {
@@ -458,10 +458,10 @@ fn agent_get_report(ctx: &mut ScopedContext, _cc: CallContext) -> Result<JSValue
 
 fn agent_sleep(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue, i32> {
     let ms = cc.arg(0).to_number(ctx).ok().map(|n| n.to_f64());
-    if let Some(ms) = ms {
-        if ms > 0.0 {
-            std::thread::sleep(std::time::Duration::from_secs_f64(ms / 1000.0));
-        }
+    if let Some(ms) = ms
+        && ms > 0.0
+    {
+        std::thread::sleep(std::time::Duration::from_secs_f64(ms / 1000.0));
     }
     Ok(JSValue::UNDEFINED)
 }
@@ -719,10 +719,11 @@ fn child_receive_broadcast(ctx: &mut ScopedContext, cc: CallContext) -> Result<J
 
     // Invoke the report callback (if any) with the broadcast value.
     let cb = cc.arg(0);
-    if !cb.is_undefined() && !cb.is_null() {
-        if let Ok(cb_obj) = Object::try_from(cb) {
-            let _ = cb_obj.call(ctx, JSValue::UNDEFINED, &[value]);
-        }
+    if !cb.is_undefined()
+        && !cb.is_null()
+        && let Ok(cb_obj) = Object::try_from(cb)
+    {
+        let _ = cb_obj.call(ctx, JSValue::UNDEFINED, &[value]);
     }
 
     Ok(JSValue::UNDEFINED)
@@ -747,10 +748,10 @@ fn child_report(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue, i32
 
 fn child_sleep(ctx: &mut ScopedContext, cc: CallContext) -> Result<JSValue, i32> {
     let ms = cc.arg(0).to_number(ctx).ok().map(|n| n.to_f64());
-    if let Some(ms) = ms {
-        if ms > 0.0 {
-            std::thread::sleep(std::time::Duration::from_secs_f64(ms / 1000.0));
-        }
+    if let Some(ms) = ms
+        && ms > 0.0
+    {
+        std::thread::sleep(std::time::Duration::from_secs_f64(ms / 1000.0));
     }
     Ok(JSValue::UNDEFINED)
 }
