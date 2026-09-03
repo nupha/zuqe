@@ -500,6 +500,27 @@ impl BytecodeImpl {
         }
     }
 
+    /// Get nth const value.
+    #[cfg(any(feature = "persistent", feature = "dump_bytecode"))]
+    #[inline(always)]
+    pub(crate) fn load_const(&self, nth: usize) -> Option<JSValue> {
+        if let Some((start, len)) = self.consts_section
+            && nth < len as usize
+        {
+            debug_assert_eq!(start, 0);
+            Some(unsafe {
+                *self
+                    .binary
+                    .as_ptr()
+                    .add(start as usize)
+                    .cast::<JSValue>()
+                    .add(nth)
+            })
+        } else {
+            None
+        }
+    }
+
     /// Max bytes for a LEB128-encoded u32.
     const LEB128_U32_MAX_BYTES: usize = 5;
 
