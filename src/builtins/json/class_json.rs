@@ -29,11 +29,7 @@ fn js_json_stringify(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let obj = cc.arg(0);
     let replacer = cc.arg(1);
     let space = cc.arg(2);
-
-    ctx.with_new_scope(|cx| {
-        let res = cx.json_stringify(obj, replacer, space);
-        res
-    })
+    ctx.with_new_scope(|cx| cx.json_stringify(obj, replacer, space))
 }
 
 // ---------------------------------------------------------------------------

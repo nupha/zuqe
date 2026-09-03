@@ -14,7 +14,7 @@ use std::process::ExitCode;
 use url::Url;
 use zuqe::{
     Context, EvalFlags, EvalName, EvalType, ExitStatus, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
-    JSValue, ModuleDef, Runtime, ScopedContext,
+    JSValue, ModuleDef, Runtime, ScopedContext, builtins::json::JSON,
 };
 
 fn new_runtime() -> Runtime {
@@ -48,7 +48,7 @@ macro_rules! mk_ctx {
 
 fn repr(s: &mut ScopedContext<'_>, v: JSValue) -> String {
     if v.is_object() {
-        match s.json_stringify(v, JSValue::UNDEFINED, JSValue::UNDEFINED) {
+        match JSON::stringify(ctx, v, JSValue::UNDEFINED, JSValue::UNDEFINED) {
             Ok(j) => string_of(s, j),
             Err(_) => "<json failed>".to_string(),
         }

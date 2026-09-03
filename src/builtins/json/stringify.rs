@@ -24,7 +24,7 @@ struct JSONStringifyContext {
 }
 
 impl<'a> ScopedContext<'a> {
-    pub fn json_stringify(
+    pub(super) fn json_stringify(
         &mut self,
         obj: JSValue,
         replacer: JSValue,
