@@ -191,6 +191,10 @@ impl RuntimeImpl {
                 f(&mut gcx, *opaque);
             }
 
+            // trace promise future registry entries (JSValues awaiting settlement)
+            #[cfg(feature = "async_support")]
+            self.promise_future_registry.trace_all(&mut gcx);
+
             gcx.take_nodes()
         };
 

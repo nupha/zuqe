@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+#[cfg(not(debug_assertions))]
+use std::sync::Once;
 use std::{
-    cell::UnsafeCell,
+    cell::{RefCell, UnsafeCell},
     ops::{Deref, DerefMut},
     ptr::NonNull,
-    rc::Rc,
-};
-
-#[cfg(not(debug_assertions))]
-use std::sync::{
-    Once,
-    atomic::{AtomicPtr, Ordering},
+    rc::{Rc, Weak},
 };
 
 use crate::{
@@ -19,8 +15,43 @@ use crate::{
     runtime::{RuntimeImpl, tick::TickStatus},
 };
 
+// ── Thread-local scheduler ─────────────────────────────────────────────
+//
+// Every Runtime created on the current thread is registered here as a
+// Weak reference. This avoids preventing RuntimeImpl from being dropped
+// when all user handles are gone. `Runtime::tick_all()` upgrades and
+// iterates all live runtimes, skipping dead weak refs.
+
+thread_local! {
+    pub(crate) static RUNTIMES: RefCell<Vec<Weak<UnsafeCell<RuntimeImpl>>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Register a runtime into the current thread's scheduler.
+/// Reuses slots from dead weak refs when capacity is exhausted.
+fn scheduler_register(rt: &Runtime) {
+    RUNTIMES.with(|rts| {
+        let mut rts = rts.borrow_mut();
+        let weak = Rc::downgrade(&rt.0);
+
+        if rts.len() < rts.capacity() {
+            // Spare capacity — fast path, no scan.
+            rts.push(weak);
+        } else if let Some(slot) = rts.iter_mut().find(|w| w.upgrade().is_none()) {
+            // Capacity full but a dead slot exists — reuse it.
+            *slot = weak;
+        } else {
+            // No dead slot — must grow.
+            rts.push(weak);
+        }
+    });
+}
+
+// ── Panic handler (release builds only) ────────────────────────────────
+
 #[cfg(not(debug_assertions))]
-static PANIC_RUNTIME: AtomicPtr<RuntimeImpl> = AtomicPtr::new(std::ptr::null_mut());
+thread_local! {
+    static PANIC_RUNTIME: Cell<*mut RuntimeImpl> = const { Cell::new(std::ptr::null_mut()) };
+}
 #[cfg(not(debug_assertions))]
 static PANIC_HOOK: Once = Once::new();
 
@@ -45,7 +76,7 @@ impl DerefMut for Runtime {
 }
 
 impl Runtime {
-    /// create runtime
+    /// Create a runtime and register it in the current thread's scheduler.
     pub fn create() -> Result<Runtime, i32> {
         let rt = Rc::new(UnsafeCell::new(RuntimeImpl::new()?));
 
@@ -54,7 +85,20 @@ impl Runtime {
             (*rt.get()).gc_heap_mut().set_opaque(rt_ptr.cast());
         }
 
-        Ok(Self(rt))
+        let rt = Self(rt);
+        scheduler_register(&rt);
+        Ok(rt)
+    }
+
+    /// Wrap an existing `Rc<RuntimeImpl>` into a `Runtime` handle.
+    /// Used by the scheduler to create handles from upgraded `Weak` refs.
+    pub(crate) const fn from_inner(inner: Rc<UnsafeCell<RuntimeImpl>>) -> Self {
+        Self(inner)
+    }
+
+    /// Returns `true` if both handles point to the same runtime.
+    pub fn ptr_eq(a: &Self, b: &Self) -> bool {
+        Rc::ptr_eq(&a.0, &b.0)
     }
 
     #[cfg(debug_assertions)]
@@ -63,19 +107,18 @@ impl Runtime {
     #[cfg(not(debug_assertions))]
     pub fn install_panic_handler(&self) {
         let rt_ptr = self.deref() as *const RuntimeImpl as *mut RuntimeImpl;
-        PANIC_RUNTIME.store(rt_ptr, Ordering::SeqCst);
+        PANIC_RUNTIME.with(|cell| cell.set(rt_ptr));
 
         PANIC_HOOK.call_once(|| {
-            // Chain any previously installed hook (e.g. the test262 runner's
-            // "print the crashing script" hook) so it still runs after we do our
-            // panic-time GC cleanup.
             let prev = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |info| {
-                if let Some(rt) = unsafe { PANIC_RUNTIME.load(Ordering::SeqCst).as_mut() } {
-                    unsafe {
-                        rt.panic_free_gc();
+                PANIC_RUNTIME.with(|cell| {
+                    if let Some(rt) = unsafe { cell.get().as_mut() } {
+                        unsafe {
+                            rt.panic_free_gc();
+                        }
                     }
-                }
+                });
 
                 eprintln!("{info}");
                 prev(info);

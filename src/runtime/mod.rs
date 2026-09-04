@@ -6,11 +6,15 @@ mod park;
 mod rt;
 mod tick;
 
-pub use {handle::Runtime, park::{DeadlineWaker, WakeHandle}, rt::RuntimeImpl};
+pub use {
+    handle::Runtime,
+    park::{DeadlineWaker, WakeHandle},
+    rt::RuntimeImpl,
+};
 
 pub(crate) use {handle::RuntimePtr, park::ParkState, rt::*};
 
 #[cfg(feature = "async_support")]
 mod async_support;
 #[cfg(feature = "async_support")]
-pub use async_support::RunFuture;
+pub use async_support::{JoinEachFuture, RunFuture};

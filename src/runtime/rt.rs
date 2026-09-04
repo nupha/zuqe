@@ -148,6 +148,11 @@ pub struct RuntimeImpl {
     /// the resumable state survives GC regardless of promise-reaction edges.
     pub(crate) gc_pending_async_states: Vec<crate::function::AsyncState>,
 
+    /// Per-runtime promise future registry (was thread_local, moved here
+    /// to support multiple runtimes per thread).
+    #[cfg(feature = "async_support")]
+    pub(crate) promise_future_registry: crate::builtins::promise::PromiseFutureRegistry,
+
     #[deprecated]
     pub(crate) host_promise_rejection_tracker: Option<JSHostPromiseRejectionTracker>,
     #[deprecated]
@@ -179,6 +184,22 @@ pub struct RuntimeImpl {
     #[cfg(feature = "zapi")]
     pub(crate) zapi_class_map:
         std::sync::Mutex<std::collections::HashMap<crate::class::ClassID, usize>>,
+
+    //
+    // ── MULTI-RUNTIME JOIN ──
+    //
+    pub(crate) join_state: JoinState,
+}
+
+/// State of a runtime within a [`JoinNextFuture`](super::JoinNextFuture) stream.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum JoinState {
+    /// Being ticked, not yet idle.
+    Active = 0,
+    /// `tick()` returned Idle, waiting to be yielded.
+    Idle = 1,
+    /// Already yielded to the caller.
+    Yielded = 2,
 }
 
 impl Drop for RuntimeImpl {
@@ -278,6 +299,9 @@ impl RuntimeImpl {
             #[cfg(feature = "builtin_weakref")]
             finrec_pending_cleanups: Vec::new(),
 
+            #[cfg(feature = "async_support")]
+            promise_future_registry: crate::builtins::promise::PromiseFutureRegistry::new(),
+
             #[cfg(feature = "zapi")]
             zapi_body_registry: std::sync::Mutex::new(std::collections::HashMap::new()),
             #[cfg(feature = "zapi")]
@@ -287,6 +311,8 @@ impl RuntimeImpl {
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,
+
+            join_state: JoinState::Active,
         };
 
         rt.init_const_atoms();

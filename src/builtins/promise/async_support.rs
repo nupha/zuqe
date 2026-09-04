@@ -10,6 +10,8 @@ use std::{
     task::{Context as TaskContext, Poll, Waker},
 };
 
+use gc_lite::{GcTrace, GcTraceCtx};
+
 use crate::{
     JobState,
     atom::Atom,
@@ -21,38 +23,46 @@ use crate::{
 
 use super::{JobGcTrace2, Promise};
 
-thread_local! {
-    static PROMISE_FUTURE_REGISTRY: RefCell<PromiseFutureRegistry> =
-        RefCell::new(PromiseFutureRegistry::new());
+pub(crate) struct PromiseFutureState {
+    pub(crate) result: Option<Result<JSValue, JSValue>>,
+    pub(crate) waker: Option<Waker>,
 }
 
-struct PromiseFutureState {
-    result: Option<Result<JSValue, JSValue>>,
-    waker: Option<Waker>,
-}
-
-struct PromiseFutureRegistry {
+pub(crate) struct PromiseFutureRegistry {
     next_id: i32,
     entries: HashMap<i32, Rc<RefCell<PromiseFutureState>>>,
 }
 
 impl PromiseFutureRegistry {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             next_id: 1,
             entries: HashMap::new(),
         }
     }
 
-    fn insert(&mut self, state: Rc<RefCell<PromiseFutureState>>) -> i32 {
+    pub(crate) fn insert(&mut self, state: Rc<RefCell<PromiseFutureState>>) -> i32 {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1).max(1);
         self.entries.insert(id, state);
         id
     }
 
-    fn take(&mut self, id: i32) -> Option<Rc<RefCell<PromiseFutureState>>> {
+    pub(crate) fn take(&mut self, id: i32) -> Option<Rc<RefCell<PromiseFutureState>>> {
         self.entries.remove(&id)
+    }
+
+    /// Trace all live entries for GC. Called from RuntimeImpl::gc_collect.
+    pub(crate) fn trace_all(&self, gcx: &mut GcTraceCtx) {
+        for state in self.entries.values() {
+            let state = state.borrow();
+            if let Some(ref result) = state.result {
+                match result {
+                    Ok(v) => v.trace(gcx),
+                    Err(v) => v.trace(gcx),
+                }
+            }
+        }
     }
 }
 
@@ -75,7 +85,7 @@ impl Future for PromiseFuture {
     }
 }
 
-fn promise_future_reaction(_: &mut ScopedContext, cc: CallContext) -> JSResult {
+fn promise_future_reaction(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let Some(id) = cc.data(0).as_int() else {
         return Ok(JSValue::UNDEFINED);
     };
@@ -83,17 +93,15 @@ fn promise_future_reaction(_: &mut ScopedContext, cc: CallContext) -> JSResult {
     let is_reject = cc.magic() != 0;
     let arg = cc.arg(0);
 
-    PROMISE_FUTURE_REGISTRY.with(|lut| {
-        if let Some(s) = lut.borrow_mut().take(id) {
-            let mut state = s.borrow_mut();
-            if state.result.is_none() {
-                state.result = Some(if is_reject { Err(arg) } else { Ok(arg) });
-                if let Some(w) = state.waker.take() {
-                    w.wake();
-                }
+    if let Some(s) = ctx.rt_mut().promise_future_registry.take(id) {
+        let mut state = s.borrow_mut();
+        if state.result.is_none() {
+            state.result = Some(if is_reject { Err(arg) } else { Ok(arg) });
+            if let Some(w) = state.waker.take() {
+                w.wake();
             }
         }
-    });
+    }
 
     Ok(JSValue::UNDEFINED)
 }
@@ -163,7 +171,7 @@ impl Promise {
             waker: None,
         }));
 
-        let id = PROMISE_FUTURE_REGISTRY.with(|lut| lut.borrow_mut().insert(state.clone()));
+        let id = ctx.rt_mut().promise_future_registry.insert(state.clone());
 
         let ok_func = {
             let data = Box::new([JSValue::from(id)]);

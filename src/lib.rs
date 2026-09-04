@@ -53,8 +53,11 @@ pub use {
     value::JSValue,
 };
 
+#[cfg(not(feature = "async_support"))]
+pub use runtime::park_all;
+
 #[cfg(feature = "async_support")]
-pub use runtime::RunFuture;
+pub use runtime::{JoinEachFuture, RunFuture};
 
 pub(crate) use value::JSValueTag;
 
