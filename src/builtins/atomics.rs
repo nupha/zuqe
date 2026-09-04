@@ -474,8 +474,7 @@ fn drop_waiter(key: WaitKey, waiter: &Waiter) {
 /// harness's event loop as a `tick_handler` signal: while this is non-zero the
 /// loop keeps polling so the corresponding Promise can settle (driven by a
 /// worker thread) instead of being left pending.
-static WAIT_ASYNC_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
+static WAIT_ASYNC_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
 /// Returns `true` when there are outstanding `Atomics.waitAsync` waiters that
 /// have not yet settled. Used by host event loops to decide whether to keep
