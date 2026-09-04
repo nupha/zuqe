@@ -9,7 +9,7 @@ use std::{
 };
 
 use url::Url;
-use zuqe::builtins::atomics::WAIT_ASYNC_COUNT;
+use zuqe::builtins::atomics::has_pending_wait_async;
 use zuqe::{
     CallContext, Callback, Context, EvalFlags, EvalName, EvalType, ExceptionText, JSResult,
     JSValue, ModuleDef, Runtime, ScopedContext,
@@ -464,7 +464,7 @@ pub async fn run_test_file(
             // timeout). Without this, `run_async` stops before the Promise
             // resolves and the test hangs.
             ctx.add_tick_handler(|_ctx| {
-                WAIT_ASYNC_COUNT.load(std::sync::atomic::Ordering::Relaxed) > 0
+                has_pending_wait_async()
             });
             Ok(())
         })
@@ -524,7 +524,7 @@ pub async fn run_test_file(
 
         // Tell the engine whether the host agent may suspend while the test's
         // main-thread code runs. Restored at the end of the loop body.
-        zuqe::builtins::atomics::set_agent_can_suspend(can_block);
+        rt.set_agent_can_suspend(can_block);
 
         for strict in [
             if use_nostrict { Some(false) } else { None },
@@ -590,7 +590,7 @@ pub async fn run_test_file(
     }
 
     // Restore the default (the host may suspend) for the next test.
-    zuqe::builtins::atomics::set_agent_can_suspend(true);
+    rt.set_agent_can_suspend(true);
 
     // Tear down any agent threads spawned by this test so they don't leak into
     // the next test (which would corrupt broadcast/hub state across tests).

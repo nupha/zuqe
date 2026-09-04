@@ -175,6 +175,11 @@ pub struct RuntimeImpl {
     #[cfg(feature = "builtin_weakref")]
     pub(crate) finrec_pending_cleanups: Vec<(JSValue, JSValue, ContextPtr)>,
 
+    /// Host-controlled per-agent `AgentCanSuspend()` flag. `Atomics.wait`
+    /// throws a TypeError when this is false (e.g. the main host thread under
+    /// test262's `CanBlockIsFalse` flag), and blocks otherwise.
+    pub(crate) agent_can_suspend: bool,
+
     // ── zapi native extension state ──
     #[cfg(feature = "zapi")]
     pub(crate) zapi_body_registry:
@@ -298,6 +303,8 @@ impl RuntimeImpl {
             next_shape_uid: Cell::new(1),
             #[cfg(feature = "builtin_weakref")]
             finrec_pending_cleanups: Vec::new(),
+
+            agent_can_suspend: true,
 
             #[cfg(feature = "async_support")]
             promise_future_registry: crate::builtins::promise::PromiseFutureRegistry::new(),

@@ -23,7 +23,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock};
 
 use zuqe::builtins::array_buffer::ArrayBuffer;
-use zuqe::builtins::atomics::WAIT_ASYNC_COUNT;
+use zuqe::builtins::atomics::has_pending_wait_async;
 use zuqe::builtins::promise::Promise;
 use zuqe::{
     CallContext, Callback, EvalFlags, EvalName, EvalType, JSValue, Object, Runtime, ScopedContext,
@@ -605,7 +605,7 @@ fn agent_thread(hub: Arc<Hub>, src: String, ready_sig: Arc<(Mutex<bool>, Condvar
         // or timeout). This ensures the agent's `$DONE`/report fires instead of
         // being left pending.
         sctx.add_tick_handler(|_ctx| {
-            WAIT_ASYNC_COUNT.load(std::sync::atomic::Ordering::Relaxed) > 0
+            has_pending_wait_async()
         });
 
         Ok(())

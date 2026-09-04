@@ -22,6 +22,7 @@ use crate::{
     function::CallContext,
     function::FieldDef,
     object::TypedArray,
+    runtime::RuntimeImpl,
     value::JSValue,
 };
 
@@ -473,24 +474,23 @@ fn drop_waiter(key: WaitKey, waiter: &Waiter) {
 /// harness's event loop as a `tick_handler` signal: while this is non-zero the
 /// loop keeps polling so the corresponding Promise can settle (driven by a
 /// worker thread) instead of being left pending.
-pub static WAIT_ASYNC_COUNT: std::sync::atomic::AtomicUsize =
+static WAIT_ASYNC_COUNT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
-/// Host-controlled `AgentCanSuspend()` flag. `Atomics.wait` throws a TypeError
-/// when this is false (e.g. the main host thread under test262's
-/// `CanBlockIsFalse` flag), and blocks otherwise. Agent threads set it to true
-/// via [`set_agent_can_suspend`] so they may block on `Atomics.wait`.
-static AGENT_CAN_SUSPEND: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
-
-/// Override whether the current agent may suspend (block) in `Atomics.wait`.
-/// The test262 harness sets this to `false` when a test declares
-/// `CanBlockIsFalse`, and restores it afterwards.
-pub fn set_agent_can_suspend(v: bool) {
-    AGENT_CAN_SUSPEND.store(v, std::sync::atomic::Ordering::Relaxed);
+/// Returns `true` when there are outstanding `Atomics.waitAsync` waiters that
+/// have not yet settled. Used by host event loops to decide whether to keep
+/// polling.
+pub fn has_pending_wait_async() -> bool {
+    WAIT_ASYNC_COUNT.load(std::sync::atomic::Ordering::Relaxed) > 0
 }
 
-fn agent_can_suspend() -> bool {
-    AGENT_CAN_SUSPEND.load(std::sync::atomic::Ordering::Relaxed)
+impl RuntimeImpl {
+    /// Override whether the current agent may suspend (block) in `Atomics.wait`.
+    /// The test262 harness sets this to `false` when a test declares
+    /// `CanBlockIsFalse`, and restores it afterwards.
+    pub const fn set_agent_can_suspend(&mut self, v: bool) {
+        self.agent_can_suspend = v;
+    }
 }
 
 /// Wake every registered waiter regardless of key. Used on agent-harness
@@ -621,7 +621,7 @@ pub fn js_atomics_wait(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // `AgentCanSuspend`: a host where the agent cannot be suspended (e.g. the
     // main host thread under test262's `CanBlockIsFalse`) throws a TypeError
     // instead of blocking.
-    if !agent_can_suspend() {
+    if !ctx.rt().agent_can_suspend {
         return Err(ctx
             .throw_type_error("Atomics.wait: cannot be called from a thread that cannot suspend"));
     }
