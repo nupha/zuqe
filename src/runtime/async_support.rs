@@ -3,6 +3,7 @@
 
 use std::{
     pin::Pin,
+    sync::Arc,
     task::{Context as TaskContext, Poll},
 };
 
@@ -107,10 +108,10 @@ impl futures_util::Stream for JoinEachFuture {
         // Phase 1: tick all live runtimes until no progress.
         loop {
             let mut had_progress = false;
+            let mut first_park: Option<Arc<super::ParkState>> = None;
 
-            let parks: Vec<std::sync::Arc<super::ParkState>> = RUNTIMES.with(|rts| {
+            RUNTIMES.with(|rts| {
                 let rts = rts.borrow();
-                let mut parks = Vec::new();
                 for w in rts.iter() {
                     let Some(rc) = w.upgrade() else { continue };
                     let rt = unsafe { &mut *rc.get() };
@@ -121,7 +122,11 @@ impl futures_util::Stream for JoinEachFuture {
 
                     match rt.tick() {
                         TickStatus::Progress => had_progress = true,
-                        TickStatus::Park(_) => parks.push(rt.park.clone()),
+                        TickStatus::Park(_) => {
+                            if first_park.is_none() {
+                                first_park = Some(rt.park.clone());
+                            }
+                        }
                         TickStatus::Idle => rt.join_state = JoinState::Idle,
                     }
                 }
@@ -129,12 +134,11 @@ impl futures_util::Stream for JoinEachFuture {
                 if had_progress {
                     cx.waker().wake_by_ref();
                 }
-                parks
             });
 
             if !had_progress {
-                if let Some(park) = parks.first() {
-                    (**park).park_for(cx.waker(), None);
+                if let Some(park) = first_park {
+                    (*park).park_for(cx.waker(), None);
                 }
                 break;
             }
