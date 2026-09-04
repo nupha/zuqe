@@ -191,6 +191,8 @@ pub struct ScopedVarsIterItem<'a> {
     pub idx: i32,
     /// reference to vardef
     pub vardef: &'a JSVarDef,
+
+    #[deprecated(note = "unused")]
     pub arg_scope_end: bool,
 }
 

@@ -8,7 +8,7 @@ use gc_lite::GcTrace;
 use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
 
 use crate::{
-    Context, ScopedContext, USER_CLASS_ID_START,
+    USER_CLASS_ID_START,
     atom::{Atom, AtomRegistry},
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions, promise::JSHostPromiseRejectionTracker,
@@ -89,7 +89,7 @@ pub struct RuntimeImpl {
     pub(crate) active_frame_index: FrameIndex,
 
     /// current exception
-    pub(super) cur_exception: Exception,
+    pub(crate) cur_exception: Exception,
     /// Process-level interrupt flag
     pub(crate) interrupt_code: Option<ExitCode>,
 
@@ -526,32 +526,6 @@ impl RuntimeImpl {
             let ctx_impl: &mut crate::context::ContextImpl = DerefMut::deref_mut(&mut ctx_ptr);
             ctx_impl.oneshot_jobs.push_back(job);
         }
-    }
-}
-
-impl<'c> ScopedContext<'c> {
-    /// Take the current exception and add it to `self` scope for protection.
-    ///
-    /// After this call, the exception value (if any) becomes a LOCAL node
-    /// in the `self` scope and will be protected from GC until the scope ends.
-    pub fn take_exception(&mut self) -> Exception {
-        let exc = std::mem::take(&mut self.rt_mut().cur_exception);
-        if let Exception::Error(val) = &exc
-            && let Some(n) = val.as_gc_node()
-        {
-            self.gc_state().add_non_local(n);
-        }
-        exc
-    }
-}
-
-impl<'c> Context<'c> {
-    /// Take the current exception and add it to root scope for protection.
-    ///
-    /// After this call, the exception value (if any) becomes a LOCAL node
-    /// in the root scope and will be protected from GC until the scope ends.
-    pub fn take_exception(&mut self) -> Exception {
-        self.root_scope().take_exception()
     }
 }
 

@@ -103,7 +103,7 @@ fn js_list_format_format(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .ok_or_else(|| ctx.throw_type_error("not a ListFormat"))?;
     let list = string_list_from_iterable(ctx, cc.arg(0))?;
     let s = join_list(this, &list)?;
-    Ok(make_str(ctx, s.into_bytes())?)
+    make_str(ctx, s.into_bytes())
 }
 
 /// ECMA-402 StringListFromIterable: undefined → empty; strings iterate by
@@ -293,7 +293,7 @@ fn js_list_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext) -> J
         }
         parts.push(make_part(ctx, "element", &list[i])?);
     }
-    Ok(values_to_array(ctx, parts)?)
+    values_to_array(ctx, parts)
 }
 
 fn make_part(ctx: &mut ScopedContext, kind: &str, value: &str) -> Result<JSValue, i32> {

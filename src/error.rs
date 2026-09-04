@@ -4,7 +4,7 @@
 use std::{borrow::Cow, io::Write, process::ExitCode};
 
 use crate::{
-    JS_CLASS_ERROR, Object, ScopedContext,
+    Context, JS_CLASS_ERROR, Object, ScopedContext,
     atom::Atom,
     class::ClassID,
     context::ContextImpl,
@@ -558,6 +558,52 @@ impl<'c> ScopedContext<'c> {
     #[cold]
     pub fn backtrace(&mut self) -> Option<String> {
         self.do_build_backtrace(None, None, 0).ok()
+    }
+
+    /// Take the current exception and add it to `self` scope for protection.
+    ///
+    /// After this call, the exception value (if any) becomes a LOCAL node
+    /// in the `self` scope and will be protected from GC until the scope ends.
+    pub fn take_exception(&mut self) -> Exception {
+        let exc = std::mem::take(&mut self.rt_mut().cur_exception);
+        if let Exception::Error(val) = &exc
+            && let Some(n) = val.as_gc_node()
+        {
+            self.gc_state().add_non_local(n);
+        }
+        exc
+    }
+
+    /// Take the current exception as text
+    pub fn take_exception_as_text(&mut self) -> ExceptionText {
+        let exc = std::mem::take(&mut self.rt_mut().cur_exception);
+        exc.to_text(self)
+    }
+
+    /// Take the current exception as JSValue
+    pub fn take_exception_as_value(&mut self) -> JSValue {
+        let exc = std::mem::take(&mut self.rt_mut().cur_exception);
+        exc.to_value(self)
+    }
+}
+
+impl<'c> Context<'c> {
+    /// Take the current exception and add it to root scope for protection.
+    ///
+    /// After this call, the exception value (if any) becomes a LOCAL node
+    /// in the root scope and will be protected from GC until the scope ends.
+    pub fn take_exception(&mut self) -> Exception {
+        self.root_scope().take_exception()
+    }
+
+    /// Take the current exception as text
+    pub fn take_exception_as_text(&mut self) -> ExceptionText {
+        self.root_scope().take_exception_as_text()
+    }
+
+    /// Take the current exception as JSValue
+    pub fn take_exception_as_value(&mut self) -> JSValue {
+        self.root_scope().take_exception_as_value()
     }
 }
 

@@ -491,8 +491,7 @@ impl<'c> ScopedContext<'c> {
         let ret_val = match self.eval(source, base, eval_type, flags) {
             Ok(v) => v,
             Err(_) => {
-                let exc = self.rt_mut().take_exception();
-                return ExitStatus::Exception(exc);
+                return ExitStatus::Exception(self.rt_mut().take_exception());
             }
         };
 
@@ -651,8 +650,7 @@ impl<'c> Context<'c> {
             name.clone()
         };
         let Ok(ret_val) = self.with_new_scope(|cx| cx.eval(source, &name, eval_type, flags)) else {
-            let exc = self.take_exception();
-            return ExitStatus::Exception(exc);
+            return ExitStatus::Exception(self.take_exception());
         };
 
         // A module entrypoint evaluates to a Promise. Observe its settled state:

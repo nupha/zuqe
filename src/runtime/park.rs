@@ -41,12 +41,9 @@
 //!   self-oscillate.
 
 use std::{
-    sync::{
-        Arc, Condvar, Mutex,
-        atomic::{AtomicI32, AtomicU32, Ordering},
-    },
+    sync::{Arc, Condvar, Mutex},
     task::Waker,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 /// Host-provided deadline waker: called on the JS thread every time the

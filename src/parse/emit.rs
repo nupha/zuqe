@@ -44,13 +44,6 @@ impl<'s> JSParseState<'s> {
         self.emit_u16(scope);
     }
 
-    /// emit on current function def
-    pub fn emit_op_u8(&mut self, op: u8) {
-        let ln = self.last_line_num;
-        let lp = self.last_line_pos;
-        self.cur_func_mut().emit_op_u8(op, ln, lp);
-    }
-
     /// don't update the last opcode and don't emit line number info
     /// emit on current function def
     #[inline(always)]

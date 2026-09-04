@@ -99,7 +99,7 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
         let v = o.get_property_str(ctx, "minimumIntegerDigits")?;
         if !v.is_undefined() {
             let m = v.to_number(ctx)?.to_f64();
-            if m.is_nan() || m < 1.0 || m > 21.0 {
+            if m.is_nan() || !(1.0..=21.0).contains(&m) {
                 return Err(ctx.throw_range_error("Invalid minimumIntegerDigits"));
             }
             min_int_digits = m as i32;
@@ -107,7 +107,7 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
         let v = o.get_property_str(ctx, "minimumFractionDigits")?;
         if !v.is_undefined() {
             let m = v.to_number(ctx)?.to_f64();
-            if m.is_nan() || m < 0.0 || m > 100.0 {
+            if m.is_nan() || !(0.0..=100.0).contains(&m) {
                 return Err(ctx.throw_range_error("Invalid minimumFractionDigits"));
             }
             min_frac_digits = m as i32;
@@ -115,7 +115,7 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
         let v = o.get_property_str(ctx, "maximumFractionDigits")?;
         if !v.is_undefined() {
             let m = v.to_number(ctx)?.to_f64();
-            if m.is_nan() || m < 0.0 || m > 100.0 {
+            if m.is_nan() || !(0.0..=100.0).contains(&m) {
                 return Err(ctx.throw_range_error("Invalid maximumFractionDigits"));
             }
             max_frac_digits = m as i32;
@@ -123,7 +123,7 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
         let vs = o.get_property_str(ctx, "minimumSignificantDigits")?;
         if !vs.is_undefined() {
             let m = vs.to_number(ctx)?.to_f64();
-            if m.is_nan() || m < 1.0 || m > 21.0 {
+            if m.is_nan() || !(1.0..=21.0).contains(&m) {
                 return Err(ctx.throw_range_error("Invalid significant digits"));
             }
             min_sig_digits = Some(m as u8);
@@ -131,7 +131,7 @@ pub(crate) fn js_plural_rules_constructor(ctx: &mut ScopedContext, cc: CallConte
         let vs = o.get_property_str(ctx, "maximumSignificantDigits")?;
         if !vs.is_undefined() {
             let m = vs.to_number(ctx)?.to_f64();
-            if m.is_nan() || m < 1.0 || m > 21.0 {
+            if m.is_nan() || !(1.0..=21.0).contains(&m) {
                 return Err(ctx.throw_range_error("Invalid significant digits"));
             }
             max_sig_digits = Some(m as u8);
@@ -334,8 +334,9 @@ fn js_plural_rules_resolved_options(ctx: &mut ScopedContext, cc: CallContext) ->
     let mut all = this
         .rules
         .categories()
-        .map(|c| plural_category_str(c))
+        .map(plural_category_str)
         .collect::<Vec<_>>();
+
     // ponytail: ICU4X 2.3 compiled plurals data lacks `gv` (falls back to the
     // root rule); report its CLDR category set. select() still evaluates via
     // the fallback — hardcode gv rules if select() ever gets exercised.

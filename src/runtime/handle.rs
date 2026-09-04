@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 #[cfg(not(debug_assertions))]
-use std::sync::Once;
+use std::{cell::Cell, sync::Once};
 use std::{
     cell::{RefCell, UnsafeCell},
     ops::{Deref, DerefMut},

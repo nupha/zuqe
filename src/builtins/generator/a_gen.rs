@@ -177,7 +177,7 @@ impl AGenPayload {
                                 self.resolve(ctx, val, true);
                             }
                             Err(_) => {
-                                let err_val = ctx.take_exception().to_value(ctx);
+                                let err_val = ctx.take_exception_as_value();
                                 self.complete();
                                 self.reject(ctx, err_val);
                             }
@@ -238,7 +238,7 @@ impl AGenPayload {
                 // Fail looking up JS_ATOM_constructor when is_reject==0.
                 // A poisoned .constructor property is observable and the resulting
                 // exception should be delivered to the catch handler.
-                let err_val = ctx.take_exception().to_value(ctx);
+                let err_val = ctx.take_exception_as_value();
                 debug_assert!(
                     err_val
                         .as_gc_node()
@@ -565,7 +565,7 @@ fn js_async_generator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         }
     } else {
         let _ = ctx.throw_type_error_invalid_class(JS_CLASS_ASYNC_GENERATOR);
-        let err_val = ctx.take_exception().to_value(ctx);
+        let err_val = ctx.take_exception_as_value();
         resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
     }
 

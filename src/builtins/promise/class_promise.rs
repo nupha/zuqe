@@ -159,9 +159,8 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // }
 
     let fail_reject = |cx: &mut ScopedContext| -> JSResult {
-        let err_val = cx.take_exception().to_value(cx);
+        let err_val = cx.take_exception_as_value();
         resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
-
         debug_assert!(result_promise.gc_node().is_local());
         Ok(JSValue::from(result_promise))
     };
@@ -290,7 +289,7 @@ pub fn js_promise_all(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
             debug_assert!(result_promise.gc_node().is_local());
 
-            let err_val = ctx.take_exception().to_value(ctx);
+            let err_val = ctx.take_exception_as_value();
             resolving_funcs[1].call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
 
             debug_assert!(result_promise.gc_node().is_local());
@@ -364,20 +363,15 @@ pub fn js_promise_all_keyed(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     // for the spec-mandated early rejections (non-object argument / non-callable
     // `resolve`).
     let fail_reject = |cx: &mut ScopedContext| -> JSResult {
-        let exc = cx.take_exception();
-        let err_val = exc.to_value(cx);
-        let err_val = if err_val.is_undefined() {
-            match cx.create_error_object(
+        let mut err_val = cx.take_exception_as_value();
+        if err_val.is_undefined() {
+            err_val = cx.create_error_object(
                 ErrorKind::Type,
                 "Promise.allKeyed: 'resolve' is not a function or the argument is not an object",
                 false,
-            ) {
-                Some(obj) => obj.into(),
-                None => JSValue::UNDEFINED,
-            }
-        } else {
-            err_val
-        };
+            ).map_or(JSValue::UNDEFINED,JSValue::from);
+        }
+
         resolving_funcs[1].call(cx, JSValue::UNDEFINED, std::slice::from_ref(&err_val))?;
         debug_assert!(result_promise.gc_node().is_local());
         Ok(JSValue::from(result_promise))
@@ -397,12 +391,11 @@ pub fn js_promise_all_keyed(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         return fail_reject(ctx);
     };
 
-    let pkeys = match items_obj.get_own_property_names(
+    let Ok(pkeys) = items_obj.get_own_property_names(
         ctx,
         JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK,
-    ) {
-        Ok(k) => k,
-        Err(_) => return fail_reject(ctx),
+    ) else {
+        return fail_reject(ctx);
     };
     let n = pkeys.len();
 

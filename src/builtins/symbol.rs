@@ -189,7 +189,7 @@ mod symbol_key_tests {
     fn symbol_key_define_get_roundtrip() {
         let mut rt = Runtime::create().unwrap();
         let mut ctx = rt
-            .create_context(|cx| ScopedContext::ECMA_CONTEXT_SETUP(cx))
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
             .unwrap();
 
         ctx.with_root_scope(|mut cx| {

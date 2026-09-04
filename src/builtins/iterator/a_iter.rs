@@ -83,7 +83,7 @@ fn js_async_from_sync_iterator_close_on_reject(
 
 /// Reject the promise with the current exception on the context.
 fn reject_current(ctx: &mut ScopedContext, rr: [JSValue; 2], promise: Promise) -> JSResult {
-    let err_val = ctx.take_exception().to_value(ctx);
+    let err_val = ctx.take_exception_as_value();
     let _ = rr[1].call(ctx, JSValue::UNDEFINED, &[err_val]);
     Ok(promise.into())
 }
@@ -103,9 +103,9 @@ fn close_iterator_and_reject(
             // throw() is undefined and IteratorClose succeeded:
             // reject with a new TypeError per spec
             let _ = ctx.throw_type_error("throw is not a method");
-            ctx.take_exception().to_value(ctx)
+            ctx.take_exception_as_value()
         }
-        _ => ctx.take_exception().to_value(ctx),
+        _ => ctx.take_exception_as_value(),
     };
     let _ = rr[1].call(ctx, JSValue::UNDEFINED, &[err_val]);
     Ok(promise.into())

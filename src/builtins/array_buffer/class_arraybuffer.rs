@@ -262,11 +262,6 @@ pub const js_array_buffer_funcs: &[FieldDef] = &[
     SPECIES_FIELD,
 ];
 
-fn js_shared_array_buffer_get_byteLength(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let ab = get_array_buffer(cc.this(), ctx, JS_CLASS_SHARED_ARRAY_BUFFER)?;
-    Ok(JSValue::from(ab.payload().byte_length() as i64))
-}
-
 fn js_shared_array_buffer_get_growable(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let ab = get_array_buffer(cc.this(), ctx, JS_CLASS_SHARED_ARRAY_BUFFER)?;
     Ok(JSValue::from(ab.payload().is_resizable()))
