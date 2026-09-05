@@ -48,7 +48,7 @@ macro_rules! mk_ctx {
 
 fn repr(s: &mut ScopedContext<'_>, v: JSValue) -> String {
     if v.is_object() {
-        match JSON::stringify(ctx, v, JSValue::UNDEFINED, JSValue::UNDEFINED) {
+        match JSON::stringify(s, v, JSValue::UNDEFINED, JSValue::UNDEFINED) {
             Ok(j) => string_of(s, j),
             Err(_) => "<json failed>".to_string(),
         }

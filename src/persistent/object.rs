@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_ARRAY, JS_CLASS_OBJECT, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JSValue,
-    ScopedContext,
+    JS_CLASS_ARRAY, JS_CLASS_MODULE_NS, JS_CLASS_OBJECT, JS_GPN_STR_OR_INT_MASK,
+    JS_GPN_SYMBOL_MASK, JSValue, Object, ScopedContext,
     atom::Atom,
     object::{JSPropertyDescriptor, PayloadPtr},
     persistent::{BytecodeSerializeError, DeserializeCtx, SerializeCtx},
@@ -31,7 +31,7 @@ const GPN_ALL: i32 = JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK | JS_GPN_SET_EN
 
 pub fn serialize_object(
     sc: &mut ScopedContext,
-    mut obj: crate::object::Object,
+    mut obj: Object,
     ctx: &mut SerializeCtx,
 ) -> Result<(), BytecodeSerializeError> {
     // tag the class so restore can re-bind the correct intrinsic proto.
@@ -42,9 +42,10 @@ pub fn serialize_object(
     // class (Date, RegExp, Map/Set, TypedArray, ArrayBuffer, Proxy, …) stores
     // state outside own properties and is rejected explicitly instead of being
     // silently truncated (exotic objects store state outside own properties).
-    if cid != JS_CLASS_OBJECT && cid != JS_CLASS_ARRAY {
+    if !matches!(cid, JS_CLASS_OBJECT | JS_CLASS_ARRAY | JS_CLASS_MODULE_NS) {
         return Err(BytecodeSerializeError::UnsupportedObject(format!(
-            "class_id={cid} (only Object/Array are supported)"
+            "class {} (only Object/Array/ModuleNamespace are supported)",
+            obj.class_name_str()
         )));
     }
 
@@ -235,7 +236,7 @@ pub fn deserialize_object(inp: &mut DeserializeCtx) -> Result<JSValue, BytecodeS
 }
 
 #[inline]
-fn build_flags(attr: u8, is_accessor: bool) -> u32 {
+const fn build_flags(attr: u8, is_accessor: bool) -> u32 {
     let mut f = 0u32;
     if attr & 1 != 0 {
         f |= JS_PROP_CONFIGURABLE;
