@@ -70,9 +70,9 @@ pub(crate) struct ParkState {
     /// Self-pipe for signal-originated wakes (Unix). Only
     /// `wake_from_signal` writes; the host's pipe watcher consumes.
     #[cfg(unix)]
-    pipe_r: AtomicI32,
+    pipe_r: std::sync::atomic::AtomicI32,
     #[cfg(unix)]
-    pipe_w: AtomicI32,
+    pipe_w: std::sync::atomic::AtomicI32,
     /// Fallback quantum poll interval in ms (0 = off, the default). When
     /// set, every park is capped at this interval so a missed wake degrades
     /// to a cheap periodic poll. Set via `RuntimeImpl::use_quantum_poll`.
@@ -93,11 +93,11 @@ impl ParkState {
             parker_cond: Condvar::new(),
             deadline_waker: Mutex::new(None),
             #[cfg(unix)]
-            pipe_r: AtomicI32::new(pipe_r),
+            pipe_r: std::sync::atomic::AtomicI32::new(pipe_r),
             #[cfg(unix)]
-            pipe_w: AtomicI32::new(pipe_w),
+            pipe_w: std::sync::atomic::AtomicI32::new(pipe_w),
             #[cfg(feature = "quantum_poll")]
-            quantum_ms: AtomicU32::new(0),
+            quantum_ms: std::sync::atomic::AtomicU32::new(0),
             #[cfg(debug_assertions)]
             deadline_waker_warned: std::sync::atomic::AtomicBool::new(false),
         }
@@ -127,7 +127,7 @@ impl ParkState {
     /// forwards a regular wake.
     #[cfg(unix)]
     fn write_pipe_byte(&self) {
-        let fd = self.pipe_w.load(Ordering::Relaxed);
+        let fd = self.pipe_w.load(std::sync::atomic::Ordering::Relaxed);
         if fd < 0 {
             return;
         }
@@ -272,7 +272,7 @@ impl ParkState {
     /// writes one byte (what `wake_from_signal` does) without locks.
     #[cfg(unix)]
     pub fn signal_write_fd(&self) -> i32 {
-        self.pipe_w.load(Ordering::Relaxed)
+        self.pipe_w.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Read-end fd of the self-pipe (Unix). The host should watch it for
@@ -280,13 +280,14 @@ impl ParkState {
     /// turns a signal-handler `write` into an event-loop wake.
     #[cfg(unix)]
     pub fn signal_read_fd(&self) -> i32 {
-        self.pipe_r.load(Ordering::Relaxed)
+        self.pipe_r.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Set the fallback quantum poll interval (ms; 0 = off).
     #[cfg(feature = "quantum_poll")]
     pub(crate) fn set_quantum_ms(&self, ms: u32) {
-        self.quantum_ms.store(ms, Ordering::Relaxed);
+        self.quantum_ms
+            .store(ms, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Fallback quantum poll interval (0 = off).
@@ -301,7 +302,7 @@ impl Drop for ParkState {
     fn drop(&mut self) {
         #[cfg(unix)]
         for fd in [&self.pipe_r, &self.pipe_w] {
-            let fd = fd.load(Ordering::Relaxed);
+            let fd = fd.load(std::sync::atomic::Ordering::Relaxed);
             if fd >= 0 {
                 unsafe {
                     libc::close(fd);
