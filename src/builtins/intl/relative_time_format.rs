@@ -153,7 +153,7 @@ fn js_relative_time_format_format(ctx: &mut ScopedContext, cc: CallContext) -> J
         .ok_or_else(|| ctx.throw_type_error("not a RelativeTimeFormat"))?;
     let parts = partition_relative_time(ctx, this, cc.arg(0), cc.arg(1))?;
     let s: String = parts.iter().map(|p| p.value.as_str()).collect();
-    Ok(make_str(ctx, s.into_bytes())?)
+    make_str(ctx, s.into_bytes())
 }
 
 fn js_relative_time_format_format_to_parts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -178,7 +178,7 @@ fn js_relative_time_format_format_to_parts(ctx: &mut ScopedContext, cc: CallCont
         }
         out.push(o.into());
     }
-    Ok(values_to_array(ctx, out)?)
+    values_to_array(ctx, out)
 }
 
 /// PartitionRelativeTimePattern: build the typed parts for `(value, unit)`.

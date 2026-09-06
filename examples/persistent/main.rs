@@ -189,8 +189,8 @@ async fn check(name: &str, script: &str) {
     }
 }
 
-/// Serialize in rt1, write the blob to a file, then load it in a FRESH Runtime
-/// + Context (different atom table, different address space) and invoke the
+/// Serialize in rt1, write the blob to a file, then load it in a FRESH Runtime + Context
+/// (different atom table, different address space) and invoke the
 /// restored function. This is the real "no-dependency migration" requirement:
 /// the persisted blob must be fully self-contained.
 async fn check_call_file(name: &str, script: &str, call_args: &[i32], expect: i32) {
@@ -884,12 +884,7 @@ async fn check_roundtrip_js(name: &str, script: &str, check_js: &str, expect: &s
             }
         };
         s.global_obj()
-            .define_property_value_str(
-                &mut s,
-                "__v",
-                JSValue::from(back),
-                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-            )
+            .define_property_value_str(&mut s, "__v", back, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
             .is_ok()
     });
     if !restore_ok {
@@ -1005,12 +1000,7 @@ async fn check_module_roundtrip_js(
             }
         };
         s.global_obj()
-            .define_property_value_str(
-                &mut s,
-                "__v",
-                JSValue::from(back),
-                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-            )
+            .define_property_value_str(&mut s, "__v", back, JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE)
             .is_ok()
     });
     if !restore_ok {

@@ -194,17 +194,6 @@ impl<'c> ScopedContext<'c> {
         }
     }
 
-    /// used for strict variable access: test if the variable exists
-    pub(crate) fn check_global_var(&mut self, prop: Atom) -> Result<bool, i32> {
-        // no exotic behavior is possible in global_var_obj
-        let p = self.global_var_obj();
-        if p.has_shape_property(prop) {
-            Ok(true)
-        } else {
-            self.global_obj().has_property(self, prop)
-        }
-    }
-
     /// flag:
     /// * 0: normal variable write
     /// * 1: initialize lexical variable

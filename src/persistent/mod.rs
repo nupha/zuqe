@@ -120,7 +120,7 @@ impl JSValue {
     ) -> Result<JSValue, BytecodeSerializeError> {
         let mut inp = DeserializeCtx::new(ctx, buf);
         let magic = inp.read_bytes(4)?;
-        if &magic != BYTECODE_SERIALIZE_MAGIC {
+        if magic != BYTECODE_SERIALIZE_MAGIC {
             return Err(BytecodeSerializeError::Encode("bad magic header".into()));
         }
         let version = inp.read_u32()?;
@@ -151,12 +151,10 @@ impl JSValue {
                     .map_err(|_| BytecodeSerializeError::Encode("OOM in regexp pattern".into()))?;
                 let flg_sd = crate::string::StringData::from_str(&flags)
                     .map_err(|_| BytecodeSerializeError::Encode("OOM in regexp flags".into()))?;
-                let re_data = crate::builtins::regexp::RegExpData::create(
-                    inp.ctx, pat_sd, flg_sd,
-                )
-                .map_err(|_| {
-                    BytecodeSerializeError::InvalidValue("failed to recompile regexp".into())
-                })?;
+                let re_data = crate::builtins::regexp::RegExpData::create(inp.ctx, pat_sd, flg_sd)
+                    .map_err(|_| {
+                        BytecodeSerializeError::InvalidValue("failed to recompile regexp".into())
+                    })?;
                 inp.ctx.rt_mut().regexp_precompiled.push(re_data);
             }
         }

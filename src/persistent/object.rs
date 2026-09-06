@@ -198,17 +198,14 @@ pub fn deserialize_object(inp: &mut DeserializeCtx) -> Result<JSValue, BytecodeS
             } else {
                 JSValue::UNDEFINED
             };
-            let _ = {
-                let sc = &mut *inp.ctx;
-                obj.define_property_getset(sc, atom, getter, setter, flags)
-                    .map_err(|_| {
-                        BytecodeSerializeError::InvalidValue("define_property_getset".into())
-                    })?
-            };
+            let _ = obj
+                .define_property_getset(inp.ctx, atom, getter, setter, flags)
+                .map_err(|_| {
+                    BytecodeSerializeError::InvalidValue("define_property_getset".into())
+                })?;
         } else {
             let val = inp.deserialize_value()?;
             let _ = {
-                let sc = &mut *inp.ctx;
                 // Array elements must go through the assignment path so they
                 // land in the fast array; `define_property_value` would create
                 // a sparse shape property whose value the fast array reads as
@@ -217,15 +214,15 @@ pub fn deserialize_object(inp: &mut DeserializeCtx) -> Result<JSValue, BytecodeS
                 if cid == JS_CLASS_ARRAY {
                     if let Some(i) = key_val.as_int() {
                         if i >= 0 {
-                            obj.set_property_u32(sc, i as u32, val)
+                            obj.set_property_u32(inp.ctx, i as u32, val)
                         } else {
-                            obj.define_property_value(sc, atom, val, flags)
+                            obj.define_property_value(inp.ctx, atom, val, flags)
                         }
                     } else {
-                        obj.define_property_value(sc, atom, val, flags)
+                        obj.define_property_value(inp.ctx, atom, val, flags)
                     }
                 } else {
-                    obj.define_property_value(sc, atom, val, flags)
+                    obj.define_property_value(inp.ctx, atom, val, flags)
                 }
                 .map_err(|_| BytecodeSerializeError::InvalidValue("define_property_value".into()))?
             };

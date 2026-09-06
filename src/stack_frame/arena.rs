@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{collections::HashMap, ptr::NonNull};
+use std::collections::HashMap;
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
@@ -470,71 +470,6 @@ impl StackFrameArena {
             }
         }
         None
-    }
-
-    pub(crate) fn get_var_ref_frame(
-        &mut self,
-        ctx: &mut ScopedContext,
-        frame_idx: FrameIndex,
-        var_idx: u16,
-        is_arg: bool,
-    ) -> Result<VarRef, i32> {
-        debug_assert!(ctx.is_arena_mode());
-
-        // Look up existing VarRef in the map first.
-        {
-            let var_refs = self.var_ref_map.entry(frame_idx).or_default();
-            if let Some(vr) = var_refs
-                .iter()
-                .find(|x| x.is_match(var_idx, is_arg))
-                .copied()
-            {
-                return Ok(vr);
-            }
-        }
-
-        // Read frame data (immutable borrow ends before var_ref_map access below).
-        let (data_ptr, arg_count, var_count, var_base_offset) = {
-            let head = self.frame(frame_idx);
-            (
-                head.buf.data_ptr(),
-                head.arg_count,
-                head.var_count,
-                head.var_base_offset,
-            )
-        };
-
-        let arg_base = data_ptr;
-        let var_base = unsafe { data_ptr.add(var_base_offset as usize) };
-        let pvalue = unsafe {
-            NonNull::new_unchecked(if is_arg {
-                debug_assert!(var_idx < arg_count);
-                arg_base.add(var_idx as usize)
-            } else {
-                debug_assert!(var_idx < var_count);
-                var_base.add(var_idx as usize)
-            })
-        };
-
-        let vref = VarRef::create_bind(ctx, var_idx, is_arg, pvalue)?;
-
-        #[cfg(debug_assertions)]
-        {
-            let head = self.frame(frame_idx);
-            let buf_start: *const JSValue = head.buf.data_ptr() as *const JSValue;
-            let buf_end = unsafe { buf_start.add(head.buf.capacity() as usize) };
-            let ptr: *const JSValue = pvalue.as_ptr() as *const JSValue;
-            debug_assert!(
-                ptr >= buf_start && ptr < buf_end,
-                "get_var_ref_frame: VarRef::Bind pvalue {:p} out of frame buf [{:p}, {:p})",
-                ptr,
-                buf_start,
-                buf_end
-            );
-        }
-
-        self.var_ref_map.entry(frame_idx).or_default().push(vref);
-        Ok(vref)
     }
 
     // ── VarRef map accessors ────────────────────────────────────

@@ -722,8 +722,3 @@ pub fn js_inspect_value(ctx: &mut ScopedContext, val: JSValue, opts: &InspectOpt
     let mut stack = Vec::new();
     inspect(ctx, val, opts, 0, &mut stack)
 }
-
-/// Format using default options (`InspectOptions::default()`).
-pub fn js_inspect(ctx: &mut ScopedContext, val: JSValue) -> String {
-    js_inspect_value(ctx, val, &InspectOptions::default())
-}

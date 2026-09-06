@@ -380,7 +380,7 @@ fn js_typed_array_with(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         ta2.set_property_u32(ctx, k as u32, v)?;
     }
 
-    ta2.set_property_i64(ctx, idx, JSValue::from(val))?;
+    ta2.set_property_i64(ctx, idx, val)?;
     Ok(ta2.into())
 }
 

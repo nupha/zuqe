@@ -910,7 +910,6 @@ pub(crate) fn format_parts(
                 exp += if engineering { 3 } else { 1 };
             }
             let body = format_fixed(
-                ctx,
                 m,
                 0,
                 3,
@@ -963,8 +962,8 @@ pub(crate) fn format_parts(
             let grouped = chosen.is_none()
                 && this.use_grouping
                 && !matches!(lang.as_str(), "ja" | "zh" | "yue");
+
             let body = format_fixed(
-                ctx,
                 rounded,
                 0,
                 max_frac,
@@ -1029,7 +1028,6 @@ pub(crate) fn format_parts(
                     )
                 };
                 format_fixed(
-                    ctx,
                     rounded,
                     this.min_fraction_digits,
                     this.max_fraction_digits,
@@ -1592,7 +1590,6 @@ fn round_to_fraction(n: f64, min: i32, max: i32) -> f64 {
 
 #[allow(clippy::too_many_arguments)]
 fn format_fixed(
-    ctx: &mut ScopedContext,
     n: f64,
     min_frac: i32,
     max_frac: i32,

@@ -199,5 +199,6 @@ fn js_intl_supported_locales_of(ctx: &mut ScopedContext, cc: CallContext) -> JSR
             out.push(v);
         }
     }
-    Ok(values_to_array(ctx, out)?.into())
+
+    values_to_array(ctx, out)
 }

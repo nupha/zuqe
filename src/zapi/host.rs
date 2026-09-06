@@ -144,16 +144,6 @@ pub(crate) fn zapi_trampoline_fn(
     }
 }
 
-/// 将 zapi 扩展的 `body` FFI 入口注册到当前 Runtime 的跳板，并返回
-/// `(Callback, token)`。token 由 host 内部递增分配（与用户 magic 无关）；
-/// `magic` 只是透传给扩展的 `ZqCallInfo::magic()` 的分发值（默认 0）。
-pub fn register_zapi_func(
-    ctx: &mut ScopedContext,
-    body: unsafe extern "C" fn(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue,
-) -> (Callback, i32) {
-    register_zapi_func_magic(ctx, body, 0)
-}
-
 /// 同 `register_zapi_func`，但显式指定用户 magic。
 pub(crate) fn register_zapi_func_magic(
     ctx: &mut ScopedContext,

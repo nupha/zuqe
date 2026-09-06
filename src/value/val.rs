@@ -858,7 +858,7 @@ mod serde_json_support {
     use crate::{
         Array, IntOrFloat, JS_CLASS_BOOLEAN, JS_CLASS_NUMBER, JS_CLASS_STRING, ScopedContext,
         builtins::iterator::JSIteratorKindEnum,
-        object::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, Object, PayloadPtr},
+        object::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, Object},
         value::JSValue,
     };
 

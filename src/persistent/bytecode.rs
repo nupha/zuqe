@@ -21,7 +21,7 @@ use super::{BytecodeSerializeError, DeserializeCtx, SerializeCtx};
 /// An opcode of these formats carries a `u32` atom id at `pos + 1` inside the
 /// binary. `small-int` atoms are skipped (kept verbatim) because their id is
 /// context-independent and `write_atom` cannot encode them.
-fn opcode_has_atom(fmt: OpcodeFormat) -> bool {
+const fn opcode_has_atom(fmt: OpcodeFormat) -> bool {
     matches!(
         fmt,
         OpcodeFormat::ATOM
@@ -87,6 +87,7 @@ fn collect_opcode_atoms(bc: &BytecodeImpl) -> Vec<u32> {
 /// Rewrite every atom reference in `bin` (a slice of the binary *without* the
 /// leading consts section) from its original atom id to its symbol-table index.
 /// `consts_len` is subtracted so offsets map into `bin`.
+#[allow(clippy::too_many_arguments)]
 fn rewrite_atoms_to_symidx(
     bin: &mut [u8],
     opcodes_start: u32,
@@ -137,6 +138,7 @@ fn rewrite_atoms_to_symidx(
 /// Inverse of [`rewrite_atoms_to_symidx`]: replace symbol-table indices with
 /// the freshly rebuilt atom ids. Anything not a valid index (small-int atoms)
 /// is kept verbatim.
+#[allow(clippy::too_many_arguments)]
 fn rewrite_symidx_to_atoms(
     bin: &mut [u8],
     opcodes_start: u32,
@@ -493,7 +495,7 @@ impl Bytecode {
     }
 }
 
-fn func_kind_from_u8(v: u8) -> Result<FunctionKind, BytecodeSerializeError> {
+const fn func_kind_from_u8(v: u8) -> Result<FunctionKind, BytecodeSerializeError> {
     match v {
         0 => Ok(FunctionKind::Normal),
         1 => Ok(FunctionKind::Generator),
@@ -503,7 +505,7 @@ fn func_kind_from_u8(v: u8) -> Result<FunctionKind, BytecodeSerializeError> {
     }
 }
 
-fn gc_scope_from_u8(v: u8) -> Result<GcScopeKind, BytecodeSerializeError> {
+const fn gc_scope_from_u8(v: u8) -> Result<GcScopeKind, BytecodeSerializeError> {
     match v {
         0 => Ok(GcScopeKind::Full),
         1 => Ok(GcScopeKind::Light),

@@ -15,10 +15,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::{
-    DataView, TA_GET_BUFFER, TA_GET_BYTE_LENGTH, TA_GET_BYTE_OFFSET, TypedArray,
-    dv::DataViewPayload,
-};
+use super::{DataView, TA_GET_BUFFER, TA_GET_BYTE_LENGTH, TA_GET_BYTE_OFFSET, TypedArray};
 
 pub(super) fn js_dataview_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // ES §25.3.2.1

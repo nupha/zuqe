@@ -472,7 +472,7 @@ fn js_os_read_write(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let ret = if r == -1 {
         -std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
     } else {
-        r
+        r as i32
     };
     Ok(JSValue::from(ret))
 }

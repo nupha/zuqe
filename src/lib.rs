@@ -320,3 +320,4 @@ pub use async_sender::*;
 
 // re-export gc-lite
 pub use gc_lite;
+pub use gc_lite::GcTrace;

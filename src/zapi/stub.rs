@@ -618,10 +618,10 @@ unsafe extern "C" fn zapi_add_polling_job(
     trace: Option<ZqJobTraceFn>,
     data: *mut c_void,
 ) -> i32 {
-    let ctx = ctx_from_env(env);
+    let ctx = unsafe { ctx_from_env(env) };
     ctx.queue_job(
         move |cx| {
-            let mut env_s = env_from_ctx(cx);
+            let mut env_s = unsafe { env_from_ctx(cx) };
             let env = &mut env_s as *mut ZqEnvS as ZqEnv;
             match unsafe { run(data, env) } {
                 0 => Ok(crate::microtask::JobState::Done),

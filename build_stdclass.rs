@@ -775,7 +775,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
     ));
 
     let mut lines = vec![
-        "use crate::{class::{ClassID, ClassDef}};\n".to_string(),
+        "use crate::class::ClassID;\n".to_string(),
         consts.join("\n"),
         String::new(),
         "pub(crate) fn register_all_builtin_classes(rt: &mut crate::RuntimeImpl) -> Result<(), i32> {"

@@ -11,7 +11,10 @@ use std::os::fd::AsRawFd;
 #[cfg(windows)]
 use std::os::windows::io::AsRawHandle;
 
-use zuqe::{CallContext, FieldDef, JSResult, JSValue, Object, ScopedContext, def_native_object, gc_lite::GcTrace};
+use zuqe::{
+    CallContext, FieldDef, JSResult, JSValue, NativeObject, Object, ScopedContext,
+    def_native_object, gc_lite::GcTrace,
+};
 
 #[derive(Debug)]
 #[repr(u8)]
@@ -185,9 +188,8 @@ fn js_file_flush(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 fn js_file_close(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let mut jsfile = this
-        .as_native_object::<JSFile>()
-        .ok_or_else(|| ctx.throw_type_error("not a File instance"))?;
+    let mut jsfile =
+        JSFile::from_value(this).ok_or_else(|| ctx.throw_type_error("not a File instance"))?;
     let _ = jsfile.take_payload();
     Ok(JSValue::UNDEFINED)
 }

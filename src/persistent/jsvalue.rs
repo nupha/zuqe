@@ -60,6 +60,7 @@ impl ValueType {
 
 /// Write-side context. Owns the output buffer plus the dedup state used to
 /// keep serialized output compact and identity-preserving.
+#[derive(Default)]
 pub struct SerializeCtx {
     /// Encoded bytes.
     pub(super) buffer: Vec<u8>,
@@ -75,12 +76,7 @@ pub struct SerializeCtx {
 
 impl SerializeCtx {
     pub fn new() -> Self {
-        Self {
-            buffer: Vec::new(),
-            atom_count: 0,
-            atom_lut: std::collections::HashMap::new(),
-            seen_obj: Vec::new(),
-        }
+        Self::default()
     }
 
     #[inline]
@@ -328,7 +324,7 @@ pub struct DeserializeCtx<'a, 'b> {
 }
 
 impl<'a, 'b> DeserializeCtx<'a, 'b> {
-    pub fn new(ctx: &'a mut ScopedContext<'b>, buf: &'a [u8]) -> Self {
+    pub const fn new(ctx: &'a mut ScopedContext<'b>, buf: &'a [u8]) -> Self {
         Self {
             ctx,
             buf,
@@ -549,8 +545,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                     // above).  Define `.prototype` as a data property pointing to it,
                     // matching js_op_define_class_for_arena's runtime setup.
                     obj.set_flag_constructor(true);
-                    if let Some(h) = class_home_object {
-                        let mut proto_obj: Object = h.into();
+                    if let Some(mut proto_obj) = class_home_object {
                         obj.define_property_value(
                             self.ctx,
                             Atom::CONST_prototype,

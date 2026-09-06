@@ -796,10 +796,7 @@ fn js_set_symmetricDifference(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
     let next_obj = next_method.ensure_callable(ctx)?;
 
-    loop {
-        let Some(value) = iterator_step(ctx, iterator, next_obj)? else {
-            break;
-        };
+    while let Some(value) = iterator_step(ctx, iterator, next_obj)? {
         if this_state.find(ctx, value).is_some() {
             result_state.remove(ctx, value);
         } else {
@@ -845,10 +842,7 @@ fn js_set_union(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let next_method = iterator.get_property(ctx, Atom::CONST_next)?;
     let next_obj = next_method.ensure_callable(ctx)?;
 
-    loop {
-        let Some(value) = iterator_step(ctx, iterator, next_obj)? else {
-            break;
-        };
+    while let Some(value) = iterator_step(ctx, iterator, next_obj)? {
         result_state.upsert(ctx, value, JSValue::UNDEFINED)?;
     }
 

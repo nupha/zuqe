@@ -93,7 +93,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
     }
 }
 
-pub(super) fn atom_kind_from_u8(v: u8) -> Result<AtomKind, BytecodeSerializeError> {
+pub(super) const fn atom_kind_from_u8(v: u8) -> Result<AtomKind, BytecodeSerializeError> {
     match v {
         1 => Ok(AtomKind::String),
         2 => Ok(AtomKind::GlobalSymbol),
