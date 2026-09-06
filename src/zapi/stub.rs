@@ -492,9 +492,13 @@ unsafe extern "C" fn zapi_set_gc_trace_func(
     let Some(cb) = cb else {
         return -1;
     };
-    let rt = unsafe { &mut *((*env).rt as *mut crate::RuntimeImpl) };
+
     let reg = Box::into_raw(Box::new(ZapiTraceReg { cb, opaque }));
-    rt.gc_add_trace_callback(zapi_gc_trace_adapter, reg as *mut c_void);
+    unsafe {
+        let rt = (*(*env).ctx.cast::<ScopedContext>()).rt_mut();
+        rt.gc_add_trace_callback(zapi_gc_trace_adapter, reg as *mut c_void);
+    }
+
     0
 }
 
