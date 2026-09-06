@@ -225,7 +225,7 @@ mod symbol_key_tests {
     fn realm_symbol_is_stable_per_realm() {
         let mut rt = Runtime::create().unwrap();
         let mut ctx = rt
-            .create_context(|cx| ScopedContext::ECMA_CONTEXT_SETUP(cx))
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
             .unwrap();
 
         ctx.with_root_scope(|mut cx| {

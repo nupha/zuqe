@@ -98,6 +98,7 @@ macro_rules! def_native_object {
 
             pub fn register(rt: &mut $crate::RuntimeImpl) -> Result<$crate::ClassID, i32> {
                 $($on_register(rt);)?
+                #[allow(unused_mut)]
                 let mut cd = $crate::def_native_object!(@make_cd $name, $proto_entries, $ctor, $kind
                     $(, class_id: $class_id)?
                     $(, extends: $extends_class)?
