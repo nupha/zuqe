@@ -99,13 +99,13 @@ pub(crate) fn zapi_trampoline_fn(
     ctx: &mut ScopedContext,
     cc: crate::function::CallContext,
 ) -> crate::JSResult {
-    let token = cc.magic();
+    let serial = cc.magic();
     let (body, user_magic) = match ctx
         .rt()
         .zapi_body_registry
         .lock()
         .unwrap()
-        .get(&token)
+        .get(&serial)
         .copied()
     {
         Some((b, m)) => (b, m),
@@ -114,13 +114,9 @@ pub(crate) fn zapi_trampoline_fn(
 
     let mut env = unsafe { env_from_ctx(ctx) };
 
-    // Pass arguments as proper engine JSValues (numbers included) so the
-    // extension can inspect them with `value_to_typeof` / `value_to_float64`
-    // etc. An extension that needs a numeric view converts with
-    // `api.value_to_float64`.
     let raw_args: Vec<ZqRawValue> = cc.arguments().iter().map(|v| v.0).collect();
 
-    let mut info = ZqCallbackInfoS {
+    let mut cc = ZqCallbackInfoS {
         target: 0,
         this: cc.this().0,
         args: raw_args.as_ptr(),
@@ -129,13 +125,10 @@ pub(crate) fn zapi_trampoline_fn(
         magic: user_magic,
     };
 
-    // The body returns the result value directly; `value_exception` signals an
-    // error (quickjs `JS_EXCEPTION` convention). A thrown JS value, when the
-    // extension set one, travels in `info.thrown`.
-    let result = unsafe { body(&mut env, &mut info) };
+    let result = unsafe { body(&mut env, &mut cc) };
     if result == ZQ_API_TABLE.value_exception {
-        if info.thrown != 0 {
-            Err(ctx.throw_value(crate::JSValue(info.thrown, std::marker::PhantomData)))
+        if cc.thrown != 0 {
+            Err(ctx.throw_value(crate::JSValue(cc.thrown, std::marker::PhantomData)))
         } else {
             Err(-1)
         }
@@ -152,7 +145,7 @@ pub(crate) fn register_zapi_func_magic(
 ) -> (Callback, i32) {
     let rt = ctx.rt_mut();
     let token = rt
-        .zapi_next_token
+        .zapi_next_serial
         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     rt.zapi_body_registry
         .lock()

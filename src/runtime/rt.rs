@@ -182,10 +182,10 @@ pub struct RuntimeImpl {
 
     // ── zapi native extension state ──
     #[cfg(feature = "zapi")]
-    pub(crate) zapi_body_registry:
-        std::sync::Mutex<std::collections::HashMap<i32, (zuqe_zapi::ffi::ZapiBodyFn, i32)>>,
+    pub(crate) zapi_next_serial: std::sync::atomic::AtomicI32,
     #[cfg(feature = "zapi")]
-    pub(crate) zapi_next_token: std::sync::atomic::AtomicI32,
+    pub(crate) zapi_body_registry:
+        std::sync::Mutex<std::collections::HashMap<i32, (zuqe_zapi::ffi::ZqBodyFn, i32)>>,
     #[cfg(feature = "zapi")]
     pub(crate) zapi_class_map:
         std::sync::Mutex<std::collections::HashMap<crate::class::ClassID, usize>>,
@@ -310,9 +310,9 @@ impl RuntimeImpl {
             promise_future_registry: crate::builtins::promise::PromiseFutureRegistry::new(),
 
             #[cfg(feature = "zapi")]
-            zapi_body_registry: std::sync::Mutex::new(std::collections::HashMap::new()),
+            zapi_next_serial: std::sync::atomic::AtomicI32::new(1),
             #[cfg(feature = "zapi")]
-            zapi_next_token: std::sync::atomic::AtomicI32::new(1),
+            zapi_body_registry: std::sync::Mutex::new(std::collections::HashMap::new()),
             #[cfg(feature = "zapi")]
             zapi_class_map: std::sync::Mutex::new(std::collections::HashMap::new()),
 

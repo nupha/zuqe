@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
+use std::{ffi::c_void, sync::LazyLock};
 
-use std::sync::LazyLock;
+use gc_lite::{GcTrace, GcTraceCtx};
 use zuqe_zapi::ffi::{
-    ZqApi, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn,
-    ZqJobRunFn, ZqJobTraceFn, ZqRawValue, ZqWakeHandleS,
+    ZqApi, ZqBodyFn, ZqCallbackInfoS, ZqClassDef, ZqEnv, ZqEnvS, ZqFieldDef, ZqGcTraceCtxS,
+    ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn, ZqRawValue, ZqWakeHandleS,
 };
 
-use crate::{JSValue, ScopedContext, class::ClassID, object::PayloadPtr};
+use crate::{JSValue, ScopedContext, class::ClassID, function::Callback, object::PayloadPtr};
 
 use super::host::{push_class_fields, register_zapi_func_magic, zapi_trampoline_fn};
 
@@ -639,6 +639,127 @@ unsafe extern "C" fn zapi_add_polling_job(
     0
 }
 
+/// Create a callable JS function backed by a Rust callback.
+/// Since opaque data is always null, `run_fn` is equivalent to `ZapiBodyFn`
+/// and is registered in the existing body registry via `register_zapi_func_magic`.
+/// No separate callable registry is needed — the trampoline dispatches from
+/// the body registry by token, same as normal zapi functions.
+unsafe extern "C" fn zapi_new_native_function(
+    env: ZqEnv,
+    run_fn: ZqBodyFn,
+    name: ZqRawValue,
+    magic: i32,
+) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let rt = ctx.rt_mut();
+
+    let serial = rt
+        .zapi_next_serial
+        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+    // register_zapi_func_magic inserts into zapi_body_registry and
+    // returns (Callback, user_magic). We only need the token for the
+    // NativeFunction's magic field.
+    let (_cb, _user_magic) = register_zapi_func_magic(ctx, run_fn, magic);
+
+    let name_val = JSValue(name, std::marker::PhantomData);
+    let func_name = name_val
+        .to_string(ctx)
+        .map(|s| s.content().encode_utf8(false).to_string())
+        .unwrap_or_default();
+
+    match ctx.create_native_function(
+        Callback::Func(super::host::zapi_trampoline_fn),
+        &func_name,
+        0,
+        serial as _,
+    ) {
+        Ok(f) => {
+            let js_val: JSValue = f.into();
+            js_val.0
+        }
+        Err(_) => ZQ_API_TABLE.value_exception,
+    }
+}
+
+/// Wrapper struct that implements `AsyncIteratorFetcher` for zapi FFI.
+struct ZapiFetcher {
+    fetch_fn: zuqe_zapi::ffi::ZqAsyncIterFetchFn,
+    opaque: *mut c_void,
+    trace_fn: Option<zuqe_zapi::ffi::ZqGcTraceFn>,
+    drop_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+}
+
+unsafe impl Send for ZapiFetcher {}
+
+impl GcTrace for ZapiFetcher {
+    fn trace(&self, tr: &mut GcTraceCtx) {
+        if !self.opaque.is_null()
+            && let Some(f) = self.trace_fn
+        {
+            unsafe {
+                let c =
+                    std::mem::transmute::<&mut GcTraceCtx, *mut zuqe_zapi::ffi::ZqGcTraceCtxS>(tr);
+                f(c, self.opaque)
+            }
+        }
+    }
+}
+
+impl crate::builtins::iterator::AsyncIteratorFetcher for ZapiFetcher {
+    fn try_fetch(
+        &self,
+        cx: &mut ScopedContext,
+    ) -> Result<crate::builtins::iterator::IterFetchStatus, i32> {
+        let mut env = unsafe { env_from_ctx(cx) };
+        let result = unsafe { (self.fetch_fn)(&mut env, self.opaque) };
+
+        if result == ZQ_API_TABLE.value_exception {
+            Err(-1)
+        } else if result == ZQ_API_TABLE.value_undefined {
+            Ok(crate::builtins::iterator::IterFetchStatus::Done)
+        } else {
+            Ok(crate::builtins::iterator::IterFetchStatus::Value(JSValue(
+                result,
+                std::marker::PhantomData,
+            )))
+        }
+    }
+
+    fn close(&self) {
+        if let Some(drop_fn) = self.drop_fn {
+            unsafe { drop_fn(self.opaque) };
+        }
+    }
+}
+
+unsafe extern "C" fn zapi_new_async_iterator(
+    env: ZqEnv,
+    fetch_fn: zuqe_zapi::ffi::ZqAsyncIterFetchFn,
+    trace_fn: Option<ZqGcTraceFn>,
+    drop_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    opaque: *mut c_void,
+) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+
+    let fetcher = ZapiFetcher {
+        fetch_fn,
+        opaque,
+        trace_fn,
+        drop_fn,
+    };
+
+    // ZapiFetcher implements GcTrace (see impl above), so AsyncIterPayload
+    // will trace opaque data via the fetcher's trace method during GC.
+    match crate::builtins::iterator::AsyncIterableIterator::create(ctx, fetcher) {
+        Ok(iter) => {
+            let js_val: JSValue = iter.0.into();
+            js_val.0
+        }
+        Err(_) => ZQ_API_TABLE.value_exception,
+    }
+}
+
 unsafe extern "C" fn zapi_get_value_type(_env: ZqEnv, val: ZqRawValue) -> zuqe_zapi::ffi::ZqType {
     use zuqe_zapi::ffi::ZqType;
     let v = JSValue(val, std::marker::PhantomData);
@@ -763,6 +884,8 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         promise_resolve: zapi_promise_resolve,
         promise_reject: zapi_promise_reject,
         add_polling_job: zapi_add_polling_job,
+        new_native_function: zapi_new_native_function,
+        new_async_iterator: zapi_new_async_iterator,
 
         wake_handle_new: zapi_wake_handle_new,
         wake_handle_wake: zapi_wake_handle_wake,

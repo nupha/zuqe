@@ -50,7 +50,7 @@ fn js_promise_then_finally_func(ctx: &mut ScopedContext, cc: CallContext) -> JSR
     // create inner resolving function for finally()
     let then_func: JSValue = NativeFunction::create(
         ctx,
-        Callback::Func(|cx: &mut ScopedContext<'_>, cc: CallContext| -> JSResult {
+        Callback::Func(|cx: &mut ScopedContext, cc: CallContext| -> JSResult {
             let val = cc.data(0);
             if cc.magic() == 0 {
                 val.err() // resolve

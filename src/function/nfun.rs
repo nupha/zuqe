@@ -82,10 +82,10 @@ pub struct NFuncPayload {
 }
 
 impl GcTrace for NFuncPayload {
-    fn trace(&self, tr: &mut GcTraceCtx) {
-        self.realm.trace(tr);
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        self.realm.trace(gcx);
         if let Some(data) = &self.data {
-            data.iter().for_each(|x| x.trace(tr));
+            data.iter().for_each(|x| x.trace(gcx));
         }
     }
 }
@@ -331,6 +331,7 @@ impl NativeFunction {
 
     /// Create native function object.
     /// at least `length` arguments can be readable in arguments.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn create(
         ctx: &mut ScopedContext,
         callback: Callback,

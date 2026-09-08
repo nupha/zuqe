@@ -35,7 +35,10 @@ pub enum IterFetchStatus {
 /// Implementors decide how to produce values (e.g. from a channel, file,
 /// or any other data source). The [`try_fetch`](Self::try_fetch) method is
 /// called on every engine tick by the polling Promise job created by `next()`.
-pub trait AsyncIteratorFetcher {
+///
+/// Implementors must also implement `GcTrace` so the GC can keep any JS values
+/// referenced by opaque data alive during garbage collection.
+pub trait AsyncIteratorFetcher: GcTrace {
     /// Try to fetch the next value.
     ///
     /// Returns:
@@ -78,7 +81,13 @@ impl std::fmt::Debug for AsyncIterPayload {
 }
 
 impl GcTrace for AsyncIterPayload {
-    fn trace(&self, _tr: &mut GcTraceCtx) {}
+    fn trace(&self, tr: &mut GcTraceCtx) {
+        // Delegate GC tracing to the fetcher, which holds opaque data that
+        // may reference JS values.
+        if let Some(f) = &self.fetcher {
+            f.trace(tr);
+        }
+    }
 }
 
 impl AsyncIterPayload {
@@ -101,6 +110,10 @@ struct ChannelFetcher<D> {
     /// - `Ok(None)`       — iteration ended.
     /// - `Err(_)`         — error, reject the promise.
     convert: Box<dyn Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32> + Send>,
+}
+
+impl<D: 'static> GcTrace for ChannelFetcher<D> {
+    fn trace(&self, _tr: &mut GcTraceCtx) {}
 }
 
 impl<D: 'static> AsyncIteratorFetcher for ChannelFetcher<D> {
@@ -148,6 +161,10 @@ struct SlotFetcher<D: Send + 'static> {
     data: Arc<crate::builtins::promise::SlotInner<D>>,
     /// convert D to JSValue, running in js thread. None to stop
     convert: Box<dyn Fn(&mut ScopedContext, D) -> Result<Option<JSValue>, i32>>,
+}
+
+impl<D: Send + 'static> GcTrace for SlotFetcher<D> {
+    fn trace(&self, _tr: &mut GcTraceCtx) {}
 }
 
 impl<D: Send + 'static> AsyncIteratorFetcher for SlotFetcher<D> {
