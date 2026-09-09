@@ -712,17 +712,17 @@ impl crate::builtins::iterator::AsyncIteratorFetcher for ZapiFetcher {
         cx: &mut ScopedContext,
     ) -> Result<crate::builtins::iterator::IterFetchStatus, i32> {
         let mut env = unsafe { env_from_ctx(cx) };
-        let result = unsafe { (self.fetch_fn)(&mut env, self.opaque) };
+        let mut val = 0u64;
+        let code = unsafe { (self.fetch_fn)(&mut env, self.opaque, &mut val) };
 
-        if result == ZQ_API_TABLE.value_exception {
-            Err(-1)
-        } else if result == ZQ_API_TABLE.value_undefined {
-            Ok(crate::builtins::iterator::IterFetchStatus::Done)
-        } else {
-            Ok(crate::builtins::iterator::IterFetchStatus::Value(JSValue(
-                result,
+        match code {
+            0 => Ok(crate::builtins::iterator::IterFetchStatus::Value(JSValue(
+                val,
                 std::marker::PhantomData,
-            )))
+            ))),
+            1 => Ok(crate::builtins::iterator::IterFetchStatus::Done),
+            2 => Ok(crate::builtins::iterator::IterFetchStatus::Wait),
+            _ => Err(-1),
         }
     }
 
