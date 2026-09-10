@@ -337,7 +337,7 @@ impl ObjectImpl {
     /// Returns:
     /// - Some: when the property was set,
     /// - None: when the property was not set, perform slow path is needed.
-    fn set_property_index(
+    fn set_property_u32_internal(
         &mut self,
         ctx: &mut ScopedContext,
         index: usize,
@@ -520,7 +520,7 @@ impl ObjectImpl {
         };
 
         if let Some(idx) = index_key
-            && let Some(r) = self.set_property_index(ctx, idx, val, flags)
+            && let Some(r) = self.set_property_u32_internal(ctx, idx, val, flags)
         {
             // early exit fast path
             return r;
@@ -537,7 +537,7 @@ impl ObjectImpl {
         idx: u32,
         val: JSValue,
     ) -> Result<bool, i32> {
-        self.set_property_index(ctx, idx as usize, val, JS_PROP_THROW)
+        self.set_property_u32_internal(ctx, idx as usize, val, JS_PROP_THROW)
             .unwrap_or_else(|| {
                 // slow path
                 let atom = Atom::from_i64(ctx, idx as i64)?;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{ffi::c_void, sync::LazyLock};
+use std::{ffi::c_void, marker::PhantomData, sync::LazyLock};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 use zuqe_zapi::ffi::{
@@ -13,7 +13,8 @@ use zuqe_zapi::ffi::{
 };
 
 use crate::{
-    JSValue, JSValueTag, ScopedContext, class::ClassID, function::Callback, object::PayloadPtr,
+    Array, CallContext, JSValue, JSValueTag, ScopedContext, builtins::array::js_array_push,
+    class::ClassID, function::Callback, object::PayloadPtr,
 };
 
 use super::host::{push_class_fields, register_zapi_func_magic, zapi_trampoline_fn};
@@ -32,8 +33,8 @@ fn symbol_from_desc(ctx: &mut ScopedContext, desc: JSValue) -> Result<JSValue, i
     }
 }
 
-unsafe extern "C" fn zapi_new_number(_: ZqRawCtx, v: f64) -> ZqRawValue {
-    JSValue::from(v).0
+unsafe extern "C" fn zapi_new_number(n: f64) -> ZqRawValue {
+    JSValue::from(n).0
 }
 
 unsafe extern "C" fn zapi_new_string_utf8(env: ZqRawCtx, ptr: *const u8, len: usize) -> ZqRawValue {
@@ -54,12 +55,12 @@ unsafe extern "C" fn zapi_new_symbol(env: ZqRawCtx, desc: ZqRawValue) -> ZqRawVa
 }
 
 unsafe extern "C" fn zapi_get_symbol_description(env: ZqRawCtx, sym: ZqRawValue) -> ZqRawValue {
-    let _ctx = unsafe { ctx_from_env(env) };
-    let sym = JSValue(sym, std::marker::PhantomData);
-    let sr = match sym.as_symbol(true) {
-        Some(s) => s,
-        None => return ZQ_API_TABLE.value_exception,
+    let Some(sr) = JSValue(sym, std::marker::PhantomData).as_symbol(true) else {
+        let ctx = unsafe { ctx_from_env(env) };
+        ctx.throw_type_error("Not a Symbol value");
+        return ZQ_API_TABLE.value_exception;
     };
+
     if sr.content().is_ident() {
         JSValue::UNDEFINED.0
     } else {
@@ -102,35 +103,30 @@ unsafe extern "C" fn zapi_new_object(env: ZqRawCtx) -> ZqRawValue {
     }
 }
 
-unsafe extern "C" fn zapi_new_array(env: ZqRawCtx, len: usize) -> ZqRawValue {
+unsafe extern "C" fn zapi_new_array(
+    env: ZqRawCtx,
+    elements: *const ZqRawValue,
+    len: usize,
+) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
-    match crate::object::Array::create(ctx) {
-        Ok(mut arr) => {
-            if arr.set_length(ctx, len as u32, true).is_err() {
-                return ZQ_API_TABLE.value_exception;
-            }
-            JSValue::from(arr).0
-        }
-        Err(_) => ZQ_API_TABLE.value_exception,
-    }
+    Array::from_slice(ctx, unsafe {
+        std::slice::from_raw_parts(elements.cast::<JSValue>(), len)
+    })
+    .map_or(ZQ_API_TABLE.value_exception, |a| JSValue::from(a).0)
 }
 
 unsafe extern "C" fn zapi_get_property(
     env: ZqRawCtx,
-    obj: ZqRawValue,
+    target: ZqRawValue,
     key: ZqRawValue,
 ) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
-    let val = JSValue(key, std::marker::PhantomData);
-    let Some(obj) = JSValue(obj, std::marker::PhantomData).as_object() else {
-        return ZQ_API_TABLE.value_exception;
-    };
-    match obj.get_property_value(ctx, val) {
-        Ok(v) => v.0,
-        Err(_) => ZQ_API_TABLE.value_exception,
-    }
+    JSValue(target, std::marker::PhantomData)
+        .get_property_value(ctx, JSValue(key, std::marker::PhantomData))
+        .map_or(ZQ_API_TABLE.value_exception, |v| v.0)
 }
 
+/// returns 1=set, 0=not set, -1=error
 unsafe extern "C" fn zapi_set_property(
     env: ZqRawCtx,
     obj: ZqRawValue,
@@ -138,19 +134,20 @@ unsafe extern "C" fn zapi_set_property(
     val: ZqRawValue,
     _throw: i32,
     _flags: u32,
-) -> ZqRawValue {
+) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
     let k = JSValue(key, std::marker::PhantomData);
     let v = JSValue(val, std::marker::PhantomData);
     let Some(mut obj) = JSValue(obj, std::marker::PhantomData).as_object() else {
-        return ZQ_API_TABLE.value_exception;
+        return -1;
     };
     match obj.set_property_value(ctx, k, v, 0) {
-        Ok(_) => val,
-        Err(_) => ZQ_API_TABLE.value_exception,
+        Ok(b) => b as i32,
+        Err(_) => -1,
     }
 }
 
+/// 0=false, 1=true, -1=error
 unsafe extern "C" fn zapi_has_property(env: ZqRawCtx, obj: ZqRawValue, key: ZqRawValue) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
     let Some(o) = JSValue(obj, std::marker::PhantomData).as_object() else {
@@ -158,14 +155,15 @@ unsafe extern "C" fn zapi_has_property(env: ZqRawCtx, obj: ZqRawValue, key: ZqRa
     };
     let atom = match JSValue(key, std::marker::PhantomData).to_atom(ctx) {
         Ok(a) => a,
-        Err(_) => return 0,
+        Err(_) => return -1,
     };
     match o.has_property(ctx, atom) {
         Ok(b) => b as i32,
-        Err(_) => 0,
+        Err(_) => -1,
     }
 }
 
+/// 1=deleted, 0=can't delete, -1=error
 unsafe extern "C" fn zapi_delete_property(
     env: ZqRawCtx,
     obj: ZqRawValue,
@@ -176,9 +174,8 @@ unsafe extern "C" fn zapi_delete_property(
     let Some(mut o) = JSValue(obj, std::marker::PhantomData).as_object() else {
         return -1;
     };
-    let atom = match JSValue(key, std::marker::PhantomData).to_atom(ctx) {
-        Ok(a) => a,
-        Err(_) => return -1,
+    let Ok(atom) = JSValue(key, std::marker::PhantomData).to_atom(ctx) else {
+        return -1;
     };
     match o.delete_property(ctx, atom, 0) {
         Ok(b) => b as i32,
@@ -186,58 +183,25 @@ unsafe extern "C" fn zapi_delete_property(
     }
 }
 
-unsafe extern "C" fn zapi_array_push(env: ZqRawCtx, arr: ZqRawValue, val: ZqRawValue) -> i32 {
+/// minus=error, otherwise the length
+unsafe extern "C" fn zapi_get_length_prop(env: ZqRawCtx, arr: ZqRawValue) -> i64 {
     let ctx = unsafe { ctx_from_env(env) };
-    let Some(mut o) = JSValue(arr, std::marker::PhantomData).as_object() else {
-        return -1;
-    };
-    let len = match o.get_length_prop(ctx) {
-        Ok(i) => i,
-        Err(_) => return -1,
-    };
-    if o.set_property_i64(ctx, len, JSValue(val, std::marker::PhantomData))
-        .is_err()
-    {
-        return -1;
-    }
-    if o.set_property(ctx, crate::atom::Atom::CONST_length, JSValue::from(len + 1))
-        .is_err()
-    {
-        return -1;
-    }
-    0
+    let v = JSValue(arr, std::marker::PhantomData);
+    v.get_length_prop(ctx).unwrap_or(-1)
 }
 
-unsafe extern "C" fn zapi_array_set(
-    env: ZqRawCtx,
-    arr: ZqRawValue,
-    idx: ZqRawValue,
-    val: ZqRawValue,
-) -> i32 {
+/// minus:error, otherwise: new length
+unsafe extern "C" fn zapi_array_push(env: ZqRawCtx, arr: ZqRawValue, val: ZqRawValue) -> i64 {
     let ctx = unsafe { ctx_from_env(env) };
-    let Some(mut o) = JSValue(arr, std::marker::PhantomData).as_object() else {
-        return -1;
-    };
-    match o.set_property_value(
-        ctx,
-        JSValue(idx, std::marker::PhantomData),
-        JSValue(val, std::marker::PhantomData),
+    let val = JSValue(val, PhantomData);
+    let cc = CallContext::new(
+        JSValue(arr, PhantomData),
+        std::slice::from_ref(&val),
         0,
-    ) {
-        Ok(_) => 0,
-        Err(_) => -1,
-    }
-}
+        None,
+    );
 
-unsafe extern "C" fn zapi_array_len(env: ZqRawCtx, arr: ZqRawValue) -> ZqRawValue {
-    let ctx = unsafe { ctx_from_env(env) };
-    let Some(o) = JSValue(arr, std::marker::PhantomData).as_object() else {
-        return ZQ_API_TABLE.value_exception;
-    };
-    match o.get_length_prop(ctx) {
-        Ok(i) => JSValue::from(i as i32).0,
-        Err(_) => ZQ_API_TABLE.value_exception,
-    }
+    js_array_push(ctx, cc).map_or(-1, |n| n.to_index(ctx).unwrap())
 }
 
 unsafe extern "C" fn zapi_get_global(env: ZqRawCtx, name: ZqRawValue) -> ZqRawValue {
@@ -627,8 +591,7 @@ unsafe extern "C" fn zapi_add_polling_job(
     let ctx = unsafe { ctx_from_env(env) };
     ctx.queue_job(
         move |cx| {
-            let mut env_s = cx as *mut ScopedContext as ZqRawCtx;
-            let env = env_s;
+            let env = cx as *mut ScopedContext as ZqRawCtx;
             match unsafe { run(data, env) } {
                 0 => Ok(crate::microtask::JobState::Done),
                 1 => Ok(crate::microtask::JobState::Block),
@@ -855,14 +818,15 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         get_string_utf8: zapi_get_string_utf8,
         new_object: zapi_new_object,
         new_array: zapi_new_array,
+
         set_property: zapi_set_property,
         get_property: zapi_get_property,
         has_property: zapi_has_property,
         delete_property: zapi_delete_property,
 
+        get_length_prop: zapi_get_length_prop,
+
         array_push: zapi_array_push,
-        array_set: zapi_array_set,
-        array_len: zapi_array_len,
 
         get_global: zapi_get_global,
         call_function: zapi_call_function,
