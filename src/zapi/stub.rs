@@ -5,11 +5,16 @@ use std::{ffi::c_void, sync::LazyLock};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 use zuqe_zapi::ffi::{
-    ZqApi, ZqBodyFn, ZqCallInfoS, ZqClassDef, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn,
-    ZqJobTraceFn, ZqRawCtx, ZqRawValue, ZqWakeHandleS,
+    ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL, ZQ_VALUE_TYPE_EXCEPTION, ZQ_VALUE_TYPE_FUNCTION,
+    ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER, ZQ_VALUE_TYPE_OBJECT, ZQ_VALUE_TYPE_STRING,
+    ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED, ZqApi, ZqBodyFn, ZqCallInfoS, ZqClassDef,
+    ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn, ZqRawCtx, ZqRawValue,
+    ZqWakeHandleS,
 };
 
-use crate::{JSValue, ScopedContext, class::ClassID, function::Callback, object::PayloadPtr};
+use crate::{
+    JSValue, JSValueTag, ScopedContext, class::ClassID, function::Callback, object::PayloadPtr,
+};
 
 use super::host::{push_class_fields, register_zapi_func_magic, zapi_trampoline_fn};
 
@@ -757,30 +762,25 @@ unsafe extern "C" fn zapi_new_async_iterator(
     }
 }
 
-unsafe extern "C" fn zapi_get_value_type(_: ZqRawCtx, val: ZqRawValue) -> zuqe_zapi::ffi::ZqType {
-    use zuqe_zapi::ffi::ZqType;
+unsafe extern "C" fn zapi_get_value_type(val: ZqRawValue) -> i32 {
     let v = JSValue(val, std::marker::PhantomData);
     match v.tag() {
-        crate::value::JSValueTag::Undefined | crate::value::JSValueTag::Uninitialized => {
-            ZqType::Undefined
-        }
-        crate::value::JSValueTag::Null => ZqType::Null,
-        crate::value::JSValueTag::Bool => ZqType::Bool,
-        crate::value::JSValueTag::Int | crate::value::JSValueTag::Float64 => ZqType::Number,
-        crate::value::JSValueTag::String | crate::value::JSValueTag::StringRope => ZqType::String,
-        crate::value::JSValueTag::Symbol => ZqType::Symbol,
-        crate::value::JSValueTag::BigInt => ZqType::BigInt,
-        crate::value::JSValueTag::Object
-        | crate::value::JSValueTag::FunctionBytecode
-        | crate::value::JSValueTag::Module => {
+        JSValueTag::Undefined | JSValueTag::Uninitialized => ZQ_VALUE_TYPE_UNDEFINED,
+        JSValueTag::Null => ZQ_VALUE_TYPE_NULL,
+        JSValueTag::Bool => ZQ_VALUE_TYPE_BOOL,
+        JSValueTag::Int | JSValueTag::Float64 => ZQ_VALUE_TYPE_NUMBER,
+        JSValueTag::String | JSValueTag::StringRope => ZQ_VALUE_TYPE_STRING,
+        JSValueTag::Symbol => ZQ_VALUE_TYPE_SYMBOL,
+        JSValueTag::BigInt => ZQ_VALUE_TYPE_BIGINT,
+        JSValueTag::Object | JSValueTag::FunctionBytecode | JSValueTag::Module => {
             if v.is_callable() {
-                ZqType::Function
+                ZQ_VALUE_TYPE_FUNCTION
             } else {
-                ZqType::Object
+                ZQ_VALUE_TYPE_OBJECT
             }
         }
-        crate::value::JSValueTag::CatchOffset => ZqType::Object,
-        crate::value::JSValueTag::Exception => ZqType::Exception,
+        JSValueTag::CatchOffset => ZQ_VALUE_TYPE_OBJECT,
+        JSValueTag::Exception => ZQ_VALUE_TYPE_EXCEPTION,
     }
 }
 
