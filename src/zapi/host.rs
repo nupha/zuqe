@@ -112,26 +112,19 @@ pub(crate) fn zapi_trampoline_fn(
         None => return Err(-1),
     };
 
-    let mut env = ctx as *mut ScopedContext as ZqRawCtx;
-
     let raw_args: Vec<ZqRawValue> = cc.arguments().iter().map(|v| v.0).collect();
-
-    let mut cc = ZqCallInfoS {
+    let mut call_info = ZqCallInfoS {
         target: 0,
         this: cc.this().0,
         args: raw_args.as_ptr(),
-        argc: cc.length() as u32,
-        thrown: 0,
+        argc: raw_args.len() as u32,
         magic: user_magic,
     };
 
-    let result = unsafe { body(env, &mut cc) };
+    let env = ctx as *mut ScopedContext as ZqRawCtx;
+    let result = unsafe { body(env, &mut call_info as *mut _) };
     if result == ZQ_API_TABLE.value_exception {
-        if cc.thrown != 0 {
-            Err(ctx.throw_value(crate::JSValue(cc.thrown, std::marker::PhantomData)))
-        } else {
-            Err(-1)
-        }
+        Err(-1)
     } else {
         Ok(crate::JSValue(result, std::marker::PhantomData))
     }
@@ -177,7 +170,6 @@ macro_rules! zapi_make_thunk {
                 this: cc.this().0,
                 args: raw_args.as_ptr(),
                 argc: cc.length() as u32,
-                thrown: 0,
                 magic: 0,
             };
             let result = unsafe { ($body)(&mut env, &mut info) };

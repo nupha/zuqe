@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{ffi::c_void, marker::PhantomData, sync::LazyLock};
+use std::{borrow::Cow, ffi::c_void, marker::PhantomData, sync::LazyLock};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 use zuqe_zapi::ffi::{
@@ -13,8 +13,8 @@ use zuqe_zapi::ffi::{
 };
 
 use crate::{
-    Array, CallContext, JSValue, JSValueTag, ScopedContext, builtins::array::js_array_push,
-    class::ClassID, function::Callback, object::PayloadPtr,
+    Array, CallContext, ErrorKind, JSValue, JSValueTag, ScopedContext,
+    builtins::array::js_array_push, class::ClassID, function::Callback, object::PayloadPtr,
 };
 
 use super::host::{push_class_fields, register_zapi_func_magic, zapi_trampoline_fn};
@@ -57,7 +57,7 @@ unsafe extern "C" fn zapi_new_symbol(env: ZqRawCtx, desc: ZqRawValue) -> ZqRawVa
 unsafe extern "C" fn zapi_get_symbol_description(env: ZqRawCtx, sym: ZqRawValue) -> ZqRawValue {
     let Some(sr) = JSValue(sym, std::marker::PhantomData).as_symbol(true) else {
         let ctx = unsafe { ctx_from_env(env) };
-        ctx.throw_type_error("Not a Symbol value");
+        let _ = ctx.throw_type_error("not a Symbol value");
         return ZQ_API_TABLE.value_exception;
     };
 
@@ -725,6 +725,54 @@ unsafe extern "C" fn zapi_new_async_iterator(
     }
 }
 
+/// Map a raw `i32` error type tag to the engine's `ErrorKind`.
+const fn err_type_to_kind(ty: i32) -> Option<ErrorKind> {
+    Some(match ty {
+        0 => ErrorKind::Eval,
+        1 => ErrorKind::Range,
+        2 => ErrorKind::Reference,
+        3 => ErrorKind::Syntax,
+        4 => ErrorKind::Type,
+        5 => ErrorKind::Uri,
+        6 => ErrorKind::Internal,
+        7 => ErrorKind::Aggregate,
+        _ => return None,
+    })
+}
+
+/// Throw a JS error of the given type with a UTF-8 message.
+/// Returns `value_exception` (the extension should propagate it).
+unsafe extern "C" fn zapi_throw(
+    env: ZqRawCtx,
+    err_type: i32,
+    err_message: *const u8,
+    err_len: i32,
+) {
+    let ctx = unsafe { ctx_from_env(env) };
+
+    let kind = match err_type_to_kind(err_type) {
+        Some(k) => k,
+        None => {
+            let msg = if err_message.is_null() || err_len <= 0 {
+                "unknown error type"
+            } else {
+                let bytes = unsafe { std::slice::from_raw_parts(err_message, err_len as usize) };
+                std::str::from_utf8(bytes).unwrap_or("unknown error type")
+            };
+            let _ = ctx.throw_error(ErrorKind::Internal, msg);
+            return;
+        }
+    };
+
+    let msg: Cow<str> = if err_message.is_null() || err_len <= 0 {
+        Cow::Borrowed("")
+    } else {
+        let bytes = unsafe { std::slice::from_raw_parts(err_message, err_len as usize) };
+        String::from_utf8_lossy(bytes)
+    };
+    let _ = ctx.throw_error(kind, &msg);
+}
+
 unsafe extern "C" fn zapi_get_value_type(val: ZqRawValue) -> i32 {
     let v = JSValue(val, std::marker::PhantomData);
     match v.tag() {
@@ -852,6 +900,7 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         wake_handle_wake: zapi_wake_handle_wake,
         wake_handle_free: zapi_wake_handle_free,
 
+        throw: zapi_throw,
         take_exception: zapi_take_exception,
         exception: zapi_exception,
     })
