@@ -33,7 +33,9 @@ impl StringBuf {
     /// Creates StringBuf from str
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(str: &str) -> Result<Self, i32> {
-        debug_assert!(str.len() < JS_STRING_LEN_MAX);
+        // `JS_STRING_LEN_MAX` is the max *allowed* length (all callers reject
+        // `len > JS_STRING_LEN_MAX`), so the bound is inclusive.
+        debug_assert!(str.len() <= JS_STRING_LEN_MAX);
 
         if str.is_empty() {
             Ok(Self::Empty)

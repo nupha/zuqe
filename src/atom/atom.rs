@@ -231,7 +231,7 @@ impl Atom {
     /// For anonymous symbol, ident convert to empty string value.
     pub fn force_string(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
         if let Some(n) = self.to_small_int() {
-            StringRef::create_utf8(ctx, format!("{n}").into_bytes())
+            StringRef::from_utf8_bytes(ctx, format!("{n}").into_bytes())
         } else {
             let s = self.descriptor(ctx.rt());
             if s.content().is_ident() {
@@ -387,14 +387,6 @@ impl JSValue {
                 }
             }
         }
-    }
-}
-
-impl<'c> ScopedContext<'c> {
-    /// create or reuse an Atom from `str`
-    pub fn create_atom_string(&mut self, str: &str) -> Result<StringRef, i32> {
-        let atom = Atom::from_str(self, str)?;
-        atom.force_string(self)
     }
 }
 

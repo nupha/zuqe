@@ -27,7 +27,7 @@ impl<'c> ScopedContext<'c> {
             Atom::from_string_as_is(self, s, atom_kind)?
         } else {
             debug_assert_eq!(atom_kind, AtomKind::Symbol);
-            let s = StringRef::create(self, StringData::Ident)
+            let s = StringRef::from_content(self, StringData::Ident)
                 .map_err(|_| self.throw_out_of_memory())?;
             Atom::from_string_as_is(self, s, atom_kind)?
         };
@@ -61,7 +61,7 @@ impl<'c> ScopedContext<'c> {
         if let Some((_, sym)) = self.realm_symbols.iter().find(|(d, _)| d == description) {
             return Ok(*sym);
         }
-        let desc = self.create_string_from_utf8(description.as_bytes().to_vec())?;
+        let desc = self.create_string_interned(description)?;
         let sym = self.create_symbol(Some(desc), AtomKind::Symbol)?;
         self.realm_symbols.push((description.to_string(), sym));
         Ok(sym)

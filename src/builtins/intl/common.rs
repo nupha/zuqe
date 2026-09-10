@@ -8,7 +8,7 @@ use icu::locale::{
     extensions::unicode::{Key, Value},
 };
 
-use crate::{Array, ScopedContext, error::JSResult, object::Object, value::JSValue};
+use crate::{Array, Atom, ScopedContext, error::JSResult, object::Object, value::JSValue};
 
 /// Grandfathered BCP-47 tags that ICU4X rejects but which ECMA-402
 /// `IsStructurallyValidLanguageTag` accepts and canonicalises to themselves
@@ -432,7 +432,7 @@ pub(crate) fn canonicalize_locale_list(
     let len = obj.get_length_prop(ctx)?;
     for i in 0..len {
         // ECMA-402 §9.1 step 7.b: skip absent elements (holes).
-        let prop_atom = crate::Atom::from_str(ctx, &i.to_string())?;
+        let prop_atom = Atom::from_i64(ctx, i)?;
         if !obj.has_property(ctx, prop_atom)? {
             continue;
         }

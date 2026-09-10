@@ -264,7 +264,7 @@ fn js_json_to_str(
 
                     jsc.buf.push(&sep).map_err(|_| ctx.throw_out_of_memory())?;
 
-                    let nth = ctx.create_string_from_str(&format!("{i}"))?;
+                    let nth = ctx.create_string_from_utf8(format!("{i}").into_bytes())?;
                     let prop_val = val.get_property_i64(ctx, i)?;
                     let mut v = js_json_check(ctx, jsc, val, prop_val, nth)?;
                     if v.is_undefined() {

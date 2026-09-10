@@ -771,8 +771,9 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
     let obj: JSValue = if resolve_type == PROMISE_MAGIC_allSettled {
         let mut ob = ctx.create_base_object()?;
 
+        // Interned once and reused: `allSettled` may run per element.
         let status_val =
-            ctx.create_string_from_str(if is_reject { "rejected" } else { "fulfilled" })?;
+            ctx.create_string_interned(if is_reject { "rejected" } else { "fulfilled" })?;
 
         ob.define_property_value(
             ctx,

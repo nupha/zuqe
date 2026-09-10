@@ -547,8 +547,9 @@ pub(crate) fn js_promise_all_keyed_resolve_element(
 
     let value_to_store = if resolve_type == PROMISE_MAGIC_allSettled {
         let mut ob = ctx.create_base_object()?;
+        // Interned once and reused: `allSettled` may run per element.
         let status_val =
-            ctx.create_string_from_str(if is_reject { "rejected" } else { "fulfilled" })?;
+            ctx.create_string_interned(if is_reject { "rejected" } else { "fulfilled" })?;
         ob.define_property_value(
             ctx,
             Atom::CONST_status,

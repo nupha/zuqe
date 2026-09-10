@@ -125,13 +125,13 @@ pub fn js_regexp_get_source(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
             ctx.class_proto(JS_CLASS_REGEXP)
                 .map_or(JSValue::NULL, JSValue::from),
         ) {
-            // empty_regex
-            return ctx.create_string_from_str("(?:)").map(JSValue::make_string);
+            // empty_regex — interned once, reused on repeat.
+            return ctx.create_string_interned("(?:)").map(JSValue::make_string);
         }
 
         let re: &RegExpData = class_regexp_payload(&this, ctx)?;
         if re.pattern.is_empty() {
-            return ctx.create_string_from_str("(?:)").map(JSValue::make_string);
+            return ctx.create_string_interned("(?:)").map(JSValue::make_string);
         }
 
         let mut buf = StringBuf::with_capacity(re.pattern.len(), re.pattern.is_wide())
@@ -235,7 +235,7 @@ pub fn js_regexp_get_flags(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         if pos == 0 {
             Atom::CONST_empty_string.force_string(ctx)
         } else {
-            ctx.create_string_from_str(std::str::from_utf8(&buf[0..pos]).unwrap())
+            ctx.create_string_from_utf8(buf[0..pos].to_vec())
         }
         .map(JSValue::make_string)
     } else {

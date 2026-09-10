@@ -450,8 +450,8 @@ struct SetRecord {
 /// Throws TypeError if `has` is missing/not-callable, or `keys` is undefined/null/not-callable.
 fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i32> {
     // 1. Get size → ToNumber(size)
-    let size_str = Atom::from_str(ctx, "size")?;
-    let size_val = val.get_property(ctx, size_str)?;
+    let size_atom = Atom::from_str(ctx, "size")?;
+    let size_val = val.get_property(ctx, size_atom)?;
     let size = match size_val.to_number(ctx)? {
         IntOrFloat::Int64(i) => i as f64,
         IntOrFloat::Float64(f) => f,
@@ -472,8 +472,8 @@ fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i3
     };
 
     // 3. Get keys via GetMethod: undefined/null → undefined, not-callable → throw
-    let keys_str = Atom::from_str(ctx, "keys")?;
-    let keys_val = val.get_property(ctx, keys_str)?;
+    let keys_atom = Atom::from_str(ctx, "keys")?;
+    let keys_val = val.get_property(ctx, keys_atom)?;
     // GetMethod returns undefined for null/undefined
     if keys_val.is_undefined_or_null() {
         return Err(ctx.throw_type_error("Set.prototype.keys is not a function"));
@@ -503,8 +503,7 @@ fn create_empty_set(ctx: &mut ScopedContext, capacity: usize) -> Result<JSValue,
 
 /// Call iterator.return() if it exists.
 fn iterator_return(ctx: &mut ScopedContext, iterator: JSValue) -> Result<(), i32> {
-    let return_str = Atom::from_str(ctx, "return")?;
-    let return_val = iterator.get_property(ctx, return_str)?;
+    let return_val = iterator.get_property(ctx, Atom::CONST_return)?;
     if return_val.is_callable() {
         let return_obj = return_val.as_object().unwrap();
         return_obj.call(ctx, iterator, &[])?;

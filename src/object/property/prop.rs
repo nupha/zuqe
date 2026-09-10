@@ -8,7 +8,7 @@ use crate::{
     atom::Atom,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
-    function::VarRef,
+    function::{VarRef, prop_str_to_atom},
     object::{LazyInit, Object, ObjectImpl},
     utils::unlikely,
     value::JSValue,
@@ -332,6 +332,16 @@ impl ObjectImpl {
         }
     }
 
+    /// Test if property `prop` exists (UTF-8 key), checking the proto chain.
+    ///
+    /// The key is resolved with `prop_str_to_atom`, which takes the
+    /// allocation-free `Atom::lookup_str` fast path for interned keys.
+    #[inline]
+    pub fn has_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> Result<bool, i32> {
+        let atom = prop_str_to_atom(ctx, prop)?;
+        self.has_property(ctx, atom)
+    }
+
     /// test if property `prop` exists, check along proto chain.
     pub fn has_property(&self, ctx: &mut ScopedContext, prop: Atom) -> Result<bool, i32> {
         for mut cur_obj in self.shape_proto_iter(true) {
@@ -434,6 +444,13 @@ impl JSValue {
         } else {
             Ok(false)
         }
+    }
+
+    /// Check whether a property exists by UTF-8 key (no intermediate JS string).
+    #[inline]
+    pub fn has_property_str(&self, ctx: &mut ScopedContext, prop: &str) -> Result<bool, i32> {
+        let atom = prop_str_to_atom(ctx, prop)?;
+        self.has_property(ctx, atom)
     }
 
     /// copy and assign enumerable properties from `source` value to `self`.

@@ -183,6 +183,124 @@ unsafe extern "C" fn zapi_delete_property(
     }
 }
 
+// ── str-keyed property access ──
+//
+// These mirror the value-keyed functions above, but take the key as UTF-8
+// bytes and resolve it to an interned atom **without allocating a JS string**.
+// `prop_str_to_atom` → `Atom::from_str` now takes the allocation-free
+// `Atom::lookup_str` fast path for already-interned keys, so repeated access
+// with a literal key performs no allocation.
+
+/// Resolve a UTF-8 `(ptr, len)` key to an interned atom, throwing a
+/// `TypeError` on invalid input.
+fn str_key_atom(
+    ctx: &mut ScopedContext,
+    key: *const u8,
+    key_len: usize,
+) -> Result<crate::Atom, i32> {
+    if key.is_null() {
+        return Err(ctx.throw_type_error("property key is null"));
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(key, key_len) };
+    let Ok(s) = std::str::from_utf8(bytes) else {
+        return Err(ctx.throw_type_error("property key is not valid UTF-8"));
+    };
+    crate::function::prop_str_to_atom(ctx, s)
+}
+
+unsafe extern "C" fn zapi_get_property_str(
+    env: ZqRawCtx,
+    target: ZqRawValue,
+    key: *const u8,
+    key_len: usize,
+) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Ok(atom) = str_key_atom(ctx, key, key_len) else {
+        return ZQ_API_TABLE.value_exception;
+    };
+    JSValue(target, std::marker::PhantomData)
+        .get_property(ctx, atom)
+        .map_or(ZQ_API_TABLE.value_exception, |v| v.0)
+}
+
+/// returns 1=set, 0=not set, -1=error
+unsafe extern "C" fn zapi_set_property_str(
+    env: ZqRawCtx,
+    obj: ZqRawValue,
+    key: *const u8,
+    key_len: usize,
+    val: ZqRawValue,
+    _throw: i32,
+    _flags: u32,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Ok(atom) = str_key_atom(ctx, key, key_len) else {
+        return -1;
+    };
+    let v = JSValue(val, std::marker::PhantomData);
+    // flags=0 to match the value-keyed `set_property` (no throw on failure).
+    match JSValue(obj, std::marker::PhantomData).set_property_internal(ctx, atom, v, None, 0) {
+        Ok(b) => b as i32,
+        Err(_) => -1,
+    }
+}
+
+/// 0=false, 1=true, -1=error
+unsafe extern "C" fn zapi_has_property_str(
+    env: ZqRawCtx,
+    obj: ZqRawValue,
+    key: *const u8,
+    key_len: usize,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Some(o) = JSValue(obj, std::marker::PhantomData).as_object() else {
+        return 0;
+    };
+    let Ok(atom) = str_key_atom(ctx, key, key_len) else {
+        return -1;
+    };
+    match o.has_property(ctx, atom) {
+        Ok(b) => b as i32,
+        Err(_) => -1,
+    }
+}
+
+/// 1=deleted, 0=can't delete, -1=error
+unsafe extern "C" fn zapi_delete_property_str(
+    env: ZqRawCtx,
+    obj: ZqRawValue,
+    key: *const u8,
+    key_len: usize,
+    _throw: i32,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Some(mut o) = JSValue(obj, std::marker::PhantomData).as_object() else {
+        return -1;
+    };
+    let Ok(atom) = str_key_atom(ctx, key, key_len) else {
+        return -1;
+    };
+    match o.delete_property(ctx, atom, 0) {
+        Ok(b) => b as i32,
+        Err(_) => -1,
+    }
+}
+
+unsafe extern "C" fn zapi_get_global_str(
+    env: ZqRawCtx,
+    name: *const u8,
+    name_len: usize,
+) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Ok(atom) = str_key_atom(ctx, name, name_len) else {
+        return ZQ_API_TABLE.value_exception;
+    };
+    match ctx.global_obj().get_property(ctx, atom) {
+        Ok(v) => v.0,
+        Err(_) => ZQ_API_TABLE.value_exception,
+    }
+}
+
 /// minus=error, otherwise the length
 unsafe extern "C" fn zapi_get_length_prop(env: ZqRawCtx, arr: ZqRawValue) -> i64 {
     let ctx = unsafe { ctx_from_env(env) };
@@ -900,8 +1018,81 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         wake_handle_wake: zapi_wake_handle_wake,
         wake_handle_free: zapi_wake_handle_free,
 
+        get_property_str: zapi_get_property_str,
+        set_property_str: zapi_set_property_str,
+        has_property_str: zapi_has_property_str,
+        delete_property_str: zapi_delete_property_str,
+        get_global_str: zapi_get_global_str,
+
         throw: zapi_throw,
         take_exception: zapi_take_exception,
         exception: zapi_exception,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Runtime, ScopedContext};
+    use std::time::Instant;
+
+    /// FFI-level benefit of the str-keyed property access:
+    /// old `get_str` (new_string + get_property) vs new `get_str`
+    /// (get_property_str, allocation-free key resolution).
+    #[test]
+    fn get_property_str_fast_path() -> Result<(), i32> {
+        const N: usize = 200_000;
+        const KEY: &[u8] = b"role";
+
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            Ok(())
+        })?;
+
+        ctx.with_new_scope(|cx| {
+            let mut obj = cx.create_base_object()?;
+            let k = cx.create_string_interned("role")?;
+            let v = cx.create_string_interned("user")?;
+            obj.set_property_value(cx, JSValue::make_string(k), JSValue::make_string(v), 0)?;
+            let obj_raw = JSValue::from(obj).0;
+            let env = cx as *mut ScopedContext as ZqRawCtx;
+
+            // A: old get_str — allocate a JS string key each call, then get.
+            let t = Instant::now();
+            for _ in 0..N {
+                let key = unsafe { zapi_new_string_utf8(env, KEY.as_ptr(), KEY.len()) };
+                unsafe { std::hint::black_box(zapi_get_property(env, obj_raw, key)) };
+            }
+            let a = t.elapsed();
+
+            // B: new get_str — key passed as UTF-8, resolved to an atom.
+            let t = Instant::now();
+            for _ in 0..N {
+                unsafe {
+                    std::hint::black_box(zapi_get_property_str(
+                        env,
+                        obj_raw,
+                        KEY.as_ptr(),
+                        KEY.len(),
+                    ))
+                };
+            }
+            let b = t.elapsed();
+
+            let n = N as f64;
+            let ap = a.as_nanos() as f64 / n;
+            let bp = b.as_nanos() as f64 / n;
+            println!("\n[get_property(\"role\") x {N}]");
+            println!("  old get_str (new_string + get) : {ap:>8.1} ns/op");
+            println!("  new get_str (get_property_str) : {bp:>8.1} ns/op");
+            println!(
+                "  => {:.1}x faster ({:.0}% saved)\n",
+                ap / bp,
+                100.0 * (ap - bp) / ap
+            );
+            Ok::<(), i32>(())
+        })?;
+        Ok(())
+    }
 }

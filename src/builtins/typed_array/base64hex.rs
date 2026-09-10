@@ -607,7 +607,7 @@ pub fn js_uint8array_proto_toBase64(ctx: &mut ScopedContext, cc: CallContext) ->
     }
 
     let result = ta.with_bytes(|buf| base64_encode(buf, alphabet, omit_padding));
-    ctx.create_string_from_str(&result)
+    ctx.create_string_from_utf8(result.into_bytes())
         .map(JSValue::make_string)
 }
 
@@ -620,7 +620,7 @@ pub fn js_uint8array_proto_toHex(ctx: &mut ScopedContext, cc: CallContext) -> JS
     }
 
     let result = ta.with_bytes(hex_encode);
-    ctx.create_string_from_str(&result)
+    ctx.create_string_from_utf8(result.into_bytes())
         .map(JSValue::make_string)
 }
 

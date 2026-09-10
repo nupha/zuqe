@@ -52,7 +52,7 @@ const fn is_waitable(cid: ClassID) -> bool {
 }
 
 fn str_val(ctx: &mut ScopedContext, s: &str) -> JSResult {
-    let sr = ctx.create_string_from_str(s)?;
+    let sr = ctx.create_string_interned(s)?;
     Ok(JSValue::make_string(sr))
 }
 

@@ -140,7 +140,7 @@ pub fn js_error_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         (true, true) => "".into(),
     };
 
-    ctx.create_string_from_str(&txt).map(JSValue::make_string)
+    ctx.create_string_from_utf8(txt.as_bytes().to_vec()).map(JSValue::make_string)
 }
 
 pub fn js_error_isError(_: &mut ScopedContext, cc: CallContext) -> JSResult {

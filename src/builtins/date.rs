@@ -647,7 +647,7 @@ fn datetime_format(ctx: &mut ScopedContext, tm_val: i64, flags: i32) -> Result<S
         return if fmt == 2 {
             Err(ctx.throw_range_error("Date value is NaN"))
         } else {
-            ctx.create_string_from_str("Invalid Date")
+            ctx.create_string_interned("Invalid Date")
         };
     };
 
@@ -983,7 +983,7 @@ fn get_date_string(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             };
             if tm.is_invalid() {
                 return ctx
-                    .create_string_from_str("Invalid Date")
+                    .create_string_interned("Invalid Date")
                     .map(JSValue::make_string);
             }
             let data = crate::builtins::intl::date_time_format::build_date_time_format_data(

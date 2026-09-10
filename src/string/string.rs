@@ -261,7 +261,7 @@ impl StringImpl {
             .and_then(|mut sb| sb.push_content(s2.content()).map(|_| sb))
             .map_err(|_| ctx.throw_out_of_memory())?;
 
-        StringRef::create(ctx, StringData::from_buf(buf))
+        StringRef::from_content(ctx, StringData::from_buf(buf))
     }
 
     /// make sub string with content of given range.
@@ -739,8 +739,8 @@ impl StringRef {
         })
     }
 
-    /// create String with string data, and optional atom info (in gc scope).
-    pub(crate) fn create_internal(
+    /// alloc String data, and optional atom info (in gc scope).
+    fn alloc_string(
         ctx: &mut ScopedContext,
         content: StringData,
         atom_info: Option<AtomInfo>,
@@ -753,32 +753,38 @@ impl StringRef {
             })
     }
 
+    /// Raw allocation of a (non-interned) string node from `&str`.
+    ///
+    /// This is the low-level allocator, **not** a policy API: it never interns.
+    /// Callers that want an interned string must go through
+    /// [`Atom::from_str`](crate::Atom::from_str) / `ScopedContext::create_interned_string`.
     #[inline(always)]
-    pub(crate) fn create(ctx: &mut ScopedContext, content: StringData) -> Result<Self, i32> {
-        Self::create_internal(ctx, content, None)
+    pub(crate) fn alloc_from_str(ctx: &mut ScopedContext, s: &str) -> Result<Self, i32> {
+        Self::alloc_string(ctx, StringData::from_buf(StringBuf::from_str(s)?), None)
     }
 
-    /// Create StringRef from &str
-    pub(crate) fn create_str(ctx: &mut ScopedContext, s: &str) -> Result<Self, i32> {
-        Self::create_internal(ctx, StringData::from_buf(StringBuf::from_str(s)?), None)
-    }
-
-    /// Create StringRef from utf8 encoded bytes
-    pub(crate) fn create_utf8(ctx: &mut ScopedContext, utf8_bytes: Vec<u8>) -> Result<Self, i32> {
-        Self::create(
-            ctx,
-            StringData::from_buf(StringBuf::from_utf8(utf8_bytes).map_err(|_| -1)?),
-        )
-    }
-
-    /// static str `s` must be ascii str.
+    /// Raw allocation of a (non-interned) string node from a `'static` str.
+    /// `atom_info` is set only by const-atom setup; ordinary callers pass `None`.
     #[inline(always)]
-    pub(crate) fn create_static(
+    pub(crate) fn alloc_static(
         ctx: &mut ScopedContext,
         s: &'static str,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
-        Self::create_internal(ctx, StringData::from_static(s), atom_info)
+        Self::alloc_string(ctx, StringData::from_static(s), atom_info)
+    }
+
+    #[inline(always)]
+    pub(crate) fn from_content(ctx: &mut ScopedContext, content: StringData) -> Result<Self, i32> {
+        Self::alloc_string(ctx, content, None)
+    }
+
+    /// Create StringRef from utf8 encoded bytes
+    pub(crate) fn from_utf8_bytes(
+        ctx: &mut ScopedContext,
+        utf8_bytes: Vec<u8>,
+    ) -> Result<Self, i32> {
+        Self::from_content(ctx, StringData::from_buf(StringBuf::from_utf8(utf8_bytes)?))
     }
 }
 
@@ -832,13 +838,6 @@ impl From<GcRef<StringImpl>> for StringRef {
     }
 }
 
-// impl From<GcRef<StringImpl>> for JSValue {
-//     #[inline(always)]
-//     fn from(value: GcRef<StringImpl>) -> Self {
-//         Self::String(StringRef::from_flat(value))
-//     }
-// }
-
 impl<'c> ScopedContext<'c> {
     /// create string value from string buf.
     pub(crate) fn create_string_with_buf(&mut self, sbuf: StringBuf) -> Result<StringRef, i32> {
@@ -846,7 +845,7 @@ impl<'c> ScopedContext<'c> {
             Atom::CONST_empty_string.force_string(self)
         } else {
             let data = StringData::from_buf(sbuf);
-            StringRef::create(self, data).map_err(|_| self.throw_out_of_memory())
+            StringRef::from_content(self, data).map_err(|_| self.throw_out_of_memory())
         }
     }
 
@@ -858,7 +857,7 @@ impl<'c> ScopedContext<'c> {
         if content.is_empty() {
             Atom::CONST_empty_string.force_string(self)
         } else {
-            StringRef::create(self, content).map_err(|_| self.throw_out_of_memory())
+            StringRef::from_content(self, content).map_err(|_| self.throw_out_of_memory())
         }
     }
 
@@ -869,34 +868,27 @@ impl<'c> ScopedContext<'c> {
         } else if utf8_bytes.len() > JS_STRING_LEN_MAX {
             Err(self.throw_internal_error("string too long"))
         } else {
-            StringRef::create_utf8(self, utf8_bytes).inspect_err(|_| {
+            StringRef::from_utf8_bytes(self, utf8_bytes).inspect_err(|_| {
                 let _ = self.throw_out_of_memory();
             })
         }
     }
 
-    /// create string from str
-    pub fn create_string_from_str(&mut self, str: &str) -> Result<StringRef, i32> {
-        if unlikely(str.is_empty()) {
-            Atom::CONST_empty_string.force_string(self)
-        } else if unlikely(str.len() > JS_STRING_LEN_MAX) {
-            Err(self.throw_internal_error("string too long"))
-        } else {
-            StringRef::create_str(self, str).inspect_err(|_| {
-                let _ = self.throw_out_of_memory();
-            })
+    /// Create a string value from an `&str`, **interning it as an atom**.
+    ///
+    /// This is the *only* `&str` string constructor: any `&str` is treated as
+    /// a name/key/literal, so it is interned and its descriptor reused on
+    /// repeat. For dynamic text (numbers, error messages, user input) that must
+    /// **not** grow the atom table, pass UTF-8 bytes to
+    /// [`Self::create_string_from_utf8`] instead.
+    pub fn create_string_interned(&mut self, str: &str) -> Result<StringRef, i32> {
+        // Reject an over-long key up front, whether or not it is already
+        // interned (`Atom::from_str` checks this too; kept here so the policy
+        // is explicit and symmetric with `create_string_from_utf8`).
+        if unlikely(str.len() > JS_STRING_LEN_MAX) {
+            return Err(self.throw_internal_error("string too long"));
         }
-    }
-
-    /// create string from static str
-    pub fn create_string_from_static(&mut self, str: &'static str) -> Result<StringRef, i32> {
-        if unlikely(str.is_empty()) {
-            Atom::CONST_empty_string.force_string(self)
-        } else {
-            StringRef::create_static(self, str, None).inspect_err(|_| {
-                let _ = self.throw_out_of_memory();
-            })
-        }
+        Atom::from_str(self, str).and_then(|s| s.force_string(self))
     }
 
     /// create string value from a single string char.

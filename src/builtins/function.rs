@@ -59,11 +59,12 @@ fn js_function_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             // toString (the NativeFunction grammar has no async/* accessor).
             native_presented = ["<Array.fromAsync>"]
                 .iter()
-                .any(|n| Atom::from_str(ctx, n).is_ok_and(|a| a == debug.filename));
+                .any(|&name| Atom::from_str(ctx, name).is_ok_and(|a| a == debug.filename));
             if !native_presented && let Some(s) = debug.source.as_deref() {
-                return ctx.create_string_from_str(s).map(JSValue::make_string);
+                return ctx.create_string_from_utf8(s.as_bytes().to_vec()).map(JSValue::make_string);
             }
         }
+
         if native_presented {
             FunctionKind::Normal
         } else {

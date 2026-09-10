@@ -247,7 +247,7 @@ impl ModuleDefImpl {
         let name = self.module_name().to_utf8(ctx.rt());
 
         let mut meta_obj = self.import_meta(ctx)?;
-        let sval = ctx.create_string_from_str(&name)?;
+        let sval = ctx.create_string_from_utf8(name.into_bytes())?;
         meta_obj.define_property_value_str(
             ctx,
             "url",

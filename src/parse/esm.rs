@@ -35,7 +35,7 @@ impl<'s> JSParseState<'s> {
             TokenKind::IDENT => Ok(self.token.atom().unwrap()),
             TokenKind::STRING => {
                 let t = self.token.data.string().unwrap().to_utf8().to_string();
-                let s = StringRef::create_utf8(self.ctx(), t.into())?;
+                let s = StringRef::from_utf8_bytes(self.ctx(), t.into())?;
                 Atom::from_string(self.ctx(), s, AtomKind::String)
             }
             t if t.is_keyword() => Ok(t.keyword_atom().unwrap()),

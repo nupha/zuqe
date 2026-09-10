@@ -12,8 +12,8 @@ use crate::{
     atom::{is_const_atom, is_small_int_atom},
     number::parse_u32,
     runtime::RuntimePtr,
-    string::{StringData, StringImpl, StringRef},
-    utils::hash_u32_from_base,
+    string::{JS_STRING_LEN_MAX, StringData, StringImpl, StringRef},
+    utils::{hash_u32_from_base, unlikely},
 };
 
 use super::{
@@ -69,7 +69,7 @@ fn register_atom_common(
 
         // dup string content without atom info
         if let Some(cx) = ctx.as_mut() {
-            StringRef::create(cx, str.content().clone())?
+            StringRef::from_content(cx, str.content().clone())?
         } else {
             StringRef::create_root(rt, str.content().clone(), None)?
         }
@@ -132,7 +132,7 @@ fn register_atom(
             } else if str.atom_info().is_some() {
                 // dup string content without atom info
                 if let Some(cx) = ctx.as_mut() {
-                    StringRef::create(cx, str.content().clone())?
+                    StringRef::from_content(cx, str.content().clone())?
                 } else {
                     StringRef::create_root(rt, str.content().clone(), None)?
                 }
@@ -449,39 +449,85 @@ impl Atom {
         }
     }
 
-    /// make atom from `str`. if `str` is a safe-integer representation, create int-atom instead.
-    pub(crate) fn from_str(ctx: &mut ScopedContext, str: &str) -> Result<Self, i32> {
+    /// Look up an already-registered atom of `kind` by content, **without
+    /// allocating**. Returns `None` when `str` is not interned yet.
+    ///
+    /// The hash is computed with [`Atom::calc_atom_str_hash`], which matches
+    /// [`Atom::calc_atom_hash`] for well-formed strings (both fold scalar
+    /// values, and `StringData::chars()` combines surrogate pairs), so a hit
+    /// lands in the same bucket the atom was registered under.
+    ///
+    /// Only `String`/`GlobalSymbol` atoms are content-addressable: named
+    /// `Symbol`/`Private` atoms are intentionally *not* deduplicated by content
+    /// (they use a fixed hash), so this returns `None` for them and the caller
+    /// falls back to the registering slow path.
+    fn lookup_str(rt: &RuntimeImpl, str: &str, kind: AtomKind) -> Option<Atom> {
         if str.is_empty() {
-            Ok(Atom::CONST_empty_string)
+            return Some(Atom::CONST_empty_string);
         } else if let Some(i) = parse_u32(str)
             && i <= JS_ATOM_MAX_INT
         {
-            Ok(Self::new_small_int(i))
+            return Some(Atom::new_small_int(i));
+        }
+
+        let hash = Self::calc_atom_str_hash(str, kind);
+        // `hash_lut` maps content hash -> candidate atom ids (const + user).
+        for &id in rt.atom_registry.hash_lut.get(&hash)? {
+            let Some(desc) = rt.atom_desc_string(id) else {
+                continue;
+            };
+            // Guard against cross-kind hash collisions: only `String` atoms.
+            if desc.atom_info().is_some_and(|a| a.kind() == kind) && desc.content().eq_str(str) {
+                return Some(Atom(id));
+            }
+        }
+
+        None
+    }
+
+    /// make atom from `str`. if `str` is a safe-integer representation, create int-atom instead.
+    ///
+    /// Fast path: an already-interned atom is returned **without allocating**
+    /// (see [`Atom::lookup_str`]); only a miss allocates a `StringRef` and
+    /// registers a new atom.
+    ///
+    /// Enforces `JS_STRING_LEN_MAX` here so every `&str -> atom` path (parser,
+    /// `prop_str_to_atom`, `create_interned_string`, zapi keys, …) rejects an
+    /// over-long key with a proper `InternalError` instead of tripping the
+    /// `StringBuf` debug-assert (debug) or silently building an over-long
+    /// string (release).
+    #[inline]
+    pub(crate) fn from_str(ctx: &mut ScopedContext, str: &str) -> Result<Self, i32> {
+        if unlikely(str.len() > JS_STRING_LEN_MAX) {
+            return Err(ctx.throw_internal_error("string too long"));
+        }
+        if let Some(a) = Self::lookup_str(ctx.rt(), str, AtomKind::String) {
+            Ok(a)
         } else {
-            let s = StringRef::create_str(ctx, str)?;
+            let s = StringRef::alloc_from_str(ctx, str)?;
             Self::from_string(ctx, s, AtomKind::String)
         }
     }
 
-    pub(crate) fn from_i64(ctx: &mut ScopedContext, n: i64) -> Result<Self, i32> {
-        if (0..JS_ATOM_MAX_INT as i64).contains(&n) {
-            Ok(Self::new_small_int(n as u32))
+    #[inline]
+    pub(crate) fn from_i64(ctx: &mut ScopedContext, i: i64) -> Result<Self, i32> {
+        if (0..JS_ATOM_MAX_INT as i64).contains(&i) {
+            Ok(Self::new_small_int(i as u32))
         } else {
-            let s = StringRef::create_utf8(ctx, format!("{n}").into())?;
+            let s = StringRef::from_utf8_bytes(ctx, format!("{i}").into())?;
             Self::from_string(ctx, s, AtomKind::String)
         }
     }
 
     /// create atom from static &str
+    ///
+    /// Fast path: an already-interned atom is returned without allocating a
+    /// descriptor node (see [`Atom::lookup_str`]).
     pub fn from_static(ctx: &mut ScopedContext, str: &'static str) -> Result<Self, i32> {
-        if str.is_empty() {
-            Ok(Atom::CONST_empty_string)
-        } else if let Some(i) = parse_u32(str)
-            && i <= JS_ATOM_MAX_INT
-        {
-            Ok(Self::new_small_int(i))
+        if let Some(a) = Self::lookup_str(ctx.rt(), str, AtomKind::String) {
+            Ok(a)
         } else {
-            let s = StringRef::create_static(ctx, str, None)?;
+            let s = StringRef::alloc_static(ctx, str, None)?;
             Self::from_string(ctx, s, AtomKind::String)
         }
     }
@@ -513,7 +559,8 @@ impl Atom {
     }
 
     /// calc atom hash for str and type.
-    pub(super) fn calc_atom_str_hash(str: &str, kind: AtomKind) -> u32 {
+    #[inline(always)]
+    fn calc_atom_str_hash(str: &str, kind: AtomKind) -> u32 {
         let mut h = kind as u32;
         if !str.is_empty() {
             for c in str.chars() {
@@ -521,5 +568,112 @@ impl Atom {
             }
         }
         h
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Runtime, ScopedContext};
+    use std::time::Instant;
+
+    /// Engine-side benchmark for the `lookup_str` fast path.
+    ///
+    /// Verifies that resolving an already-interned key no longer allocates a
+    /// descriptor, and shows the benefit for both the raw lookup and the
+    /// `&str -> atom` / `&str -> (interned) value` entry points.
+    #[test]
+    fn lookup_str_fast_path_avoids_allocation() -> Result<(), i32> {
+        const N: usize = 200_000;
+        // A realistic mix, so the hash bucket / descriptor cache isn't trivially hot.
+        const NAMES: &[&str] = &["role", "content", "tool_call_id", "name", "arguments"];
+
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            Ok(())
+        })?;
+
+        ctx.with_new_scope(|cx| {
+            // Intern the keys once (slow path), as a parser would.
+            for n in NAMES {
+                let _ = Atom::from_str(cx, n)?;
+            }
+
+            // 1. Raw lookup: hash + table probe + content compare, no alloc.
+            let t = Instant::now();
+            for i in 0..N {
+                std::hint::black_box(Atom::lookup_str(
+                    cx.rt(),
+                    NAMES[i % NAMES.len()],
+                    AtomKind::String,
+                ));
+            }
+            let lookup = t.elapsed();
+
+            // 2. `from_str` on a hit: lookup fast path.
+            let t = Instant::now();
+            for i in 0..N {
+                std::hint::black_box(Atom::from_str(cx, NAMES[i % NAMES.len()])?);
+            }
+            let fast = t.elapsed();
+
+            // 3. Pre-optimization `from_str`: allocate a StringRef, then register.
+            let t = Instant::now();
+            for i in 0..N {
+                let s = StringRef::alloc_from_str(cx, NAMES[i % NAMES.len()])?;
+                std::hint::black_box(Atom::from_string(cx, s, AtomKind::String)?);
+            }
+            let slow = t.elapsed();
+
+            // 4. `&str -> interned value` (create_atom_string) reuses the descriptor.
+            let t = Instant::now();
+            for i in 0..N {
+                std::hint::black_box(cx.create_string_interned(NAMES[i % NAMES.len()])?);
+            }
+            let atom_str = t.elapsed();
+
+            // 5. fresh value via utf8 bytes (create_string_from_utf8) always allocates.
+            let t = Instant::now();
+            for i in 0..N {
+                std::hint::black_box(cx.create_string_from_utf8(NAMES[i % NAMES.len()].as_bytes().to_vec())?);
+            }
+            let new_str = t.elapsed();
+
+            let n = N as f64;
+            let ns = |d: std::time::Duration| d.as_nanos() as f64 / n;
+            println!(
+                "\n[atom key resolution, {N} ops, {} distinct keys]",
+                NAMES.len()
+            );
+            println!(
+                "  lookup_str (raw lookup)          : {:>8.1} ns/op",
+                ns(lookup)
+            );
+            println!(
+                "  Atom::from_str (fast, on hit)    : {:>8.1} ns/op",
+                ns(fast)
+            );
+            println!(
+                "  Atom::from_str (slow, old path)  : {:>8.1} ns/op",
+                ns(slow)
+            );
+            println!(
+                "  create_string_interned (reuse)   : {:>8.1} ns/op",
+                ns(atom_str)
+            );
+            println!(
+                "  create_string_from_utf8 (fresh)  : {:>8.1} ns/op",
+                ns(new_str)
+            );
+            println!(
+                "  => from_str: {:.1}x faster ({:.0}% saved);  interned value vs fresh: {:.1}x\n",
+                ns(slow) / ns(fast),
+                100.0 * (ns(slow) - ns(fast)) / ns(slow),
+                ns(new_str) / ns(atom_str),
+            );
+            Ok::<(), i32>(())
+        })?;
+        Ok(())
     }
 }

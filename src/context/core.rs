@@ -61,25 +61,23 @@ impl<'c> ScopedContext<'c> {
 
             // standard error objects
             let msg = Atom::CONST_empty_string.force_string(self).unwrap();
-            for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
+            for (i, &name) in STD_ERROR_NAMES.iter().enumerate() {
                 let mut err = self.create_base_object_with_proto(Some(error_proto))?;
 
-                let name = self.create_atom_string(name).unwrap();
+                let name = self.create_string_interned(name)?;
+                //let name = self.create_string_interned(name).unwrap();
                 err.define_property_value(
                     self,
                     Atom::CONST_name,
                     JSValue::make_string(name),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )
-                .unwrap();
-
+                )?;
                 err.define_property_value(
                     self,
                     Atom::CONST_message,
                     JSValue::make_string(msg),
                     JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )
-                .unwrap();
+                )?;
 
                 self.error_protos[i] = err.into();
             }

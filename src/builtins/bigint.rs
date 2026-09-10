@@ -106,7 +106,7 @@ fn js_bigint_toString(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     };
 
     let s = crate::bigint::to_string_radix(&bi, radix);
-    ctx.create_string_from_str(s.as_str())
+    ctx.create_string_from_utf8(s.into_bytes())
         .map(JSValue::make_string)
 }
 

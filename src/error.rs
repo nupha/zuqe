@@ -108,13 +108,13 @@ impl Exception {
         match self {
             Self::No => JSValue::UNDEFINED,
             Self::OutOfMemory => ctx
-                .create_string_from_static("out of memory")
+                .create_string_interned("out of memory")
                 .map_or(JSValue::from(-1), JSValue::make_string),
             Self::TooManyClasses => ctx
-                .create_string_from_static("too many classes")
+                .create_string_interned("too many classes")
                 .map_or(JSValue::from(-1), JSValue::make_string),
             Self::TooManyAtoms => ctx
-                .create_string_from_static("too many atoms")
+                .create_string_interned("too many atoms")
                 .map_or(JSValue::from(-1), JSValue::make_string),
             Self::Error(v) => v,
         }
@@ -182,7 +182,7 @@ impl<'c> ScopedContext<'c> {
         if let Ok(mut err_obj) =
             self.create_instance_with_proto(proto, PayloadPtr::none(JS_CLASS_ERROR))
         {
-            let s = self.create_string_from_str(message);
+            let s = self.create_string_from_utf8(message.as_bytes().to_vec());
             let _ = err_obj.define_property_value(
                 self,
                 Atom::CONST_message,
@@ -443,7 +443,7 @@ impl<'c> ScopedContext<'c> {
                 .map_err(|_| -1)?;
 
             if let Some(mut obj) = error_obj {
-                let str = self.create_string_from_str(filename);
+                let str = self.create_string_from_utf8(filename.as_bytes().to_vec());
                 obj.define_property_value(
                     self,
                     Atom::CONST_fileName,

@@ -632,7 +632,7 @@ impl JSValue {
             JSValueTag::Float64 => {
                 let n = js_value_get_float64(self.0);
                 let s = f64_stringify(n, 10, None, JS_DTOA_VAR_FORMAT);
-                ctx.create_string_from_str(s.as_ref())
+                ctx.create_string_from_utf8(s.as_ref().as_bytes().to_vec())
                     .map(Self::make_string)
             }
             JSValueTag::Null => Atom::CONST_null.force_string(ctx).map(Self::make_string),
@@ -644,7 +644,7 @@ impl JSValue {
             JSValueTag::BigInt => {
                 // ToString(BigInt): decimal string without the `n` suffix.
                 let s = unsafe { crate::bigint::to_string_radix(&self.as_bigint_unchecked(), 10) };
-                ctx.create_string_from_str(s.as_str())
+                ctx.create_string_from_utf8(s.into_bytes())
                     .map(Self::make_string)
             }
 
@@ -653,7 +653,7 @@ impl JSValue {
                 .and_then(|s| s.to_string_or_symbol(ctx)),
 
             JSValueTag::FunctionBytecode => ctx
-                .create_string_from_str("[bytecode]")
+                .create_string_interned("[bytecode]")
                 .map(Self::make_string),
 
             JSValueTag::Exception => {

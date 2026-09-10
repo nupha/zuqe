@@ -137,7 +137,7 @@ impl<'s> JSParseState<'s> {
                 {
                     let str_val = self
                         .ctx()
-                        .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?;
+                        .create_string_interned(&cooked.data.string().unwrap().to_utf8())?;
 
                     raw_array.define_property_value_u32(
                         self.ctx(),
@@ -153,7 +153,7 @@ impl<'s> JSParseState<'s> {
                     Ok(_) => {
                         let str_val = self
                             .ctx()
-                            .create_string_from_str(&cooked.data.string().unwrap().to_utf8())?;
+                            .create_string_interned(&cooked.data.string().unwrap().to_utf8())?;
 
                         template_object.define_property_value_u32(
                             self.ctx(),
@@ -180,7 +180,7 @@ impl<'s> JSParseState<'s> {
                 if depth == 0 || !sbuf.is_empty() {
                     let str = self
                         .ctx()
-                        .create_string_from_str(&sbuf.to_utf8())
+                        .create_string_interned(&sbuf.to_utf8())
                         .map(JSValue::make_string)?;
                     self.emit_push_const(str, true)?;
 

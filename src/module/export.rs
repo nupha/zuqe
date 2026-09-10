@@ -209,7 +209,7 @@ impl ModuleDefImpl {
             let val: JSValue = match entry.detail {
                 FieldDetail::LazyValueFn(f) => f(ctx)?,
                 FieldDetail::LazyStr(s) => {
-                    ctx.create_string_from_str(s).map(JSValue::make_string)?
+                    ctx.create_string_interned(s).map(JSValue::make_string)?
                 }
                 FieldDetail::LazyFunc {
                     callback,
