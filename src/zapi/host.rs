@@ -7,12 +7,12 @@ use libloading::Library;
 use zuqe_zapi::ffi::{
     ZQ_ABI_VERSION, ZQ_API_VERSION, ZQ_FIELD_BOOL, ZQ_FIELD_CLASS, ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC,
     ZQ_FIELD_GETSET, ZQ_FIELD_INT, ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED, ZQ_FIELD_VALUE, ZqApi,
-    ZqCallbackInfoS, ZqEnv, ZqEnvS, ZqFieldDef, ZqModuleInfo, ZqRawValue,
+    ZqCallInfoS, ZqFieldDef, ZqModuleInfo, ZqRawCtx, ZqRawValue,
 };
 
 use crate::{JSValue, ModuleDef, ScopedContext, class::ClassID, function::Callback};
 
-use super::stub::{ZQ_API_TABLE, env_from_ctx};
+use super::stub::ZQ_API_TABLE;
 
 /// Translate a `ZqFieldDef` array into engine `FieldDef` entries (methods,
 /// accessors, and constant data props), for class prototypes/constructors.
@@ -112,11 +112,11 @@ pub(crate) fn zapi_trampoline_fn(
         None => return Err(-1),
     };
 
-    let mut env = unsafe { env_from_ctx(ctx) };
+    let mut env = ctx as *mut ScopedContext as ZqRawCtx;
 
     let raw_args: Vec<ZqRawValue> = cc.arguments().iter().map(|v| v.0).collect();
 
-    let mut cc = ZqCallbackInfoS {
+    let mut cc = ZqCallInfoS {
         target: 0,
         this: cc.this().0,
         args: raw_args.as_ptr(),
@@ -125,7 +125,7 @@ pub(crate) fn zapi_trampoline_fn(
         magic: user_magic,
     };
 
-    let result = unsafe { body(&mut env, &mut cc) };
+    let result = unsafe { body(env, &mut cc) };
     if result == ZQ_API_TABLE.value_exception {
         if cc.thrown != 0 {
             Err(ctx.throw_value(crate::JSValue(cc.thrown, std::marker::PhantomData)))
@@ -140,7 +140,7 @@ pub(crate) fn zapi_trampoline_fn(
 /// 同 `register_zapi_func`，但显式指定用户 magic。
 pub(crate) fn register_zapi_func_magic(
     ctx: &mut ScopedContext,
-    body: unsafe extern "C" fn(env: ZqEnv, info: *mut ZqCallbackInfoS) -> ZqRawValue,
+    body: unsafe extern "C" fn(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue,
     magic: i32,
 ) -> (Callback, i32) {
     let rt = ctx.rt_mut();
@@ -167,12 +167,12 @@ pub(crate) fn register_zapi_func_magic(
 macro_rules! zapi_make_thunk {
     ($body:expr) => {{
         use $crate::{JSResult, JSValue, ScopedContext, function::CallContext};
-        use zuqe_zapi::ffi::ZqCallbackInfoS;
+        use zuqe_zapi::ffi::ZqCallInfoS;
 
         fn trampoline(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             let mut env = $crate::zapi::host::env_from_scoped(ctx);
             let raw_args: Vec<u64> = cc.arguments().iter().map(|v| v.0).collect();
-            let mut info = ZqCallbackInfoS {
+            let mut info = ZqCallInfoS {
                 target: 0,
                 this: cc.this().0,
                 args: raw_args.as_ptr(),
@@ -307,11 +307,8 @@ impl<'a> ScopedContext<'a> {
                         "zapi module '{file_url}': class export '{name}' has no class def"
                     )));
                 }
-                let mut env = ZqEnvS {
-                    ctx: (self as *mut ScopedContext).cast::<c_void>(),
-                    rt: std::ptr::null_mut(),
-                };
-                let r = unsafe { register_class(&mut env, def.class_def) };
+                let mut env = self as *mut ScopedContext as ZqRawCtx;
+                let r = unsafe { register_class(env, def.class_def) };
                 if r < 0 {
                     return Err(self.throw_reference_error(&format!(
                         "zapi module '{file_url}': failed to register class '{name}'"
@@ -346,8 +343,8 @@ impl<'a> ScopedContext<'a> {
         // namespace instead of `globalThis`.
         let init_fn = move |ctx: &mut ScopedContext, md: &ModuleDef| -> Result<(), i32> {
             if let Some(init_f) = init_ptr {
-                let mut env = unsafe { env_from_ctx(ctx) };
-                if unsafe { init_f(&mut env) } != 0 {
+                let mut env = ctx as *mut ScopedContext as ZqRawCtx;
+                if unsafe { init_f(env) } != 0 {
                     return Err(ctx.throw_internal_error("zapi module init failed"));
                 }
             }
@@ -413,9 +410,9 @@ fn eval_field_value(
         }
         ZQ_FIELD_VALUE => {
             let value_fn = def.value_fn.ok_or(-1)?;
-            let mut env = unsafe { env_from_ctx(ctx) };
+            let mut env = ctx as *mut ScopedContext as ZqRawCtx;
             let mut out: ZqRawValue = 0;
-            if unsafe { value_fn(&mut env, &mut out) } != 0 {
+            if unsafe { value_fn(env, &mut out) } != 0 {
                 return Err(ctx.throw_internal_error(&format!(
                     "zapi module export '{}' failed",
                     def.name_str().unwrap_or("<unnamed>")
