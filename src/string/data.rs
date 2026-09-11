@@ -11,7 +11,10 @@ use crate::{
     utils::unlikely,
 };
 
-use super::{CharCode, CharCodeDecoder, StringBuf, StringCharIter, s16_into_s8, u32_encode_utf8};
+use super::{
+    CharCode, CharCodeDecoder, StringBuf, StringCharIter, s16_into_s8, u32_encode_utf8,
+    utf16_utf8_len,
+};
 
 /// read-only string content.
 #[repr(u8)]
@@ -375,6 +378,20 @@ impl StringData {
     #[inline(always)]
     pub fn encode_utf8_bytes(&self, allow_invalid: bool) -> Cow<'_, [u8]> {
         self.encode_utf8_bytes_internal(0..self.len(), allow_invalid, false)
+    }
+
+    /// UTF-8 byte length of the whole content, computed without allocating.
+    ///
+    /// Equals `self.encode_utf8_bytes(false).len()` but never builds the byte
+    /// buffer, so the zapi measure pass can size a buffer for free.
+    #[inline(always)]
+    pub fn utf8_len(&self) -> usize {
+        match self {
+            Self::Empty | Self::Ident => 0,
+            Self::Ascii(s) => s.len(),
+            Self::AsciiStatic(s) => s.len(),
+            Self::Utf16(s) => utf16_utf8_len(s),
+        }
     }
 
     /// Encode content to utf8 str.

@@ -26,11 +26,6 @@ use crate::{
 use super::{JS_PROP_C_W_E, JS_PROP_GETSET, JS_PROP_HAS_VALUE, JS_PROP_WRITABLE};
 
 #[inline(always)]
-const fn policy_can_throw(throw: ThrowPolicy, is_strict: bool) -> bool {
-    matches!(throw, ThrowPolicy::Always) || (matches!(throw, ThrowPolicy::StrictOnly) && is_strict)
-}
-
-#[inline(always)]
 const fn set_flags(throw: ThrowPolicy, no_add: bool) -> u32 {
     let mut f = match throw {
         ThrowPolicy::Always => JS_PROP_THROW,
@@ -63,7 +58,7 @@ impl ObjectImpl {
         throw: ThrowPolicy,
         no_add: bool,
     ) -> Result<bool, i32> {
-        let can_throw = policy_can_throw(throw, ctx.rt().is_strict_mode());
+        let can_throw = throw.can_throw(ctx.rt().is_strict_mode());
 
         macro_rules! fail {
             ($msg:expr) => {
@@ -606,7 +601,7 @@ impl JSValue {
         } else {
             if let Some(p) = self.get_prototype_primitive(ctx).as_object() {
                 p.set_property_internal(ctx, prop, val, receiver, throw, no_add)
-            } else if unlikely(policy_can_throw(throw, ctx.rt().is_strict_mode())) {
+            } else if unlikely(throw.can_throw(ctx.rt().is_strict_mode())) {
                 Err(ctx.throw_type_error_not_an_object())
             } else {
                 Ok(false)
@@ -699,7 +694,7 @@ fn call_setter(
     if let Some(func) = setter {
         func.call(ctx, this_obj, std::slice::from_ref(&value))?;
         Ok(true)
-    } else if unlikely(policy_can_throw(throw, ctx.rt().is_strict_mode())) {
+    } else if unlikely(throw.can_throw(ctx.rt().is_strict_mode())) {
         Err(ctx.throw_type_error("no setter for property"))
     } else {
         Ok(false)

@@ -186,7 +186,7 @@ impl Array {
                     // faster to iterate
                     while cur_len > length {
                         let atom = Atom::new_i64(ctx, cur_len as i64 - 1)?;
-                        let ret = self.delete_property_internal(ctx, atom, false);
+                        let ret = self.delete_property_internal(ctx, atom);
                         if let Ok(false) = ret {
                             break; // property is not configurable
                         }
@@ -212,7 +212,7 @@ impl Array {
                             if let Some(idx) = prop.to_array_index(ctx.rt())
                                 && idx >= cur_len
                             {
-                                let _r = self.delete_property_internal(ctx, prop, false);
+                                let _r = self.delete_property_internal(ctx, prop);
                                 debug_assert!(_r.is_ok());
 
                                 // WARNING: the shape may have been modified
@@ -265,7 +265,7 @@ impl Array {
             )?;
 
             for i in del {
-                self.delete_property_i64(ctx, i as _, JS_PROP_THROW)?;
+                self.delete_property_i64(ctx, i as _)?;
             }
         }
 
@@ -454,7 +454,7 @@ impl Array {
                 }
             }
             for i in (slots_len + undefined_count)..arr_len {
-                obj.delete_property_i64(ctx, i, JS_PROP_THROW)?;
+                obj.delete_property_i64(ctx, i)?;
             }
         } else {
             let mut slots = Vec::<(JSValue, StringData)>::with_capacity(16);
@@ -493,7 +493,7 @@ impl Array {
                 }
             }
             for i in (slots_len + undefined_count)..arr_len {
-                obj.delete_property_i64(ctx, i, JS_PROP_THROW)?;
+                obj.delete_property_i64(ctx, i)?;
             }
         }
 

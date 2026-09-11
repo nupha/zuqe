@@ -70,9 +70,6 @@ pub const JS_PROP_THROW_STRICT: u32 = 1 << 15;
 pub const JS_PROP_NO_ADD: u32 = 1 << 16;
 /// Prevent exotic object behavior
 pub const JS_PROP_NO_EXOTIC: u32 = 1 << 17;
-/// Force to set/delete an existing property regardless of writable/configurable setting.
-/// Be cautious, this is for experts only
-pub const JS_PROP_FORCE: u32 = 1 << 18;
 
 // Property types
 /// Regular identifier property
@@ -119,6 +116,12 @@ pub enum ThrowPolicy {
 }
 
 impl ThrowPolicy {
+    /// Whether a failed operation should raise, given the current strictness.
+    #[inline(always)]
+    pub(crate) const fn can_throw(self, is_strict: bool) -> bool {
+        matches!(self, Self::Always) || (matches!(self, Self::StrictOnly) && is_strict)
+    }
+
     /// Reconstruct from a legacy flags bitmask (exotic-callback ABI).
     pub(crate) const fn from_flags(flags: u32) -> (Self, bool) {
         let throw = if flags & crate::object::JS_PROP_THROW != 0 {

@@ -351,8 +351,8 @@ impl ObjectImpl {
             JS_GPN_ENUM_ONLY | JS_GPN_STR_OR_INT_MASK | JS_GPN_SYMBOL_MASK,
             |cx, key: PropertyKey| -> Result<(), i32> {
                 let desc = p.get_property(cx, key.atom)?;
-                this.define_property_desc(cx, key.atom, desc, JS_PROP_THROW)?;
-                Ok(())
+                this.define_property_desc(cx, key.atom, desc, JS_PROP_THROW)
+                    .map(|_| ())
             },
         )
     }
@@ -392,17 +392,16 @@ impl ObjectImpl {
 
     /// Check if object has 'name' property with non-empty normal string.
     pub fn has_name(&self) -> bool {
-        if let Some((idx, _)) = self.find_shape_property(Atom::CONST_name) {
-            if let JSProperty::Normal(v) = self.prop_slot(idx)
-                && let Some(s) = v.as_string(true)
-            {
-                !s.is_empty()
-            } else {
-                true
-            }
-        } else {
-            false
-        }
+        self.find_shape_property(Atom::CONST_name)
+            .is_some_and(|(idx, _)| {
+                if let JSProperty::Normal(v) = self.prop_slot(idx)
+                    && let Some(s) = v.as_string(true)
+                {
+                    !s.is_empty()
+                } else {
+                    true
+                }
+            })
     }
 
     #[inline(always)]

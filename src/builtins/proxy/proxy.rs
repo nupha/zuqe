@@ -517,7 +517,7 @@ fn js_proxy_delete_property(
 
     let method = px.get_proxy_method(ctx, Atom::CONST_deleteProperty)?;
     if method.is_undefined() {
-        return px.target.delete_property(ctx, atom, 0);
+        return px.target.delete_property(ctx, atom);
     }
 
     let atom_val = atom.to_value(ctx)?;

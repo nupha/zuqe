@@ -522,7 +522,7 @@ pub(crate) fn js_list_pop(ctx: &mut ScopedContext, cc: CallContext) -> JSResult 
         } else {
             this.get_property_i64(ctx, new_len)?
         };
-        this.delete_property_i64(ctx, new_len, JS_PROP_THROW)?;
+        this.delete_property_i64(ctx, new_len)?;
         res = val;
     }
 
@@ -731,7 +731,7 @@ pub(crate) fn js_list_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
         }
 
         for i in (new_len..len).rev() {
-            obj.delete_property_i64(ctx, i, JS_PROP_THROW)?;
+            obj.delete_property_i64(ctx, i)?;
         }
 
         for i in 0..item_count {

@@ -56,8 +56,7 @@ fn js_reflect_construct(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 fn js_reflect_deleteProperty(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Some(mut obj) = cc.arg(0).as_object() {
         let atom = cc.arg(1).to_atom(ctx)?;
-        let ret = obj.delete_property(ctx, atom, 0);
-        ret.map(JSValue::from)
+        obj.delete_property(ctx, atom).map(JSValue::from)
     } else {
         Err(ctx.throw_type_error_not_an_object())
     }

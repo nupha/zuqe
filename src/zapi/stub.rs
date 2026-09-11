@@ -22,10 +22,7 @@ use crate::{
     class::ClassID,
     function::Callback,
     object::PayloadPtr,
-    object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
-        ThrowPolicy,
-    },
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_WRITABLE, ThrowPolicy},
 };
 
 /// Translate FFI `ZQ_PROP_*` flags into engine `JS_PROP_*` flags bit-by-bit.
@@ -98,26 +95,30 @@ unsafe extern "C" fn zapi_symbol_get_description(env: ZqRawCtx, sym: ZqRawValue)
     }
 }
 
-unsafe extern "C" fn zapi_string_get_utf8(
-    _: ZqRawCtx,
+unsafe extern "C" fn zapi_string_read_utf8(
+    env: ZqRawCtx,
     s: ZqRawValue,
     buf: *mut u8,
     buf_len: usize,
     offset: usize,
 ) -> i32 {
-    let sr = match JSValue(s, std::marker::PhantomData).as_string(false) {
-        Some(x) => x,
-        None => return -1,
+    let ctx = unsafe { ctx_from_env(env) };
+    let Some(sr) = JSValue(s, std::marker::PhantomData).as_string(true) else {
+        let _ = ctx.throw_type_error("not a string");
+        return -1;
     };
-    let bytes = sr.content().encode_utf8_bytes(false);
-    let start = offset.min(bytes.len());
-    let remaining = bytes.len() - start;
-    // Measure mode (quickjs `JS_GetStringUtf8` habit): a null `buf` writes
-    // nothing and returns the bytes needed from `offset`, so the caller can
-    // size its buffer.
+
+    let total = sr.utf8_len();
+    let start = offset.min(total);
+    let remaining = total - start;
+
+    // Measure mode: a null `buf` writes nothing and returns the bytes needed
+    // from `offset`, so the caller can size its buffer. The length is computed
+    // directly, without encoding or allocating.
     if buf.is_null() {
         return remaining as i32;
     }
+    let bytes = sr.content().encode_utf8_bytes(false);
     let n = remaining.min(buf_len);
     if n > 0 {
         unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr().add(start), buf, n) };
@@ -173,7 +174,6 @@ unsafe extern "C" fn zapi_set_property(
     target: ZqRawValue,
     key: ZqRawValue,
     val: ZqRawValue,
-    _flags: u32,
 ) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
     JSValue(target, std::marker::PhantomData)
@@ -181,7 +181,7 @@ unsafe extern "C" fn zapi_set_property(
             ctx,
             JSValue(key, std::marker::PhantomData),
             JSValue(val, std::marker::PhantomData),
-            ThrowPolicy::StrictOnly,
+            ThrowPolicy::Always,
             false,
         )
         .map_or(-1, |b| b as i32)
@@ -214,7 +214,7 @@ unsafe extern "C" fn zapi_delete_property(
         return -1;
     };
     JSValue(target, std::marker::PhantomData)
-        .delete_property(ctx, atom, prop_op_flags(0))
+        .delete_property(ctx, atom)
         .map_or(-1, |b| b as i32)
 }
 
@@ -225,14 +225,6 @@ unsafe extern "C" fn zapi_delete_property(
 // `prop_str_to_atom` → `Atom::from_str` now takes the allocation-free
 // `Atom::lookup_str` fast path for already-interned keys, so repeated access
 // with a literal key performs no allocation.
-
-/// Effective flags for a set/delete op: translate published `ZQ_PROP_*` bits
-/// to engine flags, then let the engine decide throw-on-failure from the
-/// calling context (JS_PROP_THROW_STRICT: raise only in strict mode, like ECMA
-/// assignment).
-const fn prop_op_flags(flags: u32) -> u32 {
-    zq_to_js_prop_flags(flags) | JS_PROP_THROW_STRICT
-}
 
 /// Resolve a UTF-8 `(ptr, len)` key to an interned atom, throwing a
 /// `TypeError` on invalid input.
@@ -276,7 +268,6 @@ unsafe extern "C" fn zapi_set_property_str(
     key: *const u8,
     key_len: usize,
     val: ZqRawValue,
-    _flags: u32,
 ) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
     let Ok(atom) = str_key_atom(ctx, key, key_len) else {
@@ -284,14 +275,7 @@ unsafe extern "C" fn zapi_set_property_str(
     };
 
     JSValue(obj, std::marker::PhantomData)
-        .set_property_internal(
-            ctx,
-            atom,
-            JSValue(val, std::marker::PhantomData),
-            None,
-            ThrowPolicy::StrictOnly,
-            false,
-        )
+        .set_property(ctx, atom, JSValue(val, std::marker::PhantomData))
         .map_or(-1, |b| b as i32)
 }
 
@@ -325,7 +309,7 @@ unsafe extern "C" fn zapi_delete_property_str(
     };
 
     JSValue(obj, std::marker::PhantomData)
-        .delete_property(ctx, atom, prop_op_flags(0))
+        .delete_property(ctx, atom)
         .map_or(-1, |b| b as i32)
 }
 
@@ -377,19 +361,14 @@ unsafe extern "C" fn zapi_get_global(env: ZqRawCtx, name: ZqRawValue) -> ZqRawVa
 
 /// Set a property on the global object by raw value key.
 /// 1=set, 0=not set, -1=error
-unsafe extern "C" fn zapi_set_global(
-    env: ZqRawCtx,
-    name: ZqRawValue,
-    val: ZqRawValue,
-    _flags: u32,
-) -> i32 {
+unsafe extern "C" fn zapi_set_global(env: ZqRawCtx, name: ZqRawValue, val: ZqRawValue) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
     ctx.global_obj()
         .set_property_value(
             ctx,
             JSValue(name, std::marker::PhantomData),
             JSValue(val, std::marker::PhantomData),
-            ThrowPolicy::StrictOnly,
+            ThrowPolicy::Always,
             false,
         )
         .map_or(-1, |b| b as i32)
@@ -402,7 +381,6 @@ unsafe extern "C" fn zapi_set_global_str(
     name: *const u8,
     name_len: usize,
     val: ZqRawValue,
-    _flags: u32,
 ) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
     let Ok(atom) = str_key_atom(ctx, name, name_len) else {
@@ -410,14 +388,7 @@ unsafe extern "C" fn zapi_set_global_str(
     };
 
     ctx.global_obj()
-        .set_property_internal(
-            ctx,
-            atom,
-            JSValue(val, std::marker::PhantomData),
-            None,
-            ThrowPolicy::StrictOnly,
-            false,
-        )
+        .set_property(ctx, atom, JSValue(val, std::marker::PhantomData))
         .map_or(-1, |b| b as i32)
 }
 
@@ -1005,26 +976,38 @@ unsafe extern "C" fn zapi_value_get_type(val: ZqRawValue) -> i32 {
     }
 }
 
-unsafe extern "C" fn zapi_value_to_float64(_: ZqRawCtx, val: ZqRawValue) -> f64 {
+unsafe extern "C" fn zapi_value_to_float64(_: ZqRawCtx, val: ZqRawValue, ret: *mut f64) -> i32 {
     JSValue(val, std::marker::PhantomData)
         .as_number()
-        .map(|n| n.to_f64())
-        .unwrap_or(f64::NAN)
+        .map_or(-1, |n| unsafe {
+            *ret = n.to_f64();
+            0 // success
+        })
+}
+
+unsafe extern "C" fn zapi_value_to_int64(_: ZqRawCtx, val: ZqRawValue, ret: *mut i64) -> i32 {
+    JSValue(val, std::marker::PhantomData)
+        .as_number()
+        .map_or(-1, |n| unsafe {
+            *ret = n.to_i64_saturating();
+            0 // success
+        })
 }
 
 unsafe extern "C" fn zapi_value_to_bool(_: ZqRawCtx, val: ZqRawValue) -> i32 {
-    match JSValue(val, std::marker::PhantomData).to_bool() {
-        Ok(b) => b as i32,
-        Err(_) => 0,
-    }
+    JSValue(val, std::marker::PhantomData)
+        .to_bool()
+        .map_or(-1, |b| b as i32)
 }
 
 unsafe extern "C" fn zapi_value_to_string(env: ZqRawCtx, val: ZqRawValue) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
-    match JSValue(val, std::marker::PhantomData).to_string(ctx) {
-        Ok(s) => JSValue::make_string(s).0,
-        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
-    }
+    JSValue(val, std::marker::PhantomData)
+        .to_string(ctx)
+        .map_or(
+            ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
+            |v| JSValue::make_string(v).0,
+        )
 }
 
 unsafe extern "C" fn zapi_call_constructor(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue {
@@ -1081,10 +1064,11 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
 
         // ── value query / conversion ──
         value_get_type: zapi_value_get_type,
-        value_to_float64: zapi_value_to_float64,
         value_to_bool: zapi_value_to_bool,
+        value_to_int64: zapi_value_to_int64,
+        value_to_float64: zapi_value_to_float64,
         value_to_string: zapi_value_to_string,
-        string_get_utf8: zapi_string_get_utf8,
+        string_read_utf8: zapi_string_read_utf8,
         symbol_get_description: zapi_symbol_get_description,
 
         // ── property access (raw key) ──
@@ -1144,77 +1128,4 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         waker_wake: zapi_waker_wake,
         waker_free: zapi_waker_free,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Runtime, ScopedContext};
-    use std::time::Instant;
-
-    /// FFI-level benefit of the str-keyed property access:
-    /// old `get_str` (new_string + get_property) vs new `get_str`
-    /// (get_property_str, allocation-free key resolution).
-    #[test]
-    fn get_property_str_fast_path() -> Result<(), i32> {
-        const N: usize = 200_000;
-        const KEY: &[u8] = b"role";
-
-        let mut rt = Runtime::create()?;
-        let mut ctx = rt.create_context(|cx| {
-            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
-            Ok(())
-        })?;
-
-        ctx.with_new_scope(|cx| {
-            let mut obj = cx.create_base_object()?;
-            let k = cx.create_string_interned("role")?;
-            let v = cx.create_string_interned("user")?;
-            obj.set_property_value(
-                cx,
-                JSValue::make_string(k),
-                JSValue::make_string(v),
-                ThrowPolicy::StrictOnly,
-                false,
-            )?;
-            let obj_raw = JSValue::from(obj).0;
-            let env = cx as *mut ScopedContext as ZqRawCtx;
-
-            // A: old get_str — allocate a JS string key each call, then get.
-            let t = Instant::now();
-            for _ in 0..N {
-                let key = unsafe { zapi_new_string(env, KEY.as_ptr(), KEY.len()) };
-                unsafe { std::hint::black_box(zapi_get_property(env, obj_raw, key)) };
-            }
-            let a = t.elapsed();
-
-            // B: new get_str — key passed as UTF-8, resolved to an atom.
-            let t = Instant::now();
-            for _ in 0..N {
-                unsafe {
-                    std::hint::black_box(zapi_get_property_str(
-                        env,
-                        obj_raw,
-                        KEY.as_ptr(),
-                        KEY.len(),
-                    ))
-                };
-            }
-            let b = t.elapsed();
-
-            let n = N as f64;
-            let ap = a.as_nanos() as f64 / n;
-            let bp = b.as_nanos() as f64 / n;
-            println!("\n[get_property(\"role\") x {N}]");
-            println!("  old get_str (new_string + get) : {ap:>8.1} ns/op");
-            println!("  new get_str (get_property_str) : {bp:>8.1} ns/op");
-            println!(
-                "  => {:.1}x faster ({:.0}% saved)\n",
-                ap / bp,
-                100.0 * (ap - bp) / ap
-            );
-            Ok::<(), i32>(())
-        })?;
-        Ok(())
-    }
 }

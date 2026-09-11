@@ -3,10 +3,10 @@
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    atom::{Atom, JS_ATOM_MAX_INT},
+    atom::Atom,
     context::ScopedContext,
     function::prop_str_to_atom,
-    object::{JS_PROP_FORCE, JSProperty, Object, ObjectImpl},
+    object::{JSProperty, Object, ObjectImpl, ThrowPolicy},
     value::JSValue,
 };
 
@@ -25,21 +25,19 @@ impl ObjectImpl {
         &mut self,
         ctx: &mut ScopedContext,
         prop: Atom,
-        force: bool,
     ) -> Result<bool, i32> {
         let obj_flags = self.flags();
 
         loop {
             // find in shape properties
             if let Some((idx, prs_flags)) = self.find_shape_property(prop) {
-                return if !force && (prs_flags & JS_PROP_CONFIGURABLE == 0) {
-                    // property is not configurable and not-force: can't delete
+                return if prs_flags & JS_PROP_CONFIGURABLE == 0 {
+                    // property is not configurable: can't delete
                     Ok(false)
                 } else {
                     // Optimized: do not modify shape, only mark slot as Deleted
                     self.set_prop_slot_non_gc(idx, JSProperty::Deleted);
                     self.deleted_slot_count += 1;
-
                     Ok(true)
                 };
             }
@@ -94,23 +92,28 @@ impl ObjectImpl {
         Ok(true)
     }
 
-    #[inline(always)]
-    pub fn delete_property(
+    /// Delete `prop` under the given `throw` policy.
+    fn delete_property_throw(
         &mut self,
         ctx: &mut ScopedContext,
         prop: Atom,
-        flags: u32,
+        throw: ThrowPolicy,
     ) -> Result<bool, i32> {
-        if self.delete_property_internal(ctx, prop, flags & JS_PROP_FORCE != 0)? {
-            Ok(true)
-        } else {
-            // can't delete (not configurable)
-            if ctx.rt().can_throw(flags) {
+        self.delete_property_internal(ctx, prop).and_then(|b| {
+            if !b && throw.can_throw(ctx.rt().is_strict_mode()) {
+                // can't delete (not configurable) and can throw
                 Err(ctx.throw_type_error("could not delete property"))
             } else {
-                Ok(false)
+                Ok(b)
             }
-        }
+        })
+    }
+
+    /// `[[Delete]]` for the `delete` operator: mode-faithful, i.e. returns
+    /// `false` in sloppy mode and throws a TypeError in strict mode.
+    #[inline(always)]
+    pub fn delete_property(&mut self, ctx: &mut ScopedContext, prop: Atom) -> Result<bool, i32> {
+        self.delete_property_throw(ctx, prop, ThrowPolicy::StrictOnly)
     }
 
     #[inline]
@@ -118,40 +121,26 @@ impl ObjectImpl {
         &mut self,
         ctx: &mut ScopedContext,
         prop: &str,
-        flags: u32,
     ) -> Result<bool, i32> {
         let atom = prop_str_to_atom(ctx, prop)?;
-        self.delete_property(ctx, atom, flags)
+        self.delete_property(ctx, atom)
     }
 
-    pub fn delete_property_i64(
-        &mut self,
-        ctx: &mut ScopedContext,
-        idx: i64,
-        flags: u32,
-    ) -> Result<bool, i32> {
-        if (0..JS_ATOM_MAX_INT as i64).contains(&idx) {
-            // fast path for fast array
-            self.delete_property(ctx, Atom::new_small_int(idx as u32), flags)
-        } else {
-            let atom = Atom::new_i64(ctx, idx)?;
-            self.delete_property(ctx, atom, flags)
-        }
+    /// Index-keyed `DeletePropertyOrThrow`: always throws on failure.
+    #[inline]
+    pub fn delete_property_i64(&mut self, ctx: &mut ScopedContext, idx: i64) -> Result<bool, i32> {
+        let atom = Atom::new_i64(ctx, idx)?;
+        self.delete_property_throw(ctx, atom, ThrowPolicy::Always)
     }
 }
 
 impl JSValue {
     /// 如果属性不可配置或无效对象则返回 false, 出现异常时返回 Err.
-    /// flags 可以是 0, JS_PROP_FORCE, JS_PROP_THROW, JS_PROP_THROW_STRICT
-    #[inline(always)]
-    pub fn delete_property(
-        &mut self,
-        ctx: &mut ScopedContext,
-        prop: Atom,
-        flags: u32,
-    ) -> Result<bool, i32> {
+    /// mode-faithful `[[Delete]]` (strict-only throw): see `ObjectImpl::delete_property`.
+    #[inline]
+    pub fn delete_property(&mut self, ctx: &mut ScopedContext, prop: Atom) -> Result<bool, i32> {
         self.objectify(ctx)
-            .and_then(|mut o| o.delete_property(ctx, prop, flags))
+            .and_then(|mut o| o.delete_property(ctx, prop))
     }
 
     #[inline]
@@ -159,20 +148,14 @@ impl JSValue {
         &mut self,
         ctx: &mut ScopedContext,
         prop: &str,
-        flags: u32,
     ) -> Result<bool, i32> {
         self.objectify(ctx)
-            .and_then(|mut o| o.delete_property_str(ctx, prop, flags))
+            .and_then(|mut o| o.delete_property_str(ctx, prop))
     }
 
     #[inline]
-    pub fn delete_property_i64(
-        &mut self,
-        ctx: &mut ScopedContext,
-        idx: i64,
-        flags: u32,
-    ) -> Result<bool, i32> {
+    pub fn delete_property_i64(&mut self, ctx: &mut ScopedContext, idx: i64) -> Result<bool, i32> {
         self.objectify(ctx)
-            .and_then(|mut o| o.delete_property_i64(ctx, idx, flags))
+            .and_then(|mut o| o.delete_property_i64(ctx, idx))
     }
 }

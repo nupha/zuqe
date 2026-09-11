@@ -111,7 +111,7 @@ fn internalize_json_property(
                 record, // child's parent record (the current value's record)
             )?;
             if new_el.is_undefined() {
-                val.delete_property(ctx, prop, 0)
+                val.delete_property(ctx, prop)
             } else {
                 val.define_property_value(ctx, prop, new_el, JS_PROP_C_W_E)
             }?;

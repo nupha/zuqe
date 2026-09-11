@@ -857,7 +857,7 @@ pub(crate) fn js_array_pop(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
             } else {
                 this_obj.get_property_i64(ctx, new_len)?
             };
-            this_obj.delete_property_i64(ctx, new_len, JS_PROP_THROW)?;
+            this_obj.delete_property_i64(ctx, new_len)?;
             val
         };
     }
@@ -921,10 +921,10 @@ fn js_array_reverse(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }
             (None, Some(hv)) => {
                 this.set_property_i64(ctx, l, hv)?;
-                this.delete_property_i64(ctx, h, JS_PROP_THROW)?;
+                this.delete_property_i64(ctx, h)?;
             }
             (Some(lv), None) => {
-                this.delete_property_i64(ctx, l, JS_PROP_THROW)?;
+                this.delete_property_i64(ctx, l)?;
                 this.set_property_i64(ctx, h, lv)?;
             }
             (None, None) => {}
@@ -1054,7 +1054,7 @@ pub(crate) fn js_array_slice(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
             )?;
 
             for i in (new_len..len).rev() {
-                this_obj.delete_property_i64(ctx, i, JS_PROP_THROW)?;
+                this_obj.delete_property_i64(ctx, i)?;
             }
         }
 
@@ -1619,7 +1619,7 @@ fn copy_sub_array(
         if let Some(v) = obj.try_get_property_i64(ctx, from as _)? {
             obj.set_property_i64(ctx, to as _, v)?;
         } else {
-            obj.delete_property_i64(ctx, to as _, JS_PROP_THROW)?;
+            obj.delete_property_i64(ctx, to as _)?;
         }
     }
 

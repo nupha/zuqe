@@ -1630,10 +1630,7 @@ impl Bytecode {
                     }
                     OpCode::DELETE_VAR => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
-                        match realm_scope
-                            .global_obj()
-                            .delete_property(realm_scope, atom, 0)
-                        {
+                        match realm_scope.global_obj().delete_property(realm_scope, atom) {
                             Ok(ret) => {
                                 SP_PUT!(0, JSValue::from(ret));
                                 SP_GO!(1);
@@ -3233,8 +3230,7 @@ impl Bytecode {
                                         }
                                     }
                                     OpCode::WITH_DELETE_VAR => {
-                                        if let Ok(b) = env_obj.delete_property(realm_scope, atom, 0)
-                                        {
+                                        if let Ok(b) = env_obj.delete_property(realm_scope, atom) {
                                             SP_PUT!(-1, JSValue::from(b));
                                         } else {
                                             break ExecAction::Exception;

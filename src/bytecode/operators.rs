@@ -44,7 +44,7 @@ pub(super) fn js_operator_delete(ctx: &mut ScopedContext, sp: *mut JSValue) -> i
         return -1;
     };
 
-    let ret = op1.delete_property(ctx, atom, JS_PROP_THROW_STRICT);
+    let ret = op1.delete_property(ctx, atom);
     if let Ok(b) = ret {
         unsafe {
             std::ptr::replace(sp.offset(-2), JSValue::from(b));

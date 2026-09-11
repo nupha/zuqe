@@ -138,6 +138,35 @@ pub(super) fn u32_encode_utf8(cp: u32, buf: &mut [u8; 6], allow_invalid: bool) -
     }
 }
 
+/// UTF-8 byte length of a UTF-16 slice, computed without allocating.
+///
+/// Mirrors applying [`u32_encode_utf8`] with `allow_invalid = false` to every
+/// code unit: a valid surrogate pair collapses into one 4-byte sequence, while
+/// lone/broken surrogates and other invalid code points take the 3-byte U+FFFD
+/// form. Lets the zapi measurement pass size a buffer without encoding first.
+pub(super) fn utf16_utf8_len(src: &[u16]) -> usize {
+    let mut len = 0;
+    let mut it = src.iter().peekable();
+    while let Some(&n) = it.next() {
+        if n < 0x80 {
+            len += 1;
+        } else if (0xd800..0xdc00).contains(&n) {
+            // high surrogate: pair it with a following low surrogate if any
+            if matches!(it.peek(), Some(&&lo) if (0xdc00..0xe000).contains(&lo)) {
+                it.next();
+                len += 4;
+            } else {
+                len += 3; // lone high surrogate -> U+FFFD
+            }
+        } else if n < 0x800 {
+            len += 2;
+        } else {
+            len += 3; // BMP char, or lone low surrogate -> U+FFFD
+        }
+    }
+    len
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum DecodeCharError {
     EndOfInput,

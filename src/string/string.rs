@@ -583,6 +583,10 @@ impl StringRef {
     pub fn encode_utf8_bytes(&self, allow_invalid: bool) -> Cow<'_, [u8]> {
         self.content().encode_utf8_bytes(allow_invalid)
     }
+    /// UTF-8 encoded byte length, computed without allocating.
+    pub fn utf8_len(&self) -> usize {
+        self.content().utf8_len()
+    }
     pub fn encode_utf8_range(&self, range: Range<usize>, escape: bool) -> Cow<'_, str> {
         self.content().encode_utf8_range(range, escape)
     }
