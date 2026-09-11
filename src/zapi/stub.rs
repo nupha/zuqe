@@ -136,8 +136,8 @@ unsafe extern "C" fn zapi_new_object(env: ZqRawCtx) -> ZqRawValue {
 
 unsafe extern "C" fn zapi_new_array(
     env: ZqRawCtx,
-    elements: *const ZqRawValue,
     len: usize,
+    elements: *const ZqRawValue,
 ) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     Array::from_slice(
@@ -399,7 +399,7 @@ unsafe extern "C" fn zapi_call_function(env: ZqRawCtx, info: *mut ZqCallInfoS) -
     let target = crate::JSValue(info.target, std::marker::PhantomData);
     let this = crate::JSValue(info.this, std::marker::PhantomData);
     let args: Vec<crate::JSValue> = if info.argc > 0 {
-        unsafe { std::slice::from_raw_parts(info.args, info.argc as usize) }
+        unsafe { std::slice::from_raw_parts(info.args, info.argc) }
             .iter()
             .map(|&r| crate::JSValue(r, std::marker::PhantomData))
             .collect()
@@ -420,8 +420,8 @@ unsafe fn invoke_with_argv(
     ctx: &mut ScopedContext,
     f: JSValue,
     this: JSValue,
-    argv: *mut ZqRawValue,
     argc: usize,
+    argv: *mut ZqRawValue,
 ) -> ZqRawValue {
     let args: Vec<JSValue> = if argc > 0 {
         unsafe { std::slice::from_raw_parts(argv as *const ZqRawValue, argc) }
@@ -442,8 +442,8 @@ unsafe extern "C" fn zapi_invoke(
     env: ZqRawCtx,
     target: ZqRawValue,
     method: ZqRawValue,
-    argv: *mut ZqRawValue,
     argc: usize,
+    argv: *mut ZqRawValue,
 ) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     let target = JSValue(target, std::marker::PhantomData);
@@ -451,7 +451,7 @@ unsafe extern "C" fn zapi_invoke(
     let Ok(f) = target.get_property_value(ctx, method) else {
         return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
     };
-    unsafe { invoke_with_argv(ctx, f, target, argv, argc) }
+    unsafe { invoke_with_argv(ctx, f, target, argc, argv) }
 }
 
 unsafe extern "C" fn zapi_invoke_str(
@@ -459,8 +459,8 @@ unsafe extern "C" fn zapi_invoke_str(
     target: ZqRawValue,
     method: *const u8,
     method_len: usize,
-    argv: *mut ZqRawValue,
     argc: usize,
+    argv: *mut ZqRawValue,
 ) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     let Ok(atom) = str_key_atom(ctx, method, method_len) else {
@@ -470,7 +470,7 @@ unsafe extern "C" fn zapi_invoke_str(
     let Ok(f) = target.get_property(ctx, atom) else {
         return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
     };
-    unsafe { invoke_with_argv(ctx, f, target, argv, argc) }
+    unsafe { invoke_with_argv(ctx, f, target, argc, argv) }
 }
 
 fn zapi_gc_trace_bridge(
@@ -1075,7 +1075,7 @@ unsafe extern "C" fn zapi_call_constructor(env: ZqRawCtx, info: *mut ZqCallInfoS
 
     let target = crate::JSValue(info.target, std::marker::PhantomData);
     let args: Vec<crate::JSValue> = if info.argc > 0 {
-        unsafe { std::slice::from_raw_parts(info.args, info.argc as usize) }
+        unsafe { std::slice::from_raw_parts(info.args, info.argc) }
             .iter()
             .map(|&r| crate::JSValue(r, std::marker::PhantomData))
             .collect()

@@ -118,7 +118,7 @@ pub(crate) fn zapi_trampoline_fn(
         target: 0,
         this: cc.this().0,
         args: raw_args.as_ptr(),
-        argc: raw_args.len() as u32,
+        argc: raw_args.len(),
         magic: user_magic,
     };
 
@@ -169,7 +169,7 @@ macro_rules! zapi_make_thunk {
                 target: 0,
                 this: cc.this().0,
                 args: raw_args.as_ptr(),
-                argc: cc.length() as u32,
+                argc: cc.length(),
                 magic: 0,
             };
             let result = unsafe { ($body)(&mut env, &mut info) };
