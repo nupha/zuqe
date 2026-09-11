@@ -1,4 +1,7 @@
+target/
+
 *.md
 *.log
-Cargo.lock
-target/
+*.jsonl
+*.html
+*.lock
