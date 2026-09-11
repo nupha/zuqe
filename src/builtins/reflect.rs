@@ -12,7 +12,10 @@ use crate::{
     },
     error::JSResult,
     function::{CallContext, FieldDef, build_arg_list, js_function_apply},
-    object::{JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
+    object::{
+        JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE,
+        ThrowPolicy,
+    },
     value::JSValue,
 };
 
@@ -96,7 +99,14 @@ fn js_reflect_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let atom = prop.to_atom(ctx)?;
 
     target
-        .set_property_internal(ctx, atom, val, receiver.as_object(), 0)
+        .set_property_internal(
+            ctx,
+            atom,
+            val,
+            receiver.as_object(),
+            ThrowPolicy::Never,
+            false,
+        )
         .map(JSValue::from)
 }
 

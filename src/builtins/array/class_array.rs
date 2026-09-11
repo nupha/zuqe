@@ -23,7 +23,7 @@ use crate::{
     number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, Object,
-        PayloadPtr,
+        PayloadPtr, ThrowPolicy,
     },
     runtime::js_check_stack_overflow,
     string::{StringBuf, StringRef},
@@ -414,7 +414,13 @@ pub(crate) fn js_array_every(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
                 ret.define_property_value_i64(ctx, k, res, JS_PROP_C_W_E | JS_PROP_THROW)?;
             }
             s if s == special_map | special_TA => {
-                ret.set_property_value(ctx, JSValue::from(k as i32), res, JS_PROP_THROW)?;
+                ret.set_property_value(
+                    ctx,
+                    JSValue::from(k as i32),
+                    res,
+                    ThrowPolicy::Always,
+                    false,
+                )?;
             }
             s if (s == special_filter || s == special_filter | special_TA)
                 && res.to_bool().unwrap_or(true) =>

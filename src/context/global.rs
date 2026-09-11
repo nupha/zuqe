@@ -7,8 +7,8 @@ use crate::{
     error::{JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration, JSResult},
     function::{DEFINE_GLOBAL_FUNC_VAR, DEFINE_GLOBAL_LEX_VAR},
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_NO_ADD,
-        JS_PROP_THROW_STRICT, JS_PROP_TMASK, JS_PROP_WRITABLE, JSProperty,
+        JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_TMASK, JS_PROP_WRITABLE,
+        JSProperty, ThrowPolicy,
     },
     value::JSValue,
 };
@@ -168,7 +168,7 @@ impl<'c> ScopedContext<'c> {
         Ok(())
     }
 
-    pub(crate) fn get_global_var(&mut self, prop: Atom, throw_ref_error: bool) -> JSResult {
+    pub(crate) fn get_global_var(&mut self, prop: Atom, throw: bool) -> JSResult {
         // no exotic behavior is possible in global_var_obj
         let gvobj = self.global_var_obj();
 
@@ -190,7 +190,7 @@ impl<'c> ScopedContext<'c> {
         } else {
             // search global object
             let gobj = self.global_obj();
-            gobj.get_property_internal(self, prop, JSValue::from(gobj), throw_ref_error)
+            gobj.get_property_internal(self, prop, JSValue::from(gobj), throw)
         }
     }
 
@@ -226,13 +226,9 @@ impl<'c> ScopedContext<'c> {
             Ok(true)
         } else {
             // not exist
-            let mut flags1 = JS_PROP_THROW_STRICT;
-            if self.rt().is_strict_mode() {
-                flags1 |= JS_PROP_NO_ADD;
-            }
-
+            let no_add = self.rt().is_strict_mode();
             let gobj = self.global_obj();
-            gobj.set_property_internal(self, prop, val, Some(gobj), flags1)
+            gobj.set_property_internal(self, prop, val, Some(gobj), ThrowPolicy::StrictOnly, no_add)
         }
     }
 }

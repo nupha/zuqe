@@ -16,7 +16,7 @@ use crate::{
         JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_GETSET,
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET,
         JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE,
-        JSPropertyDescriptor, Object, PropertyKey, Proxy, check_define_prop_flags,
+        JSPropertyDescriptor, Object, PropertyKey, Proxy, ThrowPolicy, check_define_prop_flags,
     },
     runtime::js_check_stack_overflow,
     utils::unlikely,
@@ -699,6 +699,7 @@ fn js_proxy_set(
 
     let method = px.get_proxy_method(ctx, Atom::CONST_set)?;
     if method.is_undefined() {
+        let (throw, no_add) = ThrowPolicy::from_flags(flags as u32);
         return px.target.set_property_internal(
             ctx,
             atom,
@@ -710,7 +711,8 @@ fn js_proxy_set(
             } else {
                 return Err(ctx.throw_type_error("receiver must be an object"));
             },
-            flags as u32,
+            throw,
+            no_add,
         );
     }
 

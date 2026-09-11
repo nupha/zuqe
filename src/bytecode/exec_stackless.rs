@@ -46,8 +46,8 @@ use crate::{
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-        JS_PROP_HAS_WRITABLE, JS_PROP_NO_ADD, JS_PROP_THROW, JS_PROP_THROW_STRICT, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, Object, PayloadPtr,
+        JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_VARREF,
+        JS_PROP_WRITABLE, JSProperty, Object, PayloadPtr, ThrowPolicy,
     },
     stack_frame::{
         ExecMode, FrameAllocError, FrameIndex, MAX_CALL_DEPTH, StackFrameArena, VirtualFrame,
@@ -2218,7 +2218,8 @@ impl Bytecode {
                             atom,
                             value,
                             None,
-                            JS_PROP_THROW_STRICT,
+                            ThrowPolicy::StrictOnly,
+                            false,
                         );
                         if unlikely(r.is_err()) {
                             break ExecAction::Exception;
@@ -2375,7 +2376,8 @@ impl Bytecode {
                             realm_scope,
                             SP_VAL!(-2),
                             SP_VAL!(-1),
-                            JS_PROP_THROW_STRICT,
+                            ThrowPolicy::StrictOnly,
+                            false,
                         );
                         SP_GO!(-3);
                         if unlikely(ret.is_err()) {
@@ -2846,7 +2848,7 @@ impl Bytecode {
                         let prop = SP_VAL!(-2);
                         let val = SP_VAL!(-1);
                         SP_GO!(-3);
-                        let mut flags = JS_PROP_THROW_STRICT;
+                        let mut no_add = false;
                         if unlikely(obj.is_undefined()) {
                             if rt.is_strict_mode() {
                                 if let Ok(atom) = prop.to_atom(realm_scope) {
@@ -2856,7 +2858,7 @@ impl Bytecode {
                             }
                             obj = JSValue::from(realm_scope.global_obj());
                         } else if rt.is_strict_mode() {
-                            flags |= JS_PROP_NO_ADD;
+                            no_add = true;
                         }
                         // SetMutableBinding step 2: HasProperty (ECMA-262 9.1.1.2.5)
                         if let Ok(atom) = prop.to_atom(realm_scope) {
@@ -2868,7 +2870,13 @@ impl Bytecode {
                                 _ => {}
                             }
                         }
-                        let ret = obj.set_property_value(realm_scope, prop, val, flags);
+                        let ret = obj.set_property_value(
+                            realm_scope,
+                            prop,
+                            val,
+                            ThrowPolicy::StrictOnly,
+                            no_add,
+                        );
                         if ret.is_err() {
                             break ExecAction::Exception;
                         }
@@ -2891,7 +2899,8 @@ impl Bytecode {
                                 atom,
                                 val,
                                 this_obj.as_object(),
-                                JS_PROP_THROW_STRICT,
+                                ThrowPolicy::StrictOnly,
+                                false,
                             );
                             if unlikely(ret.is_err()) {
                                 break ExecAction::Exception;
@@ -3207,7 +3216,8 @@ impl Bytecode {
                                             realm_scope,
                                             prop,
                                             val,
-                                            JS_PROP_THROW_STRICT,
+                                            ThrowPolicy::StrictOnly,
+                                            false,
                                         );
                                         SP_GO!(-2);
                                         if unlikely(ret.is_err()) {

@@ -30,7 +30,7 @@ impl ObjectImpl {
         ctx: &mut ScopedContext,
         prop: Atom,
         this_obj: JSValue,
-        throw_ref_error: bool,
+        throw: bool,
     ) -> JSResult {
         #[cfg(debug_assertions)]
         self.gc_head().debug_assert_node_valid(ctx.rt().gc_heap());
@@ -147,7 +147,7 @@ impl ObjectImpl {
             }
         }
 
-        if unlikely(throw_ref_error) {
+        if unlikely(throw) {
             Err(JS_ThrowReferenceErrorNotDefined(ctx, prop))
         } else {
             Ok(JSValue::UNDEFINED)
@@ -369,16 +369,12 @@ impl JSValue {
         ctx: &mut ScopedContext,
         prop: Atom,
         this_obj: JSValue,
-        throw_ref_error: bool,
+        throw: bool,
     ) -> JSResult {
         match self.tag() {
             JSValueTag::Object => unsafe {
-                self.as_object_unchecked().get_property_internal(
-                    ctx,
-                    prop,
-                    this_obj,
-                    throw_ref_error,
-                )
+                self.as_object_unchecked()
+                    .get_property_internal(ctx, prop, this_obj, throw)
             },
             JSValueTag::String => {
                 let s = unsafe { self.as_string_unchecked() };
@@ -396,8 +392,9 @@ impl JSValue {
                 } else {
                     self.get_prototype_primitive(ctx)
                         .as_object()
-                        .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
-                        .unwrap_or(Ok(JSValue::UNDEFINED))
+                        .map_or(Ok(JSValue::UNDEFINED), |o| {
+                            o.get_property_internal(ctx, prop, this_obj, throw)
+                        })
                 }
             }
             JSValueTag::Null => Err(ctx.throw_type_error("cannot read property of null")),
@@ -411,8 +408,9 @@ impl JSValue {
             _ => self
                 .get_prototype_primitive(ctx)
                 .as_object()
-                .map(|o| o.get_property_internal(ctx, prop, this_obj, throw_ref_error))
-                .unwrap_or(Ok(JSValue::UNDEFINED)),
+                .map_or(Ok(JSValue::UNDEFINED), |o| {
+                    o.get_property_internal(ctx, prop, this_obj, throw)
+                }),
         }
     }
 

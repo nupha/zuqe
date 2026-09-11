@@ -8,17 +8,40 @@ use zuqe_zapi::ffi::{
     ZQ_CONST_VALUE_SLOT_COUNT, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE,
     ZQ_CONST_VALUE_SLOT_INFINITY, ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN,
     ZQ_CONST_VALUE_SLOT_NULL, ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED,
-    ZQ_CONST_VALUE_SLOT_ZERO, ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL, ZQ_VALUE_TYPE_EXCEPTION,
-    ZQ_VALUE_TYPE_FUNCTION, ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER, ZQ_VALUE_TYPE_OBJECT,
-    ZQ_VALUE_TYPE_STRING, ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED, ZqApi, ZqBodyFn,
-    ZqCallInfoS, ZqClassDef, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn,
-    ZqRawCtx, ZqRawValue, ZqWakeHandleS,
+    ZQ_CONST_VALUE_SLOT_ZERO, ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_WRITABLE,
+    ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL, ZQ_VALUE_TYPE_EXCEPTION, ZQ_VALUE_TYPE_FUNCTION,
+    ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER, ZQ_VALUE_TYPE_OBJECT, ZQ_VALUE_TYPE_STRING,
+    ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED, ZqApi, ZqBodyFn, ZqCallInfoS, ZqClassDef,
+    ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn, ZqRawCtx, ZqRawValue,
+    ZqWakeHandleS,
 };
 
 use crate::{
     Array, Atom, CallContext, ErrorKind, JSValue, JSValueTag, ScopedContext,
-    builtins::array::js_array_push, class::ClassID, function::Callback, object::PayloadPtr,
+    builtins::array::js_array_push,
+    class::ClassID,
+    function::Callback,
+    object::PayloadPtr,
+    object::{
+        JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_THROW_STRICT, JS_PROP_WRITABLE,
+        ThrowPolicy,
+    },
 };
+
+/// Translate FFI `ZQ_PROP_*` flags into engine `JS_PROP_*` flags bit-by-bit.
+pub(super) const fn zq_to_js_prop_flags(flags: u32) -> u32 {
+    let mut p = 0;
+    if flags & ZQ_PROP_CONFIGURABLE != 0 {
+        p |= JS_PROP_CONFIGURABLE;
+    }
+    if flags & ZQ_PROP_WRITABLE != 0 {
+        p |= JS_PROP_WRITABLE;
+    }
+    if flags & ZQ_PROP_ENUMERABLE != 0 {
+        p |= JS_PROP_ENUMERABLE;
+    }
+    p
+}
 
 use super::host::{push_class_fields, register_zapi_func_magic, zapi_trampoline_fn};
 
@@ -147,22 +170,21 @@ unsafe extern "C" fn zapi_get_property(
 /// returns 1=set, 0=not set, -1=error
 unsafe extern "C" fn zapi_set_property(
     env: ZqRawCtx,
-    obj: ZqRawValue,
+    target: ZqRawValue,
     key: ZqRawValue,
     val: ZqRawValue,
-    _throw: i32,
     _flags: u32,
 ) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
-    let k = JSValue(key, std::marker::PhantomData);
-    let v = JSValue(val, std::marker::PhantomData);
-    let Some(mut obj) = JSValue(obj, std::marker::PhantomData).as_object() else {
-        return -1;
-    };
-    match obj.set_property_value(ctx, k, v, 0) {
-        Ok(b) => b as i32,
-        Err(_) => -1,
-    }
+    JSValue(target, std::marker::PhantomData)
+        .set_property_value(
+            ctx,
+            JSValue(key, std::marker::PhantomData),
+            JSValue(val, std::marker::PhantomData),
+            ThrowPolicy::StrictOnly,
+            false,
+        )
+        .map_or(-1, |b| b as i32)
 }
 
 /// 0=false, 1=true, -1=error
@@ -184,21 +206,16 @@ unsafe extern "C" fn zapi_has_property(env: ZqRawCtx, obj: ZqRawValue, key: ZqRa
 /// 1=deleted, 0=can't delete, -1=error
 unsafe extern "C" fn zapi_delete_property(
     env: ZqRawCtx,
-    obj: ZqRawValue,
+    target: ZqRawValue,
     key: ZqRawValue,
-    _throw: i32,
 ) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
-    let Some(mut o) = JSValue(obj, std::marker::PhantomData).as_object() else {
-        return -1;
-    };
     let Ok(atom) = JSValue(key, std::marker::PhantomData).to_atom(ctx) else {
         return -1;
     };
-    match o.delete_property(ctx, atom, 0) {
-        Ok(b) => b as i32,
-        Err(_) => -1,
-    }
+    JSValue(target, std::marker::PhantomData)
+        .delete_property(ctx, atom, prop_op_flags(0))
+        .map_or(-1, |b| b as i32)
 }
 
 // ── str-keyed property access ──
@@ -208,6 +225,14 @@ unsafe extern "C" fn zapi_delete_property(
 // `prop_str_to_atom` → `Atom::from_str` now takes the allocation-free
 // `Atom::lookup_str` fast path for already-interned keys, so repeated access
 // with a literal key performs no allocation.
+
+/// Effective flags for a set/delete op: translate published `ZQ_PROP_*` bits
+/// to engine flags, then let the engine decide throw-on-failure from the
+/// calling context (JS_PROP_THROW_STRICT: raise only in strict mode, like ECMA
+/// assignment).
+const fn prop_op_flags(flags: u32) -> u32 {
+    zq_to_js_prop_flags(flags) | JS_PROP_THROW_STRICT
+}
 
 /// Resolve a UTF-8 `(ptr, len)` key to an interned atom, throwing a
 /// `TypeError` on invalid input.
@@ -235,6 +260,7 @@ unsafe extern "C" fn zapi_get_property_str(
     let Ok(atom) = str_key_atom(ctx, key, key_len) else {
         return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
     };
+
     JSValue(target, std::marker::PhantomData)
         .get_property(ctx, atom)
         .map_or(
@@ -250,19 +276,23 @@ unsafe extern "C" fn zapi_set_property_str(
     key: *const u8,
     key_len: usize,
     val: ZqRawValue,
-    _throw: i32,
     _flags: u32,
 ) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
     let Ok(atom) = str_key_atom(ctx, key, key_len) else {
         return -1;
     };
-    let v = JSValue(val, std::marker::PhantomData);
-    // flags=0 to match the value-keyed `set_property` (no throw on failure).
-    match JSValue(obj, std::marker::PhantomData).set_property_internal(ctx, atom, v, None, 0) {
-        Ok(b) => b as i32,
-        Err(_) => -1,
-    }
+
+    JSValue(obj, std::marker::PhantomData)
+        .set_property_internal(
+            ctx,
+            atom,
+            JSValue(val, std::marker::PhantomData),
+            None,
+            ThrowPolicy::StrictOnly,
+            false,
+        )
+        .map_or(-1, |b| b as i32)
 }
 
 /// 0=false, 1=true, -1=error
@@ -273,16 +303,13 @@ unsafe extern "C" fn zapi_has_property_str(
     key_len: usize,
 ) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
-    let Some(o) = JSValue(obj, std::marker::PhantomData).as_object() else {
-        return 0;
-    };
     let Ok(atom) = str_key_atom(ctx, key, key_len) else {
         return -1;
     };
-    match o.has_property(ctx, atom) {
-        Ok(b) => b as i32,
-        Err(_) => -1,
-    }
+
+    JSValue(obj, std::marker::PhantomData)
+        .has_property(ctx, atom)
+        .map_or(-1, |b| b as i32)
 }
 
 /// 1=deleted, 0=can't delete, -1=error
@@ -291,19 +318,15 @@ unsafe extern "C" fn zapi_delete_property_str(
     obj: ZqRawValue,
     key: *const u8,
     key_len: usize,
-    _throw: i32,
 ) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
-    let Some(mut o) = JSValue(obj, std::marker::PhantomData).as_object() else {
-        return -1;
-    };
     let Ok(atom) = str_key_atom(ctx, key, key_len) else {
         return -1;
     };
-    match o.delete_property(ctx, atom, 0) {
-        Ok(b) => b as i32,
-        Err(_) => -1,
-    }
+
+    JSValue(obj, std::marker::PhantomData)
+        .delete_property(ctx, atom, prop_op_flags(0))
+        .map_or(-1, |b| b as i32)
 }
 
 unsafe extern "C" fn zapi_get_global_str(
@@ -315,10 +338,11 @@ unsafe extern "C" fn zapi_get_global_str(
     let Ok(atom) = str_key_atom(ctx, name, name_len) else {
         return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
     };
-    match ctx.global_obj().get_property(ctx, atom) {
-        Ok(v) => v.0,
-        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
-    }
+
+    ctx.global_obj().get_property(ctx, atom).map_or(
+        ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
+        |v| v.0,
+    )
 }
 
 /// minus=error, otherwise the length
@@ -349,6 +373,52 @@ unsafe extern "C" fn zapi_get_global(env: ZqRawCtx, name: ZqRawValue) -> ZqRawVa
         Ok(v) => v.0,
         Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
+}
+
+/// Set a property on the global object by raw value key.
+/// 1=set, 0=not set, -1=error
+unsafe extern "C" fn zapi_set_global(
+    env: ZqRawCtx,
+    name: ZqRawValue,
+    val: ZqRawValue,
+    _flags: u32,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    ctx.global_obj()
+        .set_property_value(
+            ctx,
+            JSValue(name, std::marker::PhantomData),
+            JSValue(val, std::marker::PhantomData),
+            ThrowPolicy::StrictOnly,
+            false,
+        )
+        .map_or(-1, |b| b as i32)
+}
+
+/// Set a property on the global object by UTF-8 name.
+/// 1=set, 0=not set, -1=error
+unsafe extern "C" fn zapi_set_global_str(
+    env: ZqRawCtx,
+    name: *const u8,
+    name_len: usize,
+    val: ZqRawValue,
+    _flags: u32,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Ok(atom) = str_key_atom(ctx, name, name_len) else {
+        return -1;
+    };
+
+    ctx.global_obj()
+        .set_property_internal(
+            ctx,
+            atom,
+            JSValue(val, std::marker::PhantomData),
+            None,
+            ThrowPolicy::StrictOnly,
+            false,
+        )
+        .map_or(-1, |b| b as i32)
 }
 
 unsafe extern "C" fn zapi_call_function(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue {
@@ -1040,6 +1110,8 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         // ── global object ──
         get_global: zapi_get_global,
         get_global_str: zapi_get_global_str,
+        set_global: zapi_set_global,
+        set_global_str: zapi_set_global_str,
 
         // ── native object / class ──
         register_class: zapi_register_class,
@@ -1098,7 +1170,13 @@ mod tests {
             let mut obj = cx.create_base_object()?;
             let k = cx.create_string_interned("role")?;
             let v = cx.create_string_interned("user")?;
-            obj.set_property_value(cx, JSValue::make_string(k), JSValue::make_string(v), 0)?;
+            obj.set_property_value(
+                cx,
+                JSValue::make_string(k),
+                JSValue::make_string(v),
+                ThrowPolicy::StrictOnly,
+                false,
+            )?;
             let obj_raw = JSValue::from(obj).0;
             let env = cx as *mut ScopedContext as ZqRawCtx;
 

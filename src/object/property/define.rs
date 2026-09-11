@@ -13,7 +13,7 @@ use crate::{
     number::IntOrFloat,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_THROW, JSProperty,
-        Object, ObjectImpl, PropertyKey,
+        Object, ObjectImpl, PropertyKey, ThrowPolicy,
     },
     utils::unlikely,
     value::JSValue,
@@ -174,7 +174,13 @@ impl ObjectImpl {
                                     Ok(false)
                                 }
                             } else if flags & JS_PROP_HAS_VALUE != 0 {
-                                self.set_property_value(ctx, JSValue::from(idx as i32), val, flags)
+                                self.set_property_value(
+                                    ctx,
+                                    JSValue::from(idx as i32),
+                                    val,
+                                    ThrowPolicy::Always,
+                                    false,
+                                )
                             } else {
                                 Ok(true)
                             };

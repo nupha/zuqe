@@ -53,10 +53,19 @@ pub const JS_PROP_HAS_GET: u32 = 1 << 11;
 pub const JS_PROP_HAS_SET: u32 = 1 << 12;
 /// Property has value
 pub const JS_PROP_HAS_VALUE: u32 = 1 << 13;
-/// Throw error on failed operation
+/// Throw error on failed operation, regardless of strict mode.
+///
+/// Unified rule: use ONLY in the define/create/delete family, which per ECMA
+/// are mode-agnostic always-throw operations (`DefinePropertyOrThrow`,
+/// `DeletePropertyOrThrow`, `Set(..., true)`). Never on generic set/assignment.
 pub const JS_PROP_THROW: u32 = 1 << 14;
-/// Throw error in strict mode
+/// Throw error only if the current frame is strict.
+///
+/// Unified rule: use for every generic set/assignment (PutValue / `[[Set]]`),
+/// where ECMA leaves the throw decision to the assignment expression, i.e.
+/// sloppy mode silently fails while strict mode throws.
 pub const JS_PROP_THROW_STRICT: u32 = 1 << 15;
+
 /// Prevent adding new properties
 pub const JS_PROP_NO_ADD: u32 = 1 << 16;
 /// Prevent exotic object behavior
@@ -94,6 +103,34 @@ pub const JS_GPN_PRIVATE_MASK: i32 = 1 << 2;
 pub const JS_GPN_ENUM_ONLY: i32 = 1 << 4;
 /// set theJSPropertyEnum.is_enumerable field
 pub const JS_GPN_SET_ENUM: i32 = 1 << 5;
+
+/// Typed throw policy for the set family, replacing the opaque
+/// `flags & JS_PROP_THROW` / `flags & JS_PROP_THROW_STRICT` tests.
+/// One of the two knobs on every set-family entry point (the other
+/// being `no_add: bool`).  See `JS_PROP_THROW` / `JS_PROP_THROW_STRICT`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ThrowPolicy {
+    /// Always throw on failure (`Set(..., true)` — mode-agnostic).
+    Always,
+    /// Throw only in strict mode (`PutValue` — mode-faithful).
+    StrictOnly,
+    /// Never throw (pure `Reflect.set` semantics).
+    Never,
+}
+
+impl ThrowPolicy {
+    /// Reconstruct from a legacy flags bitmask (exotic-callback ABI).
+    pub(crate) const fn from_flags(flags: u32) -> (Self, bool) {
+        let throw = if flags & crate::object::JS_PROP_THROW != 0 {
+            Self::Always
+        } else if flags & crate::object::JS_PROP_THROW_STRICT != 0 {
+            Self::StrictOnly
+        } else {
+            Self::Never
+        };
+        (throw, flags & crate::object::JS_PROP_NO_ADD != 0)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct JSPropertyDescriptor {
@@ -410,6 +447,7 @@ impl ObjectImpl {
 
             let val = source.get_property(ctx, k.atom)?;
             if setprop {
+                // Object.assign: `Perform ? Set(to, nextKey, propValue, true)`.
                 self.set_property(ctx, k.atom, val)?;
             } else {
                 self.define_property_value(ctx, k.atom, val, JS_PROP_C_W_E)?;

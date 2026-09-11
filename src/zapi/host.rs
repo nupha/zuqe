@@ -10,7 +10,7 @@ use zuqe_zapi::ffi::{
 
 use crate::{JSValue, ModuleDef, ScopedContext, class::ClassID, function::Callback};
 
-use super::stub::ZQ_API_TABLE;
+use super::stub::{ZQ_API_TABLE, zq_to_js_prop_flags};
 
 /// Translate a `ZqFieldDef` array into engine `FieldDef` entries (methods,
 /// accessors, and constant data props), for class prototypes/constructors.
@@ -24,6 +24,9 @@ pub(crate) fn push_class_fields(
             .name_str()
             .ok_or_else(|| ctx.throw_internal_error("zapi class member has no name"))?;
         let name: &'static str = Box::leak(name.to_string().into_boxed_str());
+        // Attribute bits come from the FFI; translate them bit-by-bit so
+        // `ZQ_PROP_*` values stay decoupled from engine `JS_PROP_*` bits.
+        let prop_flags = zq_to_js_prop_flags(f.prop_flags);
         match f.kind {
             ZQ_FIELD_FUNC => {
                 let Some(body) = f.body else {
@@ -62,19 +65,19 @@ pub(crate) fn push_class_fields(
                         .map_err(|_| -1)?
                 };
                 let s: &'static str = Box::leak(s.to_string().into_boxed_str());
-                entries.push(crate::FieldDef::STR(name, s, f.prop_flags));
+                entries.push(crate::FieldDef::STR(name, s, prop_flags));
             }
             ZQ_FIELD_INT => {
-                entries.push(crate::FieldDef::INT32(name, f.i64_val as i32, f.prop_flags));
+                entries.push(crate::FieldDef::INT32(name, f.i64_val as i32, prop_flags));
             }
             ZQ_FIELD_FLOAT => {
-                entries.push(crate::FieldDef::FLOAT64(name, f.f64_val, f.prop_flags));
+                entries.push(crate::FieldDef::FLOAT64(name, f.f64_val, prop_flags));
             }
             ZQ_FIELD_BOOL => {
-                entries.push(crate::FieldDef::BOOL(name, f.u8_val != 0, f.prop_flags));
+                entries.push(crate::FieldDef::BOOL(name, f.u8_val != 0, prop_flags));
             }
             ZQ_FIELD_UNDEFINED => {
-                entries.push(crate::FieldDef::UNDEFINED(name, f.prop_flags));
+                entries.push(crate::FieldDef::UNDEFINED(name, prop_flags));
             }
             _ => {
                 return Err(ctx.throw_internal_error(&format!(

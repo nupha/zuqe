@@ -582,6 +582,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                 let name = self.read_string()?;
                 let atom = Atom::intern_str(self.ctx, &name)
                     .map_err(|_| BytecodeSerializeError::AtomNotFound(name.clone()))?;
+
                 let gobj = self.ctx.global_obj();
                 match gobj.get_property_internal(self.ctx, atom, JSValue::from(gobj), false) {
                     Ok(v) if !v.is_undefined_or_null() => Ok(v),
