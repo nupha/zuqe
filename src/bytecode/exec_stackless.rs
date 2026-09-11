@@ -30,7 +30,7 @@ use crate::{
         OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
         OP_DEFINE_METHOD_SETTER,
     },
-    context::{ContextPtr, ScopedContext},
+    context::{ContextPtr, GlobalVarSetMode, ScopedContext},
     error::{
         Exception, JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
         JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
@@ -46,8 +46,8 @@ use crate::{
     object::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
         JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-        JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_VARREF,
-        JS_PROP_WRITABLE, JSProperty, Object, PayloadPtr, ThrowPolicy,
+        JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, Object,
+        PayloadPtr, ThrowPolicy,
     },
     stack_frame::{
         ExecMode, FrameAllocError, FrameIndex, MAX_CALL_DEPTH, StackFrameArena, VirtualFrame,
@@ -1612,10 +1612,18 @@ impl Bytecode {
                     OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
                         let idx = PC_FETCH!(u16) as usize;
                         // set_global_var handles TDZ (ReferenceError) and read-only (TypeError) checks.
-                        let init_flag = (opcode == OpCode::PUT_VAR_INIT) as u8;
                         let var_name = self.global_var_refs()[idx].var_name;
-                        let res = realm_scope.set_global_var(var_name, SP_VAL!(-1), init_flag);
+                        let res = realm_scope.set_global_var(
+                            var_name,
+                            SP_VAL!(-1),
+                            if opcode == OpCode::PUT_VAR_INIT {
+                                GlobalVarSetMode::Init
+                            } else {
+                                GlobalVarSetMode::Normal
+                            },
+                        );
                         SP_GO!(-1);
+
                         if res.is_err() {
                             break ExecAction::Exception;
                         }

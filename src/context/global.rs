@@ -13,6 +13,22 @@ use crate::{
     value::JSValue,
 };
 
+/// How [`ScopedContext::set_global_var`] writes a global binding.
+///
+/// Replaces the former raw `flag: u8` argument (`0`/`1`/`2`).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GlobalVarSetMode {
+    /// Ordinary variable write: TDZ and read-only checks apply.
+    Normal,
+    /// Initialize a lexical binding (its `let`/`const` declarator). The binding
+    /// is being defined, so the TDZ / read-only checks are skipped.
+    Init,
+    /// Ordinary variable write whose strict-mode checks were already performed
+    /// by the caller.
+    #[allow(dead_code)] // no caller emits this mode yet; kept for API parity
+    Checked,
+}
+
 impl<'c> ScopedContext<'c> {
     /// construct a reference to specified global variable
     pub(crate) fn build_global_varref(
@@ -194,22 +210,19 @@ impl<'c> ScopedContext<'c> {
         }
     }
 
-    /// flag:
-    /// * 0: normal variable write
-    /// * 1: initialize lexical variable
-    /// * 2: normal variable write, strict check was done before
+    /// Write a global variable according to `mode`.
     pub(crate) fn set_global_var(
         &mut self,
         prop: Atom,
         val: JSValue,
-        flag: u8,
+        mode: GlobalVarSetMode,
     ) -> Result<bool, i32> {
         // no exotic behavior is possible in global_var_obj
         let mut gv = self.global_var_obj();
 
         if let Some((idx, prs_flags)) = gv.find_shape_property(prop) {
             // XXX: should handle JS_PROP_LAZYINIT properties?
-            if flag != 1 {
+            if mode != GlobalVarSetMode::Init {
                 match gv.prop_slot(idx) {
                     JSProperty::Normal(v) if JSValue::UNINITIALIZED.eq(v) => {
                         return Err(JS_ThrowReferenceErrorUninitialized(self, prop));

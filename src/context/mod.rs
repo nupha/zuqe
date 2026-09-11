@@ -13,4 +13,7 @@ pub use {
     scope::{ScopeResult, ScopedContext},
 };
 
-pub(crate) use ctx::{ContextPtr, ProtoCtorPair};
+pub(crate) use {
+    ctx::{ContextPtr, ProtoCtorPair},
+    global::GlobalVarSetMode,
+};

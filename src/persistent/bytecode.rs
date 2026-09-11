@@ -9,6 +9,7 @@ use crate::{
     JSValue, ScopedContext,
     atom::Atom,
     bytecode::{OpcodeFormat, opcode_info_final},
+    context::GlobalVarSetMode,
     function::{
         Bytecode, BytecodeAttrs, BytecodeDebugInfo, BytecodeImpl, ClosureVar,
         DEFINE_GLOBAL_LEX_VAR, FunctionKind, GcScopeKind, JSVarDef,
@@ -480,11 +481,14 @@ impl Bytecode {
                 // target context, `define_global_var` errors 闂?ignore that and just
                 // overwrite the value via `set_global_var` (detached copy semantics).
                 // Clear any pending exception left by the (expected) redeclaration error.
-                let _ = inp
+                let r = inp
                     .ctx
                     .define_global_var(name, DEFINE_GLOBAL_LEX_VAR as u32);
-                inp.ctx.clear_exception();
-                let _ = inp.ctx.set_global_var(name, v, 1u8);
+                if r.is_err() {
+                    inp.ctx.clear_exception();
+                }
+
+                let _ = inp.ctx.set_global_var(name, v, GlobalVarSetMode::Init);
             }
         }
 
