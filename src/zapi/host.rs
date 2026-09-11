@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ffi::c_void;
-
 use libloading::Library;
 use zuqe_zapi::ffi::{
-    ZQ_ABI_VERSION, ZQ_API_VERSION, ZQ_FIELD_BOOL, ZQ_FIELD_CLASS, ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC,
-    ZQ_FIELD_GETSET, ZQ_FIELD_INT, ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED, ZQ_FIELD_VALUE, ZqApi,
-    ZqCallInfoS, ZqFieldDef, ZqModuleInfo, ZqRawCtx, ZqRawValue,
+    ZQ_ABI_VERSION, ZQ_API_VERSION, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_FIELD_BOOL, ZQ_FIELD_CLASS,
+    ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC, ZQ_FIELD_GETSET, ZQ_FIELD_INT, ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED,
+    ZQ_FIELD_VALUE, ZqApi, ZqCallInfoS, ZqFieldDef, ZqModuleInfo, ZqRawCtx, ZqRawValue,
 };
 
 use crate::{JSValue, ModuleDef, ScopedContext, class::ClassID, function::Callback};
@@ -123,7 +121,7 @@ pub(crate) fn zapi_trampoline_fn(
 
     let env = ctx as *mut ScopedContext as ZqRawCtx;
     let result = unsafe { body(env, &mut call_info as *mut _) };
-    if result == ZQ_API_TABLE.value_exception {
+    if result == ZQ_API_TABLE.const_values[ZQ_CONST_VALUE_SLOT_EXCEPTION] {
         Err(-1)
     } else {
         Ok(crate::JSValue(result, std::marker::PhantomData))
@@ -160,12 +158,11 @@ pub(crate) fn register_zapi_func_magic(
 macro_rules! zapi_make_thunk {
     ($body:expr) => {{
         use $crate::{JSResult, JSValue, ScopedContext, function::CallContext};
-        use zuqe_zapi::ffi::ZqCallInfoS;
 
         fn trampoline(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             let mut env = $crate::zapi::host::env_from_scoped(ctx);
             let raw_args: Vec<u64> = cc.arguments().iter().map(|v| v.0).collect();
-            let mut info = ZqCallInfoS {
+            let mut info = zuqe_zapi::ffi::ZqCallInfoS {
                 target: 0,
                 this: cc.this().0,
                 args: raw_args.as_ptr(),
@@ -173,7 +170,10 @@ macro_rules! zapi_make_thunk {
                 magic: 0,
             };
             let result = unsafe { ($body)(&mut env, &mut info) };
-            if result == $crate::zapi::stub::ZQ_API_TABLE.value_exception {
+            if result
+                == $crate::zapi::stub::ZQ_API_TABLE.const_values
+                    [zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION]
+            {
                 Err(-1)
             } else {
                 Ok(JSValue(result, std::marker::PhantomData))
@@ -299,7 +299,7 @@ impl<'a> ScopedContext<'a> {
                         "zapi module '{file_url}': class export '{name}' has no class def"
                     )));
                 }
-                let mut env = self as *mut ScopedContext as ZqRawCtx;
+                let env = self as *mut ScopedContext as ZqRawCtx;
                 let r = unsafe { register_class(env, def.class_def) };
                 if r < 0 {
                     return Err(self.throw_reference_error(&format!(
@@ -335,7 +335,7 @@ impl<'a> ScopedContext<'a> {
         // namespace instead of `globalThis`.
         let init_fn = move |ctx: &mut ScopedContext, md: &ModuleDef| -> Result<(), i32> {
             if let Some(init_f) = init_ptr {
-                let mut env = ctx as *mut ScopedContext as ZqRawCtx;
+                let env = ctx as *mut ScopedContext as ZqRawCtx;
                 if unsafe { init_f(env) } != 0 {
                     return Err(ctx.throw_internal_error("zapi module init failed"));
                 }
@@ -402,7 +402,7 @@ fn eval_field_value(
         }
         ZQ_FIELD_VALUE => {
             let value_fn = def.value_fn.ok_or(-1)?;
-            let mut env = ctx as *mut ScopedContext as ZqRawCtx;
+            let env = ctx as *mut ScopedContext as ZqRawCtx;
             let mut out: ZqRawValue = 0;
             if unsafe { value_fn(env, &mut out) } != 0 {
                 return Err(ctx.throw_internal_error(&format!(

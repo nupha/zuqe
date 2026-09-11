@@ -3,18 +3,18 @@
 //!
 //! Run after building the extension:
 //!   cargo build --release --manifest-path examples/zapi_event/Cargo.toml
-//!   target/release/examples/zjs --module examples/zapi_event/test_event.mjs
+//!   target/debug/examples/zjs --module examples/zapi_event/test_event.mjs
 
 import { EventEmitter } from "./target/release/libzapi_event.dylib";
 
 let failures = 0;
 function check(name, cond) {
-    if (cond) {
-        console.log("PASS " + name);
-    } else {
-        console.log("FAIL " + name);
-        failures++;
-    }
+  if (cond) {
+    console.log("PASS " + name);
+  } else {
+    console.log("FAIL " + name);
+    failures++;
+  }
 }
 
 const ee = new EventEmitter();
@@ -37,7 +37,7 @@ check("once fires once", once === 1);
 // off removes a specific handler.
 let n = 0;
 const fa = () => n++;
-const fb = () => n += 10;
+const fb = () => (n += 10);
 ee.on("x", fa);
 ee.on("x", fb);
 ee.off("x", fa);

@@ -4,13 +4,19 @@
 //! `extern "C"` FFI in user code. Exercises every JS value type crossing the
 //! extension boundary (number / string / symbol / object / array / function /
 //! arguments), plus standard host objects (Date, Uint8Array) inside the
-//! extension. Every `#[zq_function]` / `#[zq_class]` / `#[zq_export]` item
-//! self-registers as a module export via the linkme slice — `#[zq_module]`
-//! needs no export list.
+//! extension.
+//!
+//! Run after building (zjs must be built with the `zapi` feature):
+//!   cargo build --release --manifest-path examples/zapi_basic/Cargo.toml
+//!   target/release/examples/zjs --module examples/zapi_basic/test_basic.mjs
+
+// `#[zq_function]` generates snake_case marker types for the export manifest.
+#![allow(non_camel_case_types)]
 
 use zuqe_zapi::*;
 use zuqe_zapi_macros::{
     ZqGcTrace, zq_class, zq_class_impl, zq_export, zq_function, zq_method, zq_module,
+    zq_static_method,
 };
 
 // ──────────────────────────────────────
@@ -20,35 +26,35 @@ use zuqe_zapi_macros::{
 /// `typeOf(x)` → JS `typeof` name ("number", "string", "symbol", ...).
 #[zq_function(name = "typeOf")]
 fn type_of<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let v = cc.arg(&cx, 0);
-    Ok(cx.string(v.type_of(&cx)?.name()))
+    let v = cc.arg(0);
+    cx.new_string(v.value_type().name())
 }
 
 /// `id(x)` → returns the argument unchanged (round-trip for any value).
 #[zq_function(name = "id")]
 fn id<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let _ = cx;
-    Ok(cc.arg(&cx, 0))
+    Ok(cc.arg(0))
 }
 
 #[zq_function]
 fn add<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let a = cc.arg_as::<f64>(&cx, 0)?;
-    let b = cc.arg_as::<f64>(&cx, 1)?;
-    Ok(cx.number(a + b))
+    let a = cc.arg(0).as_f64(cx)?;
+    let b = cc.arg(1).as_f64(cx)?;
+    Ok(ZqValue::number(a + b))
 }
 
 #[zq_function]
 fn mul<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let a = cc.arg_as::<f64>(&cx, 0)?;
-    let b = cc.arg_as::<f64>(&cx, 1)?;
-    Ok(cx.number(a * b))
+    let a = cc.arg(0).as_f64(cx)?;
+    let b = cc.arg(1).as_f64(cx)?;
+    Ok(ZqValue::number(a * b))
 }
 
 #[zq_function]
-fn greet<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let _ = cc;
-    Ok(cx.number(42.0))
+fn greet<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    let _ = cx;
+    Ok(ZqValue::number(42.0))
 }
 
 // ──────────────────────────────────────
@@ -58,15 +64,15 @@ fn greet<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> 
 /// `echoString(s)` → `"echo:" + s` (reads a string argument, returns a string).
 #[zq_function(name = "echoString")]
 fn echo_string<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let s = cc.arg_as::<String>(&cx, 0)?;
-    Ok(cx.string(&format!("echo:{s}")))
+    let s = cc.arg(0).as_string(cx)?;
+    cx.new_string(&format!("echo:{s}"))
 }
 
 /// `strLen(s)` → byte length of the string.
 #[zq_function(name = "strLen")]
 fn str_len<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let s = cc.arg_as::<String>(&cx, 0)?;
-    Ok(cx.number(s.len() as f64))
+    let s = cc.arg(0).as_string(cx)?;
+    Ok(ZqValue::number(s.len() as f64))
 }
 
 // ──────────────────────────────────────
@@ -76,15 +82,15 @@ fn str_len<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError
 /// `makeSymbol(desc)` → `Symbol(desc)`.
 #[zq_function(name = "makeSymbol")]
 fn make_symbol<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let desc = cc.arg_as::<String>(&cx, 0)?;
-    Ok(cx.symbol(&desc))
+    let desc = cc.arg(0).as_string(cx)?;
+    cx.new_symbol(&desc)
 }
 
 /// `symDesc(sym)` → the symbol's description ("" when absent).
 #[zq_function(name = "symDesc")]
 fn sym_desc<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let desc = cc.arg(&cx, 0).symbol_description(&cx)?;
-    Ok(cx.string(&desc))
+    let desc = cc.arg(0).symbol_description(cx)?;
+    cx.new_string(&desc)
 }
 
 // ──────────────────────────────────────
@@ -94,77 +100,74 @@ fn sym_desc<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErro
 /// `makeObject()` → a fresh plain object with a few properties (incl. a nested
 /// array), built entirely inside the extension.
 #[zq_function(name = "makeObject")]
-fn make_object<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let _ = cc;
-    let obj = cx.object();
-    obj.set(&cx, "kind", "demo")?;
-    obj.set(&cx, "count", 7i32)?;
-    let nested = cx.array(&[cx.bool(true), cx.number(1.5), cx.string("x")]);
-    obj.set(&cx, "nested", nested)?;
+fn make_object<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    let obj = cx.new_object()?;
+    obj.set_str(cx, "kind", cx.new_string("demo")?)?;
+    obj.set_str(cx, "count", 7i32)?;
+    let nested = cx.new_array(&[
+        ZqValue::bool(true).raw(),
+        ZqValue::number(1.5).raw(),
+        cx.new_string("x")?.raw(),
+    ])?;
+    obj.set_str(cx, "nested", nested)?;
     Ok(obj)
 }
 
 #[zq_function(name = "getProp")]
 fn get_prop<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let obj = cc.arg(&cx, 0);
-    obj.get(&cx, cc.arg(&cx, 1))
+    cc.arg(0).get(cx, cc.arg(1))
 }
 
 #[zq_function(name = "setProp")]
 fn set_prop<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let obj = cc.arg(&cx, 0);
-    obj.set(&cx, cc.arg(&cx, 1), cc.arg(&cx, 2))?;
-    Ok(cx.undefined())
+    cc.arg(0).set(cx, cc.arg(1), cc.arg(2))?;
+    Ok(ZqValue::undefined())
 }
 
 #[zq_function(name = "hasProp")]
 fn has_prop<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let obj = cc.arg(&cx, 0);
-    Ok(cx.bool(obj.has(&cx, cc.arg(&cx, 1))?))
+    Ok(ZqValue::bool(cc.arg(0).has(cx, cc.arg(1))?))
 }
 
 #[zq_function(name = "delProp")]
 fn del_prop<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let obj = cc.arg(&cx, 0);
-    Ok(cx.bool(obj.delete(&cx, cc.arg(&cx, 1))?))
+    Ok(ZqValue::bool(cc.arg(0).delete(cx, cc.arg(1))?))
 }
 
 // ──────────────────────────────────────
 // Array
 // ──────────────────────────────────────
 
-/// `makeArray()` → `[1, 2, 3, "four"]` built inside the extension.
+/// `makeArray()` → `[1, 2, 3, "four", true]` built inside the extension.
 #[zq_function(name = "makeArray")]
-fn make_array<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let _ = cc;
-    let arr = cx.array(&[
-        cx.number(1.0),
-        cx.number(2.0),
-        cx.number(3.0),
-        cx.string("four"),
-    ]);
-    arr.array_push(&cx, cx.bool(true))?;
+fn make_array<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    let arr = cx.new_array(&[
+        ZqValue::number(1.0).raw(),
+        ZqValue::number(2.0).raw(),
+        ZqValue::number(3.0).raw(),
+        cx.new_string("four")?.raw(),
+    ])?;
+    arr.array_push(cx, ZqValue::bool(true))?;
     Ok(arr)
 }
 
 #[zq_function(name = "arrayLen")]
 fn array_len<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let len = cc.arg(&cx, 0).array_len(&cx)?;
-    Ok(cx.number(len as f64))
+    let len = cc.arg(0).get_length_prop(cx)?;
+    Ok(ZqValue::number(len as f64))
 }
 
 #[zq_function(name = "arrayGet")]
 fn array_get<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let idx = cc.arg_as::<i32>(&cx, 1)?;
-    cc.arg(&cx, 0).array_get(&cx, idx as usize)
+    let idx = cc.arg(1).as_i32(cx)?;
+    cc.arg(0).get(cx, idx as i64)
 }
 
 #[zq_function(name = "arraySet")]
 fn array_set<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let idx = cc.arg_as::<i32>(&cx, 1)?;
-    cc.arg(&cx, 0)
-        .array_set(&cx, idx as usize, cc.arg(&cx, 2))?;
-    Ok(cx.undefined())
+    let idx = cc.arg(1).as_i32(cx)?;
+    cc.arg(0).set(cx, idx as i64, cc.arg(2))?;
+    Ok(ZqValue::undefined())
 }
 
 // ──────────────────────────────────────
@@ -174,12 +177,12 @@ fn array_set<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErr
 /// `callJs(f, ...args)` → invoke `f(...args)` from inside the extension.
 #[zq_function(name = "callJs")]
 fn call_js<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let f = cc.arg(&cx, 0);
+    let f = cc.arg(0);
     let mut args: Vec<ZqValue<'a>> = Vec::with_capacity(cc.len().saturating_sub(1));
     for i in 1..cc.len() {
-        args.push(cc.arg(&cx, i));
+        args.push(cc.arg(i));
     }
-    f.call(&cx, cx.undefined(), &args)
+    f.call(cx, ZqValue::undefined(), &args)
 }
 
 // ──────────────────────────────────────
@@ -190,39 +193,39 @@ fn call_js<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError
 #[zq_function(name = "makeDate")]
 fn make_date<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let date = cx.get_global("Date")?;
-    cx.call_constructor(date, &[cc.arg(&cx, 0)])
+    cx.call_constructor(date, &[cc.arg(0)])
 }
 
 /// `dateTime(d)` → `d.getTime()` (method call on a Date from the extension).
 #[zq_function(name = "dateTime")]
 fn date_time<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let d = cc.arg(&cx, 0);
-    let get_time = d.get(&cx, "getTime")?;
-    get_time.call(&cx, d, &[])
+    let d = cc.arg(0);
+    let get_time = d.get_str(cx, "getTime")?;
+    get_time.call(cx, d, &[])
 }
 
 /// `makeU8(n)` → `new Uint8Array(n)`.
 #[zq_function(name = "makeU8")]
 fn make_u8<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let ctor = cx.get_global("Uint8Array")?;
-    cx.call_constructor(ctor, &[cc.arg(&cx, 0)])
+    cx.call_constructor(ctor, &[cc.arg(0)])
 }
 
 /// `u8Get(a, i)` → `a[i]`.
 #[zq_function(name = "u8Get")]
 fn u8_get<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    cc.arg(&cx, 0).get(&cx, cc.arg(&cx, 1))
+    cc.arg(0).get(cx, cc.arg(1))
 }
 
 /// `u8Set(a, i, v)` → `a[i] = v`.
 #[zq_function(name = "u8Set")]
 fn u8_set<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    cc.arg(&cx, 0).set(&cx, cc.arg(&cx, 1), cc.arg(&cx, 2))?;
-    Ok(cx.undefined())
+    cc.arg(0).set(cx, cc.arg(1), cc.arg(2))?;
+    Ok(ZqValue::undefined())
 }
 
 // ──────────────────────────────────────
-// Counter class (from the original demo)
+// Counter class: payload + GC-tracked JS handle + static method
 // ──────────────────────────────────────
 
 #[derive(ZqGcTrace)]
@@ -237,30 +240,37 @@ struct Counter;
 #[zq_class_impl]
 impl Counter {
     fn constructor<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-        let label = cc.arg(&cx, 0).raw();
-        Counter::new_instance(&cx, CounterPayload { count: 0, label })
+        let label = cc.arg(0).raw();
+        Counter::new_instance(cx, CounterPayload { count: 0, label })
     }
 
     #[zq_method]
     fn increment<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-        let c = cc.this(&cx);
-        let p = Counter::payload_mut(&cx, c).ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
+        let c = cc.this();
+        let p = Counter::payload_mut(cx, c).ok_or_else(|| cx.throw_type("not a Counter"))?;
         p.count += 1;
-        Ok(cx.number(p.count as f64))
+        Ok(ZqValue::number(p.count as f64))
     }
 
     #[zq_method(name = "value")]
     fn value<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-        let c = cc.this(&cx);
-        let p = Counter::payload(&cx, c).ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
-        Ok(cx.number(p.count as f64))
+        let c = cc.this();
+        let p = Counter::payload(cx, c).ok_or_else(|| cx.throw_type("not a Counter"))?;
+        Ok(ZqValue::number(p.count as f64))
     }
 
     #[zq_method(name = "label")]
     fn label<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-        let c = cc.this(&cx);
-        let p = Counter::payload(&cx, c).ok_or_else(|| ZqError::new(ZqStatus::Error, None))?;
+        let c = cc.this();
+        let p = Counter::payload(cx, c).ok_or_else(|| cx.throw_type("not a Counter"))?;
         Ok(ZqValue::from(p.label))
+    }
+
+    /// `Counter.isCounter(v)` — static method (on the constructor).
+    #[zq_static_method(name = "isCounter")]
+    fn is_counter<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        let v = cc.arg(0);
+        Ok(ZqValue::bool(Counter::payload(cx, v).is_some()))
     }
 }
 
@@ -271,7 +281,7 @@ impl Counter {
 /// `VERSION` → `"0.1.0"` (built lazily at evaluation time).
 #[zq_export(name = "VERSION")]
 fn version<'a>(cx: ZqCtx<'a>) -> Result<ZqValue<'a>, ZqError> {
-    Ok(cx.string("0.1.0"))
+    cx.new_string("0.1.0")
 }
 
 // ──────────────────────────────────────
@@ -279,7 +289,7 @@ fn version<'a>(cx: ZqCtx<'a>) -> Result<ZqValue<'a>, ZqError> {
 // ──────────────────────────────────────
 
 #[zq_module(
-    name = "zapi_demo",
+    name = "zapi_basic",
     exports = [
         type_of, id, add, mul, greet,
         echo_string, str_len,

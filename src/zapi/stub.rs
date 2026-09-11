@@ -5,15 +5,18 @@ use std::{borrow::Cow, ffi::c_void, marker::PhantomData, sync::LazyLock};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 use zuqe_zapi::ffi::{
-    ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL, ZQ_VALUE_TYPE_EXCEPTION, ZQ_VALUE_TYPE_FUNCTION,
-    ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER, ZQ_VALUE_TYPE_OBJECT, ZQ_VALUE_TYPE_STRING,
-    ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED, ZqApi, ZqBodyFn, ZqCallInfoS, ZqClassDef,
-    ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn, ZqRawCtx, ZqRawValue,
-    ZqWakeHandleS,
+    ZQ_CONST_VALUE_SLOT_COUNT, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE,
+    ZQ_CONST_VALUE_SLOT_INFINITY, ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN,
+    ZQ_CONST_VALUE_SLOT_NULL, ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED,
+    ZQ_CONST_VALUE_SLOT_ZERO, ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL, ZQ_VALUE_TYPE_EXCEPTION,
+    ZQ_VALUE_TYPE_FUNCTION, ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER, ZQ_VALUE_TYPE_OBJECT,
+    ZQ_VALUE_TYPE_STRING, ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED, ZqApi, ZqBodyFn,
+    ZqCallInfoS, ZqClassDef, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn,
+    ZqRawCtx, ZqRawValue, ZqWakeHandleS,
 };
 
 use crate::{
-    Array, CallContext, ErrorKind, JSValue, JSValueTag, ScopedContext,
+    Array, Atom, CallContext, ErrorKind, JSValue, JSValueTag, ScopedContext,
     builtins::array::js_array_push, class::ClassID, function::Callback, object::PayloadPtr,
 };
 
@@ -37,12 +40,16 @@ unsafe extern "C" fn zapi_new_number(n: f64) -> ZqRawValue {
     JSValue::from(n).0
 }
 
-unsafe extern "C" fn zapi_new_string_utf8(env: ZqRawCtx, ptr: *const u8, len: usize) -> ZqRawValue {
+unsafe extern "C" fn zapi_new_int32(n: i32) -> ZqRawValue {
+    JSValue::from(n).0
+}
+
+unsafe extern "C" fn zapi_new_string(env: ZqRawCtx, ptr: *const u8, len: usize) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
     match ctx.create_string_from_utf8(bytes.to_vec()) {
         Ok(s) => JSValue::make_string(s).0,
-        Err(_) => ZQ_API_TABLE.value_exception,
+        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
 
@@ -50,15 +57,15 @@ unsafe extern "C" fn zapi_new_symbol(env: ZqRawCtx, desc: ZqRawValue) -> ZqRawVa
     let ctx = unsafe { ctx_from_env(env) };
     match symbol_from_desc(ctx, JSValue(desc, std::marker::PhantomData)) {
         Ok(v) => v.0,
-        Err(_) => ZQ_API_TABLE.value_exception,
+        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
 
-unsafe extern "C" fn zapi_get_symbol_description(env: ZqRawCtx, sym: ZqRawValue) -> ZqRawValue {
+unsafe extern "C" fn zapi_symbol_get_description(env: ZqRawCtx, sym: ZqRawValue) -> ZqRawValue {
     let Some(sr) = JSValue(sym, std::marker::PhantomData).as_symbol(true) else {
         let ctx = unsafe { ctx_from_env(env) };
         let _ = ctx.throw_type_error("not a Symbol value");
-        return ZQ_API_TABLE.value_exception;
+        return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
     };
 
     if sr.content().is_ident() {
@@ -68,7 +75,7 @@ unsafe extern "C" fn zapi_get_symbol_description(env: ZqRawCtx, sym: ZqRawValue)
     }
 }
 
-unsafe extern "C" fn zapi_get_string_utf8(
+unsafe extern "C" fn zapi_string_get_utf8(
     _: ZqRawCtx,
     s: ZqRawValue,
     buf: *mut u8,
@@ -99,7 +106,7 @@ unsafe extern "C" fn zapi_new_object(env: ZqRawCtx) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     match ctx.create_base_object() {
         Ok(o) => JSValue::from(o).0,
-        Err(_) => ZQ_API_TABLE.value_exception,
+        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
 
@@ -109,10 +116,18 @@ unsafe extern "C" fn zapi_new_array(
     len: usize,
 ) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
-    Array::from_slice(ctx, unsafe {
-        std::slice::from_raw_parts(elements.cast::<JSValue>(), len)
-    })
-    .map_or(ZQ_API_TABLE.value_exception, |a| JSValue::from(a).0)
+    Array::from_slice(
+        ctx,
+        if len > 0 {
+            unsafe { std::slice::from_raw_parts(elements.cast::<JSValue>(), len) }
+        } else {
+            &[]
+        },
+    )
+    .map_or(
+        ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
+        |a| JSValue::from(a).0,
+    )
 }
 
 unsafe extern "C" fn zapi_get_property(
@@ -123,7 +138,10 @@ unsafe extern "C" fn zapi_get_property(
     let ctx = unsafe { ctx_from_env(env) };
     JSValue(target, std::marker::PhantomData)
         .get_property_value(ctx, JSValue(key, std::marker::PhantomData))
-        .map_or(ZQ_API_TABLE.value_exception, |v| v.0)
+        .map_or(
+            ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
+            |v| v.0,
+        )
 }
 
 /// returns 1=set, 0=not set, -1=error
@@ -193,14 +211,13 @@ unsafe extern "C" fn zapi_delete_property(
 
 /// Resolve a UTF-8 `(ptr, len)` key to an interned atom, throwing a
 /// `TypeError` on invalid input.
-fn str_key_atom(
-    ctx: &mut ScopedContext,
-    key: *const u8,
-    key_len: usize,
-) -> Result<crate::Atom, i32> {
-    if key.is_null() {
+fn str_key_atom(ctx: &mut ScopedContext, key: *const u8, key_len: usize) -> Result<Atom, i32> {
+    if key_len == 0 {
+        return Ok(Atom::CONST_empty_string);
+    } else if key.is_null() {
         return Err(ctx.throw_type_error("property key is null"));
     }
+
     let bytes = unsafe { std::slice::from_raw_parts(key, key_len) };
     let Ok(s) = std::str::from_utf8(bytes) else {
         return Err(ctx.throw_type_error("property key is not valid UTF-8"));
@@ -216,11 +233,14 @@ unsafe extern "C" fn zapi_get_property_str(
 ) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     let Ok(atom) = str_key_atom(ctx, key, key_len) else {
-        return ZQ_API_TABLE.value_exception;
+        return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
     };
     JSValue(target, std::marker::PhantomData)
         .get_property(ctx, atom)
-        .map_or(ZQ_API_TABLE.value_exception, |v| v.0)
+        .map_or(
+            ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
+            |v| v.0,
+        )
 }
 
 /// returns 1=set, 0=not set, -1=error
@@ -293,11 +313,11 @@ unsafe extern "C" fn zapi_get_global_str(
 ) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     let Ok(atom) = str_key_atom(ctx, name, name_len) else {
-        return ZQ_API_TABLE.value_exception;
+        return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
     };
     match ctx.global_obj().get_property(ctx, atom) {
         Ok(v) => v.0,
-        Err(_) => ZQ_API_TABLE.value_exception,
+        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
 
@@ -327,7 +347,7 @@ unsafe extern "C" fn zapi_get_global(env: ZqRawCtx, name: ZqRawValue) -> ZqRawVa
     let gobj = ctx.global_obj();
     match gobj.get_property_value(ctx, JSValue(name, std::marker::PhantomData)) {
         Ok(v) => v.0,
-        Err(_) => ZQ_API_TABLE.value_exception,
+        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
 
@@ -349,7 +369,7 @@ unsafe extern "C" fn zapi_call_function(env: ZqRawCtx, info: *mut ZqCallInfoS) -
     match target.call(ctx, this, &args) {
         Ok(v) => v.0,
         // quickjs convention: signal the error with the exception sentinel.
-        Err(_) => ZQ_API_TABLE.value_exception,
+        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
 
@@ -525,14 +545,14 @@ unsafe extern "C" fn zapi_new_instance(
             .map(|(k, _)| *k)
     };
     let Some(cid) = class_id else {
-        return ZQ_API_TABLE.value_exception;
+        return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
     };
     match ctx.ordinary_create_from_constructor_payload(
         JSValue::UNDEFINED,
         PayloadPtr::opaque(cid, payload),
     ) {
         Ok(obj) => JSValue::from(obj).0,
-        Err(_) => ZQ_API_TABLE.value_exception,
+        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
 
@@ -568,7 +588,7 @@ fn zapi_gc_trace_adapter(gcx: &mut gc_lite::GcTraceCtx, reg: *mut c_void) {
     unsafe { (reg.cb)(tc, reg.opaque) };
 }
 
-unsafe extern "C" fn zapi_set_gc_trace_func(
+unsafe extern "C" fn zapi_gc_set_trace_func(
     env: ZqRawCtx,
     cb: Option<ZqGcTraceFn>,
     opaque: *mut c_void,
@@ -610,10 +630,11 @@ unsafe extern "C" fn zapi_take_exception(env: ZqRawCtx) -> ZqRawValue {
     let exc = ctx.take_exception();
     let raw = match exc {
         crate::error::Exception::Error(val) => val.0,
-        _ => ZQ_API_TABLE.value_undefined,
+        _ => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_UNDEFINED],
     };
     debug_assert_ne!(
-        raw, ZQ_API_TABLE.value_exception,
+        raw,
+        ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
         "take_exception must never return the exception sentinel"
     );
     raw
@@ -624,10 +645,11 @@ unsafe extern "C" fn zapi_exception(env: ZqRawCtx) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     let raw = match ctx.rt().exception() {
         crate::error::Exception::Error(val) => val.0,
-        _ => ZQ_API_TABLE.value_undefined,
+        _ => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_UNDEFINED],
     };
     debug_assert_ne!(
-        raw, ZQ_API_TABLE.value_exception,
+        raw,
+        ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
         "exception() must never return the exception sentinel"
     );
     raw
@@ -642,7 +664,7 @@ unsafe extern "C" fn zapi_new_promise(env: ZqRawCtx) -> ZqRawValue {
             ctx.rt_mut().gc_pending_promises.push(p);
             crate::value::JSValue::from(p).0
         }
-        Err(_) => ZQ_API_TABLE.value_exception,
+        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
 
@@ -674,8 +696,8 @@ pub struct ZqWakeHandle {
     wake: crate::runtime::WakeHandle,
 }
 
-/// Create a wake handle bound to the env's runtime event loop (JS thread).
-unsafe extern "C" fn zapi_wake_handle_new(env: ZqRawCtx) -> *mut ZqWakeHandleS {
+/// Create a waker bound to the env's runtime event loop (JS thread).
+unsafe extern "C" fn zapi_new_waker(env: ZqRawCtx) -> *mut ZqWakeHandleS {
     let ctx = unsafe { ctx_from_env(env) };
     let h = Box::new(ZqWakeHandle {
         wake: ctx.rt().wake_handle(),
@@ -684,7 +706,7 @@ unsafe extern "C" fn zapi_wake_handle_new(env: ZqRawCtx) -> *mut ZqWakeHandleS {
 }
 
 /// Wake the parked event loop. Thread-safe; cheap when not parked.
-unsafe extern "C" fn zapi_wake_handle_wake(h: *mut ZqWakeHandleS) {
+unsafe extern "C" fn zapi_waker_wake(h: *mut ZqWakeHandleS) {
     if h.is_null() {
         return;
     }
@@ -692,8 +714,8 @@ unsafe extern "C" fn zapi_wake_handle_wake(h: *mut ZqWakeHandleS) {
     wh.wake.wake();
 }
 
-/// Release a wake handle.
-unsafe extern "C" fn zapi_wake_handle_free(h: *mut ZqWakeHandleS) {
+/// Release a waker.
+unsafe extern "C" fn zapi_waker_free(h: *mut ZqWakeHandleS) {
     if !h.is_null() {
         drop(unsafe { Box::from_raw(h as *mut ZqWakeHandle) });
     }
@@ -761,7 +783,7 @@ unsafe extern "C" fn zapi_new_native_function(
             let js_val: JSValue = f.into();
             js_val.0
         }
-        Err(_) => ZQ_API_TABLE.value_exception,
+        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
 
@@ -839,7 +861,7 @@ unsafe extern "C" fn zapi_new_async_iterator(
             let js_val: JSValue = iter.0.into();
             js_val.0
         }
-        Err(_) => ZQ_API_TABLE.value_exception,
+        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
 
@@ -891,7 +913,7 @@ unsafe extern "C" fn zapi_throw(
     let _ = ctx.throw_error(kind, &msg);
 }
 
-unsafe extern "C" fn zapi_get_value_type(val: ZqRawValue) -> i32 {
+unsafe extern "C" fn zapi_value_get_type(val: ZqRawValue) -> i32 {
     let v = JSValue(val, std::marker::PhantomData);
     match v.tag() {
         JSValueTag::Undefined | JSValueTag::Uninitialized => ZQ_VALUE_TYPE_UNDEFINED,
@@ -931,7 +953,7 @@ unsafe extern "C" fn zapi_value_to_string(env: ZqRawCtx, val: ZqRawValue) -> ZqR
     let ctx = unsafe { ctx_from_env(env) };
     match JSValue(val, std::marker::PhantomData).to_string(ctx) {
         Ok(s) => JSValue::make_string(s).0,
-        Err(_) => ZQ_API_TABLE.value_exception,
+        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
 
@@ -952,9 +974,9 @@ unsafe extern "C" fn zapi_call_constructor(env: ZqRawCtx, info: *mut ZqCallInfoS
     match target.as_object() {
         Some(o) => match o.call_ctor(ctx, &args) {
             Ok(v) => v.0,
-            Err(_) => ZQ_API_TABLE.value_exception,
+            Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
         },
-        None => ZQ_API_TABLE.value_exception,
+        None => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
 
@@ -964,69 +986,91 @@ pub(crate) static ZQ_API_TABLE: LazyLock<Box<ZqApi>> = LazyLock::new(new_zapi);
 /// 构造 host 侧的 `ZqApi` 表，填充全部函数指针，返回堆分配的 Box。
 pub(crate) fn new_zapi() -> Box<ZqApi> {
     Box::new(ZqApi {
-        // host-provided constant value handles
-        value_undefined: crate::JSValue::UNDEFINED.0,
-        value_null: crate::JSValue::NULL.0,
-        value_true: crate::JSValue::TRUE.0,
-        value_false: crate::JSValue::FALSE.0,
-        value_nan: crate::JSValue::NAN.0,
-        value_zero: crate::JSValue::ZERO.0,
-        value_one: crate::JSValue::from(1i32).0,
-        value_negative_one: crate::JSValue::from(-1i32).0,
-        value_infinity: crate::JSValue::from(f64::INFINITY).0,
-        value_minus_infinity: crate::JSValue::from(f64::NEG_INFINITY).0,
-        value_exception: crate::JSValue::EXCEPTION.0,
+        // ── constant value handles ──
+        const_values: {
+            let mut v = [0u64; ZQ_CONST_VALUE_SLOT_COUNT];
+            v[ZQ_CONST_VALUE_SLOT_UNDEFINED] = crate::JSValue::UNDEFINED.0;
+            v[ZQ_CONST_VALUE_SLOT_NULL] = crate::JSValue::NULL.0;
+            v[ZQ_CONST_VALUE_SLOT_TRUE] = crate::JSValue::TRUE.0;
+            v[ZQ_CONST_VALUE_SLOT_FALSE] = crate::JSValue::FALSE.0;
+            v[ZQ_CONST_VALUE_SLOT_NAN] = crate::JSValue::NAN.0;
+            v[ZQ_CONST_VALUE_SLOT_ZERO] = crate::JSValue::ZERO.0;
+            v[ZQ_CONST_VALUE_SLOT_INFINITY] = JSValue::make_float(f64::INFINITY).0;
+            v[ZQ_CONST_VALUE_SLOT_MINUS_INFINITY] = JSValue::make_float(f64::NEG_INFINITY).0;
+            v[ZQ_CONST_VALUE_SLOT_EXCEPTION] = crate::JSValue::EXCEPTION.0;
+            v
+        },
 
+        // ── value constructors ──
         new_number: zapi_new_number,
-        new_string_utf8: zapi_new_string_utf8,
+        new_int32: zapi_new_int32,
+        new_string: zapi_new_string,
         new_symbol: zapi_new_symbol,
-        get_symbol_description: zapi_get_symbol_description,
-        get_string_utf8: zapi_get_string_utf8,
         new_object: zapi_new_object,
         new_array: zapi_new_array,
 
-        set_property: zapi_set_property,
-        get_property: zapi_get_property,
-        has_property: zapi_has_property,
-        delete_property: zapi_delete_property,
-
-        get_length_prop: zapi_get_length_prop,
-
-        array_push: zapi_array_push,
-
-        get_global: zapi_get_global,
-        call_function: zapi_call_function,
-        gc_mark: zapi_gc_mark,
-        register_class: zapi_register_class,
-        new_instance: zapi_new_instance,
-        get_native_ptr: zapi_get_native_ptr,
-        get_value_type: zapi_get_value_type,
+        // ── value query / conversion ──
+        value_get_type: zapi_value_get_type,
         value_to_float64: zapi_value_to_float64,
         value_to_bool: zapi_value_to_bool,
         value_to_string: zapi_value_to_string,
-        call_constructor: zapi_call_constructor,
-        set_gc_trace_func: zapi_set_gc_trace_func,
+        string_get_utf8: zapi_string_get_utf8,
+        symbol_get_description: zapi_symbol_get_description,
 
-        new_promise: zapi_new_promise,
-        promise_resolve: zapi_promise_resolve,
-        promise_reject: zapi_promise_reject,
-        add_polling_job: zapi_add_polling_job,
-        new_native_function: zapi_new_native_function,
-        new_async_iterator: zapi_new_async_iterator,
+        // ── property access (raw key) ──
+        get_property: zapi_get_property,
+        set_property: zapi_set_property,
+        has_property: zapi_has_property,
+        delete_property: zapi_delete_property,
 
-        wake_handle_new: zapi_wake_handle_new,
-        wake_handle_wake: zapi_wake_handle_wake,
-        wake_handle_free: zapi_wake_handle_free,
-
+        // ── property access (UTF-8 key) ──
         get_property_str: zapi_get_property_str,
         set_property_str: zapi_set_property_str,
         has_property_str: zapi_has_property_str,
         delete_property_str: zapi_delete_property_str,
+
+        // ── array ──
+        get_length_prop: zapi_get_length_prop,
+        array_push: zapi_array_push,
+
+        // ── function call ──
+        call_function: zapi_call_function,
+        call_constructor: zapi_call_constructor,
+
+        // ── global object ──
+        get_global: zapi_get_global,
         get_global_str: zapi_get_global_str,
 
+        // ── native object / class ──
+        register_class: zapi_register_class,
+        new_instance: zapi_new_instance,
+        get_native_ptr: zapi_get_native_ptr,
+        new_native_function: zapi_new_native_function,
+
+        // ── promise ──
+        new_promise: zapi_new_promise,
+        promise_resolve: zapi_promise_resolve,
+        promise_reject: zapi_promise_reject,
+
+        // ── async iterator ──
+        new_async_iterator: zapi_new_async_iterator,
+
+        // ── job queue ──
+        add_polling_job: zapi_add_polling_job,
+
+        // ── GC ──
+        gc_mark: zapi_gc_mark,
+        gc_set_trace_func: zapi_gc_set_trace_func,
+
+        // ── exception ──
         throw: zapi_throw,
         take_exception: zapi_take_exception,
         exception: zapi_exception,
+
+        // ── event-loop wake ──
+        new_waker: zapi_new_waker,
+        waker_wake: zapi_waker_wake,
+        waker_free: zapi_waker_free,
     })
 }
 
@@ -1061,7 +1105,7 @@ mod tests {
             // A: old get_str — allocate a JS string key each call, then get.
             let t = Instant::now();
             for _ in 0..N {
-                let key = unsafe { zapi_new_string_utf8(env, KEY.as_ptr(), KEY.len()) };
+                let key = unsafe { zapi_new_string(env, KEY.as_ptr(), KEY.len()) };
                 unsafe { std::hint::black_box(zapi_get_property(env, obj_raw, key)) };
             }
             let a = t.elapsed();
