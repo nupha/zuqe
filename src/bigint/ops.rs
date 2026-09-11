@@ -10,7 +10,7 @@
 
 use std::cmp::Ordering;
 
-use crate::context::ScopedContext;
+use crate::{config::KARATSUBA_THRESHOLD, context::ScopedContext};
 
 use super::{BigIntImpl, BigIntRef};
 
@@ -20,8 +20,7 @@ pub(crate) const MAX_BIGINT_BITS: u64 = 1 << 28;
 
 /// Operands of at least this many limbs (and not too unbalanced) switch from
 /// the schoolbook O(n²) multiplication to Karatsuba O(n^1.585).
-const KARATSUBA_THRESHOLD: usize = 32;
-
+///
 /// `true` when Karatsuba is likely to beat schoolbook: both operands are at
 /// least [`KARATSUBA_THRESHOLD`] limbs and their lengths are within a factor
 /// of four. A very unbalanced pair (e.g. `1000 × 32`) is cheaper as schoolbook

@@ -39,15 +39,13 @@ pub(crate) struct ShapeRegistry {
 }
 
 impl ShapeRegistry {
-    const INITIAL_BITS: u8 = 6; // 64 buckets
-
     pub(crate) fn new() -> Self {
-        let size = 1usize << Self::INITIAL_BITS;
+        let size = 1usize << crate::config::SHAPE_BUCKET_BITS;
         let mut buckets = Vec::with_capacity(size);
         buckets.resize_with(size, || None);
         Self {
             buckets,
-            bucket_bits: Self::INITIAL_BITS,
+            bucket_bits: crate::config::SHAPE_BUCKET_BITS,
             mask: size - 1,
             count: 0,
         }

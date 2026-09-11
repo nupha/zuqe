@@ -13,6 +13,7 @@ mod atom;
 mod bigint;
 mod bytecode;
 mod class;
+mod config;
 mod context;
 mod error;
 mod eval;

@@ -4,13 +4,10 @@
 use std::process::ExitCode;
 
 use crate::{
+    config::JS_INTERRUPT_COUNTER_INIT,
     context::ScopedContext,
     runtime::{InterruptFn, RuntimeImpl},
 };
-
-// must be large enough to have a negligible runtime cost and small
-// enough to call the interrupt callback often.
-const JS_INTERRUPT_COUNTER_INIT: i32 = 10000;
 
 impl RuntimeImpl {
     pub fn set_interrupt_handler<F: InterruptFn + 'static>(&mut self, f: F) {

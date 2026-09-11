@@ -3,14 +3,12 @@
 
 use crate::{
     bytecode::{OP_COUNT_FINAL, OpCode, OpcodeFormat, opcode_info_final, opcodes},
+    config::STACK_LEN_MAX,
     context::ScopedContext,
     utils::read_from_ptr,
 };
 
 use super::FunctionDef;
-
-/// stack array length max
-const STACK_LEN_MAX: u16 = 65534;
 
 /// compute the maximum stack size needed by the function
 struct StackSizeState {

@@ -96,10 +96,22 @@ impl RuntimeImpl {
     pub(crate) fn gc_alloc_root<T: GcNode>(&mut self, data: T) -> Result<GcRef<T>, (GcError, T)> {
         let par = self.gc_part_id();
         let r = unsafe { self.gc_heap_mut().alloc_root_raw(par, data) };
-        if self.gc_heap().should_gc() {
-            self.gc_req = true;
-        }
+        self.gc_bump_alloc_check();
         r
+    }
+
+    /// Batched should_gc() check after a GC-node allocation. All allocation
+    /// entry points must route through this so the check stays unified.
+    #[inline(always)]
+    pub(crate) fn gc_bump_alloc_check(&mut self) {
+        self.gc_alloc_count += 1;
+
+        if self.gc_alloc_count >= self.gc_alloc_check_interval {
+            self.gc_alloc_count = 0;
+            if self.gc_heap.should_gc() {
+                self.gc_req = true;
+            }
+        }
     }
 
     /// collect garbage

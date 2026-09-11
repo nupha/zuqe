@@ -14,6 +14,10 @@ use crate::{
         array_buffer::JSSharedArrayBufferFunctions, promise::JSHostPromiseRejectionTracker,
     },
     class::{ClassDef, ClassID},
+    config::{
+        GC_ALLOC_CHECK_INTERVAL, GC_ARENA_CAP, GC_ARENA_MAX_ALLOC, STACK_ARENA_CAP,
+        STACK_OVERFLOW_LIMIT,
+    },
     context::ContextPtr,
     error::Exception,
     gc::gc::{GC_TYPE_REGISTRY, GcTraceCallbackFn},
@@ -49,20 +53,6 @@ fn default_sab_funcs() -> JSSharedArrayBufferFunctions {
         sab_opaque: std::ptr::null_mut(),
     }
 }
-
-/// recursive C stack overflow size (in bytes)
-#[cfg(debug_assertions)]
-const STACK_OVERFLOW_LIMIT: usize = 512 * 1024;
-#[cfg(not(debug_assertions))]
-const STACK_OVERFLOW_LIMIT: usize = 256 * 1024;
-
-/// VM stack arena capacity (in bytes)
-const STACK_ARENA_CAP: usize = 256 * 1024;
-
-const GC_ARENA_CAP: usize = 64 * 1024;
-const GC_AERNA_THRESHOULD: usize = 16 * 1024;
-/// number of allocations between should_gc() checks.
-const GC_ALLOC_CHECK_INTERVAL: u32 = 32;
 
 /// interrupt returns true to break execution
 pub trait InterruptFn: Fn(&RuntimeImpl) -> bool {}
@@ -250,7 +240,7 @@ impl RuntimeImpl {
         gc_heap.set_memory_limit(0); // no memory limit
         gc_heap.set_gc_threshold(8); // small threshould to trigger gc ASAP
 
-        let gc_part_id = gc_heap.create_partition(GC_ARENA_CAP, GC_AERNA_THRESHOULD);
+        let gc_part_id = gc_heap.create_partition(GC_ARENA_CAP, GC_ARENA_MAX_ALLOC);
 
         // `STACK_ARENA_CAP` is expressed in bytes, calc (bytes / sizeof(JSValue)) for slots capacity
         let arena_cap = STACK_ARENA_CAP / std::mem::size_of::<JSValue>();

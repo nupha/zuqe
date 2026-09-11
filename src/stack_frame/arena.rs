@@ -7,6 +7,7 @@ use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     Object,
+    config::STACK_LIMIT_DEFAULT,
     context::ScopedContext,
     function::VarRef,
     stack_frame::{AsyncStackFrame, ExecMode, FrameBuffer, FrameIndex, FrameState, StackFrame},
@@ -71,10 +72,6 @@ pub(crate) enum FrameAllocError {
 }
 
 impl StackFrameArena {
-    /// Default maximum total live virtual stack size in bytes (bump + heap).
-    const STACK_LIMIT_DEFAULT: usize = 512 * 1024;
-    const HEAP_BUF_CACHE_MAX: usize = 8;
-
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             frames: Vec::with_capacity(256),
@@ -83,7 +80,7 @@ impl StackFrameArena {
             suspended_count: 0,
             heap_buf_cache: Vec::new(),
             live_heap_bytes: 0,
-            max_stack_bytes: Self::STACK_LIMIT_DEFAULT,
+            max_stack_bytes: STACK_LIMIT_DEFAULT,
             var_ref_map: HashMap::new(),
 
             #[cfg(debug_assertions)]
@@ -218,7 +215,7 @@ impl StackFrameArena {
                     self.live_heap_bytes = self.live_heap_bytes.saturating_sub(heap_buf.len());
                     let remaining = self.data.len() - self.data_used;
                     if heap_buf.len() > remaining
-                        && self.heap_buf_cache.len() < Self::HEAP_BUF_CACHE_MAX
+                        && self.heap_buf_cache.len() < crate::config::HEAP_BUF_CACHE_MAX
                     {
                         self.heap_buf_cache.push(heap_buf);
                     }
@@ -241,7 +238,7 @@ impl StackFrameArena {
                 self.live_heap_bytes = self.live_heap_bytes.saturating_sub(heap_buf.len());
                 let remaining = self.data.len() - self.data_used;
                 if heap_buf.len() > remaining
-                    && self.heap_buf_cache.len() < Self::HEAP_BUF_CACHE_MAX
+                    && self.heap_buf_cache.len() < crate::config::HEAP_BUF_CACHE_MAX
                 {
                     self.heap_buf_cache.push(heap_buf);
                 }

@@ -11,8 +11,8 @@ use crate::{
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
     JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, RuntimeImpl,
-    atom::Atom, class::ClassID, context::ScopedContext, error::JSResult, gcref_wrapper,
-    runtime::RuntimePtr, utils::unlikely, value::JSValue,
+    atom::Atom, class::ClassID, config::JS_PROP_INITIAL_SIZE, context::ScopedContext,
+    error::JSResult, gcref_wrapper, runtime::RuntimePtr, utils::unlikely, value::JSValue,
 };
 
 use super::{
@@ -835,8 +835,6 @@ impl JSValue {
             .map_or(Ok(true), |mut o| o.is_sealed(ctx, is_frozen))
     }
 }
-
-const JS_PROP_INITIAL_SIZE: u32 = 2;
 
 /// Note: all the fields are already sealed except length
 pub(crate) fn seal_template_obj(ctx: &mut ScopedContext, obj: JSValue) -> i32 {
