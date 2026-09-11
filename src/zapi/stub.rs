@@ -414,6 +414,65 @@ unsafe extern "C" fn zapi_call_function(env: ZqRawCtx, info: *mut ZqCallInfoS) -
     }
 }
 
+/// Build a `JSValue` vec from a raw `argv`/`argc` slice and call `f` with
+/// `this`. Returns the result or the exception sentinel.
+unsafe fn invoke_with_argv(
+    ctx: &mut ScopedContext,
+    f: JSValue,
+    this: JSValue,
+    argv: *mut ZqRawValue,
+    argc: usize,
+) -> ZqRawValue {
+    let args: Vec<JSValue> = if argc > 0 {
+        unsafe { std::slice::from_raw_parts(argv as *const ZqRawValue, argc) }
+            .iter()
+            .map(|&r| JSValue(r, std::marker::PhantomData))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    match f.call(ctx, this, &args) {
+        Ok(v) => v.0,
+        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
+    }
+}
+
+unsafe extern "C" fn zapi_invoke(
+    env: ZqRawCtx,
+    target: ZqRawValue,
+    method: ZqRawValue,
+    argv: *mut ZqRawValue,
+    argc: usize,
+) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let target = JSValue(target, std::marker::PhantomData);
+    let method = JSValue(method, std::marker::PhantomData);
+    let Ok(f) = target.get_property_value(ctx, method) else {
+        return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
+    };
+    unsafe { invoke_with_argv(ctx, f, target, argv, argc) }
+}
+
+unsafe extern "C" fn zapi_invoke_str(
+    env: ZqRawCtx,
+    target: ZqRawValue,
+    method: *const u8,
+    method_len: usize,
+    argv: *mut ZqRawValue,
+    argc: usize,
+) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Ok(atom) = str_key_atom(ctx, method, method_len) else {
+        return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
+    };
+    let target = JSValue(target, std::marker::PhantomData);
+    let Ok(f) = target.get_property(ctx, atom) else {
+        return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
+    };
+    unsafe { invoke_with_argv(ctx, f, target, argv, argc) }
+}
+
 fn zapi_gc_trace_bridge(
     payload_opaque: *mut c_void,
     gcx: &mut gc_lite::GcTraceCtx,
@@ -1090,6 +1149,8 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         // ── function call ──
         call_function: zapi_call_function,
         call_constructor: zapi_call_constructor,
+        invoke: zapi_invoke,
+        invoke_str: zapi_invoke_str,
 
         // ── global object ──
         get_global: zapi_get_global,
