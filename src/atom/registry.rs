@@ -11,7 +11,6 @@ use crate::{
     Exception, RuntimeImpl, ScopedContext,
     atom::{is_const_atom, is_small_int_atom},
     number::parse_u32,
-    runtime::RuntimePtr,
     string::{JS_STRING_LEN_MAX, StringData, StringImpl, StringRef},
     utils::{hash_u32_from_base, unlikely},
 };
@@ -224,14 +223,10 @@ impl RuntimeImpl {
             .hash_lut
             .reserve(ATOM_CONST_COUNT as usize + 64);
 
-        let mut rt_ptr = unsafe { RuntimePtr::from_raw(self) };
-        let lst = &mut self.atom_registry.const_atoms;
-        let lut = &mut self.atom_registry.hash_lut;
-
         let mut text = ATOM_CONST_CAPTIONS.as_ptr();
 
         for idx in 0..ATOM_CONST_COUNT {
-            debug_assert_eq!(idx, lst.len() as u32);
+            debug_assert_eq!(idx, self.atom_registry.const_atoms.len() as u32);
 
             let atom_id = idx + 1;
 
@@ -261,23 +256,21 @@ impl RuntimeImpl {
                 }
             };
 
-            let str = {
-                let ss = StringImpl::new(
+            // const atom string should be root gc node.
+            let s = StringRef::from(
+                self.gc_alloc_root(StringImpl::new(
                     StringData::from_static(str),
                     Some(AtomInfo::new(
                         unsafe { NonZeroU32::new_unchecked(atom_id) },
                         atom_kind,
                         hash,
                     )),
-                );
+                ))
+                .unwrap(),
+            );
+            self.atom_registry.const_atoms.push(s);
 
-                // const atom string is root gc node.
-                let s = rt_ptr.gc_alloc_root(ss).unwrap();
-                StringRef::from(s)
-            };
-            lst.push(str);
-
-            match lut.entry(hash) {
+            match self.atom_registry.hash_lut.entry(hash) {
                 Entry::Vacant(kv) => {
                     kv.insert(vec![atom_id]);
                 }
@@ -389,7 +382,7 @@ impl Atom {
         {
             Ok(Self::new_small_int(i))
         } else {
-            let s = StringRef::create_root(rt.into(), StringData::from_str(str)?, None)?;
+            let s = StringRef::create_root(rt, StringData::from_str(str)?, None)?;
             let atom = Self::root_content(rt, s, AtomKind::String)?;
             // register_atom may return an existing atom that was originally created
             // via from_str/from_string (scope-local, non-root descriptor). Ensure
