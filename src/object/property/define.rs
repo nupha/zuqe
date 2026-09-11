@@ -284,7 +284,7 @@ impl ObjectImpl {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::from_i64(ctx, idx)?;
+        let atom = Atom::new_i64(ctx, idx)?;
         self.define_property_value(ctx, atom, val, flags)
     }
 
@@ -494,7 +494,7 @@ impl JSValue {
         val: JSValue,
         flags: u32,
     ) -> Result<bool, i32> {
-        let atom = Atom::from_i64(ctx, idx)?;
+        let atom = Atom::new_i64(ctx, idx)?;
         self.define_property_value(ctx, atom, val, flags)
     }
 

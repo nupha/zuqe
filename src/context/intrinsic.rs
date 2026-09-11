@@ -155,7 +155,7 @@ impl<'c> ScopedContext<'c> {
 
         // standard error constructors
         for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
-            let atom = Atom::from_static(self, name).unwrap();
+            let atom = Atom::intern_static(self, name).unwrap();
             let func_obj = NativeFunction::create(
                 self,
                 Callback::ConstructorOrFunc(js_error_constructor),

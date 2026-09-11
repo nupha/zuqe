@@ -422,7 +422,7 @@ impl<'c> ScopedContext<'c> {
         length: u8,
         magic: i16,
     ) -> Result<NativeFunction, i32> {
-        let atom = Atom::from_str(self, name)?;
+        let atom = Atom::intern_str(self, name)?;
         NativeFunction::create(
             self,
             callback,
@@ -445,7 +445,7 @@ impl<'c> ScopedContext<'c> {
         magic: i16,
         binding_data: Box<[JSValue]>,
     ) -> Result<NativeFunction, i32> {
-        let atom = Atom::from_str(self, name)?;
+        let atom = Atom::intern_str(self, name)?;
         NativeFunction::create(
             self,
             callback,

@@ -15,8 +15,8 @@ use crate::{
     number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
-        JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, Object, ObjectImpl, PayloadPtr,
-        PropertyKeyKind,
+        JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, Object, ObjectImpl,
+        PayloadPtr, PropertyKeyKind,
     },
     string::StringData,
     utils::unlikely,
@@ -185,7 +185,7 @@ impl Array {
                 if d <= propdef_len {
                     // faster to iterate
                     while cur_len > length {
-                        let atom = Atom::from_i64(ctx, cur_len as i64 - 1)?;
+                        let atom = Atom::new_i64(ctx, cur_len as i64 - 1)?;
                         let ret = self.delete_property_internal(ctx, atom, false);
                         if let Ok(false) = ret {
                             break; // property is not configurable

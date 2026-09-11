@@ -36,7 +36,7 @@ impl<'s> JSParseState<'s> {
             TokenKind::STRING => {
                 let t = self.token.data.string().unwrap().to_utf8().to_string();
                 let s = StringRef::from_utf8_bytes(self.ctx(), t.into())?;
-                Atom::from_string(self.ctx(), s, AtomKind::String)
+                Atom::intern_content(self.ctx(), s, AtomKind::String)
             }
             t if t.is_keyword() => Ok(t.keyword_atom().unwrap()),
             _ => Err(self.throw_syntax_error("identifier or string expected")),

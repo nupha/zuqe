@@ -580,7 +580,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
             // are never byte-built, only bound by name at load time).
             ValueType::NativeRef => {
                 let name = self.read_string()?;
-                let atom = Atom::from_str(self.ctx, &name)
+                let atom = Atom::intern_str(self.ctx, &name)
                     .map_err(|_| BytecodeSerializeError::AtomNotFound(name.clone()))?;
                 let gobj = self.ctx.global_obj();
                 match gobj.get_property_internal(self.ctx, atom, JSValue::from(gobj), false) {
@@ -613,7 +613,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
             .ctx
             .create_string_from_utf8(bytes.clone().into_bytes())
             .map_err(|_| BytecodeSerializeError::Encode("failed to build symbol".into()))?;
-        let atom = Atom::from_string_as_is(self.ctx, sref, kind)
+        let atom = Atom::from_content_as_is(self.ctx, sref, kind)
             .map_err(|_| BytecodeSerializeError::AtomNotFound(bytes))?;
         let sym = self
             .ctx

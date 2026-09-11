@@ -134,7 +134,7 @@ impl ObjectImpl {
             // fast path for fast array
             self.delete_property(ctx, Atom::new_small_int(idx as u32), flags)
         } else {
-            let atom = Atom::from_i64(ctx, idx)?;
+            let atom = Atom::new_i64(ctx, idx)?;
             self.delete_property(ctx, atom, flags)
         }
     }

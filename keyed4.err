@@ -1,0 +1,1407 @@
+   Compiling zuqe v0.8.0 (/Users/johnray/devel/zhuque)
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> /Users/johnray/devel/zhuque/target/debug/build/zuqe-371ad314548ddb53/out/opcodes.rs:2255:7
+     |
+2255 | #[cfg(feature = "short_opcode")]
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+     = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> /Users/johnray/devel/zhuque/target/debug/build/zuqe-371ad314548ddb53/out/opcodes.rs:2259:7
+     |
+2259 | #[cfg(feature = "short_opcode")]
+     |       ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> /Users/johnray/devel/zhuque/target/debug/build/zuqe-371ad314548ddb53/out/opcodes.rs:2262:11
+     |
+2262 | #[cfg(not(feature = "short_opcode"))]
+     |           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3006:27
+     |
+3006 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3010:27
+     |
+3010 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3014:27
+     |
+3014 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3018:27
+     |
+3018 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3022:27
+     |
+3022 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3026:27
+     |
+3026 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3030:27
+     |
+3030 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3034:27
+     |
+3034 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3038:27
+     |
+3038 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3042:27
+     |
+3042 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3054:27
+     |
+3054 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3058:27
+     |
+3058 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3062:27
+     |
+3062 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3066:27
+     |
+3066 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+    --> src/bytecode/exec_stackless.rs:3070:27
+     |
+3070 |                     #[cfg(feature = "short_opcode")]
+     |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+     = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+     = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+  --> src/bytecode/mod.rs:26:15
+   |
+26 |     #[cfg(not(feature = "short_opcode"))]
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+   = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+  --> src/bytecode/mod.rs:31:11
+   |
+31 |     #[cfg(feature = "short_opcode")]
+   |           ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+   = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/emit.rs:413:19
+    |
+413 |             #[cfg(feature = "short_opcode")]
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/emit.rs:442:11
+    |
+442 |     #[cfg(feature = "short_opcode")]
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/emit.rs:517:11
+    |
+517 |     #[cfg(feature = "short_opcode")]
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/func_def.rs:464:7
+    |
+464 | #[cfg(feature = "short_opcode")]
+    |       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/func_def.rs:152:11
+    |
+152 |     #[cfg(feature = "short_opcode")]
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/func_def.rs:154:11
+    |
+154 |     #[cfg(feature = "short_opcode")]
+    |           ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/func_def.rs:275:19
+    |
+275 |             #[cfg(feature = "short_opcode")]
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/func_def.rs:277:19
+    |
+277 |             #[cfg(feature = "short_opcode")]
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/func_def.rs:643:15
+    |
+643 |         #[cfg(feature = "short_opcode")]
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/optimize.rs:234:23
+    |
+234 |                 #[cfg(feature = "short_opcode")]
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/optimize.rs:244:27
+    |
+244 |                 #[cfg(not(feature = "short_opcode"))]
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+  --> src/function/resolve_labels.rs:48:15
+   |
+48 |         #[cfg(feature = "short_opcode")]
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+   = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_labels.rs:877:15
+    |
+877 |         #[cfg(feature = "short_opcode")]
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_labels.rs:421:23
+    |
+421 |                 #[cfg(feature = "short_opcode")]
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_labels.rs:435:23
+    |
+435 |                 #[cfg(feature = "short_opcode")]
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_labels.rs:650:23
+    |
+650 |                 #[cfg(feature = "short_opcode")]
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_labels.rs:687:23
+    |
+687 |                 #[cfg(feature = "short_opcode")]
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_labels.rs:278:27
+    |
+278 |                     #[cfg(feature = "short_opcode")]
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_labels.rs:323:27
+    |
+323 |                     #[cfg(feature = "short_opcode")]
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_labels.rs:464:35
+    |
+464 | ...                   #[cfg(feature = "short_opcode")]
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_labels.rs:559:31
+    |
+559 |                         #[cfg(feature = "short_opcode")]
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_labels.rs:751:31
+    |
+751 |                         #[cfg(feature = "short_opcode")]
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_scoped_vars.rs:836:15
+    |
+836 |         #[cfg(feature = "short_opcode")]
+    |               ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_vars.rs:170:27
+    |
+170 |                     #[cfg(feature = "short_opcode")]
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_vars.rs:231:27
+    |
+231 |                     #[cfg(feature = "short_opcode")]
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_vars.rs:339:27
+    |
+339 |                     #[cfg(feature = "short_opcode")]
+    |                           ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/resolve_vars.rs:378:35
+    |
+378 | ...                   #[cfg(feature = "short_opcode")]
+    |                             ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/stack.rs:131:23
+    |
+131 |                 #[cfg(feature = "short_opcode")]
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/stack.rs:171:23
+    |
+171 |                 #[cfg(feature = "short_opcode")]
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/stack.rs:176:23
+    |
+176 |                 #[cfg(feature = "short_opcode")]
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `short_opcode`
+   --> src/function/stack.rs:181:23
+    |
+181 |                 #[cfg(feature = "short_opcode")]
+    |                       ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `all_unicode`, `async_support`, `builtin_date`, `builtin_json`, `builtin_mapset`, `builtin_math`, `builtin_proxy`, `builtin_reflect`, `builtin_regexp`, `builtin_symbol`, `builtin_weakref`, `crossbeam`, `crossbeam_channel`, `debug_gc`, `default`, `dump_bytecode`, `gc_protect_transient`, `inline_cache`, `libc`, `lre`, `nan_boxing`, `serde_json`, `serde_json_support`, `unicode-id-start`, and `unicode-normalization`
+    = help: consider adding `short_opcode` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unused import: `string::StringRef`
+  --> src/object/property/name.rs:14:5
+   |
+14 |     string::StringRef,
+   |     ^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `primitives::*`
+ --> src/value/mod.rs:9:16
+  |
+9 | pub(crate) use primitives::*;
+  |                ^^^^^^^^^^^^^
+
+warning: use of deprecated struct `string::sbuf::StringBufSlice`: not used
+   --> src/string/sbuf.rs:731:34
+    |
+731 | impl<'a> From<&'a StringBuf> for StringBufSlice<'a> {
+    |                                  ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated struct `string::sbuf::StringBufSlice`: not used
+   --> src/string/sbuf.rs:737:26
+    |
+737 | impl std::fmt::Debug for StringBufSlice<'_> {
+    |                          ^^^^^^^^^^^^^^
+
+warning: use of deprecated struct `string::sbuf::StringBufSlice`: not used
+   --> src/string/sbuf.rs:759:6
+    |
+759 | impl StringBufSlice<'_> {
+    |      ^^^^^^^^^^^^^^
+
+warning: use of deprecated struct `string::sbuf::StringBufSlice`: not used
+   --> src/string/sbuf.rs:173:47
+    |
+173 |     pub fn push_buf_slice(&mut self, source: &StringBufSlice) -> Result<(), TryReserveError> {
+    |                                               ^^^^^^^^^^^^^^
+
+warning: use of deprecated struct `string::sbuf::StringBufSlice`: not used
+   --> src/string/sbuf.rs:690:56
+    |
+690 |     pub(super) fn slice(&self, range: Range<usize>) -> StringBufSlice<'_> {
+    |                                                        ^^^^^^^^^^^^^^
+
+warning: use of deprecated struct `string::sbuf::StringBufSlice`: not used
+   --> src/string/sbuf.rs:693:13
+    |
+693 |             StringBufSlice {
+    |             ^^^^^^^^^^^^^^
+
+warning: use of deprecated struct `string::sbuf::StringBufSlice`: not used
+   --> src/string/sbuf.rs:699:13
+    |
+699 |             StringBufSlice {
+    |             ^^^^^^^^^^^^^^
+
+warning: use of deprecated struct `string::sbuf::StringBufSlice`: not used
+   --> src/string/sbuf.rs:706:44
+    |
+706 |     pub(super) const fn as_slice(&self) -> StringBufSlice<'_> {
+    |                                            ^^^^^^^^^^^^^^
+
+warning: use of deprecated struct `string::sbuf::StringBufSlice`: not used
+   --> src/string/sbuf.rs:707:9
+    |
+707 |         StringBufSlice {
+    |         ^^^^^^^^^^^^^^
+
+warning: use of deprecated struct `string::sbuf::StringBufSlice`: not used
+   --> src/string/sbuf.rs:805:49
+    |
+805 |     pub fn slice(&self, range: Range<usize>) -> StringBufSlice<'_> {
+    |                                                 ^^^^^^^^^^^^^^
+
+warning: use of deprecated struct `string::sbuf::StringBufSlice`: not used
+   --> src/string/sbuf.rs:809:13
+    |
+809 |             StringBufSlice {
+    |             ^^^^^^^^^^^^^^
+
+warning: use of deprecated struct `string::sbuf::StringBufSlice`: not used
+   --> src/string/sbuf.rs:816:13
+    |
+816 |             StringBufSlice {
+    |             ^^^^^^^^^^^^^^
+
+warning: use of deprecated field `function::a_state::AsyncStateImpl::throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/function/a_state.rs:160:13
+    |
+160 |             throw_flag: false,
+    |             ^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `function::a_state::AsyncStateImpl::throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/function/a_state.rs:207:9
+    |
+207 |         self.throw_flag = is_reject;
+    |         ^^^^^^^^^^^^^^^
+
+warning: use of deprecated method `function::a_state::AsyncStateImpl::set_throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/function/afun.rs:124:21
+    |
+124 |             a_state.set_throw_flag(true);
+    |                     ^^^^^^^^^^^^^^
+
+warning: use of deprecated method `function::a_state::AsyncStateImpl::set_throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/function/afun.rs:132:21
+    |
+132 |             a_state.set_throw_flag(false);
+    |                     ^^^^^^^^^^^^^^
+
+warning: use of deprecated field `runtime::rt::RuntimeImpl::host_promise_rejection_tracker_opaque`
+   --> src/runtime/rt.rs:187:13
+    |
+187 |             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `runtime::rt::RuntimeImpl::host_promise_rejection_tracker`
+   --> src/runtime/rt.rs:188:13
+    |
+188 |             host_promise_rejection_tracker: None,
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::src`: not used
+   --> src/string/sbuf.rs:181:54
+    |
+181 |         let new_content: Self = match (orig_content, source.src) {
+    |                                                      ^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:191:57
+    |
+191 |                     s1.extend_from_slice(&s2.as_slice()[source.buf_ranges.clone()]);
+    |                                                         ^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:200:57
+    |
+200 |                     s1.extend_from_slice(&s2.as_slice()[source.buf_ranges.clone()]);
+    |                                                         ^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:211:66
+    |
+211 |                     std::str::from_utf8_unchecked(&s2.as_slice()[source.buf_ranges.clone()])
+    |                                                                  ^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:229:39
+    |
+229 |                 let b = s2.as_slice()[source.buf_ranges.clone()].iter().copied();
+    |                                       ^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::src`: not used
+   --> src/string/sbuf.rs:694:17
+    |
+694 |                 src: &EMPTY,
+    |                 ^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:695:17
+    |
+695 |                 buf_ranges: 0..0,
+    |                 ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::src`: not used
+   --> src/string/sbuf.rs:700:17
+    |
+700 |                 src: self,
+    |                 ^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:701:17
+    |
+701 |                 buf_ranges: range.start..end,
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::src`: not used
+   --> src/string/sbuf.rs:708:13
+    |
+708 |             src: self,
+    |             ^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:709:13
+    |
+709 |             buf_ranges: 0..self.len(),
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::src`: not used
+   --> src/string/sbuf.rs:739:15
+    |
+739 |         match self.src {
+    |               ^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:745:24
+    |
+745 |                     &s[self.buf_ranges.clone()]
+    |                        ^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:752:24
+    |
+752 |                     &s[self.buf_ranges.clone()]
+    |                        ^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::src`: not used
+   --> src/string/sbuf.rs:762:9
+    |
+762 |         self.src.is_wide()
+    |         ^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:767:9
+    |
+767 |         self.buf_ranges.len()
+    |         ^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::src`: not used
+   --> src/string/sbuf.rs:780:19
+    |
+780 |             match self.src {
+    |                   ^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:783:54
+    |
+783 |                     std::str::from_utf8_unchecked(&s[self.buf_ranges.clone()])
+    |                                                      ^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:786:60
+    |
+786 |                     Cow::Owned(String::from_utf16_lossy(&s[self.buf_ranges.clone()]))
+    |                                                            ^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::src`: not used
+   --> src/string/sbuf.rs:796:19
+    |
+796 |             match self.src {
+    |                   ^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::src`: not used
+   --> src/string/sbuf.rs:810:17
+    |
+810 |                 src: &EMPTY,
+    |                 ^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:811:17
+    |
+811 |                 buf_ranges: 0..0,
+    |                 ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:815:24
+    |
+815 |             let base = self.buf_ranges.start;
+    |                        ^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::src`: not used
+   --> src/string/sbuf.rs:817:17
+    |
+817 |                 src: self.src,
+    |                 ^^^^^^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::src`: not used
+   --> src/string/sbuf.rs:817:22
+    |
+817 |                 src: self.src,
+    |                      ^^^^^^^^
+
+warning: use of deprecated field `string::sbuf::StringBufSlice::buf_ranges`: not used
+   --> src/string/sbuf.rs:818:17
+    |
+818 |                 buf_ranges: base + range.start..base + end,
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated method `function::a_state::AsyncStateImpl::set_throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/builtins/generator/a_gen.rs:113:42
+    |
+113 |                         self.async_state.set_throw_flag(false);
+    |                                          ^^^^^^^^^^^^^^
+
+warning: use of deprecated method `function::a_state::AsyncStateImpl::set_throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/builtins/generator/a_gen.rs:144:42
+    |
+144 |                         self.async_state.set_throw_flag(true);
+    |                                          ^^^^^^^^^^^^^^
+
+warning: use of deprecated method `function::a_state::AsyncStateImpl::set_throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/builtins/generator/a_gen.rs:148:42
+    |
+148 |                         self.async_state.set_throw_flag(false);
+    |                                          ^^^^^^^^^^^^^^
+
+warning: use of deprecated method `function::a_state::AsyncStateImpl::set_throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/builtins/generator/a_gen.rs:227:54
+    |
+227 | ...                   self.async_state.set_throw_flag(true);
+    |                                        ^^^^^^^^^^^^^^
+
+warning: use of deprecated method `function::a_state::AsyncStateImpl::set_throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/builtins/generator/a_gen.rs:546:31
+    |
+546 |                 s.async_state.set_throw_flag(true);
+    |                               ^^^^^^^^^^^^^^
+
+warning: use of deprecated method `function::a_state::AsyncStateImpl::set_throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/builtins/generator/a_gen.rs:548:31
+    |
+548 |                 s.async_state.set_throw_flag(false);
+    |                               ^^^^^^^^^^^^^^
+
+warning: use of deprecated method `function::a_state::AsyncStateImpl::set_throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/builtins/generator/gen.rs:193:35
+    |
+193 |                     g.async_state.set_throw_flag(false);
+    |                                   ^^^^^^^^^^^^^^
+
+warning: use of deprecated method `function::a_state::AsyncStateImpl::set_throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/builtins/generator/gen.rs:208:35
+    |
+208 |                     g.async_state.set_throw_flag(true);
+    |                                   ^^^^^^^^^^^^^^
+
+warning: use of deprecated method `function::a_state::AsyncStateImpl::set_throw_flag`: this method is useless, you may detect exception by checking runtime current exception != Exception::No
+   --> src/builtins/generator/gen.rs:233:35
+    |
+233 |                     g.async_state.set_throw_flag(false);
+    |                                   ^^^^^^^^^^^^^^
+
+error[E0599]: no method named `value_type` found for struct `JSValue` in the current scope
+   --> src/builtins/promise/class_promise.rs:344:57
+    |
+344 |     eprintln!("[DBG] allKeyed entered, this={:?}", this.value_type());
+    |                                                         ^^^^^^^^^^ method not found in `JSValue`
+    |
+   ::: src/value/nb_value.rs:33:1
+    |
+ 33 | pub struct JSValue(pub(crate) u64);
+    | ------------------ method `value_type` not found for this struct
+
+warning: use of deprecated field `builtins::promise::promise::PromisePayload::is_handled`
+   --> src/builtins/promise/promise.rs:101:9
+    |
+101 |         self.is_handled
+    |         ^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `builtins::promise::promise::PromisePayload::is_handled`
+   --> src/builtins/promise/promise.rs:106:9
+    |
+106 |         self.is_handled = v;
+    |         ^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `builtins::promise::promise::PromisePayload::is_handled`
+   --> src/builtins/promise/promise.rs:224:13
+    |
+224 |             is_handled: false,
+    |             ^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `builtins::promise::promise::PromisePayload::is_handled`
+   --> src/builtins/promise/promise.rs:311:13
+    |
+311 |             is_handled: false,
+    |             ^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated method `builtins::promise::promise::PromisePayload::is_handled`
+   --> src/builtins/promise/settle.rs:195:39
+    |
+195 |             (s.state(), s.result(), s.is_handled())
+    |                                       ^^^^^^^^^^
+
+warning: use of deprecated field `runtime::rt::RuntimeImpl::host_promise_rejection_tracker`
+   --> src/builtins/promise/settle.rs:220:39
+    |
+220 |                     && let Some(cb) = ctx.rt().host_promise_rejection_tracker
+    |                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `runtime::rt::RuntimeImpl::host_promise_rejection_tracker_opaque`
+   --> src/builtins/promise/settle.rs:227:25
+    |
+227 |                         ctx.rt().host_promise_rejection_tracker_opaque,
+    |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated method `builtins::promise::promise::PromisePayload::set_handled`
+   --> src/builtins/promise/settle.rs:246:28
+    |
+246 |         self.payload_mut().set_handled(true);
+    |                            ^^^^^^^^^^^
+
+warning: use of deprecated method `builtins::promise::promise::PromisePayload::is_handled`
+   --> src/builtins/promise/settle.rs:284:19
+    |
+284 |             (s, p.is_handled())
+    |                   ^^^^^^^^^^
+
+warning: use of deprecated field `runtime::rt::RuntimeImpl::host_promise_rejection_tracker`
+   --> src/builtins/promise/settle.rs:289:30
+    |
+289 |             && let Some(f) = ctx.rt().host_promise_rejection_tracker
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `runtime::rt::RuntimeImpl::host_promise_rejection_tracker_opaque`
+   --> src/builtins/promise/settle.rs:291:26
+    |
+291 |             let opaque = ctx.rt().host_promise_rejection_tracker_opaque;
+    |                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `builtins::typed_array::ta::TypedArrayPayload::obj`: seems no use
+  --> src/builtins/typed_array/ta.rs:89:13
+   |
+89 |             obj: UnsafeCell::new(GcWeak::default()), // empty weakref
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated field `builtins::typed_array::ta::TypedArrayPayload::obj`: seems no use
+   --> src/builtins/typed_array/ta.rs:344:18
+    |
+344 |                 *p.obj.get() = w;
+    |                  ^^^^^
+
+warning: unused import: `gc_lite::GcNode`
+  --> src/atom/registry.rs:10:5
+   |
+10 | use gc_lite::GcNode;
+   |     ^^^^^^^^^^^^^^^
+
+warning: variable does not need to be mutable
+   --> src/atom/registry.rs:116:10
+    |
+116 |     let (mut desc_str, hash): (StringRef, u32) = match atom_kind {
+    |          ----^^^^^^^^
+    |          |
+    |          help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary `unsafe` block
+    --> src/bytecode/exec_stackless.rs:365:17
+     |
+ 365 |                 unsafe { *sp }
+     |                 ^^^^^^ unnecessary `unsafe` block
+...
+ 407 |                 unsafe {
+     |                 ------ because it's nested under this `unsafe` block
+...
+2413 |                         SP_PUT!(-2, SP_VAL!(0));
+     |                                     ---------- in this macro invocation
+     |
+     = note: `#[warn(unused_unsafe)]` (part of `#[warn(unused)]`) on by default
+     = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+    --> src/bytecode/exec_stackless.rs:365:17
+     |
+ 365 |                 unsafe { *sp }
+     |                 ^^^^^^ unnecessary `unsafe` block
+...
+ 407 |                 unsafe {
+     |                 ------ because it's nested under this `unsafe` block
+...
+2421 |                         SP_PUT!(-3, SP_VAL!(0));
+     |                                     ---------- in this macro invocation
+     |
+     = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+    --> src/bytecode/exec_stackless.rs:365:17
+     |
+ 365 |                 unsafe { *sp }
+     |                 ^^^^^^ unnecessary `unsafe` block
+...
+ 407 |                 unsafe {
+     |                 ------ because it's nested under this `unsafe` block
+...
+2428 |                         SP_PUT!(-4, SP_VAL!(0));
+     |                                     ---------- in this macro invocation
+     |
+     = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+   --> src/bytecode/exec_stackless.rs:368:17
+    |
+368 |                 unsafe { *sp.offset($idx as isize) }
+    |                 ^^^^^^ unnecessary `unsafe` block
+...
+407 |                 unsafe {
+    |                 ------ because it's nested under this `unsafe` block
+...
+803 |                         SP_PUT!(-2, SP_VAL!(-1));
+    |                                     ----------- in this macro invocation
+    |
+    = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+   --> src/bytecode/exec_stackless.rs:368:17
+    |
+368 |                 unsafe { *sp.offset($idx as isize) }
+    |                 ^^^^^^ unnecessary `unsafe` block
+...
+407 |                 unsafe {
+    |                 ------ because it's nested under this `unsafe` block
+...
+807 |                         SP_PUT!(-3, SP_VAL!(-2));
+    |                                     ----------- in this macro invocation
+    |
+    = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+   --> src/bytecode/exec_stackless.rs:368:17
+    |
+368 |                 unsafe { *sp.offset($idx as isize) }
+    |                 ^^^^^^ unnecessary `unsafe` block
+...
+407 |                 unsafe {
+    |                 ------ because it's nested under this `unsafe` block
+...
+808 |                         SP_PUT!(-2, SP_VAL!(-1));
+    |                                     ----------- in this macro invocation
+    |
+    = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+   --> src/bytecode/exec_stackless.rs:368:17
+    |
+368 |                 unsafe { *sp.offset($idx as isize) }
+    |                 ^^^^^^ unnecessary `unsafe` block
+...
+407 |                 unsafe {
+    |                 ------ because it's nested under this `unsafe` block
+...
+812 |                         SP_PUT!(0, SP_VAL!(-1));
+    |                                    ----------- in this macro invocation
+    |
+    = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+   --> src/bytecode/exec_stackless.rs:368:17
+    |
+368 |                 unsafe { *sp.offset($idx as isize) }
+    |                 ^^^^^^ unnecessary `unsafe` block
+...
+407 |                 unsafe {
+    |                 ------ because it's nested under this `unsafe` block
+...
+816 |                         SP_PUT!(0, SP_VAL!(-1));
+    |                                    ----------- in this macro invocation
+    |
+    = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+   --> src/bytecode/exec_stackless.rs:368:17
+    |
+368 |                 unsafe { *sp.offset($idx as isize) }
+    |                 ^^^^^^ unnecessary `unsafe` block
+...
+407 |                 unsafe {
+    |                 ------ because it's nested under this `unsafe` block
+...
+817 |                         SP_PUT!(-1, SP_VAL!(-2));
+    |                                     ----------- in this macro invocation
+    |
+    = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+   --> src/bytecode/exec_stackless.rs:368:17
+    |
+368 |                 unsafe { *sp.offset($idx as isize) }
+    |                 ^^^^^^ unnecessary `unsafe` block
+...
+407 |                 unsafe {
+    |                 ------ because it's nested under this `unsafe` block
+...
+821 |                         SP_PUT!(0, SP_VAL!(-2));
+    |                                    ----------- in this macro invocation
+    |
+    = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+   --> src/bytecode/exec_stackless.rs:368:17
+    |
+368 |                 unsafe { *sp.offset($idx as isize) }
+    |                 ^^^^^^ unnecessary `unsafe` block
+...
+407 |                 unsafe {
+    |                 ------ because it's nested under this `unsafe` block
+...
+822 |                         SP_PUT!(1, SP_VAL!(-1));
+    |                                    ----------- in this macro invocation
+    |
+    = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+    --> src/bytecode/exec_stackless.rs:368:17
+     |
+ 368 |                 unsafe { *sp.offset($idx as isize) }
+     |                 ^^^^^^ unnecessary `unsafe` block
+...
+ 407 |                 unsafe {
+     |                 ------ because it's nested under this `unsafe` block
+...
+2404 |                         SP_PUT!(0, SP_VAL!(-3));
+     |                                    ----------- in this macro invocation
+     |
+     = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+    --> src/bytecode/exec_stackless.rs:368:17
+     |
+ 368 |                 unsafe { *sp.offset($idx as isize) }
+     |                 ^^^^^^ unnecessary `unsafe` block
+...
+ 407 |                 unsafe {
+     |                 ------ because it's nested under this `unsafe` block
+...
+2405 |                         SP_PUT!(1, SP_VAL!(-2));
+     |                                    ----------- in this macro invocation
+     |
+     = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+    --> src/bytecode/exec_stackless.rs:368:17
+     |
+ 368 |                 unsafe { *sp.offset($idx as isize) }
+     |                 ^^^^^^ unnecessary `unsafe` block
+...
+ 407 |                 unsafe {
+     |                 ------ because it's nested under this `unsafe` block
+...
+2406 |                         SP_PUT!(2, SP_VAL!(-1));
+     |                                    ----------- in this macro invocation
+     |
+     = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+    --> src/bytecode/exec_stackless.rs:368:17
+     |
+ 368 |                 unsafe { *sp.offset($idx as isize) }
+     |                 ^^^^^^ unnecessary `unsafe` block
+...
+ 407 |                 unsafe {
+     |                 ------ because it's nested under this `unsafe` block
+...
+2411 |                         SP_PUT!(0, SP_VAL!(-1));
+     |                                    ----------- in this macro invocation
+     |
+     = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+    --> src/bytecode/exec_stackless.rs:368:17
+     |
+ 368 |                 unsafe { *sp.offset($idx as isize) }
+     |                 ^^^^^^ unnecessary `unsafe` block
+...
+ 407 |                 unsafe {
+     |                 ------ because it's nested under this `unsafe` block
+...
+2412 |                         SP_PUT!(-1, SP_VAL!(-2));
+     |                                     ----------- in this macro invocation
+     |
+     = note: this warning originates in the macro `SP_VAL` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+    --> src/bytecode/exec_stackless.rs:378:17
+     |
+ 378 |                 unsafe { sp.offset($idx as isize).as_ref().unwrap() }
+     |                 ^^^^^^ unnecessary `unsafe` block
+...
+ 407 |                 unsafe {
+     |                 ------ because it's nested under this `unsafe` block
+...
+2467 |                         SP_PUT!(-1, JSValue::from(SP_REF!(-1).is_undefined_or_null()));
+     |                                                   ----------- in this macro invocation
+     |
+     = note: this warning originates in the macro `SP_REF` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+   --> src/bytecode/exec_stackless.rs:394:17
+    |
+394 |                 unsafe { sp.offset($idx as isize).as_mut().unwrap() }
+    |                 ^^^^^^ unnecessary `unsafe` block
+...
+928 |                                 if unsafe { SP_MUT!(-1).as_object_unchecked() }
+    |                                    ------   ----------- in this macro invocation
+    |                                    |
+    |                                    because it's nested under this `unsafe` block
+    |
+    = note: this warning originates in the macro `SP_MUT` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+    --> src/bytecode/exec_stackless.rs:394:17
+     |
+ 394 |                 unsafe { sp.offset($idx as isize).as_mut().unwrap() }
+     |                 ^^^^^^ unnecessary `unsafe` block
+...
+1928 |                                                 unsafe { SP_MUT!(-2).as_object_unchecked() };
+     |                                                 ------   ----------- in this macro invocation
+     |                                                 |
+     |                                                 because it's nested under this `unsafe` block
+     |
+     = note: this warning originates in the macro `SP_MUT` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+   --> src/bytecode/exec_stackless.rs:465:17
+    |
+465 |                 unsafe {
+    |                 ^^^^^^ unnecessary `unsafe` block
+...
+520 |                 let opcode = unsafe { std::mem::transmute::<u8, OpCode>(PC_FETCH!(u8)) };
+    |                              ------                                     ------------- in this macro invocation
+    |                              |
+    |                              because it's nested under this `unsafe` block
+    |
+    = note: this warning originates in the macro `PC_FETCH` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+   --> src/bytecode/exec_stackless.rs:476:17
+    |
+407 |                 unsafe {
+    |                 ------ because it's nested under this `unsafe` block
+...
+476 |                 unsafe { arg_base_ptr.offset(($idx) as _).as_mut().unwrap() }
+    |                 ^^^^^^ unnecessary `unsafe` block
+...
+851 |                         SP_PUT!(0, *ARG_REF!(idx));
+    |                                     ------------- in this macro invocation
+    |
+    = note: this warning originates in the macro `ARG_REF` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unnecessary `unsafe` block
+   --> src/bytecode/exec_stackless.rs:489:13
+    |
+407 |                 unsafe {
+    |                 ------ because it's nested under this `unsafe` block
+...
+489 |             unsafe { (var_base_ptr.offset(($idx) as isize).as_mut().unwrap()) }
+    |             ^^^^^^ unnecessary `unsafe` block
+...
+839 |                         SP_PUT!(0, *VAR_REF![idx]);
+    |                                     ------------- in this macro invocation
+    |
+    = note: this warning originates in the macro `VAR_REF` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `bf`
+   --> src/function/bfun.rs:456:13
+    |
+456 |         let bf = self.payload_mut();
+    |             ^^ help: if this is intentional, prefix it with an underscore: `_bf`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `ctx`
+   --> src/function/func_def.rs:592:5
+    |
+592 |     ctx: &mut ScopedContext,
+    |     ^^^ help: if this is intentional, prefix it with an underscore: `_ctx`
+
+warning: unused variable: `line_pos`
+   --> src/function/optimize.rs:492:9
+    |
+492 |         line_pos: &mut u32,
+    |         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_line_pos`
+
+warning: unused variable: `val`
+   --> src/gc/gc.rs:195:47
+    |
+195 |     pub(crate) fn gc_protect_transient(&self, val: &JSValue) {
+    |                                               ^^^ help: if this is intentional, prefix it with an underscore: `_val`
+
+warning: unused variable: `dep_idx`
+   --> src/module/export.rs:423:57
+    |
+423 |                     ExportType::JS_EXPORT_TYPE_INDIRECT(dep_idx) => {
+    |                                                         ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_dep_idx`
+
+warning: unused variable: `req_module_idx`
+   --> src/module/resolve.rs:280:77
+    |
+280 | ...                   ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx) => {
+    |                                                           ^^^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_req_module_idx`
+
+warning: value assigned to `p_start` is never read
+   --> src/number/a2d.rs:437:17
+    |
+437 |                 p_start = p_start.offset(1);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+527 |         p_start = p;
+    |         ----------- `p_start` is overwritten here before the previous value is read
+    |
+    = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `p_start` is never read
+   --> src/number/a2d.rs:445:17
+    |
+445 |                 p_start = p_start.offset(1);
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^ this value is reassigned later and never used
+...
+527 |         p_start = p;
+    |         ----------- `p_start` is overwritten here before the previous value is read
+
+warning: variable does not need to be mutable
+   --> src/object/private.rs:130:58
+    |
+130 |     pub fn add_brand(&mut self, ctx: &mut ScopedContext, mut home_val: JSValue) -> Result<(), i32> {
+    |                                                          ----^^^^^^^^
+    |                                                          |
+    |                                                          help: remove this `mut`
+
+warning: multiple patterns overlap on their endpoints
+   --> src/string/sbuf.rs:867:72
+    |
+858 |         0x2028..=0x202F |  // 分隔符和格式
+    |         --------------- this range overlaps on `8239_u32`...
+...
+867 |         0x0020 | 0x00A0 | 0x1680 | 0x2000..=0x200A | 0x2028..=0x2029 | 0x202F..=0x205F | 0x3000 => {
+    |                                                                        ^^^^^^^^^^^^^^^ ... with this range
+    |
+    = note: you likely meant to write mutually exclusive ranges
+    = note: `#[warn(overlapping_range_endpoints)]` on by default
+
+warning: unreachable pattern
+   --> src/string/sbuf.rs:867:54
+    |
+858 |         0x2028..=0x202F |  // 分隔符和格式
+    |         --------------- matches all the relevant values
+...
+867 |         0x0020 | 0x00A0 | 0x1680 | 0x2000..=0x200A | 0x2028..=0x2029 | 0x202F..=0x205F | 0x3000 => {
+    |                                                      ^^^^^^^^^^^^^^^ no value can reach this
+    |
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `ctx`
+   --> src/builtins/error.rs:142:25
+    |
+142 | pub fn js_error_isError(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    |                         ^^^ help: if this is intentional, prefix it with an underscore: `_ctx`
+
+warning: unused variable: `ctx`
+   --> src/builtins/generator/a_gen.rs:333:31
+    |
+333 |     pub fn dequeue(&mut self, ctx: &ScopedContext) -> Box<JSAsyncGeneratorRequest> {
+    |                               ^^^ help: if this is intentional, prefix it with an underscore: `_ctx`
+
+warning: variable does not need to be mutable
+    --> src/builtins/date.rs:1029:5
+     |
+1029 |     mut this: JSValue,
+     |     ----^^^^
+     |     |
+     |     help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/builtins/mapset/class_map.rs:136:9
+    |
+136 |     let mut key = MapPair::normalize_key(cc.arg(0));
+    |         ----^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/builtins/mapset/class_map.rs:188:9
+    |
+188 |     let mut key = cc.arg(0);
+    |         ----^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/builtins/mapset/class_map.rs:230:9
+    |
+230 |     let mut key = cc.arg(0);
+    |         ----^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> src/builtins/regexp/class_regexp.rs:344:9
+    |
+344 |     let mut this = cc.this();
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: unused variable: `cx`
+   --> src/lib.rs:133:39
+    |
+133 |         fn poll(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
+    |                                       ^^ help: if this is intentional, prefix it with an underscore: `_cx`
+
+For more information about this error, try `rustc --explain E0599`.
+warning: `zuqe` (lib) generated 162 warnings
+error: could not compile `zuqe` (lib) due to 1 previous error; 162 warnings emitted

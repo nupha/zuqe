@@ -478,7 +478,7 @@ impl JSValue {
     /// Call `self.method` function.
     #[inline]
     pub fn invoke_str(&self, ctx: &mut ScopedContext, method: &str, args: &[JSValue]) -> JSResult {
-        let a = Atom::from_str(ctx, method)?;
+        let a = Atom::intern_str(ctx, method)?;
         self.invoke(ctx, a, args)
     }
 
@@ -505,7 +505,7 @@ impl JSValue {
         method: &str,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
-        let a = Atom::from_str(ctx, method)?;
+        let a = Atom::intern_str(ctx, method)?;
         self.invoke_defined(ctx, a, args)
     }
 
@@ -534,7 +534,7 @@ impl JSValue {
         method: &str,
         args: &[JSValue],
     ) -> Result<Option<JSResult>, i32> {
-        let a = Atom::from_str(ctx, method)?;
+        let a = Atom::intern_str(ctx, method)?;
         self.invoke_callable(ctx, a, args)
     }
 }

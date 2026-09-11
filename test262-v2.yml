@@ -1,0 +1,141 @@
+# test262 runner config
+#
+# base_path : location of the official test262 checkout (must contain test/ and harness/)
+# log       : optional log file
+#
+# preset    : edition preset to run. If omitted, the LATEST built-in preset is used.
+#             Override on the command line with --preset ES2022.
+#             Built-in presets (each extends all previous ones):
+#               ES5, ES2015, ES2016, ES2017, ES2018, ES2019,
+#               ES2020, ES2021, ES2022, ES2023, ES2024, ES2025, ES2026
+#
+# tests     : whitelist of globs under test/. If empty or omitted, ALL scripts run.
+#             A single test can also be selected on the CLI:
+#               cargo run --example test262 -- built-ins/JSON/parse/15.12.1.1-0-3.js
+#
+# exclude_features : feature blacklist. A test requiring any of these is skipped.
+#                    Merged with the built-in proposal blacklist.
+#
+# exclude_tests    : glob paths to skip entirely (e.g. very slow tests).
+
+base_path: "/Users/johnray/devel/test262"
+preset: ES2026
+#log: "./test262.log"
+
+# Features excluded: stage-3 proposals and separate specs that are
+# not part of any published ECMAScript edition.
+exclude_features:
+  [
+    "Intl.Era-monthcode",
+    "Intl.Locale-info",
+    "Intl.NumberFormat-v3",
+    "legacy-regexp",
+    "ShadowRealm",
+    "decorators",
+    "source-phase-imports",
+    "source-phase-imports-module-source",
+    "import-defer",
+    "export-defer",
+    "import-text",
+    "immutable-arraybuffer",
+    "import-bytes",
+    "nonextensible-applies-to-private",
+    "await-dictionary",
+    "error-stack-accessor",
+    "Temporal",
+  ]
+
+tests: []
+# "language/eval-code/**/*.js",
+# "language/function-code/**/*.js",
+# "language/global-code/**/*.js",
+# "language/expressions/**/*.js",
+# "language/statements/**/*.js",
+# "language/import/**/*.js",
+# "language/export/*.js",
+# "language/module-code/**/*.js",
+# "language/types/**/*.js",
+# "language/comments/**/*.js",
+# "language/directive-prologue/**/*.js",
+# "language/destructuring/**/*.js",
+# "language/computed-property-names/**/*.js",
+# "language/block-scope/**/*.js",
+# "language/asi/*.js",
+# "language/arguments-object/**/*.js",
+# "language/identifiers/*",
+# "language/literals/regexp/**/*.js",
+
+# "built-ins/Number/**/*.js",
+# "built-ins/Error/**/*.js",
+# "built-ins/Function/**/*.js",
+# "built-ins/Boolean/**/*.js",
+# "built-ins/Array/**/*.js",
+# "built-ins/String/**/*.js",
+# "built-ins/Object/**/*.js",
+# "built-ins/Symbol/**/*.js",
+# "built-ins/Map/**/*.js",
+# "built-ins/Set/**/*.js",
+# "built-ins/WeakMap/**/*.js",
+# "built-ins/WeakSet/**/*.js",
+# "built-ins/FinalizationRegistry/**/*.js",
+# "built-ins/WeakRef/**/*.js",
+# "built-ins/Date/**/*.js",
+# "built-ins/JSON/**/*.js",
+# "built-ins/Proxy/**/*.js",
+# "built-ins/Iterator/**/*.js",
+# "built-ins/ArrayBuffer/**/*.js",
+# "built-ins/TypedArray/**/*.js",
+# "built-ins/TypedArrayConstructors/**/*.js",
+# "built-ins/DataView/**/*.js",
+# "built-ins/Promise/**/*.js",
+# "built-ins/GeneratorFunction/**/*.js",
+# "built-ins/GeneratorPrototype/**/*.js",
+# "built-ins/AsyncFunction/**/*.js",
+# "built-ins/AsyncGeneratorFunction/**/*.js",
+# "built-ins/AsyncGeneratorPrototype/**/*.js",
+# "built-ins/AsyncIteratorPrototype/**/*.js",
+# "built-ins/AsyncFromSyncIteratorPrototype/**/*.js",
+# "built-ins/Math/**/*.js",
+# "built-ins/parseInt/*.js",
+# "built-ins/parseFloat/*.js",
+# "built-ins/NativeErrors/**/*.js",
+# "built-ins/RegExp/**/*.js",  # slow
+# "built-ins/decodeURI/**/*.js",
+# "built-ins/decodeURIComponent/**/*.js",
+# "built-ins/encodeURI/**/*.js",
+# "built-ins/encodeURIComponent/**/*.js",
+
+#
+# debug gc fails
+#
+# "built-ins/AsyncGeneratorPrototype/return/return-state-completed-broken-promise.js",
+# "built-ins/AsyncGeneratorPrototype/throw/throw-state-completed.js",
+
+# "built-ins/Object/fromEntries/iterator-closed-for-throwing-entry-key-accessor.js", # ObjectIter::close_internal() token out pending_exc was collected.
+# "built-ins/String/prototype/matchAll/toString-this-val.js", # js_string_match() expect to protect local node `regexp_obj`
+# "built-ins/String/prototype/replace/S15.5.4.11_A4_T2.js", # js_regexp_Symbol_replace() expect to protect matches nodes
+# "built-ins/JSON/parse/revived-proxy.js", # internalize_json_property() missing holder node protection
+# "built-ins/JSON/stringify/replacer-function-result.js",  # js_json_check() replacer function call return not in scope (was gc collected)
+# "built-ins/Promise/allSettled/resolved-sequence-mixed.js", # eval_wait() promise isn't in scope, gc collected. ::eval_global() return value didn't promote scope?
+# "built-ins/Promise/prototype/finally/subclass-species-constructor-reject-count.js", # js_promise_resolve() created wrapper promise should be non-local if no scope, otherwise is local gc node
+# "built-ins/Promise/all/invoke-resolve-error-close.js", # js_promise_all() created wrapper promise should be protected, bytecode exec() must not write or flush caller's scope.
+# "language/expressions/template-literal/middle-list-many-expr-obj.js", # requires GcHeap::open_alloc_guard() for class exotic .call
+# "language/expressions/arrow-function/array-destructuring-param-strict-body.js", # scope don't match
+# "language/expressions/async-generator/named-yield-promise-reject-next-for-await-of-async-iterator.js", # assert in close iter, pending exception is protected.
+# "language/expressions/arrow-function/arrow/binding-tests-3.js", # scope level assertion fail
+# "built-ins/Array/prototype/pop/S15.4.4.6_A4_T1.js", # js_array_pop() fast array error
+# "built-ins/Array/prototype/pop/set-length-array-is-frozen.js", # js_array_pop() fast array error
+# "built-ins/String/prototype/indexOf/searchstring-tostring-toprimitive.js", # node protect level over 7
+
+# "language/module-code/namespace/internals/define-own-property.js", # Object.freeze expect TypeError
+# "built-ins/parseFloat/S15.1.2.3_A6.js", # very long loop
+# "built-ins/parseInt/S15.1.2.2_A7.3*.js",
+
+# "built-ins/RegExp/prototype/Symbol.matchAll/isregexp-called-once.js", # ContextImpl::regexp_ctor() without RegExp class initialized
+# "built-ins/TypedArrayConstructors/ctors/object-arg/iterating-throws.js", # GcHeap::scope_stack use SmallVec bug
+
+# "language/expressions/async-arrow-function/try-reject-finally-reject.js",
+# "built-ins/Object/proto-from-ctor-realm.js",
+# "language/expressions/class/elements/after-same-line-static-gen-rs-static-async-method-privatename-identifier.js", # shape register error
+
+exclude_tests: ["annexB/**/*", "staging/**/*"]

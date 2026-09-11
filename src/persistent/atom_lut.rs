@@ -72,14 +72,10 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                 let sref = self.ctx.create_string_from_utf8(bytes).map_err(|_| {
                     BytecodeSerializeError::Encode("atom string build failed".into())
                 })?;
-                let atom = Atom::from_string(self.ctx, sref, kind).map_err(|_| {
+                let atom = Atom::intern_content(self.ctx, sref, kind).map_err(|_| {
                     BytecodeSerializeError::Encode("atom registration failed".into())
                 })?;
 
-                println!(
-                    "atom: {atom:?}, {:?}",
-                    atom.descriptor(self.ctx.rt()).content().encode_utf8(false)
-                );
                 debug_assert!(
                     atom.descriptor(self.ctx.rt()).content().len() == sref.content().len(),
                     "{:?}",

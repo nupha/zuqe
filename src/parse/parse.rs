@@ -157,7 +157,7 @@ impl<'s> JSParseState<'s> {
             }
         }
 
-        let atom = Atom::from_str(self.ctx(), &buf)?;
+        let atom = Atom::intern_str(self.ctx(), &buf)?;
         Ok((atom, has_escape, consumed))
     }
 

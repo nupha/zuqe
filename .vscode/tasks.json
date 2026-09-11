@@ -1,0 +1,45 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "cargo build bin zuqe",
+            "type": "shell",
+            "command": "cargo build --bin=zuqe --package=zuqe",
+            "group": "build",
+            "problemMatcher": ["$rustc"],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "cargo build example zjs",
+            "type": "shell",
+            "command": "cargo build --example=zjs --package=zuqe",
+            "group": "build",
+            "problemMatcher": ["$rustc"],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "cargo build example test262",
+            "type": "shell",
+            "command": "cargo build --example=test262 --package=zuqe",
+            "group": "build",
+            "problemMatcher": ["$rustc"],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        },
+        {
+            "label": "cargo build example test262 ic",
+            "type": "shell",
+            "command": "cargo build --features inline_cache --example=test262 --package=zuqe",
+            "group": "build",
+            "problemMatcher": ["$rustc"],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            }
+        }
+    ]
+}

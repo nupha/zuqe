@@ -1,0 +1,32 @@
+Zhuque JS Engine
+Copyright 2025 John Ray
+
+===============================================================================
+Third-Party Components
+===============================================================================
+
+This product includes software from the following third-party components:
+
+1. anyhow - Copyright (c) David Tolnay - Apache-2.0 OR MIT
+2. bitflags - Copyright (c) The Rust Project Developers - Apache-2.0 OR MIT
+3. cc - Copyright (c) Alex Crichton - Apache-2.0 OR MIT
+4. colorized - Copyright (c) Xavier Brasher - MIT
+5. env_logger - Apache-2.0 OR MIT
+6. fallible_collections - Copyright (c) vcombey - Apache-2.0 OR MIT
+7. gc-lite - Copyright (c) John Ray - MIT
+8. glob - Copyright (c) The Rust Project Developers - Apache-2.0 OR MIT
+9. hashlist - Copyright (c) John Ray - Apache-2.0 OR MIT
+10. libc - Copyright (c) The Rust Project Developers - Apache-2.0 OR MIT
+11. log - Copyright (c) The Rust Project Developers - Apache-2.0 OR MIT
+12. once_cell - Copyright (c) Aleksey Kladov - Apache-2.0 OR MIT
+13. paste - Copyright (c) David Tolnay - Apache-2.0 OR MIT
+14. regex - Copyright (c) The Rust Project Developers, Andrew Gallant - Apache-2.0 OR MIT
+15. serde - Copyright (c) Erick Tryzelaar, David Tolnay - Apache-2.0 OR MIT
+16. serde_yaml - Copyright (c) David Tolnay - Apache-2.0 OR MIT
+17. smallvec - Copyright (c) The Servo Project Developers - Apache-2.0 OR MIT
+18. unicode-normalization - Copyright (c) kwantam, Manish Goregaokar - Apache-2.0 OR MIT
+19. unicode-xid - Copyright (c) erick.tryzelaar, kwantam, Manish Goregaokar - Apache-2.0 OR MIT
+20. widestring - Apache-2.0 OR MIT
+
+For detailed license information of each component, please refer to the
+respective source files or the Cargo.toml dependencies section.

@@ -376,7 +376,7 @@ impl<'s> JSParseState<'s> {
             "null" => return Ok(Atom::CONST_null),
             _ => {}
         }
-        Atom::from_str(self.ctx(), ident)
+        Atom::intern_str(self.ctx(), ident)
     }
 
     fn json_parse_value(&mut self, record: Option<&mut JSONParseRecord>) -> JSResult {

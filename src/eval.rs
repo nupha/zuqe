@@ -188,7 +188,7 @@ impl<'c> ScopedContext<'c> {
             }
             if eval_type == EvalType::Module {
                 mode |= ExecMode::STRICT;
-                let atom = Atom::from_str(self, filename)?;
+                let atom = Atom::intern_str(self, filename)?;
                 (None, Some(ModuleDef::new(self, atom)?), mode)
             } else {
                 (None, None, mode)
@@ -431,7 +431,8 @@ impl<'c> ScopedContext<'c> {
         // no longer sniff the string here — a synthesised filename like "<input>"
         // never reaches this branch.
         if matches!(name, EvalName::BaseUrl(_)) {
-            self.rt_mut().eval_base_url = Atom::from_str(self, filename).ok().unwrap_or(Atom::NULL);
+            self.rt_mut().eval_base_url =
+                Atom::intern_str(self, filename).ok().unwrap_or(Atom::NULL);
         }
 
         if eval_type == EvalType::Module {

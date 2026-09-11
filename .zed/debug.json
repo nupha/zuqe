@@ -1,0 +1,48 @@
+// Project-local debug tasks
+//
+// For more documentation on how to configure debug tasks,
+// see: https://zed.dev/docs/debugger
+[
+  {
+    "name": "Debug executable 'zhuque'",
+    "program": "cargo",
+    "args": ["run", "--bin=zhuque", "--package=zhuque"],
+    "cwd": "${workspaceFolder}",
+    "env": {
+      "RUST_BACKTRACE": "1"
+    }
+  },
+  {
+    "name": "Debug unit tests in executable 'zhuque'",
+    "program": "cargo",
+    "args": ["test", "--bin=zhuque", "--package=zhuque", "--no-run"],
+    "cwd": "${workspaceFolder}"
+  },
+  {
+    "name": "Debug example 'eval'",
+    "program": "cargo",
+    "args": ["run", "--example=eval", "--package=zhuque"],
+    "cwd": "${workspaceFolder}",
+    "env": {
+      "RUST_BACKTRACE": "1"
+    }
+  },
+  {
+    "name": "Debug example 'eval' esm",
+    "program": "cargo",
+    "args": ["run", "--example=eval", "--package=zhuque"],
+    "cwd": "${workspaceFolder}",
+    "env": {
+      "RUST_BACKTRACE": "1"
+    }
+  },
+  {
+    "name": "Debug example 'test262'",
+    "program": "cargo",
+    "args": ["run", "--example=test262", "--package=zhuque"],
+    "cwd": "${workspaceFolder}",
+    "env": {
+      "RUST_BACKTRACE": "1"
+    }
+  }
+]

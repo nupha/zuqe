@@ -13,7 +13,7 @@ use std::{
 use gc_lite::{GcHead, GcNode, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_STRING,
+    JS_CLASS_STRING, RuntimeImpl,
     atom::{Atom, AtomInfo, AtomKind},
     class::ClassExoticMethods,
     context::ScopedContext,
@@ -728,7 +728,7 @@ impl StringRef {
 
     /// create String with string data, and optional atom info (root gc node).
     pub(crate) fn create_root(
-        mut rt: RuntimePtr,
+        rt: &mut RuntimeImpl,
         content: StringData,
         atom_info: Option<AtomInfo>,
     ) -> Result<Self, i32> {
@@ -888,7 +888,7 @@ impl<'c> ScopedContext<'c> {
         if unlikely(str.len() > JS_STRING_LEN_MAX) {
             return Err(self.throw_internal_error("string too long"));
         }
-        Atom::from_str(self, str).and_then(|s| s.force_string(self))
+        Atom::intern_str(self, str).and_then(|s| s.force_string(self))
     }
 
     /// create string value from a single string char.

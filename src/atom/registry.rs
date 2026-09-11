@@ -45,66 +45,11 @@ impl AtomRegistry {
     }
 }
 
-/// Result of string atom registration
-enum RegisterStringResult {
-    /// Atom already exists with the given ID
-    Existing(u32),
-    Descriptor(StringRef, u32),
-}
-
-/// register a atoms with string and kind - common logic
-fn register_atom_common(
-    mut rt: RuntimePtr,
-    ctx: &mut Option<&mut ScopedContext>,
-    str: StringRef,
-    atom_kind: AtomKind,
-) -> Result<RegisterStringResult, i32> {
-    debug_assert!(!str.content().is_ident());
-
-    let ss = if let Some(a) = str.atom_info() {
-        // already registerd
-        if a.kind() == atom_kind {
-            return Ok(RegisterStringResult::Existing(a.id()));
-        }
-
-        // dup string content without atom info
-        if let Some(cx) = ctx.as_mut() {
-            StringRef::from_content(cx, str.content().clone())?
-        } else {
-            StringRef::create_root(rt, str.content().clone(), None)?
-        }
-    } else {
-        str
-    };
-
-    let hash = Atom::calc_atom_hash(ss.content(), atom_kind);
-    let a_reg = &mut rt.atom_registry;
-
-    // check for reuse: match registered atoms for (hash, atom_type, string_content)
-    if let Some(kv) = a_reg.hash_lut.get(&hash) {
-        for &atom_id in kv {
-            let ds = if is_const_atom(atom_id) {
-                &a_reg.const_atoms[atom_id as usize - 1]
-            } else {
-                a_reg.user_atoms[atom_id as usize - ATOM_USER_BASE_ID as usize]
-                    .as_ref()
-                    .unwrap()
-            };
-            let at_info = ds.atom_info().unwrap();
-            if at_info.kind() == atom_kind && ss.eq(ds) {
-                return Ok(RegisterStringResult::Existing(at_info.id()));
-            }
-        }
-    }
-
-    Ok(RegisterStringResult::Descriptor(ss, hash))
-}
-
 /// Register user atom with `str` desciptor
 /// (in case of creating an anonymous symbol, str desc should be ident-type-string).
 /// Check for atom reuse in prior to perform real registering.
 fn register_atom(
-    mut rt: RuntimePtr,
+    rt: &mut RuntimeImpl,
     mut ctx: Option<&mut ScopedContext>,
     str: StringRef,
     mut atom_kind: AtomKind,
@@ -112,12 +57,45 @@ fn register_atom(
     // match for existing atoms, don't register twice for same content.
     let (desc_str, hash): (StringRef, u32) = match atom_kind {
         AtomKind::String | AtomKind::GlobalSymbol => {
-            match register_atom_common(rt, &mut ctx, str, atom_kind)? {
-                RegisterStringResult::Existing(atom_id) => {
-                    return Ok(Atom(atom_id));
+            debug_assert!(!str.content().is_ident());
+
+            let ss = if let Some(a) = str.atom_info() {
+                // already registered
+                if a.kind() == atom_kind {
+                    return Ok(Atom(a.id()));
                 }
-                RegisterStringResult::Descriptor(ss, hash) => (ss, hash),
+
+                // dup string content without atom info
+                if let Some(cx) = ctx.as_mut() {
+                    StringRef::from_content(cx, str.content().clone())?
+                } else {
+                    StringRef::create_root(rt, str.content().clone(), None)?
+                }
+            } else {
+                str
+            };
+
+            let hash = Atom::calc_atom_hash(ss.content(), atom_kind);
+            let a_reg = &mut rt.atom_registry;
+
+            // check for reuse: match registered atoms for (hash, atom_type, string_content)
+            if let Some(kv) = a_reg.hash_lut.get(&hash) {
+                for &atom_id in kv {
+                    let ds = if is_const_atom(atom_id) {
+                        &a_reg.const_atoms[atom_id as usize - 1]
+                    } else {
+                        a_reg.user_atoms[atom_id as usize - ATOM_USER_BASE_ID as usize]
+                            .as_ref()
+                            .unwrap()
+                    };
+                    let at_info = ds.atom_info().unwrap();
+                    if at_info.kind() == atom_kind && ss.eq(ds) {
+                        return Ok(Atom(at_info.id()));
+                    }
+                }
             }
+
+            (ss, hash)
         }
 
         AtomKind::Symbol | AtomKind::Private => {
@@ -381,7 +359,7 @@ impl RuntimeImpl {
 
 impl Atom {
     /// Make atom from string descriptor (root gc)
-    pub(crate) fn root_string(
+    pub(crate) fn root_content(
         rt: &mut RuntimeImpl,
         str: StringRef,
         kind: AtomKind,
@@ -393,7 +371,7 @@ impl Atom {
         {
             Ok(Self::new_small_int(i))
         } else {
-            register_atom(rt.into(), None, str, kind)
+            register_atom(rt, None, str, kind)
         }
     }
 
@@ -412,7 +390,7 @@ impl Atom {
             Ok(Self::new_small_int(i))
         } else {
             let s = StringRef::create_root(rt.into(), StringData::from_str(str)?, None)?;
-            let atom = Self::root_string(rt, s, AtomKind::String)?;
+            let atom = Self::root_content(rt, s, AtomKind::String)?;
             // register_atom may return an existing atom that was originally created
             // via from_str/from_string (scope-local, non-root descriptor). Ensure
             // the descriptor is root regardless of its origin.
@@ -425,15 +403,15 @@ impl Atom {
     }
 
     #[inline(always)]
-    pub(crate) fn from_string_as_is(
+    pub(crate) fn from_content_as_is(
         ctx: &mut ScopedContext,
         str: StringRef,
         kind: AtomKind,
     ) -> Result<Self, i32> {
-        register_atom(ctx.rt_ptr(), Some(ctx), str, kind)
+        register_atom(&mut ctx.rt_ptr(), Some(ctx), str, kind)
     }
 
-    pub(crate) fn from_string(
+    pub(crate) fn intern_content(
         ctx: &mut ScopedContext,
         str: StringRef,
         kind: AtomKind,
@@ -445,7 +423,7 @@ impl Atom {
         {
             Ok(Self::new_small_int(i))
         } else {
-            register_atom(ctx.rt_ptr(), Some(ctx), str, kind)
+            register_atom(&mut ctx.rt_ptr(), Some(ctx), str, kind)
         }
     }
 
@@ -485,7 +463,7 @@ impl Atom {
         None
     }
 
-    /// make atom from `str`. if `str` is a safe-integer representation, create int-atom instead.
+    /// Intern an atom from `str`. if `str` is a safe-integer representation, create int-atom instead.
     ///
     /// Fast path: an already-interned atom is returned **without allocating**
     /// (see [`Atom::lookup_str`]); only a miss allocates a `StringRef` and
@@ -497,7 +475,7 @@ impl Atom {
     /// `StringBuf` debug-assert (debug) or silently building an over-long
     /// string (release).
     #[inline]
-    pub(crate) fn from_str(ctx: &mut ScopedContext, str: &str) -> Result<Self, i32> {
+    pub(crate) fn intern_str(ctx: &mut ScopedContext, str: &str) -> Result<Self, i32> {
         if unlikely(str.len() > JS_STRING_LEN_MAX) {
             return Err(ctx.throw_internal_error("string too long"));
         }
@@ -505,38 +483,21 @@ impl Atom {
             Ok(a)
         } else {
             let s = StringRef::alloc_from_str(ctx, str)?;
-            Self::from_string(ctx, s, AtomKind::String)
+            Self::intern_content(ctx, s, AtomKind::String)
         }
     }
 
-    #[inline]
-    pub(crate) fn from_i64(ctx: &mut ScopedContext, i: i64) -> Result<Self, i32> {
-        if (0..JS_ATOM_MAX_INT as i64).contains(&i) {
-            Ok(Self::new_small_int(i as u32))
-        } else {
-            let s = StringRef::from_utf8_bytes(ctx, format!("{i}").into())?;
-            Self::from_string(ctx, s, AtomKind::String)
-        }
-    }
-
-    /// create atom from static &str
+    /// Intern an atom from static &str
     ///
     /// Fast path: an already-interned atom is returned without allocating a
     /// descriptor node (see [`Atom::lookup_str`]).
-    pub fn from_static(ctx: &mut ScopedContext, str: &'static str) -> Result<Self, i32> {
+    pub fn intern_static(ctx: &mut ScopedContext, str: &'static str) -> Result<Self, i32> {
         if let Some(a) = Self::lookup_str(ctx.rt(), str, AtomKind::String) {
             Ok(a)
         } else {
             let s = StringRef::alloc_static(ctx, str, None)?;
-            Self::from_string(ctx, s, AtomKind::String)
+            Self::intern_content(ctx, s, AtomKind::String)
         }
-    }
-
-    /// Create const atom
-    #[inline(always)]
-    pub(crate) const fn new_const(id: u32) -> Self {
-        debug_assert!(is_const_atom(id));
-        Self(id)
     }
 
     /// Make an small integral atom.
@@ -545,6 +506,23 @@ impl Atom {
     pub(crate) fn new_small_int(n: u32) -> Self {
         debug_assert!(n <= JS_ATOM_MAX_INT);
         Self(n | JS_ATOM_TAG_INT)
+    }
+
+    #[inline]
+    pub(crate) fn new_i64(ctx: &mut ScopedContext, i: i64) -> Result<Self, i32> {
+        if (0..JS_ATOM_MAX_INT as i64).contains(&i) {
+            Ok(Self::new_small_int(i as u32))
+        } else {
+            let s = StringRef::from_utf8_bytes(ctx, format!("{i}").into())?;
+            Self::intern_content(ctx, s, AtomKind::String)
+        }
+    }
+
+    /// Create const atom
+    #[inline(always)]
+    pub(crate) const fn new_const(id: u32) -> Self {
+        debug_assert!(is_const_atom(id));
+        Self(id)
     }
 
     /// calc atom hash with str and kind
@@ -597,7 +575,7 @@ mod tests {
         ctx.with_new_scope(|cx| {
             // Intern the keys once (slow path), as a parser would.
             for n in NAMES {
-                let _ = Atom::from_str(cx, n)?;
+                let _ = Atom::intern_str(cx, n)?;
             }
 
             // 1. Raw lookup: hash + table probe + content compare, no alloc.
@@ -614,7 +592,7 @@ mod tests {
             // 2. `from_str` on a hit: lookup fast path.
             let t = Instant::now();
             for i in 0..N {
-                std::hint::black_box(Atom::from_str(cx, NAMES[i % NAMES.len()])?);
+                std::hint::black_box(Atom::intern_str(cx, NAMES[i % NAMES.len()])?);
             }
             let fast = t.elapsed();
 
@@ -622,7 +600,7 @@ mod tests {
             let t = Instant::now();
             for i in 0..N {
                 let s = StringRef::alloc_from_str(cx, NAMES[i % NAMES.len()])?;
-                std::hint::black_box(Atom::from_string(cx, s, AtomKind::String)?);
+                std::hint::black_box(Atom::intern_content(cx, s, AtomKind::String)?);
             }
             let slow = t.elapsed();
 
@@ -636,7 +614,9 @@ mod tests {
             // 5. fresh value via utf8 bytes (create_string_from_utf8) always allocates.
             let t = Instant::now();
             for i in 0..N {
-                std::hint::black_box(cx.create_string_from_utf8(NAMES[i % NAMES.len()].as_bytes().to_vec())?);
+                std::hint::black_box(
+                    cx.create_string_from_utf8(NAMES[i % NAMES.len()].as_bytes().to_vec())?,
+                );
             }
             let new_str = t.elapsed();
 

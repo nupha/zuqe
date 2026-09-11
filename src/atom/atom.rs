@@ -332,7 +332,7 @@ impl StringImpl {
             Ok(Atom::from_id(a.id()))
         } else {
             // register as atom
-            Atom::from_string(ctx, self.gc_ref().into(), kind)
+            Atom::intern_content(ctx, self.gc_ref().into(), kind)
         }
     }
 }
@@ -360,7 +360,7 @@ impl JSValue {
                     });
                 }
                 JSValueTag::Int => {
-                    return Atom::from_i64(ctx, val.payload_i32() as i64);
+                    return Atom::new_i64(ctx, val.payload_i32() as i64);
                 }
                 JSValueTag::String => unsafe {
                     return val.as_string_unchecked().to_atom(ctx, AtomKind::String);
@@ -408,7 +408,7 @@ pub(crate) fn js_atom_concat_str(
     buf.push_str(str1);
 
     let s = ctx.create_string_from_utf8(buf.into_bytes())?;
-    Atom::from_string(ctx, s, AtomKind::String)
+    Atom::intern_content(ctx, s, AtomKind::String)
 }
 
 /// Note: returned atom should be freed by caller.

@@ -1,0 +1,54 @@
+{
+    "files.associations": {
+        "__tuple": "c",
+        "__bit_reference": "c",
+        "__node_handle": "c",
+        "atomic": "c",
+        "bitset": "c",
+        "deque": "c",
+        "__memory": "c",
+        "limits": "c",
+        "locale": "c",
+        "optional": "c",
+        "ratio": "c",
+        "system_error": "c",
+        "tuple": "c",
+        "type_traits": "c",
+        "vector": "c",
+        "chrono": "c",
+        "cstddef": "c",
+        "random": "c",
+        "charconv": "c",
+        "format": "c",
+        "array": "c",
+        "functional": "c",
+        "utility": "c",
+        "cstdlib": "c",
+        "ios": "c"
+    },
+    "files.watcherExclude": {
+        "**/src/obsolete.rs": true
+    },
+    "files.exclude": {
+        "**/src/obsolete.rs": true
+    },
+    "git.ignoreLimitWarning": true,
+    "rust-analyzer.files.exclude": [
+        "**/src/obsolete.rs"
+    ],
+    "rust-analyzer.completion.autoimport.exclude": [
+        {
+            "path": "core::borrow::Borrow",
+            "type": "methods"
+        },
+        {
+            "path": "core::borrow::BorrowMut",
+            "type": "methods"
+        }
+    ],
+    "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.cargo.features": [
+        "persistent",
+        "zapi"
+    ],
+}

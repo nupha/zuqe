@@ -104,7 +104,7 @@ pub(super) fn js_host_resolve_imported_module(
     // makes native imports detected uniformly for both the default and custom
     // normalizers. After this early return, only non-native specifiers reach the
     // normalize + load path below.
-    let name_atom = Atom::from_str(ctx, name)?;
+    let name_atom = Atom::intern_str(ctx, name)?;
     if let Some(m) = ctx.find_module_def(name_atom)
         && m.is_native()
     {
@@ -149,7 +149,7 @@ pub(super) fn js_host_resolve_imported_module(
     // search in loaded_modules (match both name and import attributes).
     // Two modules loaded from the same URL with different import attributes
     // are distinct module records per-spec.
-    let module_name = Atom::from_str(ctx, norm_name.as_str())?;
+    let module_name = Atom::intern_str(ctx, norm_name.as_str())?;
     if let Some(m) = ctx.find_module_def(module_name)
         && attrs_are_same(ctx, m.attributes, attrs)
     {

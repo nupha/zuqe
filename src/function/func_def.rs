@@ -203,7 +203,7 @@ impl FunctionDef {
         filename: &str,
         line_num: i32,
     ) -> Result<Box<Self>, i32> {
-        let filename = Atom::from_str(ctx, filename)?;
+        let filename = Atom::intern_str(ctx, filename)?;
 
         let o = Self {
             ctx: ctx.ctx_ptr,

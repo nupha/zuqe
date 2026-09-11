@@ -257,7 +257,7 @@ impl FunctionDef {
             && as_atom
             && let Ok(atom) = {
                 let mut cx = self.ctx.current_scope();
-                Atom::from_string(&mut cx, ss, AtomKind::String)
+                Atom::intern_content(&mut cx, ss, AtomKind::String)
             }
             && !atom.is_small_int()
         {

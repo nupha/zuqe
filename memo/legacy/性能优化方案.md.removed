@@ -1,0 +1,844 @@
+# 朱雀 JS 引擎 — 性能优化方案
+
+> 版本：v0.7.0 → 目标 0.8.x
+> 数据基准：朱雀最新 (2026-06-20) vs QuickJS (ref)，单位 ns/iter（越小越快）
+> 评估日期：2026-06-20
+
+---
+
+## 目录
+
+1. [微基准差距总览](#1-微基准差距总览)
+2. [v0.7 回归分析](#2-v07-回归分析)
+3. [根因分析](#3-根因分析)
+4. [gc-lite 效率分析与优化](#4-gc-lite-效率分析与优化)
+5. [优化方向详述](#5-优化方向详述)
+6. [实施路线图](#6-实施路线图)
+
+---
+
+## 1. 微基准差距总览
+
+> 详细对比数据见 `microbench-compare-v0.7.txt`
+> 朱雀最新 vs QuickJS（37 项 common benchmark）
+
+```
+TEST                       朱雀v0.7  QuickJS  SCORE%  vs_QJS  v0.6→v0.7
+========================================================================
+! string_build2             3927.0   641.9  611.7%   慢6.1x     0.9x
+! typed_array_read            58.4    10.0  584.0%   慢5.8x     0.6x
+! string_build1             4170.8   728.5  572.5%   慢5.7x     0.9x
+! func_call                  141.7    25.5  554.9%   慢5.5x     0.7x
+! array_for_in               964.3   174.5  552.6%   慢5.5x     0.9x
+! array_for                   83.1    17.8  465.8%   慢4.7x     0.5x
+! array_read                  47.0    10.1  464.1%   慢4.6x     0.7x
+! closure_var                129.2    28.4  454.3%   慢4.5x     0.7x
+! global_read                 27.1     6.3  432.1%   慢4.3x     0.5x
+! math_min                   166.2    40.6  408.8%   慢4.1x     0.4x
+! array_pop                  309.3    82.0  377.3%   慢3.8x     0.5x
+! int_arith                   53.5    14.7  363.9%   慢3.6x     0.7x
+! set_collection_add        1562.5   436.2  358.2%   慢3.6x     0.4x
+! int_to_string              608.9   193.5  314.6%   慢3.1x     0.6x
+! float_arith                 69.7    23.9  291.5%   慢2.9x     0.6x
+! typed_array_write           34.1    12.3  276.6%   慢2.8x     0.6x
+! array_for_of                89.6    32.8  273.0%   慢2.7x     0.8x
+! array_push                 191.2    75.5  253.2%   慢2.5x     0.6x
+! array_length_decr           46.0    18.7  245.9%   慢2.5x     0.7x
+! global_destruct_strict     923.1   385.0  239.8%   慢2.4x     0.4x
+! date_now                   156.4    65.5  238.6%   慢2.4x     0.5x
+! global_destruct            308.3   130.3  236.6%   慢2.4x     0.6x
+! array_prop_create           52.5    22.2  236.2%   慢2.4x     0.9x
+! array_hole_length_decr      65.0    27.7  234.7%   慢2.3x     0.7x
+! array_write                 24.3    10.4  232.9%   慢2.3x     0.7x
+! global_write                32.5    14.0  232.5%   慢2.3x     0.6x
+! global_write_strict         16.7     7.4  226.4%   慢2.3x     0.4x
+! prop_read                   33.6    15.2  220.9%   慢2.2x     0.7x
+! prop_write                  30.5    13.9  219.8%   慢2.2x     0.6x
+! local_destruct             854.2   392.5  217.6%   慢2.2x     0.4x
+! string_to_int              150.6    70.3  214.4%   慢2.1x     0.5x
+! prop_create                334.7   157.9  211.9%   慢2.1x     1.2x
+! prop_delete                197.8    97.2  203.4%   慢2.0x    52.6x★
+- empty_loop                  19.4    13.9  139.3%   慢1.4x     0.6x
+- sort_bench                   2.4     1.8  131.5%   慢1.3x     0.8x
+~ string_to_float            113.8    89.0  127.8%   慢1.3x     0.7x
++ float_to_string            742.9   820.8   90.5%   快1.1x     0.6x
+------------------------------------------------------------------------
+TOTAL (n=37)                 16738    4909  341.0%   慢3.4x
+```
+
+★ prop_delete 从 v0.6 起提升了 **52.6×**（`ignore_attributes` 优化），是本版本最大单项改善。
+
+### 差距分类
+
+| 类别 | 平均差距 | 影响项 |
+|------|---------|--------|
+| **字符串拼接** | 5.9× | string_build1/2 — 最慢项 |
+| **TypedArray** | 4.3× | typed_array_read (5.8×), typed_array_write (2.8×) |
+| **函数调用** | 5.0× | func_call (5.5×), closure_var (4.5×) |
+| **数组/循环** | 3.3× | array_for_in (5.5×), array_for (4.7×), array_read (4.6×) |
+| **数值运算** | 3.3× | int_arith (3.6×), float_arith (2.9×) |
+| **全局变量** | 3.0× | global_read (4.3×), global_write (2.3×) |
+| **属性操作** | 2.1× | prop_read/write (~2.2×), prop_delete (2.0×) |
+| **已接近 QJS** | 0.9–1.3× | float_to_string (快1.1x), sort_bench, empty_loop |
+
+---
+
+## 2. v0.7 回归分析
+
+**v0.7 是一个架构改进版本（异常体系重构、GC scope 安全加固、NativeObject trait、API 统一），但付出了显著的性能代价。**
+
+37 项 benchmark 中：
+- **退步：35 项**（v0.7 比 v0.6 慢）
+- **进步：2 项**（prop_delete 52.6×, prop_create 1.2×）
+- **超越 QJS：1 项**（float_to_string）
+
+### 退步项（按严重程度排序）
+
+| 测试项 | v0.6 | v0.7 | 退步幅度 | 疑似原因 |
+|--------|------|------|----------|----------|
+| global_write_strict | 6 | 17 | **2.7×** | GC scope 加固 |
+| math_min | 65 | 166 | **2.6×** | 调用路径变重 |
+| local_destruct | 368 | 854 | **2.3×** | 异常体系重构 |
+| global_destruct_strict | 399 | 923 | **2.3×** | 异常 + GC scope |
+| set_collection_add | 700 | 1562 | **2.2×** | 集合操作路径变化 |
+| array_pop | 142 | 309 | **2.2×** | 数组操作路径变化 |
+| global_read | 13 | 27 | **2.1×** | GC scope / 全局查找 |
+| date_now | 81 | 156 | **1.9×** | 系统调用包装 |
+| array_for | 43 | 83 | **1.9×** | 解释器 dispatch |
+| string_to_int | 81 | 151 | **1.9×** | 字符串处理路径 |
+
+其余 25 项退步幅度在 1.1–1.8× 之间，呈现**全面性退化**的特征。
+
+### 退步根因详细分析
+
+> 以下分析基于 `git diff 0e70841c..80954241`（v0.6 → v0.7）的实际代码变更。
+> 已排除 `interrupt_code` 字段：仅在异常分支和事件循环间隙检查（冷路径），`is_some()` 编译为单字节比较，不产生可测量的热路径开销。
+
+v0.7 的三项基础设施层变更导致了 35/37 benchmark 全面退步：
+
+---
+
+#### 根因一：`gc_state()` — 指针解引用变 Vec 查找（最大单项）
+
+**变更位置：** `src/context/scope.rs` 的 `GcScopeType` 枚举和 `gc_state()` 方法。
+
+v0.6 直接存储 `&'a GcScopeState<'a>` 裸引用，`gc()` 编译为单条 `mov` 指令：
+
+```rust
+// v0.6
+enum GcScopeType<'a> {
+    Owned(GcScope<'a>),
+    Ref(&'a GcScopeState<'a>),          // 直接存指针
+}
+fn gc(&self) -> &GcScopeState<'_> {
+    match &self.gc_scope {
+        GcScopeType::Ref(s) => s,        // load [self+offset]，1 周期
+        ...
+    }
+}
+```
+
+v0.7 改为存储 `(stack_id, depth)` 元组，每次 `gc_state()` 调用都需动态查找：
+
+```rust
+// v0.7
+enum GcScopeType<'a> {
+    Owned(GcScope<'a>),
+    Ref { stack_id: GcScopeStackId, depth: u8 },  // 间接索引
+}
+fn gc_state(&self) -> &GcScopeState<'_> {
+    match &self.gc_scope {
+        GcScopeType::Ref { stack_id, depth } => self.ctx_ptr
+            .gc_heap()
+            .scope(*stack_id, *depth)     // Vec 索引 + 边界检查 + expect
+            .expect("Ref scope must exist"),
+        ...
+    }
+}
+```
+
+commit 注释明确说明：存储直接引用在 Vec 扩容时可能导致悬垂指针（UAF），用 `(stack_id, depth)` 是安全性修正。
+
+**热路径触发：** `gc_state()` 在每次 GC 分配（`alloc_local`）、每次 `clear_locals()` 时被调用。对 `math_min`（2.6×）、`string_build1/2`（2.2–2.5×）这类大量创建临时对象的 benchmark 影响最大。
+
+**预计单次开销：** 1 周期（指针 load）→ 5–10 周期（Vec 索引 + 断言 + expect 分支）。
+
+---
+
+> **更正：** 之前分析中将 DerefMut 实现变化列为根因二是**错误的**。`deref_mut()` 和 `unsafe { &mut *ptr }` 在 release 构建中会被 LLVM 完全优化为相同的指针解引用指令，两者生成的机器码无区别。以下为经过纠正的根因分析。
+
+---
+
+#### 根因二：`with_new_scope` — 裸闭包变 `ScopeReturn<R: ScopeResult>`
+
+**变更位置：** `src/bytecode/exec.rs` 的 `Bytecode::call()` 和 `src/function/call.rs` 的 `call_internal()`。
+
+v0.6 的 `with_new_scope<R>` 无 trait bound，闭包直接返回 `R`，直通给调用者：
+
+```rust
+// v0.6
+fn with_new_scope<R>(&mut self, f: impl FnOnce(ScopedContext<'_>) -> R) -> R
+```
+
+v0.7 引入了 `ScopeReturn<R>` 包装，返回值必须经过 `promote()` + `into_inner()` 解包：
+
+```rust
+// v0.7
+fn with_new_scope<R: ScopeResult>(
+    &mut self,
+    f: impl FnOnce(ScopedContext<'_>) -> ScopeReturn<R>,
+) -> R
+```
+
+调用链变成：`f(s)` → 返回 `ScopeReturn<R>`（构造）→ `ScopeReturn::new(res)` 内部 `value.promote(&self)`（遍历返回值 GC 节点）→ `ret_val.into_inner()`（解包）。
+
+**每次 JS 函数调用**都经过这个包装-解包链条，`func_call`（5.5× vs QJS）和 `closure_var`（4.5×）直接受此惩罚。
+
+---
+
+#### 根因三（次要）：`gc-lite` 0.4.2 → 0.5 升级
+
+`Cargo.toml` 中 gc-lite 版本从 0.4.2 升到 0.5。gc-lite 是项目最核心的依赖——scope 管理、GC 分配、节点 promote 全部走它。详细分析见 **[§4 gc-lite 效率分析与优化](#4-gc-lite-效率分析与优化)**，结论：gc-lite 整体贡献了 vs QuickJS 差距的 **60–80%**，主要瓶颈在 `std::alloc::alloc()` 替代 bump-pointer 和 HashMap 查找开销。
+
+---
+
+#### 为什么 35/37 项全面退步
+
+两项核心变更在**基础设施层**：
+
+| 变更 | 影响范围 | 典型受害者（退步幅度） |
+|------|---------|----------------------|
+| `gc_state()` Vec 查找 | 所有 GC 分配路径 | math_min (2.6×), string_build (2.2×), array_push |
+| `with_new_scope` + `promote()` | 所有 JS 函数调用入口 | func_call (5.5×中贡献 ~0.7×), closure_var |
+| `gc-lite` 0.4.2→0.5 | 所有 scope/GC 操作 | 全局性影响，幅度未知 |
+
+**退步幅度 1.1–2.7×** 与 benchmark 的 GC 分配密度正相关。`empty_loop`（退步最小，1.1×）几乎不分配对象，恰好避开了 gc_state 惩罚。
+
+**仅 2 项改善**（`prop_delete` 52.6×、`prop_create` 1.2×）是因为专项修复（`ignore_attributes`）收益远超 GC 基础设施退步。
+
+---
+
+#### `interrupt_code` 为何不相关
+
+`interrupt_code` 字段（`RuntimeImpl` 新增）将中断状态从 `cur_exception` 中独立出来。它的检查点全部在冷路径：
+- `exec.rs` 的 `State::Exception` 分支（正常执行不触发）
+- `tick.rs` 的事件循环间隙（每个 microtask 间一次，不在 JS 执行内）
+
+`is_some()` 编译为 `cmp byte ptr [offset], 0`（单条指令），字段 2 字节紧挨 `cur_exception` 同一条 cache line。**不产生任何可测量的热路径开销。**
+
+---
+
+### 修复方案
+
+| 根因 | 方案 | 难度 | 收益 |
+|------|------|------|------|
+| `gc_state()` Vec 查找 | 缓存 `&GcScopeState` 在调用方（如 `execute()` 入口取一次，内层复用），利用 `ScopedContext` 生命周期保证安全，避免每次 `alloc_local`/`clear_locals` 走查找 | 低 | 分配密集型 benchmark 恢复 |
+| `with_new_scope` 包装 | 对无返回值 promote 需求的内层 scope 提供轻量版（跳过 `ScopeReturn` 构造/解包和 `promote` 调用） | 中 | func_call、closure_var 恢复 |
+| `gc-lite` 升级影响 | 对比 0.4.2 vs 0.5 关键路径（scope 创建/销毁、alloc、promote）的机器码差异，确认是否有退步；如有，考虑回退或修复 | 中 | 全局性恢复（幅度取决于实际差异） |
+
+### 优先修复建议
+
+```
+Phase 0 (v0.7.x 热修复, ~1 周) — 修倒退
+├── 缓存 gc_state 引用 → 修复 math_min (2.6×)、string_build (2.2×) 退化
+├── 提供 with_new_scope 轻量版 → 修复 func_call/closure_var 退化
+├── 排查 gc-lite 0.5 开销 → 对比 disassemble，确认/排除为退步因素
+└── 修复后目标：综合差距 3.4× → 2.0×
+```
+
+---
+
+## 3. 根因分析（vs QuickJS 结构性差距）
+
+> **注意：** v0.7 基础设施退步的根因已在第 2 节详细分析（gc_state Vec 查找、with_new_scope ScopeReturn 包装、gc-lite 升级），修复后可恢复至 ~2.0×。以下聚焦于修复退步后仍然存在的结构性差距。
+
+### 3.1 字节码 dispatch 开销
+
+核心热循环位于 `src/bytecode/exec.rs:338`，使用 Rust `match opcode { ... }`。编译器通常将其编译为一串条件跳转或二分查找跳转表，分支预测在控制流密集的字节码解释器中频繁失败。
+
+**证据：** `int_arith`（3.6×）、`float_arith`（2.9×）、`array_for`（4.7×）、`empty_loop`（1.4×）——最后两项尤其说明 dispatch 自身有显著开销。empty_loop 从 v0.6 的 ~12.5 ns 退到 19.4 ns（+55%）。
+
+### 3.2 JSValue 体积过大
+
+| 表示方式 | 每个值大小 | 64B cache line 可存 |
+|----------|-----------|-------------------|
+| 当前 enum（非 nan_boxing） | ~24 字节 | ~2.7 个值 |
+| NaN-boxing（u64） | 8 字节 | 8 个值 |
+
+`array_read`（4.6×）、`typed_array_read`（5.8×）等大量操作栈值的 benchmark 受 L1D 缓存效率直接影响。typed_array_read 退步到 5.8× 也反映值传递开销变大。
+
+### 3.3 函数调用 GC scope 开销
+
+`call_internal()` → `execute()` 路径中每次都会 `realm_ctx.with_new_scope()`。QuickJS 的 JS 函数调用 ≈ C 函数调用（直接 JMP），几乎零开销。
+
+`func_call` 5.5× 是当前可靠性最高的优化目标。v0.6 时是 ~3.8×，v0.7 退到 5.5×——GC scope 安全加固增加了调用链开销。`closure_var`（4.5×）叠加了闭包变量的额外查找路径。
+
+### 3.4 字符串拼接
+
+`string_build1/2`（~5.9×）是当前最差项。每次拼接都走 GC 分配和完整拷贝路径。需要 rope/cord 或 mutable string builder 中间表示来减少分配频率。
+
+### 3.5 属性查找无缓存
+
+`find_shape_property()` 每次走 `HashList::find_hash`（`src/object/property/own.rs:43`），即使同一处代码连续访问同一对象的同一属性。`prop_read`（2.2×）、`prop_write`（2.2×）、`array_read`（4.6×）均有此问题。
+
+### 3.6 for_in 对象分配风暴
+
+`array_for_in` 5.5× ——每次迭代创建 `ForInIterPayload` GC 对象，枚举属性名还要走 prototype chain 遍历。QuickJS 对数组的 `for-in` 走快速的 index 枚举路径。
+
+---
+
+## 4. gc-lite 效率分析与优化
+
+> 基于 `~/devel/gc-lite-v2/` 源码（对应朱雀使用的 gc-lite 0.5.x）的完整分析。
+> 评估日期：2026-06-20
+
+### 4.1 架构概览
+
+gc-lite 是一个**单线程、非移动、非分代、非并发**的标记-清除（Mark-Sweep）GC 库。架构极简：
+
+```
+┌──────────────────────────────────────────────────┐
+│ GcHeap                                            │
+│  ├─ partitions: HashMap<id, GcPartition>          │
+│  │   └─ GcPartition                               │
+│  │       ├─ scope_stacks: Vec<GcScopeStack>       │
+│  │       ├─ mem_usage / mem_limit                  │
+│  │       └─ gray_list / black_list                 │
+│  └─ trace_ctx (跨 partition 引用追踪)              │
+├──────────────────────────────────────────────────┤
+│ GcNode (每个 GC 对象)                              │
+│  ├─ GcHead (20 bytes): attrs + partition + weak_id│
+│  ├─ next: Option<NonNull<GcNode>>  (链表)          │
+│  └─ payload (用户数据)                             │
+└──────────────────────────────────────────────────┘
+```
+
+朱雀中每类 GC 对象（ContextImpl, ObjectImpl, StringImpl, BytecodeImpl, VarRefImpl, ModuleDefImpl, AsyncStateImpl, ShapeImpl）都被包装为一个 `GcNode`。
+
+### 4.2 热路径开销逐项分析
+
+#### 4.2.1 分配路径
+
+每次 `ScopedContext::alloc_local()` → `GcHeap::alloc_raw()` 经过：
+
+```
+alloc_raw()
+  ├─ partition_mut(id)         ← HashMap::get #1
+  ├─ Layout 计算                ← 编译期常量，零开销
+  ├─ memory_limit 检查          ← 整数比较
+  ├─ std::alloc::alloc()       ← ★ 最大单项开销（系统调用）
+  ├─ GcHead 初始化              ← 几条 mov
+  └─ update_mem_use()          ← HashMap::get #2
+attach_node(node)              ← HashMap::get #3
+add_node():
+  ├─ insert_flag(LOCAL)        ← 位操作
+  ├─ gray_list.contains()      ← O(n) 线性扫描（仅 GC 标记期间触发）
+  └─ cache.borrow_mut().push   ← RefCell 运行时借用检查
+```
+
+**每分配一个 GC 节点：3 次 HashMap 查找 + 1 次系统 malloc + 1 次 RefCell borrow。**
+
+#### 4.2.2 scope 访问路径
+
+```rust
+// GcScopeType::Ref { stack_id, depth }
+// 每次 gc_state() 调用触发
+gc_heap().scope(*stack_id, *depth)
+  → scope_stacks[id].list.get(depth - 1)  // Vec 双索引 + 边界检查
+```
+
+v0.6 直接存 `&GcScopeState` 裸引用（1 条 `mov`），v0.7 改为间接索引（~5–10 周期）。这是之前确认的 v0.7 退步根因之一。
+
+#### 4.2.3 写屏障 (`bind()`)
+
+```rust
+pub fn bind(&mut self, master: &GcNodePtr, slave: &GcNodePtr) {
+    // 无条件 tri-color 检查
+    if master.color == Black && slave.color in {White, Gray} {
+        slave.set_color(Gray);
+        if partition(slave_pid).is_marking() {
+            add_gray_node(slave);  // HashMap + gray_list.contains() O(n)
+        }
+    }
+    // 跨 partition 引用追踪（同 partition 跳过）
+}
+```
+
+- **非 GC 期间：** 2 次 ptr deref（读颜色）+ 1 次 match + 1 次整数比较 → 约 3–5 条 CPU 指令，极其廉价。
+- **GC 标记期间：** 增加 HashMap 查找 + gray_list 线性扫描，但此时 GC 本身在运行，额外开销被分摊。
+
+#### 4.2.4 GcHead 内存开销
+
+release 模式约 20 字节（对齐后）。对于小对象（如 `VarRefImpl` ~24 bytes payload），GcHead 占比接近 50%。内存膨胀导致 cache line 利用率下降，对数组遍历、属性访问等密集操作有间接影响。
+
+### 4.3 与 QuickJS 的关键差异
+
+| 维度 | gc-lite（朱雀） | QuickJS |
+|------|----------------|---------|
+| **分配器** | `std::alloc::alloc()` 系统调用 | 自定义内存池 + `dyn_buf` |
+| **分配开销** | ~3 HashMap 查找 + malloc | 池内指针移动（bump） |
+| **对象头** | GcHead 20 bytes | JSObject 内联 refcount |
+| **引用计数** | 无（纯 tracing） | refcount + cycle GC |
+| **写屏障** | tri-color check | 无（refcount 不需要） |
+| **GC 时延** | 全堆标记-清除 | 增量 refcount + cycle detection |
+| **内存布局** | 链表串联，碎片化 | 从 dyn_buf 连续分配 |
+
+**最根本的性能差异来源：每次分配走系统 malloc vs 池内指针 bump。前者慢一个数量级。**
+
+### 4.4 量化评估：gc-lite 对 3.4× 差距的贡献
+
+| 因素 | 估计贡献 | 依据 |
+|------|---------|------|
+| `std::alloc::alloc()` vs bump pointer | **~1.5–2.0×** | 系统 malloc 比池内指针移动慢一个数量级 |
+| HashMap 查找 ×3/分配 | ~0.2–0.3× | hash + probing，但 HashMap 很小（通常 1 entry） |
+| RefCell borrow 检查 | ~0.05–0.1× | 单条整数 inc/cmp，LLVM 可能部分内联优化 |
+| scope 解析（Vec 双索引） | ~0.1–0.15× | 每条路径 2 次索引 + 边界检查 |
+| GcHead 内存膨胀 → cache miss | ~0.1–0.2× | 更多 cache line 占用，间接影响 |
+| **gc-lite 合计** | **~2.0–2.8×** | **占 3.4× 差距的 60–80%** |
+
+其余 0.6–1.4× 来自字节码解释器自身差异（指令分发、操作数解码、JSValue 体积等）。
+
+### 4.5 gc-lite 专项优化建议
+
+以下优化按投产比排序，目标是在**不破坏 gc-lite 简单性哲学**的前提下缩小差距。
+
+---
+
+#### 优化 G1：bump-pointer arena 替代系统 malloc（★★★★★ 最高收益）
+
+**现状：** 每次 GC 分配走 `std::alloc::alloc()`，频繁的系统调用是最大单项开销。
+
+**方案：** 在 `GcPartition` 内预分配大块内存（如 64KB arena），用 bump pointer 分配，GC sweep 阶段整体回收或 compact：
+
+```rust
+struct GcArena {
+    base: NonNull<u8>,
+    capacity: usize,
+    bump: AtomicUsize,   // 或 Cell<usize>
+}
+
+impl GcPartition {
+    fn arena_alloc(&self, layout: Layout) -> Option<NonNull<u8>> {
+        let size = layout.size();
+        let offset = self.arena.bump.fetch_add(size, Relaxed);
+        if offset + size <= self.arena.capacity {
+            Some(unsafe { self.arena.base.add(offset) })
+        } else {
+            None  // fallback to std::alloc
+        }
+    }
+}
+```
+
+**注意事项：**
+- 非移动 GC（不 compact），所以 bump 到顶后需要分配新 arena 或 fallback 到系统 malloc
+- sweep 后 arena 整体重置 bump=0（全部回收时）或保留存活对象（需要 compact 或 free-list）
+
+**预计收益：** 缩小与 QuickJS 差距的 40–50%，全局提升 1.5–2.0×。
+
+**工作量：** 中（gc-lite 核心改动 ~200 行 + 朱雀适配）
+
+---
+
+#### 优化 G2：消除 HashMap 查找（★★★★★）
+
+**现状：** 朱雀使用场景下 `partitions` 只有 **1 个 entry**。3 次 `HashMap::get()` 在每次分配时是纯浪费。
+
+**方案：** 将 `partitions: HashMap<GcPartitionId, GcPartition>` 改为直接存储 `GcPartition` 或 `Option<GcPartition>`：
+
+```rust
+// 当前
+struct GcHeap {
+    partitions: HashMap<GcPartitionId, GcPartition>,
+}
+
+// 优化后（单 partition 场景）
+struct GcHeap {
+    partition: GcPartition,          // 直接字段，零查找
+    // 如需多 partition，提供 feature gate
+}
+```
+
+**预计收益：** 每次分配省 3 次 hash 计算 + probing（~20–40 周期），积累效应显著。
+
+**工作量：** 低（~50 行，需同步改 gc-lite 和朱雀的调用方）
+
+---
+
+#### 优化 G3：scope 访问缓存（★★★★☆）
+
+**现状：** v0.7 的 `GcScopeType::Ref { stack_id, depth }` 需要每次走 Vec 双索引查找。在 `execute()` 热循环中，scope 在函数调用期间不变，却每次被重新查找。
+
+**方案 A：** 在 `execute()` 入口取一次 `gc_state()` 引用，内层通过局部变量传递，避免重复查找：
+
+```rust
+fn execute(ctx: &mut ScopedContext, ...) -> JSResult<JSValue> {
+    let gc_state: &GcScopeState = ctx.gc_state(); // 入口取一次
+    loop {
+        match opcode {
+            // 直接用 gc_state，不再走 ctx.gc_state() 查找
+        }
+    }
+}
+```
+
+**方案 B：** 将 `GcScopeType::Ref` 改回存储 `NonNull<GcScopeState>` 裸指针（v0.6 做法），用一个编译期标记确保指针来源合法（scope stack 生命周期保证）。
+
+**预计收益：** `math_min`（2.6×→1.5×）、`string_build`（2.2×→1.3×）等分配密集型 benchmark 恢复。
+
+**工作量：** 方案 A 低（~30 行），方案 B 中（需安全审计）
+
+---
+
+#### 优化 G4：RefCell → UnsafeCell（★★★☆☆）
+
+**现状：** scope cache 使用 `RefCell<SmallVec>`，每次 push 走运行时借用检查。在**已知单线程**的朱雀字节码解释器中，RefCell 是纯开销。
+
+**方案：**
+
+```rust
+// 当前
+cache: RefCell<SmallVec<[GcNodePtr; 4]>>,
+
+// 优化后
+cache: UnsafeCell<SmallVec<[GcNodePtr; 4]>>,
+// 访问时用 unsafe { &mut *self.cache.get() }，由调用方保证不重入
+```
+
+**预计收益：** 每次 `alloc_local` 省 1 次原子操作 + 分支（RefCell borrow 内部实现），微小但高频累积。
+
+**工作量：** 低（~20 行，集中在一处）
+
+---
+
+#### 优化 G5：gray_list O(n) → O(1)（★★☆☆☆）
+
+**现状：** `add_gray_node` 和 `bind()` 中用 `gray_list.contains()` 线性扫描判重，每次遍历已标记的 gray 节点列表。
+
+**方案：** 用 `HashSet<*const GcNode>` 或在 GcHead 内用 1-bit flag 标记"已在 gray list"：
+
+```rust
+// 方案 A：HashSet
+gray_set: HashSet<NonNull<GcNode>>,
+
+// 方案 B：复用 GcHead attrs 中的 1 bit
+fn is_gray_listed(&self) -> bool {
+    (self.attrs & GRAY_LISTED_FLAG) != 0
+}
+```
+
+**预计收益：** 仅影响 GC 标记阶段（冷路径），对 benchmark（通常不触发 GC）无直接收益。但对长时间运行的应用有 GC 暂停改善。
+
+**工作量：** 低
+
+---
+
+#### 优化 G6：GcHead 压缩（★★☆☆☆）
+
+**现状：** GcHead 约 20 字节（对齐后），对小对象占比高。
+
+**方案：** 将 `attrs(4) + partition(4) + weak_id(4)` 从 12 字节压到 8 字节（如 partition 压缩为 u16，weak_id 用 u16 索引表）：
+
+```rust
+pub struct GcHead {
+    attrs: u32,         // 4 bytes
+    partition: u16,     // 2 bytes (was u32)
+    weak_id: u16,       // 2 bytes (was u32)
+    next: Option<NN<>>, // 8 bytes
+}
+// 16 bytes total (was 20)
+```
+
+**预计收益：** ~5% cache 改善，工程量大收益有限。**暂时不推荐优先做。**
+
+**工作量：** 中–大（影响所有 GC 节点类型的布局）
+
+---
+
+### 4.6 gc-lite 优化总结
+
+| 优化项 | 收益 | 工作量 | 优先级 | 影响范围 |
+|--------|------|--------|--------|----------|
+| **G1** bump-pointer arena | ★★★★★ (1.5–2.0×) | 中 | P0 | 所有分配 |
+| **G2** 消除 HashMap | ★★★★★ (每次省 ~30 周期) | 低 | P0 | 所有分配 |
+| **G3** scope 访问缓存 | ★★★★☆ (恢复 v0.6 水平) | 低–中 | P0 | scope 操作 |
+| **G4** RefCell→UnsafeCell | ★★★☆☆ (微小但高频) | 低 | P1 | 每次 alloc_local |
+| **G5** gray_list O(1) | ★★☆☆☆ (GC 暂停改善) | 低 | P1 | GC 标记阶段 |
+| **G6** GcHead 压缩 | ★★☆☆☆ (~5% cache) | 中–大 | P3 | 所有 GC 对象 |
+
+**建议顺序：G2 → G3 → G1（小改积累，大改紧随），G4/G5 顺手改掉。**
+
+---
+
+## 5. 优化方向详述
+
+### 5.1 指令跳转表 (Token-threaded Dispatch)
+
+**现状：**
+
+```rust
+// src/bytecode/exec.rs 核心循环
+match opcode {
+    OpCode::PUSH_I32 => { ... }
+    OpCode::PUSH_CONST => { ... }
+    OpCode::ADD => { ... }
+    // ... 200+ 条分支
+}
+```
+
+**问题：** Rust match 语句对 200+ 分支常生成分支链（if-else cascade 或二分查找），每次 dispatch 经历多次分支预测。
+
+**方案：**
+
+```rust
+// 静态跳转表：每个 opcode 一个 handler 函数
+type OpHandler = fn(
+    realm_scope: &mut ScopedContext,
+    sp: *mut JSValue,
+    pc: *const u8,
+    stack_frame: &mut StackFrame,
+) -> StepResult;
+
+static OP_HANDLERS: [OpHandler; 256] = [
+    op_push_i32,
+    op_push_const,
+    op_add,
+    // ...
+];
+
+// 热循环
+loop {
+    let opcode = *pc;
+    pc = pc.add(1);
+    match OP_HANDLERS[opcode as usize](realm_scope, sp, pc, stack_frame) {
+        StepResult::Continue => {},
+        StepResult::Done(v) => break v,
+        StepResult::Exception => break JS_EXCEPTION,
+    }
+}
+```
+
+**预计收益：** 解释器密集场景 1.3–1.5× 提速，empty_loop 可恢复至接近 v0.6 水平。
+
+**工作量：** 中（~200–400 行，批量生成 handler 表）
+
+---
+
+### 5.2 NaN-boxing 值表示
+
+**现状：** `src/value/val.rs:109` 已有 NaN-boxing 实现（`nb_value` 模块），但需 `#[cfg(feature = "nan_boxing")]` 开启。默认走 24 字节 Rust enum。
+
+**NaN-boxing 方案（已实现但未默认）：**
+
+```
+JSValue = u64
+┌─────────────────┬──────────────────────────────┐
+│    tag (32 bit)  │      payload (32 bit)        │
+├─────────────────┼──────────────────────────────┤
+│ JS_TAG_INT      │ int32                        │
+│ JS_TAG_FLOAT64  │ NaN payload                  │
+│ JS_TAG_STRING   │ ptr low 32 bits              │
+│ JS_TAG_OBJECT   │ ptr low 32 bits              │
+└─────────────────┴──────────────────────────────┘
+```
+
+**实施步骤：**
+1. 将 `nan_boxing` feature 设为默认开启
+2. 修复所有 `#[cfg(not(feature = "nan_boxing"))]` 路径
+3. 修改 gc-lite 的堆分配器，配合内存基址约束（4GB 范围）
+4. 跑通 Test262 和 microbench
+
+**预计收益：** 栈密集型场景（array_read 4.6×→2.5×, typed_array_read 5.8×→3.0×），全局 1.2–1.3×。
+
+**工作量：** 低–中（feature flag 切换 + 回归测试）
+
+---
+
+### 5.3 Inline Caching 属性访问
+
+**现状：** 每次属性读取都走完整路径：`get_property() → find_shape_property() → HashList::find_hash(atom_id)`。
+
+**方案：** 在字节码中嵌入 property cache slot：
+
+```rust
+struct PropertyCacheEntry {
+    shape_hash: u32,   // 上次命中的 shape hash
+    slot_index: u16,   // 属性在 prop_values[] 中的偏移
+}
+
+fn get_prop_with_cache(
+    obj: &Object, prop: Atom, cache: &mut PropertyCacheEntry,
+) -> Option<JSValue> {
+    if let Some(shape) = obj.shape() {
+        if shape.hash() == cache.shape_hash {
+            return Some(obj.prop_slot(cache.slot_index)); // 跳过 hash + 原型链
+        }
+    }
+    None // miss → fallback to slow path
+}
+```
+
+**预计收益：** `prop_read`/`prop_write` 2.2×→1.1×；间接受益 `array_read`（4.6×→2.5×）。
+
+**工作量：** 中（~500 行 + 操作码扩展 + GC 追踪适配）
+
+---
+
+### 5.4 StackFrame Bump 分配 + 直接跳转
+
+**现状：** 每次 JS 函数调用经过 `call_internal()` → `with_new_scope()` → `execute()` → 创建 StackFrame → 压入 runtime.frames 链表。QuickJS 的 JS 函数调用 ≈ C 函数调用（直接 JMP）。
+
+**方案：** StackFrame 从 Bump Allocator 分配，函数调用直接修改 PC/SP 跳转：
+
+```rust
+fn js_call(frame: &mut StackFrame, callee_bytecode: &Bytecode, args: &[JSValue]) {
+    let new_frame = frame.bump_alloc.alloc_frame(callee_bytecode.max_stack_size);
+    new_frame.parent = frame;
+    new_frame.pc = callee_bytecode.entry_pc;
+    // 设置 SP/PC 到新帧，continue 循环
+}
+```
+
+**收益：** 省掉 `with_new_scope()` 开销 + 帧退出时 bump pointer 直接回退（O(1)）。
+
+**实施分阶段：**
+
+| 阶段 | 内容 | 复杂度 |
+|------|------|--------|
+| 1 | StackFrame 从 Bump Allocator 分配 | 中 |
+| 2 | 直接 PC/SP 跳转替代 fn() 调用 | 中 |
+| 3 | 帧内 partition GC（见 4.7） | 高 |
+
+**预计收益：** `func_call` 5.5×→2.0×, `closure_var` 4.5×→2.0×。
+
+**工作量：** 大（架构级改动）
+
+---
+
+### 5.5 for_in 快速路径
+
+**现状：** `array_for_in` 5.5×。当前对数组 `for-in` 仍创建 `ForInIterPayload` GC 对象，枚举属性名走 prototype chain。
+
+**方案：** 对 dense array 的 `for-in` 走栈上迭代——迭代状态放在栈上不分配 GC 对象，按索引直接枚举。
+
+**预计收益：** `array_for_in` 5.5×→2.0×。
+
+**工作量：** 中（~300 行）
+
+---
+
+### 5.6 Short Opcodes + 字节码对齐
+
+**现状：** `#[cfg(feature = "short_opcode")]` 标记的指令（PUSH_0..PUSH_7、PUSH_I8、PUSH_CONST8 等）全为 `todo!()`。指令长度不一，跨 cache line 取指需要两次内存访问。
+
+**方案：** 补完 short opcodes，让常见常量推送省掉操作数取指；字节码 32 位对齐减少未对齐内存访问。
+
+**预计收益：** 指令带宽提升 15–20%。
+
+**工作量：** 中（codegen 改动 + short opcode 实现）
+
+---
+
+### 5.7 GC 分区回收
+
+**目标：** 每个 StackFrame 有自己的 GC partition。帧内临时对象分配在当前 partition，帧退出时整块回收。
+
+```
+运行时堆结构:
+┌──────────────────────────────────┐
+│ Global Partition (长生命周期)     │
+├──────────────────────────────────┤
+│ Frame Partition 1 (f1→f2→f3)     │  ← f3 退出时整块回收
+├──────────────────────────────────┤
+│ Frame Partition 2 (f1→f4)        │
+└──────────────────────────────────┘
+```
+
+**逃逸处理：** 对象被返回值引用或闭包捕获时，迁移到父帧 partition。
+
+**预计收益：** GC 暂停减半，间接提升吞吐。
+
+**工作量：** 大（GC 核心改动 + gc-lite 扩展）
+
+---
+
+### 5.8 VLA 内存布局
+
+**目标：** ShapeProperty、Shape、Object property 用 VLA 连续分配，消除指针追逐：
+
+```
+当前: Shape → heap → HashList<ShapeProperty> → heap → individual entries
+目标: ┌──────────────┬─────────────┬─────────────┬─────┐
+      │ ShapeHeader  │ PropDef[0]  │ PropDef[1]  │ ... │  (单次分配)
+      └──────────────┴─────────────┴─────────────┴─────┘
+```
+
+**收益：** 单次 cache line 加载获取所有属性元信息，对小属性集线性扫描比 hash 更快。
+
+**工作量：** 中–大（gc-lite 分配 + shape 模块重构）
+
+---
+
+## 6. 实施路线图
+
+### 按投产比排序
+
+| 优先级 | 优化项 | 预计改善 | 影响面 | 工作量 |
+|--------|--------|---------|--------|--------|
+| **P0** | **v0.7 退步排查修复** | 恢复 0.7–0.9× 的损失 | 全局变量、解构、Set、math | 低–中 |
+| **P0** | **gc-lite G2: 消除 HashMap** | 每次分配省 ~30 周期（详见 §4） | 所有 GC 分配 | 低 |
+| **P0** | **gc-lite G3: scope 访问缓存** | 恢复 v0.6 水平（详见 §4） | scope 操作 | 低–中 |
+| **P0** | **gc-lite G1: bump arena** | 全局 1.5–2.0×（详见 §4） | 所有 GC 分配 | 中 |
+| **P0** | 指令跳转表 | 解释器密集 1.3–1.5× | 所有字节码执行 | 中 |
+| **P0** | NaN-boxing 默认启用 | 栈密集型 1.2–1.3× | array/typed_array | 低 |
+| **P1** | 属性 IC | prop 操作 → 1.1× | 属性密集场景 | 中 |
+| **P1** | StackFrame Bump 分配 | func_call 5.5×→2.0× | 函数调用密集 | 大 |
+| **P1** | for_in 快速路径 | array_for_in 5.5×→2.0× | 数组 for-in | 中 |
+| **P1** | short opcodes + 对齐 | 指令带宽 +15% | 常量/指令密集型 | 中 |
+| **P1** | gc-lite G4: RefCell→UnsafeCell | 微小但高频累积 | 每次 alloc_local | 低 |
+| **P1** | gc-lite G5: gray_list O(1) | GC 暂停改善 | GC 标记阶段 | 低 |
+| **P2** | 字符串拼接优化 | string_build 5.9×→2.5× | 字符串密集 | 中 |
+| **P2** | VLA 内存布局 | Shape/Object 访问 | 对象操作 | 中–大 |
+| **P3** | GC 分区回收 | GC 暂停 −50% | 含临时对象的场景 | 大 |
+| **P3** | gc-lite G6: GcHead 压缩 | ~5% cache 改善 | 所有 GC 对象 | 中–大 |
+
+### 建议实施顺序
+
+```
+Phase 0 (v0.7.x 热修复, ~1 周) — 修倒退 + gc-lite 小改（详见 §2 修复方案 + §4 gc-lite 建议）
+├── gc-lite G2: 消除 HashMap → 省每次分配 3 次 hash
+├── gc-lite G3: scope 缓存 → 省 Vec 双索引
+├── 提供 with_new_scope 轻量版 → 修复 func_call/closure_var 退化
+├── gc-lite G4: RefCell→UnsafeCell → 顺手改
+└── 修复后目标：综合差距 3.4× → 2.0×
+
+Phase 1 (v0.8, ~2 周) — gc-lite 核心 + 低投入高回报
+├── gc-lite G1: bump-pointer arena → 最大单项收益
+├── NaN-boxing 设为默认
+├── 指令跳转表
+└── short opcodes 补完
+
+Phase 2 (v0.9, ~3 周) — 核心优化
+├── 属性 IC
+├── for_in 快速路径
+├── StackFrame Bump 分配
+└── gc-lite G5: gray_list O(1)
+
+Phase 3 (v1.0+, 长期)
+├── 字符串 rope/Cord
+├── VLA 内存布局
+├── GC partition 回收
+└── gc-lite G6: GcHead 压缩
+```
+
+### 目标数据（预测）
+
+| 里程碑 | 综合差距 | 关键指标 |
+|--------|---------|----------|
+| 当前 v0.7 最新 | **3.4×** | func_call 5.5×, string_build 5.9× |
+| Phase 0 完成 | ~2.0× | gc_state 恢复, func_call ~4.0×, math_min 恢复 |
+| Phase 1 完成 | ~1.4× | array_read ~2.0×, int_arith ~1.8×, 分配开销大幅降低 |
+| Phase 2 完成 | ~1.2× | func_call ~1.5×, prop_read ~1.1× |
+| Phase 3 完成 | ~1.0× | string_build ~1.3×, GC 压力减半 |
+
+---

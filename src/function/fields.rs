@@ -413,5 +413,5 @@ pub(crate) fn prop_str_to_atom(ctx: &mut ScopedContext, str: &str) -> Result<Ato
         return Err(ctx.throw_internal_error(&format!("unknown atom '{str}'")));
     }
 
-    Atom::from_str(ctx, str)
+    Atom::intern_str(ctx, str)
 }

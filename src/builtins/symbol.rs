@@ -24,12 +24,12 @@ impl<'c> ScopedContext<'c> {
         );
 
         let atom = if let Some(s) = str {
-            Atom::from_string_as_is(self, s, atom_kind)?
+            Atom::from_content_as_is(self, s, atom_kind)?
         } else {
             debug_assert_eq!(atom_kind, AtomKind::Symbol);
             let s = StringRef::from_content(self, StringData::Ident)
                 .map_err(|_| self.throw_out_of_memory())?;
-            Atom::from_string_as_is(self, s, atom_kind)?
+            Atom::from_content_as_is(self, s, atom_kind)?
         };
 
         let sym = JSValue::make_symbol(atom.descriptor(self.rt()));

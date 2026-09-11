@@ -1,0 +1,7 @@
+
+# disallowed-names = [
+#     "clippy::dangerous_implicit_autorefs",
+#     "clippy::empty_line_after_doc_comments",
+#     "clippy::invalid_reference_casting",
+#     "clippy::implicit_autoref_into_unsafe_pointer",
+# ]

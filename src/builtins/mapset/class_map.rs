@@ -450,7 +450,7 @@ struct SetRecord {
 /// Throws TypeError if `has` is missing/not-callable, or `keys` is undefined/null/not-callable.
 fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i32> {
     // 1. Get size → ToNumber(size)
-    let size_atom = Atom::from_str(ctx, "size")?;
+    let size_atom = Atom::intern_str(ctx, "size")?;
     let size_val = val.get_property(ctx, size_atom)?;
     let size = match size_val.to_number(ctx)? {
         IntOrFloat::Int64(i) => i as f64,
@@ -472,7 +472,7 @@ fn get_set_record(ctx: &mut ScopedContext, val: JSValue) -> Result<SetRecord, i3
     };
 
     // 3. Get keys via GetMethod: undefined/null → undefined, not-callable → throw
-    let keys_atom = Atom::from_str(ctx, "keys")?;
+    let keys_atom = Atom::intern_str(ctx, "keys")?;
     let keys_val = val.get_property(ctx, keys_atom)?;
     // GetMethod returns undefined for null/undefined
     if keys_val.is_undefined_or_null() {

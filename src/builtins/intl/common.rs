@@ -432,7 +432,7 @@ pub(crate) fn canonicalize_locale_list(
     let len = obj.get_length_prop(ctx)?;
     for i in 0..len {
         // ECMA-402 §9.1 step 7.b: skip absent elements (holes).
-        let prop_atom = Atom::from_i64(ctx, i)?;
+        let prop_atom = Atom::new_i64(ctx, i)?;
         if !obj.has_property(ctx, prop_atom)? {
             continue;
         }

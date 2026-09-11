@@ -1,0 +1,11 @@
+# 优化方向（原始笔记）
+
+> **注意：** 此文件为原始优化思路的简要记录。完整的优化方案、数据分析和实施路线图请参阅：[性能优化方案.md](./性能优化方案.md)
+
+- 用 VLA 方式实现 ShapeProperty, Shape, ShapeRegistry，提高内存访问效率，提高缓存命中
+- 用 VLA 方式实现 Object property，提高内存访问效率，提高缓存命中
+- 重新设计字节码指令，使之 32 位对齐
+- 执行字节码用指令跳转表替换现在简单的 match
+- 调用函数时 Stack frame 分配在 Bump 上，直接跳转 PC/SP，不必用 fn()函数调用
+- 执行每层 Function，为其 Stack frame 创建专属 GC Partition，Function 运行时对象分配在这个 partition，Stack frame 结束时，回收这个 Partition。需注意对象逃逸，可迁移至上级 Stack frame 对应的 partition。
+- 64-bit RawValue
