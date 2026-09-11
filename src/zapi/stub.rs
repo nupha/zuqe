@@ -399,7 +399,7 @@ unsafe extern "C" fn zapi_call_function(env: ZqRawCtx, info: *mut ZqCallInfoS) -
     let target = crate::JSValue(info.target, std::marker::PhantomData);
     let this = crate::JSValue(info.this, std::marker::PhantomData);
     let args: Vec<crate::JSValue> = if info.argc > 0 {
-        unsafe { std::slice::from_raw_parts(info.args, info.argc) }
+        unsafe { std::slice::from_raw_parts(info.argv, info.argc) }
             .iter()
             .map(|&r| crate::JSValue(r, std::marker::PhantomData))
             .collect()
@@ -1035,18 +1035,20 @@ unsafe extern "C" fn zapi_value_get_type(val: ZqRawValue) -> i32 {
     }
 }
 
-unsafe extern "C" fn zapi_value_to_float64(_: ZqRawCtx, val: ZqRawValue, ret: *mut f64) -> i32 {
+unsafe extern "C" fn zapi_value_to_float64(env: ZqRawCtx, val: ZqRawValue, ret: *mut f64) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
     JSValue(val, std::marker::PhantomData)
-        .as_number()
+        .to_number(ctx)
         .map_or(-1, |n| unsafe {
             *ret = n.to_f64();
             0 // success
         })
 }
 
-unsafe extern "C" fn zapi_value_to_int64(_: ZqRawCtx, val: ZqRawValue, ret: *mut i64) -> i32 {
+unsafe extern "C" fn zapi_value_to_int64(env: ZqRawCtx, val: ZqRawValue, ret: *mut i64) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
     JSValue(val, std::marker::PhantomData)
-        .as_number()
+        .to_number(ctx)
         .map_or(-1, |n| unsafe {
             *ret = n.to_i64_saturating();
             0 // success
@@ -1073,23 +1075,20 @@ unsafe extern "C" fn zapi_call_constructor(env: ZqRawCtx, info: *mut ZqCallInfoS
     let ctx = unsafe { &mut *(env as *mut ScopedContext) };
     let info = unsafe { &*info };
 
-    let target = crate::JSValue(info.target, std::marker::PhantomData);
-    let args: Vec<crate::JSValue> = if info.argc > 0 {
-        unsafe { std::slice::from_raw_parts(info.args, info.argc) }
+    let target = JSValue(info.target, std::marker::PhantomData);
+    let args: Vec<JSValue> = if info.argc > 0 {
+        unsafe { std::slice::from_raw_parts(info.argv, info.argc) }
             .iter()
-            .map(|&r| crate::JSValue(r, std::marker::PhantomData))
+            .map(|&r| JSValue(r, std::marker::PhantomData))
             .collect()
     } else {
         Vec::new()
     };
 
-    match target.as_object() {
-        Some(o) => match o.call_ctor(ctx, &args) {
-            Ok(v) => v.0,
-            Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
-        },
-        None => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
-    }
+    target.call_ctor(ctx, &args).map_or(
+        ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
+        |v| v.0,
+    )
 }
 
 /// 全局共享的 ZqApi 表 — 纯函数指针，无运行时状态，多 Runtime 安全复用。

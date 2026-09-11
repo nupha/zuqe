@@ -113,12 +113,12 @@ pub(crate) fn zapi_trampoline_fn(
         None => return Err(-1),
     };
 
-    let raw_args: Vec<ZqRawValue> = cc.arguments().iter().map(|v| v.0).collect();
+    let args: Vec<ZqRawValue> = cc.arguments().iter().map(|v| v.0).collect();
     let mut call_info = ZqCallInfoS {
         target: 0,
         this: cc.this().0,
-        args: raw_args.as_ptr(),
-        argc: raw_args.len(),
+        argv: args.as_ptr(),
+        argc: args.len(),
         magic: user_magic,
     };
 

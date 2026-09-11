@@ -606,6 +606,12 @@ impl JSValue {
             #[cfg(feature = "big_int")]
             JSValueTag::BigInt => Ok(!unsafe { self.as_bigint_unchecked() }.is_zero()),
             JSValueTag::Exception => Err(-1),
+            JSValueTag::Uninitialized => {
+                #[cfg(debug_assertions)]
+                unreachable!();
+                #[cfg(not(debug_assertions))]
+                Ok(false)
+            }
             _ => Ok(true),
         }
     }
