@@ -1293,15 +1293,19 @@ unsafe extern "C" fn zapi_get_own_property_names(
         flags |= JS_GPN_SYMBOL_MASK;
     }
 
-    let mut vals: Vec<JSValue> = Vec::new();
-    if obj
-        .own_property_names_foreach(ctx, flags, |cx, pk| {
-            vals.push(pk.atom.to_value(cx)?);
-            Ok(())
-        })
-        .is_err()
-    {
-        return zq_exc();
+    // `get_own_property_names` returns OwnPropertyKeys order (integer keys
+    // ascending, then strings, then symbols); the `_foreach` variant would
+    // yield shape/definition order instead.
+    let keys = match obj.get_own_property_names(ctx, flags) {
+        Ok(k) => k,
+        Err(_) => return zq_exc(),
+    };
+    let mut vals: Vec<JSValue> = Vec::with_capacity(keys.len());
+    for pk in keys.iter() {
+        match pk.atom.to_value(ctx) {
+            Ok(v) => vals.push(v),
+            Err(_) => return zq_exc(),
+        }
     }
     Array::from_slice(ctx, &vals).map_or(zq_exc(), |a| JSValue::from(a).0)
 }

@@ -19,11 +19,11 @@ use zuqe_zapi::ffi::{
     ZqApi, ZqCallInfoS, ZqGcTraceCtxS, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE,
     ZQ_CONST_VALUE_SLOT_INFINITY, ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN,
     ZQ_CONST_VALUE_SLOT_NULL, ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED,
-    ZQ_CONST_VALUE_SLOT_ZERO,
+    ZQ_CONST_VALUE_SLOT_ZERO, ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_WRITABLE,
 };
 use zuqe_zapi::{
     AsyncIterResult, Class, ZqAsyncIterable, ZqCallInfo, ZqCtx, ZqError, ZqErrorType, ZqGcTraceCtx,
-    ZqRawCtx, ZqRawValue, ZqValue,
+    ZqPropertyDescriptor, ZqRawCtx, ZqRawValue, ZqValue,
 };
 use zuqe_zapi_macros::{
     zq_class, zq_class_impl, zq_function, zq_method, zq_module, zq_static_method, ZqGcTrace,
@@ -109,67 +109,70 @@ fn n_number<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErro
 
 #[zq_function(name = "nString")]
 fn n_string<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let s = cc.arg(0).string_encode_utf8(cx)?;
-    cx.new_string(&s)
+    let s = cc.arg(0).to_utf8_string(cx)?;
+    ZqValue::string(cx, &s)
 }
 
 #[zq_function(name = "nSymbol")]
 fn n_symbol<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let d = cc.arg(0).string_encode_utf8(cx)?;
-    cx.new_symbol(&d)
+    let d = cc.arg(0).to_utf8_string(cx)?;
+    ZqValue::symbol(cx, &d)
 }
 
 #[zq_function(name = "symbolDesc")]
 fn symbol_desc<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let d = cc.arg(0).symbol_description_utf8(cx)?;
-    cx.new_string(&d)
+    let d = cc.arg(0).symbol_description(cx)?;
+    ZqValue::string(cx, &d)
 }
 
 #[zq_function(name = "nObject")]
 fn n_object<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let obj = cx.new_object()?;
-    obj.set_str(cx, "kind", cx.new_string("demo")?)?;
+    let obj = ZqValue::object(cx)?;
+    obj.set_str(cx, "kind", ZqValue::string(cx, "demo")?)?;
     obj.set_str(cx, "n", 3i32)?;
-    let arr = cx.new_array(&[ZqValue::int32(1).raw(), ZqValue::int32(2).raw()])?;
+    let arr = ZqValue::array(cx, &[ZqValue::int32(1), ZqValue::int32(2)])?;
     obj.set_str(cx, "arr", arr)?;
     Ok(obj)
 }
 
 #[zq_function(name = "nArray")]
 fn n_array<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let arr = cx.new_array(&[
-        ZqValue::int32(1).raw(),
-        ZqValue::int32(2).raw(),
-        ZqValue::int32(3).raw(),
-    ])?;
-    arr.array_push(cx, cx.new_string("four")?)?;
+    let arr = ZqValue::array(
+        cx,
+        &[
+            ZqValue::int32(1),
+            ZqValue::int32(2),
+            ZqValue::int32(3),
+        ],
+    )?;
+    arr.push(cx, ZqValue::string(cx, "four")?)?;
     Ok(arr)
 }
 
 #[zq_function(name = "nBigIntI64")]
 fn n_bigint_i64<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    cx.new_bigint_i64(cc.arg(0).to_i64(cx)?)
+    ZqValue::bigint_i64(cx, cc.arg(0).to_i64(cx)?)
 }
 
 #[zq_function(name = "nBigIntU64")]
 fn n_bigint_u64<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    cx.new_bigint_u64(cc.arg(0).to_i64(cx)? as u64)
+    ZqValue::bigint_u64(cx, cc.arg(0).to_i64(cx)? as u64)
 }
 
 #[zq_function(name = "nBigIntU64Str")]
 fn n_bigint_u64_str<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let s = cc.arg(0).string_encode_utf8(cx)?;
+    let s = cc.arg(0).to_utf8_string(cx)?;
     let v: u64 = s
         .parse()
         .map_err(|_| cx.throw_range("not a u64 decimal string"))?;
-    cx.new_bigint_u64(v)
+    ZqValue::bigint_u64(cx, v)
 }
 
 #[zq_function(name = "nError")]
 fn n_error<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let kind = error_kind(cc.arg(0).to_i32(cx)?);
-    let msg = cc.arg(1).string_encode_utf8(cx)?;
-    cx.new_error(kind, &msg)
+    let msg = cc.arg(1).to_utf8_string(cx)?;
+    ZqValue::error(cx, kind, &msg)
 }
 
 // ──────────────────────────────────────
@@ -178,7 +181,7 @@ fn n_error<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError
 
 #[zq_function(name = "vType")]
 fn v_type<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    cx.new_string(cc.arg(0).value_type().name())
+    ZqValue::string(cx, cc.arg(0).kind().name())
 }
 
 #[zq_function(name = "vBool")]
@@ -198,25 +201,25 @@ fn v_f64<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> 
 
 #[zq_function(name = "vInt32")]
 fn v_int32<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    Ok(ZqValue::number(cc.arg(0).to_int32(cx)? as f64))
+    Ok(ZqValue::number(cc.arg(0).to_i32(cx)? as f64))
 }
 
 #[zq_function(name = "vToString")]
 fn v_to_string<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    cc.arg(0).to_string(cx)
+    cc.arg(0).to_js_string(cx)
 }
 
 #[zq_function(name = "vUtf8")]
 fn v_utf8<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let s = cc.arg(0).string_encode_utf8(cx)?;
-    cx.new_string(&s)
+    let s = cc.arg(0).to_utf8_string(cx)?;
+    ZqValue::string(cx, &s)
 }
 
 #[zq_function(name = "vStrict")]
 fn v_strict<'a>(_cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let a = cc.arg(0);
     let b = cc.arg(1);
-    Ok(ZqValue::bool(a.strict_equal(&b)))
+    Ok(ZqValue::bool(a.strict_eq(&b)))
 }
 
 // ──────────────────────────────────────
@@ -267,7 +270,7 @@ fn p_del_str<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErr
 
 #[zq_function(name = "pLen")]
 fn p_len<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    Ok(ZqValue::number(cc.arg(0).get_length_prop(cx)? as f64))
+    Ok(ZqValue::number(cc.arg(0).length(cx)? as f64))
 }
 
 // ──────────────────────────────────────
@@ -276,13 +279,13 @@ fn p_len<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> 
 
 #[zq_function(name = "gGetStr")]
 fn g_get_str<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let name = cc.arg(0).string_encode_utf8(cx)?;
+    let name = cc.arg(0).to_utf8_string(cx)?;
     cx.get_global_str(&name)
 }
 
 #[zq_function(name = "gSetStr")]
 fn g_set_str<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let name = cc.arg(0).string_encode_utf8(cx)?;
+    let name = cc.arg(0).to_utf8_string(cx)?;
     Ok(ZqValue::bool(cx.set_global_str(&name, cc.arg(1))?))
 }
 
@@ -324,7 +327,7 @@ fn c_invoke<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErro
 #[zq_function(name = "cInvokeStr")]
 fn c_invoke_str<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let target = cc.arg(0);
-    let method = cc.arg(1).string_encode_utf8(cx)?;
+    let method = cc.arg(1).to_utf8_string(cx)?;
     let mut args = Vec::with_capacity(cc.len().saturating_sub(2));
     for i in 2..cc.len() {
         args.push(cc.arg(i));
@@ -341,7 +344,7 @@ unsafe extern "C" fn native_answer(_env: ZqRawCtx, _info: *mut ZqCallInfoS) -> Z
 fn make_native_fn<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let api = ZqApi::singleton();
     let raw = ZqRawCtx::from(cx);
-    let name = cx.new_string("answer")?;
+    let name = ZqValue::string(cx, "answer")?;
     let f = unsafe { (api.create_builtin_function)(raw, native_answer, name.raw(), 0) };
     if f == ZqValue::exception_value() {
         Err(ZqError)
@@ -383,7 +386,7 @@ fn e_take_peek<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqE
         return Err(cx.throw_internal("expected a pending exception"));
     }
     let taken = cx.take_exception();
-    if !taken.strict_equal(&peeked) {
+    if !taken.strict_eq(&peeked) {
         return Err(cx.throw_internal("take_exception != exception"));
     }
     if !cx.exception().is_undefined() {
@@ -428,9 +431,9 @@ fn gc_trace_unpin<'a>(_cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>
 #[zq_function(name = "gcForce")]
 fn gc_force<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     for i in 0..20_000i32 {
-        let o = cx.new_object()?;
+        let o = ZqValue::object(cx)?;
         o.set_str(cx, "i", i)?;
-        o.set_str(cx, "s", cx.new_string("garbage-garbage-garbage-garbage")?)?;
+        o.set_str(cx, "s", ZqValue::string(cx, "garbage-garbage-garbage-garbage")?)?;
     }
     Ok(ZqValue::undefined())
 }
@@ -546,7 +549,119 @@ impl Point {
 #[zq_function(name = "isPointViaClass")]
 fn is_point_via_class<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let class: Class<'_, Point> = unsafe { Class::from_def(Point::class_def()) };
-    Ok(ZqValue::bool(cx.is_instance_of(cc.arg(0), &class)?))
+    Ok(ZqValue::bool(cx.is_instance_of_class(cc.arg(0), &class)?))
+}
+
+// ──────────────────────────────────────
+// Property definition (define_property / define_accessor) and own-property
+// introspection (get_own_property_descriptor / get_own_property_names)
+// ──────────────────────────────────────
+
+#[zq_function(name = "pDefine")]
+fn p_define<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    cc.arg(0)
+        .define(cx, cc.arg(1), cc.arg(2), cc.arg(3).to_i32(cx)? as u32)?;
+    Ok(ZqValue::undefined())
+}
+
+#[zq_function(name = "pDefineStr")]
+fn p_define_str<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    cc.arg(0)
+        .define_str(cx, "abc", cc.arg(1), cc.arg(2).to_i32(cx)? as u32)?;
+    Ok(ZqValue::undefined())
+}
+
+#[zq_function(name = "pDefineAccessor")]
+fn p_define_accessor<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    cc.arg(0).define_accessor(
+        cx,
+        cc.arg(1),
+        cc.arg(2),
+        cc.arg(3),
+        cc.arg(4).to_i32(cx)? as u32,
+    )?;
+    Ok(ZqValue::undefined())
+}
+
+#[zq_function(name = "pDefineAccessorStr")]
+fn p_define_accessor_str<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    cc.arg(0).define_accessor_str(
+        cx,
+        "abc",
+        cc.arg(1),
+        cc.arg(2),
+        cc.arg(3).to_i32(cx)? as u32,
+    )?;
+    Ok(ZqValue::undefined())
+}
+
+fn descriptor_to_value<'a>(
+    cx: ZqCtx<'a>,
+    d: ZqPropertyDescriptor<'a>,
+) -> Result<ZqValue<'a>, ZqError> {
+    let o = ZqValue::object(cx)?;
+    o.set_str(cx, "accessor", d.is_accessor)?;
+    o.set_str(cx, "writable", d.flags & ZQ_PROP_WRITABLE != 0)?;
+    o.set_str(cx, "enumerable", d.flags & ZQ_PROP_ENUMERABLE != 0)?;
+    o.set_str(cx, "configurable", d.flags & ZQ_PROP_CONFIGURABLE != 0)?;
+    if d.is_accessor {
+        o.set_str(cx, "get", d.get)?;
+        o.set_str(cx, "set", d.set)?;
+    } else {
+        o.set_str(cx, "value", d.value)?;
+    }
+    Ok(o)
+}
+
+#[zq_function(name = "pOwnDesc")]
+fn p_own_desc<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    match cc.arg(0).own_property_descriptor(cx, cc.arg(1))? {
+        Some(d) => descriptor_to_value(cx, d),
+        None => Ok(ZqValue::undefined()),
+    }
+}
+
+#[zq_function(name = "pOwnDescStr")]
+fn p_own_desc_str<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    match cc.arg(0).own_property_descriptor_str(cx, "abc")? {
+        Some(d) => descriptor_to_value(cx, d),
+        None => Ok(ZqValue::undefined()),
+    }
+}
+
+#[zq_function(name = "pOwnNames")]
+fn p_own_names<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    cc.arg(0).own_property_names(cx, cc.arg(1).to_bool(cx)?)
+}
+
+// ──────────────────────────────────────
+// Type predicates + OrdinaryObjectCreate(proto) + arbitrary-target instanceof
+// ──────────────────────────────────────
+
+#[zq_function(name = "vIsArray")]
+fn v_is_array<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    Ok(ZqValue::bool(cc.arg(0).is_array(cx)?))
+}
+
+#[zq_function(name = "vIsCallable")]
+fn v_is_callable<'a>(_cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    Ok(ZqValue::bool(cc.arg(0).is_callable()))
+}
+
+#[zq_function(name = "vIsConstructor")]
+fn v_is_constructor<'a>(_cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    Ok(ZqValue::bool(cc.arg(0).is_constructor()))
+}
+
+#[zq_function(name = "nObjectWithProto")]
+fn n_object_with_proto<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    ZqValue::object_with_proto(cx, cc.arg(0))
+}
+
+/// `instanceof` against an arbitrary constructor (honours `Symbol.hasInstance`).
+#[zq_function(name = "vInstanceOf")]
+fn v_instance_of<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    Ok(ZqValue::bool(cx.is_instance_of(cc.arg(0), cc.arg(1))?))
 }
 
 // ──────────────────────────────────────
@@ -558,9 +673,12 @@ fn is_point_via_class<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'
     exports = [
         k_undefined, k_null, k_true, k_false, k_zero, k_nan, k_pos_inf, k_neg_inf, const_slots,
         n_int32, n_number, n_string, n_symbol, symbol_desc, n_object, n_array,
-        n_bigint_i64, n_bigint_u64, n_bigint_u64_str, n_error,
+        n_bigint_i64, n_bigint_u64, n_bigint_u64_str, n_error, n_object_with_proto,
         v_type, v_bool, v_i64, v_f64, v_int32, v_to_string, v_utf8, v_strict,
+        v_is_array, v_is_callable, v_is_constructor, v_instance_of,
         p_get, p_set, p_has, p_del, p_get_str, p_set_str, p_has_str, p_del_str, p_len,
+        p_define, p_define_str, p_define_accessor, p_define_accessor_str,
+        p_own_desc, p_own_desc_str, p_own_names,
         g_get_str, g_set_str,
         c_call, c_call_ctor, c_invoke, c_invoke_str, make_native_fn,
         e_throw_type, e_throw_range, e_throw_value, e_take_peek,

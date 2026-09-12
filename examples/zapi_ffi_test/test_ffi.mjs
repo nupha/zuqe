@@ -151,6 +151,129 @@ await test("has_property_str / delete_property_str", () => {
 });
 await test("get_length_prop", () => eq(t.pLen([1, 2, 3]), 3));
 
+// ── property definition (descriptor) / own-property introspection ──
+await test("define_property (data + flags)", () => {
+    const o = {};
+    t.pDefine(o, "k", 1, 1 | 2 | 4); // configurable+writable+enumerable
+    eq(o.k, 1);
+    eq(Object.keys(o).includes("k"), true);
+
+    const hidden = {};
+    t.pDefine(hidden, "k", 2, 2); // writable, non-enumerable
+    eq(hidden.k, 2);
+    eq(Object.keys(hidden).includes("k"), false);
+
+    const ro = {};
+    t.pDefine(ro, "k", 3, 4); // enumerable only -> non-writable
+    let threw = false;
+    try { ro.k = 9; } catch (e) { threw = true; }
+    eq(ro.k, 3);
+    check(threw, "write to a non-writable prop should throw in strict mode");
+});
+await test("define_property_str", () => {
+    const o = {};
+    t.pDefineStr(o, 5, 1 | 2 | 4);
+    eq(o.abc, 5);
+    eq(Object.keys(o).includes("abc"), true);
+});
+await test("define_accessor (get/set)", () => {
+    const o = {};
+    let store = 10;
+    t.pDefineAccessor(o, "p", () => store, (v) => { store = v; }, 1 | 2 | 4);
+    eq(o.p, 10);
+    o.p = 20;
+    eq(o.p, 20);
+    eq(Object.keys(o).includes("p"), true);
+});
+await test("define_accessor_str", () => {
+    const o = {};
+    let v = 1;
+    t.pDefineAccessorStr(o, () => v, (x) => { v = x; }, 0);
+    eq(o.abc, 1);
+    o.abc = 7;
+    eq(o.abc, 7);
+    eq(Object.keys(o).includes("abc"), false);
+});
+await test("get_own_property_descriptor", () => {
+    const o = {};
+    Object.defineProperty(o, "k", {
+        value: 1, writable: false, enumerable: true, configurable: false,
+    });
+    const d = t.pOwnDesc(o, "k");
+    eq(d.accessor, false);
+    eq(d.value, 1);
+    eq(d.writable, false);
+    eq(d.enumerable, true);
+    eq(d.configurable, false);
+    eq(t.pOwnDesc(o, "missing"), undefined);
+
+    const a = {};
+    t.pDefineAccessor(a, "g", () => 42, undefined, 4);
+    const da = t.pOwnDesc(a, "g");
+    eq(da.accessor, true);
+    eq(da.get(), 42);
+    eq(da.set, undefined);
+    eq(da.enumerable, true);
+});
+await test("get_own_property_descriptor_str", () => {
+    const o = {};
+    t.pDefineStr(o, 9, 1 | 2 | 4);
+    const d = t.pOwnDescStr(o);
+    eq(d.value, 9);
+    eq(d.writable, true);
+    eq(d.enumerable, true);
+    eq(d.configurable, true);
+});
+await test("get_own_property_names", () => {
+    const s = Symbol("s");
+    const o = { a: 1, 2: true };
+    o[s] = 3;
+    eq(t.pOwnNames(o, false).join(","), "2,a");
+    const withSym = t.pOwnNames(o, true);
+    eq(withSym.length, 3);
+    check(typeof withSym[2] === "symbol", "symbol key should be included last");
+});
+
+// ── type predicates + object-with-proto + arbitrary-target instanceof ──
+await test("is_array", () => {
+    eq(t.vIsArray([]), true);
+    eq(t.vIsArray({}), false);
+    eq(t.vIsArray("x"), false);
+    eq(t.vIsArray(1), false);
+});
+await test("is_callable", () => {
+    eq(t.vIsCallable(() => {}), true);
+    eq(t.vIsCallable(function () {}), true);
+    eq(t.vIsCallable({}), false);
+    eq(t.vIsCallable(1), false);
+});
+await test("is_constructor", () => {
+    eq(t.vIsConstructor(function () {}), true);
+    eq(t.vIsConstructor(class {}), true);
+    eq(t.vIsConstructor(() => {}), false);
+    eq(t.vIsConstructor({}), false);
+});
+await test("ordinary_object_create_with_proto", () => {
+    const proto = { m() { return 7; } };
+    const o = t.nObjectWithProto(proto);
+    eq(Object.getPrototypeOf(o), proto);
+    eq(o.m(), 7);
+    const nullProto = t.nObjectWithProto(null);
+    eq(Object.getPrototypeOf(nullProto), null);
+    eq(typeof nullProto.toString, "undefined");
+});
+await test("instanceof (arbitrary target / Symbol.hasInstance)", () => {
+    class A {}
+    const a = new A();
+    eq(t.vInstanceOf(a, A), true);
+    eq(t.vInstanceOf(a, Object), true);
+    eq(t.vInstanceOf({}, A), false);
+
+    class B { static [Symbol.hasInstance](x) { return x === 42; } }
+    eq(t.vInstanceOf(42, B), true);
+    eq(t.vInstanceOf(7, B), false);
+});
+
 // ── globals ──
 await test("get_global (incl. globalThis)", () => {
     check(t.gGetStr("Date") === Date);
