@@ -16,17 +16,17 @@ use std::cell::Cell;
 use std::ffi::c_void;
 
 use zuqe_zapi::ffi::{
-    ZqApi, ZqCallInfoS, ZqGcTraceCtxS, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE,
-    ZQ_CONST_VALUE_SLOT_INFINITY, ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN,
-    ZQ_CONST_VALUE_SLOT_NULL, ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED,
-    ZQ_CONST_VALUE_SLOT_ZERO, ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_WRITABLE,
+    ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE, ZQ_CONST_VALUE_SLOT_INFINITY,
+    ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN, ZQ_CONST_VALUE_SLOT_NULL,
+    ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED, ZQ_CONST_VALUE_SLOT_ZERO,
+    ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_WRITABLE, ZqApi, ZqCallInfoS, ZqGcTraceCtxS,
 };
 use zuqe_zapi::{
     AsyncIterResult, Class, ZqAsyncIterable, ZqCallInfo, ZqCtx, ZqError, ZqErrorType, ZqGcTraceCtx,
     ZqPropertyDescriptor, ZqRawCtx, ZqRawValue, ZqValue,
 };
 use zuqe_zapi_macros::{
-    zq_class, zq_class_impl, zq_function, zq_method, zq_module, zq_static_method, ZqGcTrace,
+    ZqGcTrace, zq_class, zq_class_impl, zq_function, zq_method, zq_module, zq_static_method,
 };
 
 // ──────────────────────────────────────
@@ -139,11 +139,7 @@ fn n_object<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErr
 fn n_array<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let arr = ZqValue::array(
         cx,
-        &[
-            ZqValue::int32(1),
-            ZqValue::int32(2),
-            ZqValue::int32(3),
-        ],
+        &[ZqValue::int32(1), ZqValue::int32(2), ZqValue::int32(3)],
     )?;
     arr.push(cx, ZqValue::string(cx, "four")?)?;
     Ok(arr)
@@ -433,7 +429,11 @@ fn gc_force<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErr
     for i in 0..20_000i32 {
         let o = ZqValue::object(cx)?;
         o.set_str(cx, "i", i)?;
-        o.set_str(cx, "s", ZqValue::string(cx, "garbage-garbage-garbage-garbage")?)?;
+        o.set_str(
+            cx,
+            "s",
+            ZqValue::string(cx, "garbage-garbage-garbage-garbage")?,
+        )?;
     }
     Ok(ZqValue::undefined())
 }
@@ -457,8 +457,7 @@ unsafe extern "C" fn trace_thread_locals(gcx: *mut ZqGcTraceCtxS, _opaque: *mut 
 #[zq_function(name = "capResolve")]
 fn cap_resolve<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let cap = cx.new_promise_capability()?;
-    cap.resolve
-        .call(cx, ZqValue::undefined(), &[cc.arg(0)])?;
+    cap.resolve.call(cx, ZqValue::undefined(), &[cc.arg(0)])?;
     Ok(cap.promise)
 }
 
@@ -466,8 +465,7 @@ fn cap_resolve<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqE
 #[zq_function(name = "capReject")]
 fn cap_reject<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let cap = cx.new_promise_capability()?;
-    cap.reject
-        .call(cx, ZqValue::undefined(), &[cc.arg(0)])?;
+    cap.reject.call(cx, ZqValue::undefined(), &[cc.arg(0)])?;
     Ok(cap.promise)
 }
 
