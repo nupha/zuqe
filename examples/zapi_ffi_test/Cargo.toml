@@ -1,0 +1,12 @@
+[package]
+name = "zapi_ffi_test"
+version = "0.1.0"
+edition = "2021"
+description = "Zapi — conformance test extension exercising every FFI / high-level API"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zuqe_zapi = { path = "../../../zuqe-zapi" }
+zuqe_zapi_macros = { path = "../../../zuqe-zapi-macros" }

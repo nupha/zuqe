@@ -12,15 +12,13 @@ use zuqe_zapi::ffi::{
     ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL, ZQ_VALUE_TYPE_EXCEPTION, ZQ_VALUE_TYPE_FUNCTION,
     ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER, ZQ_VALUE_TYPE_OBJECT, ZQ_VALUE_TYPE_STRING,
     ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED, ZqApi, ZqBodyFn, ZqCallInfoS, ZqClassDef,
-    ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn, ZqRawCtx, ZqRawValue,
-    ZqWakeHandleS,
+    ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn, ZqPromiseCapabilityS,
+    ZqRawCtx, ZqRawValue, ZqWakeHandleS,
 };
 
 use crate::{
-    Array, Atom, CallContext, ErrorKind, JSValue, JSValueTag, ScopedContext,
-    builtins::array::js_array_push,
+    Array, Atom, ErrorKind, JSValue, JSValueTag, ScopedContext,
     class::ClassID,
-    function::Callback,
     object::PayloadPtr,
     object::{JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_WRITABLE, ThrowPolicy},
 };
@@ -47,20 +45,7 @@ unsafe fn ctx_from_env<'a>(env: ZqRawCtx) -> &'a mut ScopedContext<'a> {
     unsafe { &mut *(env as *mut ScopedContext) }
 }
 
-fn symbol_from_desc(ctx: &mut ScopedContext, desc: JSValue) -> Result<JSValue, i32> {
-    if desc.is_undefined() {
-        ctx.create_symbol(None, crate::atom::AtomKind::Symbol)
-    } else {
-        let sr = desc.to_string(ctx)?;
-        ctx.create_symbol(Some(sr), crate::atom::AtomKind::Symbol)
-    }
-}
-
 unsafe extern "C" fn zapi_new_number(n: f64) -> ZqRawValue {
-    JSValue::from(n).0
-}
-
-unsafe extern "C" fn zapi_new_int32(n: i32) -> ZqRawValue {
     JSValue::from(n).0
 }
 
@@ -70,28 +55,6 @@ unsafe extern "C" fn zapi_new_string(env: ZqRawCtx, ptr: *const u8, len: usize) 
     match ctx.create_string_from_utf8(bytes.to_vec()) {
         Ok(s) => JSValue::make_string(s).0,
         Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
-    }
-}
-
-unsafe extern "C" fn zapi_new_symbol(env: ZqRawCtx, desc: ZqRawValue) -> ZqRawValue {
-    let ctx = unsafe { ctx_from_env(env) };
-    match symbol_from_desc(ctx, JSValue(desc, std::marker::PhantomData)) {
-        Ok(v) => v.0,
-        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
-    }
-}
-
-unsafe extern "C" fn zapi_symbol_get_description(env: ZqRawCtx, sym: ZqRawValue) -> ZqRawValue {
-    let Some(sr) = JSValue(sym, std::marker::PhantomData).as_symbol(true) else {
-        let ctx = unsafe { ctx_from_env(env) };
-        let _ = ctx.throw_type_error("not a Symbol value");
-        return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
-    };
-
-    if sr.content().is_ident() {
-        JSValue::UNDEFINED.0
-    } else {
-        JSValue::make_string(sr).0
     }
 }
 
@@ -334,44 +297,6 @@ unsafe extern "C" fn zapi_get_length_prop(env: ZqRawCtx, arr: ZqRawValue) -> i64
     let ctx = unsafe { ctx_from_env(env) };
     let v = JSValue(arr, std::marker::PhantomData);
     v.get_length_prop(ctx).unwrap_or(-1)
-}
-
-/// minus:error, otherwise: new length
-unsafe extern "C" fn zapi_array_push(env: ZqRawCtx, arr: ZqRawValue, val: ZqRawValue) -> i64 {
-    let ctx = unsafe { ctx_from_env(env) };
-    let val = JSValue(val, PhantomData);
-    let cc = CallContext::new(
-        JSValue(arr, PhantomData),
-        std::slice::from_ref(&val),
-        0,
-        None,
-    );
-
-    js_array_push(ctx, cc).map_or(-1, |n| n.to_index(ctx).unwrap())
-}
-
-unsafe extern "C" fn zapi_get_global(env: ZqRawCtx, name: ZqRawValue) -> ZqRawValue {
-    let ctx = unsafe { ctx_from_env(env) };
-    let gobj = ctx.global_obj();
-    match gobj.get_property_value(ctx, JSValue(name, std::marker::PhantomData)) {
-        Ok(v) => v.0,
-        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
-    }
-}
-
-/// Set a property on the global object by raw value key.
-/// 1=set, 0=not set, -1=error
-unsafe extern "C" fn zapi_set_global(env: ZqRawCtx, name: ZqRawValue, val: ZqRawValue) -> i32 {
-    let ctx = unsafe { ctx_from_env(env) };
-    ctx.global_obj()
-        .set_property_value(
-            ctx,
-            JSValue(name, std::marker::PhantomData),
-            JSValue(val, std::marker::PhantomData),
-            ThrowPolicy::Always,
-            false,
-        )
-        .map_or(-1, |b| b as i32)
 }
 
 /// Set a property on the global object by UTF-8 name.
@@ -754,37 +679,27 @@ unsafe extern "C" fn zapi_exception(env: ZqRawCtx) -> ZqRawValue {
     );
     raw
 }
-/// Create a pending Promise. Stays GC-rooted (gc_pending_promises) until
-/// resolved/rejected — the extension may hold the raw handle across ticks.
-unsafe extern "C" fn zapi_new_promise(env: ZqRawCtx) -> ZqRawValue {
+/// `NewPromiseCapability(%Promise%)`: a pending Promise plus its
+/// `[[Resolve]]` / `[[Reject]]` functions. The promise stays rooted
+/// (`gc_pending_promises`) until settled; settling happens through the
+/// resolving functions, which remove it automatically. The resolving functions
+/// are *not* rooted here — the caller keeps them alive (e.g. via a job trace).
+unsafe extern "C" fn zapi_new_promise_capability(
+    env: ZqRawCtx,
+    out: *mut ZqPromiseCapabilityS,
+) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
     match crate::builtins::promise::Promise::create(ctx) {
-        Ok((p, _rr)) => {
-            // Root while pending; settle() removes it automatically.
+        Ok((p, rr)) => {
             ctx.rt_mut().gc_pending_promises.push(p);
-            crate::value::JSValue::from(p).0
+            unsafe {
+                (*out).promise = crate::value::JSValue::from(p).0;
+                (*out).resolve = rr[0].0;
+                (*out).reject = rr[1].0;
+            }
+            0
         }
-        Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
-    }
-}
-
-/// Settle a pending Promise as fulfilled. Double-settle is a no-op.
-unsafe extern "C" fn zapi_promise_resolve(env: ZqRawCtx, promise: ZqRawValue, value: ZqRawValue) {
-    let ctx = unsafe { ctx_from_env(env) };
-    let pv = crate::value::JSValue(promise, std::marker::PhantomData);
-    let v = crate::value::JSValue(value, std::marker::PhantomData);
-    if let Ok(mut p) = crate::builtins::promise::Promise::try_from(pv) {
-        p.resolve(ctx, v);
-    }
-}
-
-/// Settle a pending Promise as rejected. Double-settle is a no-op.
-unsafe extern "C" fn zapi_promise_reject(env: ZqRawCtx, promise: ZqRawValue, reason: ZqRawValue) {
-    let ctx = unsafe { ctx_from_env(env) };
-    let pv = crate::value::JSValue(promise, std::marker::PhantomData);
-    let r = crate::value::JSValue(reason, std::marker::PhantomData);
-    if let Ok(mut p) = crate::builtins::promise::Promise::try_from(pv) {
-        p.reject(ctx, r);
+        Err(_) => -1,
     }
 }
 
@@ -856,16 +771,10 @@ unsafe extern "C" fn zapi_new_native_function(
     magic: i32,
 ) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
-    let rt = ctx.rt_mut();
 
-    let serial = rt
-        .zapi_next_serial
-        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
-    // register_zapi_func_magic inserts into zapi_body_registry and
-    // returns (Callback, user_magic). We only need the token for the
-    // NativeFunction's magic field.
-    let (_cb, _user_magic) = register_zapi_func_magic(ctx, run_fn, magic);
+    // Register the body and reuse the returned token as the function's magic so
+    // the trampoline resolves the right body (a separate serial would miss it).
+    let (cb, token) = register_zapi_func_magic(ctx, run_fn, magic);
 
     let name_val = JSValue(name, std::marker::PhantomData);
     let func_name = name_val
@@ -873,12 +782,7 @@ unsafe extern "C" fn zapi_new_native_function(
         .map(|s| s.content().encode_utf8(false).to_string())
         .unwrap_or_default();
 
-    match ctx.create_native_function(
-        Callback::Func(super::host::zapi_trampoline_fn),
-        &func_name,
-        0,
-        serial as _,
-    ) {
+    match ctx.create_native_function(cb, &func_name, 0, token as _) {
         Ok(f) => {
             let js_val: JSValue = f.into();
             js_val.0
@@ -980,37 +884,11 @@ const fn err_type_to_kind(ty: i32) -> Option<ErrorKind> {
     })
 }
 
-/// Throw a JS error of the given type with a UTF-8 message.
-/// Returns `value_exception` (the extension should propagate it).
-unsafe extern "C" fn zapi_throw(
-    env: ZqRawCtx,
-    err_type: i32,
-    err_message: *const u8,
-    err_len: i32,
-) {
+/// Raise an arbitrary value as the pending exception. Returns `value_exception`
+/// (the extension should propagate it).
+unsafe extern "C" fn zapi_throw_value(env: ZqRawCtx, val: ZqRawValue) {
     let ctx = unsafe { ctx_from_env(env) };
-
-    let kind = match err_type_to_kind(err_type) {
-        Some(k) => k,
-        None => {
-            let msg = if err_message.is_null() || err_len <= 0 {
-                "unknown error type"
-            } else {
-                let bytes = unsafe { std::slice::from_raw_parts(err_message, err_len as usize) };
-                std::str::from_utf8(bytes).unwrap_or("unknown error type")
-            };
-            let _ = ctx.throw_error(ErrorKind::Internal, msg);
-            return;
-        }
-    };
-
-    let msg: Cow<str> = if err_message.is_null() || err_len <= 0 {
-        Cow::Borrowed("")
-    } else {
-        let bytes = unsafe { std::slice::from_raw_parts(err_message, err_len as usize) };
-        String::from_utf8_lossy(bytes)
-    };
-    let _ = ctx.throw_error(kind, &msg);
+    let _ = ctx.throw_value(JSValue(val, std::marker::PhantomData));
 }
 
 unsafe extern "C" fn zapi_value_get_type(val: ZqRawValue) -> i32 {
@@ -1047,12 +925,27 @@ unsafe extern "C" fn zapi_value_to_float64(env: ZqRawCtx, val: ZqRawValue, ret: 
 
 unsafe extern "C" fn zapi_value_to_int64(env: ZqRawCtx, val: ZqRawValue, ret: *mut i64) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
-    JSValue(val, std::marker::PhantomData)
-        .to_number(ctx)
-        .map_or(-1, |n| unsafe {
-            *ret = n.to_i64_saturating();
-            0 // success
-        })
+    // ToNumeric: Number saturates, BigInt converts exactly (RangeError on
+    // overflow). This is the single BigInt→i64 path, so no separate FFI.
+    let num = JSValue(val, std::marker::PhantomData).to_numeric(ctx);
+    match num {
+        Ok(crate::number::NumValue::Float(n)) => {
+            unsafe { *ret = n.to_i64_saturating() };
+            0
+        }
+        #[cfg(feature = "big_int")]
+        Ok(crate::number::NumValue::BigInt(b)) => match crate::bigint::to_i64_exact(&b) {
+            Some(v) => {
+                unsafe { *ret = v };
+                0
+            }
+            None => {
+                let _ = ctx.throw_range_error("BigInt does not fit in i64");
+                -1
+            }
+        },
+        Err(_) => -1,
+    }
 }
 
 unsafe extern "C" fn zapi_value_to_bool(_: ZqRawCtx, val: ZqRawValue) -> i32 {
@@ -1069,6 +962,110 @@ unsafe extern "C" fn zapi_value_to_string(env: ZqRawCtx, val: ZqRawValue) -> ZqR
             ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
             |v| JSValue::make_string(v).0,
         )
+}
+
+// ── numeric conversion (ToInt32) ──
+
+unsafe extern "C" fn zapi_value_to_int32(env: ZqRawCtx, val: ZqRawValue, ret: *mut i32) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    JSValue(val, PhantomData)
+        .to_number(ctx)
+        .map_or(-1, |n| unsafe {
+            *ret = n.to_i32();
+            0
+        })
+}
+
+unsafe extern "C" fn zapi_value_strict_equal(a: ZqRawValue, b: ZqRawValue) -> i32 {
+    JSValue(a, PhantomData).strict_eq(JSValue(b, PhantomData)) as i32
+}
+
+// ── instanceof ──
+
+unsafe extern "C" fn zapi_is_instance_of(
+    env: ZqRawCtx,
+    val: ZqRawValue,
+    class_def: *const ZqClassDef,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let class_id = ctx
+        .rt()
+        .zapi_class_map
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|(_, v)| **v == class_def as usize)
+        .map(|(k, _)| *k);
+    let Some(cid) = class_id else {
+        return -1;
+    };
+    let Some(ctor) = ctx.class_slots[cid as usize].ctor else {
+        return 0;
+    };
+    JSValue(val, PhantomData)
+        .instance_of(ctx, ctor.into())
+        .map_or(-1, |b| b as i32)
+}
+
+// ── error object creation ──
+
+unsafe extern "C" fn zapi_new_error(
+    env: ZqRawCtx,
+    err_type: i32,
+    message: *const u8,
+    message_len: usize,
+) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Some(kind) = err_type_to_kind(err_type) else {
+        let _ = ctx.throw_internal_error("unknown error type");
+        return ZQ_API_TABLE.const_values[ZQ_CONST_VALUE_SLOT_EXCEPTION];
+    };
+    let msg: Cow<str> = if message.is_null() || message_len == 0 {
+        Cow::Borrowed("")
+    } else {
+        let bytes = unsafe { std::slice::from_raw_parts(message, message_len) };
+        String::from_utf8_lossy(bytes)
+    };
+    // Capture a backtrace like `new NativeError(msg)`, so errors created here
+    // (and raised via `throw_value`) carry a `.stack`.
+    ctx.create_error_object(kind, &msg, true).map_or(
+        ZQ_API_TABLE.const_values[ZQ_CONST_VALUE_SLOT_EXCEPTION],
+        |o| JSValue::from(o).0,
+    )
+}
+
+// ── BigInt ──
+
+#[cfg(feature = "big_int")]
+unsafe extern "C" fn zapi_new_bigint_i64(env: ZqRawCtx, v: i64) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    match crate::bigint::from_i64(ctx, v) {
+        Ok(bi) => JSValue::make_bigint(bi).0,
+        Err(_) => ZQ_API_TABLE.const_values[ZQ_CONST_VALUE_SLOT_EXCEPTION],
+    }
+}
+
+#[cfg(not(feature = "big_int"))]
+unsafe extern "C" fn zapi_new_bigint_i64(env: ZqRawCtx, _v: i64) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let _ = ctx.throw_type_error("BigInt is not supported");
+    ZQ_API_TABLE.const_values[ZQ_CONST_VALUE_SLOT_EXCEPTION]
+}
+
+#[cfg(feature = "big_int")]
+unsafe extern "C" fn zapi_new_bigint_u64(env: ZqRawCtx, v: u64) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    match crate::bigint::from_u64(ctx, v) {
+        Ok(bi) => JSValue::make_bigint(bi).0,
+        Err(_) => ZQ_API_TABLE.const_values[ZQ_CONST_VALUE_SLOT_EXCEPTION],
+    }
+}
+
+#[cfg(not(feature = "big_int"))]
+unsafe extern "C" fn zapi_new_bigint_u64(env: ZqRawCtx, _v: u64) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let _ = ctx.throw_type_error("BigInt is not supported");
+    ZQ_API_TABLE.const_values[ZQ_CONST_VALUE_SLOT_EXCEPTION]
 }
 
 unsafe extern "C" fn zapi_call_constructor(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue {
@@ -1114,59 +1111,51 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
 
         // ── value constructors ──
         new_number: zapi_new_number,
-        new_int32: zapi_new_int32,
         new_string: zapi_new_string,
-        new_symbol: zapi_new_symbol,
-        new_object: zapi_new_object,
-        new_array: zapi_new_array,
+        ordinary_object_create: zapi_new_object,
+        create_array_from_list: zapi_new_array,
 
         // ── value query / conversion ──
         value_get_type: zapi_value_get_type,
-        value_to_bool: zapi_value_to_bool,
-        value_to_int64: zapi_value_to_int64,
-        value_to_float64: zapi_value_to_float64,
-        value_to_string: zapi_value_to_string,
+        to_boolean: zapi_value_to_bool,
+        to_int64: zapi_value_to_int64,
+        to_number: zapi_value_to_float64,
+        to_string: zapi_value_to_string,
         string_read_utf8: zapi_string_read_utf8,
-        symbol_get_description: zapi_symbol_get_description,
 
-        // ── property access (raw key) ──
-        get_property: zapi_get_property,
-        set_property: zapi_set_property,
-        has_property: zapi_has_property,
-        delete_property: zapi_delete_property,
+        // ── property access (UTF-8 key, interned) ──
+        get: zapi_get_property_str,
+        set: zapi_set_property_str,
+        has_property: zapi_has_property_str,
+        delete_property: zapi_delete_property_str,
 
-        // ── property access (UTF-8 key) ──
-        get_property_str: zapi_get_property_str,
-        set_property_str: zapi_set_property_str,
-        has_property_str: zapi_has_property_str,
-        delete_property_str: zapi_delete_property_str,
+        // ── property access (raw value key: custom Symbol) ──
+        get_value: zapi_get_property,
+        set_value: zapi_set_property,
+        has_value: zapi_has_property,
+        delete_value: zapi_delete_property,
 
-        // ── array ──
-        get_length_prop: zapi_get_length_prop,
-        array_push: zapi_array_push,
+        // ── array-like length ──
+        length_of_array_like: zapi_get_length_prop,
 
         // ── function call ──
-        call_function: zapi_call_function,
-        call_constructor: zapi_call_constructor,
-        invoke: zapi_invoke,
-        invoke_str: zapi_invoke_str,
+        call: zapi_call_function,
+        construct: zapi_call_constructor,
+        invoke: zapi_invoke_str,
+        invoke_value: zapi_invoke,
 
         // ── global object ──
-        get_global: zapi_get_global,
-        get_global_str: zapi_get_global_str,
-        set_global: zapi_set_global,
-        set_global_str: zapi_set_global_str,
+        get_global: zapi_get_global_str,
+        set_global: zapi_set_global_str,
 
         // ── native object / class ──
         register_class: zapi_register_class,
         new_instance: zapi_new_instance,
         get_native_ptr: zapi_get_native_ptr,
-        new_native_function: zapi_new_native_function,
+        create_builtin_function: zapi_new_native_function,
 
         // ── promise ──
-        new_promise: zapi_new_promise,
-        promise_resolve: zapi_promise_resolve,
-        promise_reject: zapi_promise_reject,
+        new_promise_capability: zapi_new_promise_capability,
 
         // ── async iterator ──
         new_async_iterator: zapi_new_async_iterator,
@@ -1179,7 +1168,7 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         gc_set_trace_func: zapi_gc_set_trace_func,
 
         // ── exception ──
-        throw: zapi_throw,
+        throw_value: zapi_throw_value,
         take_exception: zapi_take_exception,
         exception: zapi_exception,
 
@@ -1187,5 +1176,19 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         new_waker: zapi_new_waker,
         waker_wake: zapi_waker_wake,
         waker_free: zapi_waker_free,
+
+        // ── numeric conversion (ToInt32) ──
+        to_int32: zapi_value_to_int32,
+        is_strictly_equal: zapi_value_strict_equal,
+
+        // ── instanceof ──
+        instanceof_operator: zapi_is_instance_of,
+
+        // ── error object creation ──
+        new_error: zapi_new_error,
+
+        // ── BigInt construction ──
+        new_bigint_i64: zapi_new_bigint_i64,
+        new_bigint_u64: zapi_new_bigint_u64,
     })
 }
