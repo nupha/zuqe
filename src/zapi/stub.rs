@@ -8,19 +8,23 @@ use zuqe_zapi::ffi::{
     ZQ_CONST_VALUE_SLOT_COUNT, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE,
     ZQ_CONST_VALUE_SLOT_INFINITY, ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN,
     ZQ_CONST_VALUE_SLOT_NULL, ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED,
-    ZQ_CONST_VALUE_SLOT_ZERO, ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_WRITABLE,
-    ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL, ZQ_VALUE_TYPE_EXCEPTION, ZQ_VALUE_TYPE_FUNCTION,
-    ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER, ZQ_VALUE_TYPE_OBJECT, ZQ_VALUE_TYPE_STRING,
-    ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED, ZqApi, ZqBodyFn, ZqCallInfoS, ZqClassDef,
-    ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn, ZqPromiseCapabilityS,
-    ZqRawCtx, ZqRawValue, ZqWakeHandleS,
+    ZQ_CONST_VALUE_SLOT_ZERO, ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_KIND_ACCESSOR,
+    ZQ_PROP_KIND_DATA, ZQ_PROP_WRITABLE, ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL,
+    ZQ_VALUE_TYPE_EXCEPTION, ZQ_VALUE_TYPE_FUNCTION, ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER,
+    ZQ_VALUE_TYPE_OBJECT, ZQ_VALUE_TYPE_STRING, ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED,
+    ZqApi, ZqBodyFn, ZqCallInfoS, ZqClassDef, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn,
+    ZqJobTraceFn, ZqPromiseCapabilityS, ZqPropertyDescriptorS, ZqRawCtx, ZqRawValue, ZqWakeHandleS,
 };
 
 use crate::{
     Array, Atom, ErrorKind, JSValue, JSValueTag, ScopedContext,
+    atom::AtomKind,
     class::ClassID,
     object::PayloadPtr,
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_WRITABLE, ThrowPolicy},
+    object::{
+        JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE,
+        JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE, ThrowPolicy,
+    },
 };
 
 /// Translate FFI `ZQ_PROP_*` flags into engine `JS_PROP_*` flags bit-by-bit.
@@ -36,6 +40,26 @@ pub(super) const fn zq_to_js_prop_flags(flags: u32) -> u32 {
         p |= JS_PROP_ENUMERABLE;
     }
     p
+}
+
+/// Translate engine `JS_PROP_*` attribute bits back into `ZQ_PROP_*`.
+const fn js_to_zq_prop_flags(flags: u32) -> u32 {
+    let mut p = 0;
+    if flags & JS_PROP_CONFIGURABLE != 0 {
+        p |= ZQ_PROP_CONFIGURABLE;
+    }
+    if flags & JS_PROP_WRITABLE != 0 {
+        p |= ZQ_PROP_WRITABLE;
+    }
+    if flags & JS_PROP_ENUMERABLE != 0 {
+        p |= ZQ_PROP_ENUMERABLE;
+    }
+    p
+}
+
+/// The exception sentinel handle from the API table.
+fn zq_exc() -> ZqRawValue {
+    ZQ_API_TABLE.const_values[ZQ_CONST_VALUE_SLOT_EXCEPTION]
 }
 
 use super::host::{push_class_fields, register_zapi_func_magic, zapi_trampoline_fn};
@@ -982,7 +1006,7 @@ unsafe extern "C" fn zapi_value_strict_equal(a: ZqRawValue, b: ZqRawValue) -> i3
 
 // ── instanceof ──
 
-unsafe extern "C" fn zapi_is_instance_of(
+unsafe extern "C" fn zapi_is_instance_of_class(
     env: ZqRawCtx,
     val: ZqRawValue,
     class_def: *const ZqClassDef,
@@ -1088,6 +1112,269 @@ unsafe extern "C" fn zapi_call_constructor(env: ZqRawCtx, info: *mut ZqCallInfoS
     )
 }
 
+// ── property definition (descriptor) ──
+
+unsafe extern "C" fn zapi_define_property_str(
+    env: ZqRawCtx,
+    target: ZqRawValue,
+    key: *const u8,
+    key_len: usize,
+    val: ZqRawValue,
+    flags: u32,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Ok(atom) = str_key_atom(ctx, key, key_len) else {
+        return -1;
+    };
+    define_property_impl(ctx, target, atom, val, flags)
+}
+
+unsafe extern "C" fn zapi_define_property(
+    env: ZqRawCtx,
+    target: ZqRawValue,
+    key: ZqRawValue,
+    val: ZqRawValue,
+    flags: u32,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Ok(atom) = JSValue(key, PhantomData).to_atom(ctx) else {
+        return -1;
+    };
+    define_property_impl(ctx, target, atom, val, flags)
+}
+
+fn define_property_impl(
+    ctx: &mut ScopedContext,
+    target: ZqRawValue,
+    atom: Atom,
+    val: ZqRawValue,
+    flags: u32,
+) -> i32 {
+    let Some(mut obj) = JSValue(target, PhantomData).as_object() else {
+        let _ = ctx.throw_type_error("not an object");
+        return -1;
+    };
+    obj.define_property_value(
+        ctx,
+        atom,
+        JSValue(val, PhantomData),
+        zq_to_js_prop_flags(flags) | JS_PROP_THROW,
+    )
+    .map_or(-1, |b| b as i32)
+}
+
+unsafe extern "C" fn zapi_define_accessor_str(
+    env: ZqRawCtx,
+    target: ZqRawValue,
+    key: *const u8,
+    key_len: usize,
+    get: ZqRawValue,
+    set: ZqRawValue,
+    flags: u32,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Ok(atom) = str_key_atom(ctx, key, key_len) else {
+        return -1;
+    };
+    define_accessor_impl(ctx, target, atom, get, set, flags)
+}
+
+unsafe extern "C" fn zapi_define_accessor(
+    env: ZqRawCtx,
+    target: ZqRawValue,
+    key: ZqRawValue,
+    get: ZqRawValue,
+    set: ZqRawValue,
+    flags: u32,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Ok(atom) = JSValue(key, PhantomData).to_atom(ctx) else {
+        return -1;
+    };
+    define_accessor_impl(ctx, target, atom, get, set, flags)
+}
+
+fn define_accessor_impl(
+    ctx: &mut ScopedContext,
+    target: ZqRawValue,
+    atom: Atom,
+    get: ZqRawValue,
+    set: ZqRawValue,
+    flags: u32,
+) -> i32 {
+    let Some(mut obj) = JSValue(target, PhantomData).as_object() else {
+        let _ = ctx.throw_type_error("not an object");
+        return -1;
+    };
+    obj.define_property_getset(
+        ctx,
+        atom,
+        JSValue(get, PhantomData),
+        JSValue(set, PhantomData),
+        zq_to_js_prop_flags(flags) | JS_PROP_THROW,
+    )
+    .map_or(-1, |b| b as i32)
+}
+
+// ── own property introspection ──
+
+fn fill_own_property_descriptor(
+    ctx: &mut ScopedContext,
+    target: ZqRawValue,
+    atom: Atom,
+    out: *mut ZqPropertyDescriptorS,
+) -> i32 {
+    let Some(mut obj) = JSValue(target, PhantomData).as_object() else {
+        let _ = ctx.throw_type_error("not an object");
+        return -1;
+    };
+    match obj.get_own_property(ctx, atom) {
+        Ok(Some(desc)) => {
+            let accessor = desc.flags & JS_PROP_GETSET != 0;
+            unsafe {
+                *out = ZqPropertyDescriptorS {
+                    kind: if accessor {
+                        ZQ_PROP_KIND_ACCESSOR
+                    } else {
+                        ZQ_PROP_KIND_DATA
+                    },
+                    flags: js_to_zq_prop_flags(desc.flags),
+                    value: if accessor { 0 } else { desc.value.0 },
+                    get: if accessor { desc.getter.0 } else { 0 },
+                    set: if accessor { desc.setter.0 } else { 0 },
+                };
+            }
+            1
+        }
+        Ok(None) => 0,
+        Err(_) => -1,
+    }
+}
+
+unsafe extern "C" fn zapi_get_own_property_descriptor_str(
+    env: ZqRawCtx,
+    target: ZqRawValue,
+    key: *const u8,
+    key_len: usize,
+    out: *mut ZqPropertyDescriptorS,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Ok(atom) = str_key_atom(ctx, key, key_len) else {
+        return -1;
+    };
+    fill_own_property_descriptor(ctx, target, atom, out)
+}
+
+unsafe extern "C" fn zapi_get_own_property_descriptor(
+    env: ZqRawCtx,
+    target: ZqRawValue,
+    key: ZqRawValue,
+    out: *mut ZqPropertyDescriptorS,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Ok(atom) = JSValue(key, PhantomData).to_atom(ctx) else {
+        return -1;
+    };
+    fill_own_property_descriptor(ctx, target, atom, out)
+}
+
+unsafe extern "C" fn zapi_get_own_property_names(
+    env: ZqRawCtx,
+    target: ZqRawValue,
+    include_symbols: i32,
+) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let Some(mut obj) = JSValue(target, PhantomData).as_object() else {
+        let _ = ctx.throw_type_error("not an object");
+        return zq_exc();
+    };
+    let mut flags = JS_GPN_STR_OR_INT_MASK;
+    if include_symbols != 0 {
+        flags |= JS_GPN_SYMBOL_MASK;
+    }
+
+    let mut vals: Vec<JSValue> = Vec::new();
+    if obj
+        .own_property_names_foreach(ctx, flags, |cx, pk| {
+            vals.push(pk.atom.to_value(cx)?);
+            Ok(())
+        })
+        .is_err()
+    {
+        return zq_exc();
+    }
+    Array::from_slice(ctx, &vals).map_or(zq_exc(), |a| JSValue::from(a).0)
+}
+
+// ── value queries ──
+
+unsafe extern "C" fn zapi_is_array(env: ZqRawCtx, val: ZqRawValue) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    match JSValue(val, PhantomData).as_object() {
+        Some(o) => o.is_array(ctx).map_or(-1, |b| b as i32),
+        None => 0,
+    }
+}
+
+unsafe extern "C" fn zapi_is_callable(val: ZqRawValue) -> i32 {
+    JSValue(val, PhantomData).is_callable() as i32
+}
+
+unsafe extern "C" fn zapi_is_constructor(val: ZqRawValue) -> i32 {
+    JSValue(val, PhantomData)
+        .as_object()
+        .is_some_and(|o| o.is_constructor()) as i32
+}
+
+unsafe extern "C" fn zapi_is_instance_of(
+    env: ZqRawCtx,
+    val: ZqRawValue,
+    target: ZqRawValue,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    JSValue(val, PhantomData)
+        .instance_of(ctx, JSValue(target, PhantomData))
+        .map_or(-1, |b| b as i32)
+}
+
+// ── value constructors (symbol / object with proto) ──
+
+unsafe extern "C" fn zapi_new_symbol(env: ZqRawCtx, ptr: *const u8, len: usize) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let Ok(s) = std::str::from_utf8(bytes) else {
+        let _ = ctx.throw_type_error("symbol description is not valid UTF-8");
+        return zq_exc();
+    };
+    let Ok(desc) = ctx.create_string_interned(s) else {
+        return zq_exc();
+    };
+    match ctx.create_symbol(Some(desc), AtomKind::Symbol) {
+        Ok(sym) => sym.0,
+        Err(_) => zq_exc(),
+    }
+}
+
+unsafe extern "C" fn zapi_new_object_with_proto(
+    env: ZqRawCtx,
+    proto: ZqRawValue,
+) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let pv = JSValue(proto, PhantomData);
+    let proto = if pv.is_undefined_or_null() {
+        None
+    } else if let Some(o) = pv.as_object() {
+        Some(o)
+    } else {
+        let _ = ctx.throw_type_error("prototype must be an object or null");
+        return zq_exc();
+    };
+    match ctx.create_base_object_with_proto(proto) {
+        Ok(o) => JSValue::from(o).0,
+        Err(_) => zq_exc(),
+    }
+}
+
 /// 全局共享的 ZqApi 表 — 纯函数指针，无运行时状态，多 Runtime 安全复用。
 pub(crate) static ZQ_API_TABLE: LazyLock<Box<ZqApi>> = LazyLock::new(new_zapi);
 
@@ -1112,37 +1399,53 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         // ── value constructors ──
         new_number: zapi_new_number,
         new_string: zapi_new_string,
+        new_symbol: zapi_new_symbol,
         ordinary_object_create: zapi_new_object,
+        ordinary_object_create_with_proto: zapi_new_object_with_proto,
         create_array_from_list: zapi_new_array,
 
         // ── value query / conversion ──
         value_get_type: zapi_value_get_type,
+        is_array: zapi_is_array,
+        is_callable: zapi_is_callable,
+        is_constructor: zapi_is_constructor,
         to_boolean: zapi_value_to_bool,
         to_int64: zapi_value_to_int64,
         to_number: zapi_value_to_float64,
         to_string: zapi_value_to_string,
         string_read_utf8: zapi_string_read_utf8,
 
-        // ── property access (UTF-8 key, interned) ──
-        get: zapi_get_property_str,
-        set: zapi_set_property_str,
-        has_property: zapi_has_property_str,
-        delete_property: zapi_delete_property_str,
+        // ── property access (raw value key: String | Symbol) ──
+        get_property: zapi_get_property,
+        set_property: zapi_set_property,
+        has_property: zapi_has_property,
+        delete_property: zapi_delete_property,
 
-        // ── property access (raw value key: custom Symbol) ──
-        get_value: zapi_get_property,
-        set_value: zapi_set_property,
-        has_value: zapi_has_property,
-        delete_value: zapi_delete_property,
+        // ── property access (UTF-8 key, interned) ──
+        get_property_str: zapi_get_property_str,
+        set_property_str: zapi_set_property_str,
+        has_property_str: zapi_has_property_str,
+        delete_property_str: zapi_delete_property_str,
+
+        // ── property definition (descriptor) ──
+        define_property: zapi_define_property,
+        define_property_str: zapi_define_property_str,
+        define_accessor: zapi_define_accessor,
+        define_accessor_str: zapi_define_accessor_str,
 
         // ── array-like length ──
         length_of_array_like: zapi_get_length_prop,
 
+        // ── own property introspection ──
+        get_own_property_descriptor: zapi_get_own_property_descriptor,
+        get_own_property_descriptor_str: zapi_get_own_property_descriptor_str,
+        get_own_property_names: zapi_get_own_property_names,
+
         // ── function call ──
         call: zapi_call_function,
         construct: zapi_call_constructor,
-        invoke: zapi_invoke_str,
-        invoke_value: zapi_invoke,
+        invoke: zapi_invoke,
+        invoke_str: zapi_invoke_str,
 
         // ── global object ──
         get_global: zapi_get_global_str,
@@ -1182,7 +1485,8 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         is_strictly_equal: zapi_value_strict_equal,
 
         // ── instanceof ──
-        instanceof_operator: zapi_is_instance_of,
+        instanceof: zapi_is_instance_of,
+        instanceof_class: zapi_is_instance_of_class,
 
         // ── error object creation ──
         new_error: zapi_new_error,
