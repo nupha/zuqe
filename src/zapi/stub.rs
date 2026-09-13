@@ -1108,7 +1108,7 @@ unsafe extern "C" fn zapi_new_bigint_u64(env: ZqRawCtx, _v: u64) -> ZqRawValue {
 // ── binary buffers ──
 
 /// Map a typed array engine class id to a `ZQ_BUF_TYPED_ARRAY_*` discriminant.
-fn typed_array_class_id_to_buf_kind(class_id: ClassID) -> Option<i32> {
+const fn typed_array_class_id_to_buf_kind(class_id: ClassID) -> Option<i32> {
     Some(match class_id {
         JS_CLASS_INT8_ARRAY => ZQ_BUF_TYPED_ARRAY_INT8,
         JS_CLASS_UINT8_ARRAY => ZQ_BUF_TYPED_ARRAY_UINT8,
@@ -1127,7 +1127,7 @@ fn typed_array_class_id_to_buf_kind(class_id: ClassID) -> Option<i32> {
 }
 
 /// Map a `ZQ_BUF_TYPED_ARRAY_*` discriminant back to an engine class id.
-fn buf_kind_to_typed_array_class_id(kind: i32) -> Option<ClassID> {
+const fn buf_kind_to_typed_array_class_id(kind: i32) -> Option<ClassID> {
     Some(match kind {
         ZQ_BUF_TYPED_ARRAY_INT8 => JS_CLASS_INT8_ARRAY,
         ZQ_BUF_TYPED_ARRAY_UINT8 => JS_CLASS_UINT8_ARRAY,
