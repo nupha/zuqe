@@ -1,29 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{borrow::Cow, ffi::c_void, marker::PhantomData, sync::LazyLock};
+use std::{
+    borrow::Cow,
+    ffi::c_void,
+    marker::PhantomData,
+    sync::{Arc, LazyLock, RwLock},
+};
 
 use gc_lite::{GcTrace, GcTraceCtx};
 use zuqe_zapi::ffi::{
-    ZQ_CONST_VALUE_SLOT_COUNT, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE,
-    ZQ_CONST_VALUE_SLOT_INFINITY, ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN,
-    ZQ_CONST_VALUE_SLOT_NULL, ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED,
-    ZQ_CONST_VALUE_SLOT_ZERO, ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_KIND_ACCESSOR,
-    ZQ_PROP_KIND_DATA, ZQ_PROP_WRITABLE, ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL,
-    ZQ_VALUE_TYPE_EXCEPTION, ZQ_VALUE_TYPE_FUNCTION, ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER,
-    ZQ_VALUE_TYPE_OBJECT, ZQ_VALUE_TYPE_STRING, ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED,
-    ZqApi, ZqBodyFn, ZqCallInfoS, ZqClassDef, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn,
-    ZqJobTraceFn, ZqPromiseCapabilityS, ZqPropertyDescriptorS, ZqRawCtx, ZqRawValue, ZqWakeHandleS,
+    ZQ_BUF_ARRAY_BUFFER, ZQ_BUF_DATAVIEW, ZQ_BUF_NONE, ZQ_BUF_SHARED_ARRAY_BUFFER,
+    ZQ_BUF_TYPED_ARRAY_BIGINT64,
+    ZQ_BUF_TYPED_ARRAY_BIGUINT64, ZQ_BUF_TYPED_ARRAY_FLOAT16, ZQ_BUF_TYPED_ARRAY_FLOAT32,
+    ZQ_BUF_TYPED_ARRAY_FLOAT64, ZQ_BUF_TYPED_ARRAY_INT8, ZQ_BUF_TYPED_ARRAY_INT16,
+    ZQ_BUF_TYPED_ARRAY_INT32, ZQ_BUF_TYPED_ARRAY_UINT8, ZQ_BUF_TYPED_ARRAY_UINT8C,
+    ZQ_BUF_TYPED_ARRAY_UINT16, ZQ_BUF_TYPED_ARRAY_UINT32, ZQ_CONST_VALUE_SLOT_COUNT,
+    ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE, ZQ_CONST_VALUE_SLOT_INFINITY,
+    ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN, ZQ_CONST_VALUE_SLOT_NULL,
+    ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED, ZQ_CONST_VALUE_SLOT_ZERO,
+    ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_KIND_ACCESSOR, ZQ_PROP_KIND_DATA,
+    ZQ_PROP_WRITABLE, ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL, ZQ_VALUE_TYPE_EXCEPTION,
+    ZQ_VALUE_TYPE_FUNCTION, ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER, ZQ_VALUE_TYPE_OBJECT,
+    ZQ_VALUE_TYPE_STRING, ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED, ZqApi, ZqBodyFn,
+    ZqCallInfoS, ZqClassDef, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn,
+    ZqPromiseCapabilityS, ZqPropertyDescriptorS, ZqRawCtx, ZqRawValue, ZqWakeHandleS,
 };
 
 use crate::{
-    Array, Atom, ErrorKind, JSValue, JSValueTag, ScopedContext,
+    Array, Atom, ErrorKind, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
+    JS_CLASS_FLOAT16_ARRAY, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY,
+    JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER,
+    JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
+    JSValue, JSValueTag, ScopedContext,
     atom::AtomKind,
     class::ClassID,
-    object::PayloadPtr,
     object::{
-        JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE,
-        JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE, ThrowPolicy,
+        ArrayBuffer, DataView, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
+        JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE, PayloadPtr,
+        ThrowPolicy, TypedArray,
     },
 };
 
@@ -605,7 +620,7 @@ unsafe extern "C" fn zapi_new_instance(
     }
 }
 
-unsafe extern "C" fn zapi_get_native_ptr(_env: ZqRawCtx, obj: ZqRawValue) -> *mut c_void {
+unsafe extern "C" fn zapi_object_payload(obj: ZqRawValue) -> *mut c_void {
     let val = JSValue(obj, std::marker::PhantomData);
     // Unified payload storage: a zapi class instance's opaque pointer IS the
     // payload pointer, so read it directly (user-class domain only).
@@ -1092,6 +1107,184 @@ unsafe extern "C" fn zapi_new_bigint_u64(env: ZqRawCtx, _v: u64) -> ZqRawValue {
     ZQ_API_TABLE.const_values[ZQ_CONST_VALUE_SLOT_EXCEPTION]
 }
 
+// ── binary buffers ──
+
+/// Map a typed array engine class id to a `ZQ_BUF_TYPED_ARRAY_*` discriminant.
+fn typed_array_class_id_to_buf_kind(class_id: ClassID) -> Option<i32> {
+    Some(match class_id {
+        JS_CLASS_INT8_ARRAY => ZQ_BUF_TYPED_ARRAY_INT8,
+        JS_CLASS_UINT8_ARRAY => ZQ_BUF_TYPED_ARRAY_UINT8,
+        JS_CLASS_UINT8C_ARRAY => ZQ_BUF_TYPED_ARRAY_UINT8C,
+        JS_CLASS_INT16_ARRAY => ZQ_BUF_TYPED_ARRAY_INT16,
+        JS_CLASS_UINT16_ARRAY => ZQ_BUF_TYPED_ARRAY_UINT16,
+        JS_CLASS_INT32_ARRAY => ZQ_BUF_TYPED_ARRAY_INT32,
+        JS_CLASS_UINT32_ARRAY => ZQ_BUF_TYPED_ARRAY_UINT32,
+        JS_CLASS_FLOAT16_ARRAY => ZQ_BUF_TYPED_ARRAY_FLOAT16,
+        JS_CLASS_FLOAT32_ARRAY => ZQ_BUF_TYPED_ARRAY_FLOAT32,
+        JS_CLASS_FLOAT64_ARRAY => ZQ_BUF_TYPED_ARRAY_FLOAT64,
+        JS_CLASS_BIG_INT64_ARRAY => ZQ_BUF_TYPED_ARRAY_BIGINT64,
+        JS_CLASS_BIG_UINT64_ARRAY => ZQ_BUF_TYPED_ARRAY_BIGUINT64,
+        _ => return None,
+    })
+}
+
+/// Map a `ZQ_BUF_TYPED_ARRAY_*` discriminant back to an engine class id.
+fn buf_kind_to_typed_array_class_id(kind: i32) -> Option<ClassID> {
+    Some(match kind {
+        ZQ_BUF_TYPED_ARRAY_INT8 => JS_CLASS_INT8_ARRAY,
+        ZQ_BUF_TYPED_ARRAY_UINT8 => JS_CLASS_UINT8_ARRAY,
+        ZQ_BUF_TYPED_ARRAY_UINT8C => JS_CLASS_UINT8C_ARRAY,
+        ZQ_BUF_TYPED_ARRAY_INT16 => JS_CLASS_INT16_ARRAY,
+        ZQ_BUF_TYPED_ARRAY_UINT16 => JS_CLASS_UINT16_ARRAY,
+        ZQ_BUF_TYPED_ARRAY_INT32 => JS_CLASS_INT32_ARRAY,
+        ZQ_BUF_TYPED_ARRAY_UINT32 => JS_CLASS_UINT32_ARRAY,
+        ZQ_BUF_TYPED_ARRAY_FLOAT16 => JS_CLASS_FLOAT16_ARRAY,
+        ZQ_BUF_TYPED_ARRAY_FLOAT32 => JS_CLASS_FLOAT32_ARRAY,
+        ZQ_BUF_TYPED_ARRAY_FLOAT64 => JS_CLASS_FLOAT64_ARRAY,
+        ZQ_BUF_TYPED_ARRAY_BIGINT64 => JS_CLASS_BIG_INT64_ARRAY,
+        ZQ_BUF_TYPED_ARRAY_BIGUINT64 => JS_CLASS_BIG_UINT64_ARRAY,
+        _ => return None,
+    })
+}
+
+/// `ZQ_BUF_*` kind of a binary buffer; `ZQ_BUF_NONE` for anything else.
+unsafe extern "C" fn zapi_buf_kind(_env: ZqRawCtx, val: ZqRawValue) -> i32 {
+    let v = JSValue(val, PhantomData);
+    if let Some(ta) = v.as_object_TypedArray() {
+        return typed_array_class_id_to_buf_kind(ta.class_id()).unwrap_or(ZQ_BUF_NONE);
+    }
+    if let Some(ab) = v.as_object_ArrayBuffer() {
+        // `as_object_ArrayBuffer` matches both shared and non-shared buffers.
+        return if ab.class_id() == JS_CLASS_SHARED_ARRAY_BUFFER {
+            ZQ_BUF_SHARED_ARRAY_BUFFER
+        } else {
+            ZQ_BUF_ARRAY_BUFFER
+        };
+    }
+    if v.as_object_DataView().is_some() {
+        return ZQ_BUF_DATAVIEW;
+    }
+    ZQ_BUF_NONE
+}
+
+/// Measure-then-copy read of a binary buffer's raw bytes. See
+/// `ZqApi::buf_read_bytes`.
+unsafe extern "C" fn zapi_buf_read_bytes(
+    env: ZqRawCtx,
+    val: ZqRawValue,
+    dst: *mut u8,
+    dst_len: usize,
+    offset: usize,
+) -> i64 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let v = JSValue(val, PhantomData);
+
+    // Current readable byte length; 0 for a detached / out-of-bounds view.
+    let total = if let Some(ta) = v.as_object_TypedArray() {
+        ta.byte_length()
+    } else if let Some(ab) = v.as_object_ArrayBuffer() {
+        ab.payload().byte_length()
+    } else if let Some(dv) = v.as_object_DataView() {
+        let p = dv.payload();
+        if p.is_detached() || p.is_out_of_bounds() {
+            0
+        } else {
+            p.view_byte_length()
+        }
+    } else {
+        let _ = ctx.throw_type_error("value is not a binary buffer");
+        return -1;
+    };
+
+    if dst.is_null() {
+        return total as i64;
+    }
+    let n = total.saturating_sub(offset).min(dst_len);
+    if n == 0 {
+        return 0;
+    }
+
+    // Copy through `with_bytes`: it handles detached / out-of-bounds views and
+    // clamps to a resized buffer, so the read is always in bounds.
+    let mut copied = 0usize;
+    let mut copy = |bytes: &[u8]| {
+        if offset < bytes.len() {
+            let end = (offset + n).min(bytes.len());
+            let src = &bytes[offset..end];
+            unsafe { std::ptr::copy_nonoverlapping(src.as_ptr(), dst, src.len()) };
+            copied = src.len();
+        }
+    };
+    if let Some(ta) = v.as_object_TypedArray() {
+        ta.with_bytes(&mut copy);
+    } else if let Some(ab) = v.as_object_ArrayBuffer() {
+        ab.payload().with_bytes(&mut copy);
+    } else if let Some(dv) = v.as_object_DataView() {
+        // `total != 0` rules out the detached / out-of-bounds case above.
+        dv.payload().with_bytes(&mut copy);
+    }
+    copied as i64
+}
+
+/// Create a binary buffer by copying `len` bytes from `ptr`.
+unsafe extern "C" fn zapi_new_buf_from_bytes(
+    env: ZqRawCtx,
+    kind: i32,
+    ptr: *const u8,
+    len: usize,
+) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    let bytes = if len == 0 {
+        Vec::new()
+    } else if ptr.is_null() {
+        let _ = ctx.throw_type_error("null buffer source pointer");
+        return zq_exc();
+    } else {
+        unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()
+    };
+
+    let built = match kind {
+        ZQ_BUF_ARRAY_BUFFER => ArrayBuffer::from_bytes(
+            ctx,
+            JSValue::UNDEFINED,
+            bytes.into_boxed_slice(),
+            std::ptr::null_mut(),
+        )
+        .map(JSValue::from),
+        ZQ_BUF_SHARED_ARRAY_BUFFER => {
+            ArrayBuffer::from_shared(ctx, Arc::new(RwLock::new(bytes.into_boxed_slice())))
+                .map(JSValue::from)
+        }
+        ZQ_BUF_DATAVIEW => {
+            let len = bytes.len();
+            match ArrayBuffer::from_bytes(
+                ctx,
+                JSValue::UNDEFINED,
+                bytes.into_boxed_slice(),
+                std::ptr::null_mut(),
+            ) {
+                Ok(ab) => {
+                    DataView::create(ctx, JSValue::UNDEFINED, ab, 0, len, false).map(JSValue::from)
+                }
+                Err(e) => Err(e),
+            }
+        }
+        _ => match buf_kind_to_typed_array_class_id(kind) {
+            Some(class_id) => {
+                TypedArray::create_from_bytes(ctx, bytes, class_id).map(JSValue::from)
+            }
+            None => {
+                let _ = ctx.throw_type_error("invalid binary buffer kind");
+                return zq_exc();
+            }
+        },
+    };
+    match built {
+        Ok(v) => v.0,
+        Err(_) => zq_exc(),
+    }
+}
+
 unsafe extern "C" fn zapi_call_constructor(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue {
     let ctx = unsafe { &mut *(env as *mut ScopedContext) };
     let info = unsafe { &*info };
@@ -1458,7 +1651,7 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         // ── native object / class ──
         register_class: zapi_register_class,
         new_instance: zapi_new_instance,
-        get_native_ptr: zapi_get_native_ptr,
+        object_payload: zapi_object_payload,
         create_builtin_function: zapi_new_native_function,
 
         // ── promise ──
@@ -1498,5 +1691,10 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         // ── BigInt construction ──
         new_bigint_i64: zapi_new_bigint_i64,
         new_bigint_u64: zapi_new_bigint_u64,
+
+        // ── binary buffers ──
+        new_buf_from_bytes: zapi_new_buf_from_bytes,
+        buf_kind: zapi_buf_kind,
+        buf_read_bytes: zapi_buf_read_bytes,
     })
 }

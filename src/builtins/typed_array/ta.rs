@@ -596,6 +596,29 @@ impl TypedArray {
         Self::create_with_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_FLOAT32_ARRAY)
     }
 
+    /// create a TypedArray by copying raw bytes; `class_id` selects the element
+    /// type. `bytes.len()` must be a multiple of the element size.
+    pub(crate) fn create_from_bytes(
+        ctx: &mut ScopedContext,
+        bytes: Vec<u8>,
+        class_id: ClassID,
+    ) -> Result<Self, i32> {
+        let size = 1usize << Self::SIZE_LOG2(class_id);
+        if bytes.len() % size != 0 {
+            return Err(ctx.throw_range_error(
+                "byte length is not a multiple of the typed array element size",
+            ));
+        }
+        let count = bytes.len() / size;
+        let abuf = ArrayBuffer::from_bytes(
+            ctx,
+            JSValue::UNDEFINED,
+            bytes.into_boxed_slice(),
+            std::ptr::null_mut(),
+        )?;
+        Self::create(ctx, JSValue::UNDEFINED, abuf, 0, count, class_id)
+    }
+
     #[inline(always)]
     pub fn payload(&self) -> &TypedArrayPayload {
         unsafe { self.0.as_ref() }.payload_typed_array().unwrap()
