@@ -11,28 +11,27 @@ use std::{
 use gc_lite::{GcTrace, GcTraceCtx};
 use zuqe_zapi::ffi::{
     ZQ_BUF_ARRAY_BUFFER, ZQ_BUF_DATAVIEW, ZQ_BUF_NONE, ZQ_BUF_SHARED_ARRAY_BUFFER,
-    ZQ_BUF_TYPED_ARRAY_BIGINT64,
-    ZQ_BUF_TYPED_ARRAY_BIGUINT64, ZQ_BUF_TYPED_ARRAY_FLOAT16, ZQ_BUF_TYPED_ARRAY_FLOAT32,
-    ZQ_BUF_TYPED_ARRAY_FLOAT64, ZQ_BUF_TYPED_ARRAY_INT8, ZQ_BUF_TYPED_ARRAY_INT16,
-    ZQ_BUF_TYPED_ARRAY_INT32, ZQ_BUF_TYPED_ARRAY_UINT8, ZQ_BUF_TYPED_ARRAY_UINT8C,
-    ZQ_BUF_TYPED_ARRAY_UINT16, ZQ_BUF_TYPED_ARRAY_UINT32, ZQ_CONST_VALUE_SLOT_COUNT,
-    ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE, ZQ_CONST_VALUE_SLOT_INFINITY,
-    ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN, ZQ_CONST_VALUE_SLOT_NULL,
-    ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED, ZQ_CONST_VALUE_SLOT_ZERO,
-    ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_KIND_ACCESSOR, ZQ_PROP_KIND_DATA,
-    ZQ_PROP_WRITABLE, ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL, ZQ_VALUE_TYPE_EXCEPTION,
-    ZQ_VALUE_TYPE_FUNCTION, ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER, ZQ_VALUE_TYPE_OBJECT,
-    ZQ_VALUE_TYPE_STRING, ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED, ZqApi, ZqBodyFn,
-    ZqCallInfoS, ZqClassDef, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn, ZqJobTraceFn,
-    ZqPromiseCapabilityS, ZqPropertyDescriptorS, ZqRawCtx, ZqRawValue, ZqWakeHandleS,
+    ZQ_BUF_TYPED_ARRAY_BIGINT64, ZQ_BUF_TYPED_ARRAY_BIGUINT64, ZQ_BUF_TYPED_ARRAY_FLOAT16,
+    ZQ_BUF_TYPED_ARRAY_FLOAT32, ZQ_BUF_TYPED_ARRAY_FLOAT64, ZQ_BUF_TYPED_ARRAY_INT8,
+    ZQ_BUF_TYPED_ARRAY_INT16, ZQ_BUF_TYPED_ARRAY_INT32, ZQ_BUF_TYPED_ARRAY_UINT8,
+    ZQ_BUF_TYPED_ARRAY_UINT8C, ZQ_BUF_TYPED_ARRAY_UINT16, ZQ_BUF_TYPED_ARRAY_UINT32,
+    ZQ_CONST_VALUE_SLOT_COUNT, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE,
+    ZQ_CONST_VALUE_SLOT_INFINITY, ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN,
+    ZQ_CONST_VALUE_SLOT_NULL, ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED,
+    ZQ_CONST_VALUE_SLOT_ZERO, ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_KIND_ACCESSOR,
+    ZQ_PROP_KIND_DATA, ZQ_PROP_WRITABLE, ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL,
+    ZQ_VALUE_TYPE_EXCEPTION, ZQ_VALUE_TYPE_FUNCTION, ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER,
+    ZQ_VALUE_TYPE_OBJECT, ZQ_VALUE_TYPE_STRING, ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED,
+    ZqApi, ZqBodyFn, ZqCallInfoS, ZqClassDef, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn,
+    ZqJobTraceFn, ZqPromiseCapabilityS, ZqPropertyDescriptorS, ZqRawCtx, ZqRawValue, ZqWakeHandleS,
 };
 
 use crate::{
     Array, Atom, ErrorKind, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
     JS_CLASS_FLOAT16_ARRAY, JS_CLASS_FLOAT32_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT8_ARRAY,
-    JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER,
-    JS_CLASS_UINT8_ARRAY, JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY,
-    JSValue, JSValueTag, ScopedContext,
+    JS_CLASS_INT16_ARRAY, JS_CLASS_INT32_ARRAY, JS_CLASS_SHARED_ARRAY_BUFFER, JS_CLASS_UINT8_ARRAY,
+    JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, JSValue, JSValueTag,
+    ScopedContext,
     atom::AtomKind,
     class::ClassID,
     object::{
@@ -622,12 +621,11 @@ unsafe extern "C" fn zapi_new_instance(
 
 unsafe extern "C" fn zapi_object_payload(obj: ZqRawValue) -> *mut c_void {
     let val = JSValue(obj, std::marker::PhantomData);
-    // Unified payload storage: a zapi class instance's opaque pointer IS the
-    // payload pointer, so read it directly (user-class domain only).
+    // Unified payload storage: a class instance's opaque pointer IS the payload
+    // pointer, so read it directly. Macro-only (`__private`) API; no class check
+    // — the generated accessors know the payload type.
     val.as_object()
-        .filter(|o| o.class_id() >= crate::USER_CLASS_ID_START)
-        .map(|o| o.payload_raw())
-        .unwrap_or(std::ptr::null_mut())
+        .map_or(std::ptr::null_mut(), |o| o.payload_raw())
 }
 
 unsafe extern "C" fn zapi_gc_mark(gcx: *mut ZqGcTraceCtxS, val: ZqRawValue) -> i32 {
@@ -1552,10 +1550,7 @@ unsafe extern "C" fn zapi_new_symbol(env: ZqRawCtx, ptr: *const u8, len: usize) 
     }
 }
 
-unsafe extern "C" fn zapi_new_object_with_proto(
-    env: ZqRawCtx,
-    proto: ZqRawValue,
-) -> ZqRawValue {
+unsafe extern "C" fn zapi_new_object_with_proto(env: ZqRawCtx, proto: ZqRawValue) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
     let pv = JSValue(proto, PhantomData);
     let proto = if pv.is_undefined_or_null() {
