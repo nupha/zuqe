@@ -404,14 +404,6 @@ impl ObjectImpl {
         // ObjectImpl — consume the handle without freeing.
         std::mem::forget(payload);
 
-        #[cfg(debug_assertions)]
-        {
-            let cid = obj.class_id();
-            let cname = obj.class_name_str().to_string();
-            obj.gc_node_mut()
-                .debug_set_dbg_string(format!("[ObjectImpl] class={} ({cname})", cid).into());
-        }
-
         if array_length_prop {
             // only for the Array prototype object
             let _ = obj.add_own_property(
