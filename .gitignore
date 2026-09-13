@@ -1,10 +1,7 @@
-target/
-.vscode/
-.cargo/
+*
 
-*.md
-*.log
-*.jsonl
-*.html
-*.lock
-*.yml
+!src/
+!tests/**/*.js
+!tests/**/*.mjs
+!docs/
+!examples/

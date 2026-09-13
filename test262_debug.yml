@@ -1,7 +1,0 @@
-log: /dev/null
-base_path: /Users/johnray/devel/test262
-
-tests:
-  - built-ins/Function/internals/Construct/derived-return-val-realm.js
-
-exclude_features: []
