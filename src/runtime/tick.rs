@@ -109,7 +109,14 @@ impl RuntimeImpl {
                 if !cx.oneshot_jobs.is_empty() {
                     while let Some(mut job) = cx.oneshot_jobs.pop_front() {
                         self.gc_job = job.gc_trace.take(); // hold job gc tracer so GC can trace it during run()
-                        let res = job.run(cx); // run the job
+                        // Run each microtask in its own GC scope: the temporaries
+                        // one job allocates (e.g. async resolve functions /
+                        // Promise objects created per `await`) are released when
+                        // that job ends. A single shared scope would pin every
+                        // step's locals until the whole queue drains — and since
+                        // each `await` enqueues the next job, an await loop would
+                        // accumulate ~unbounded memory. See test262/microtask GC.
+                        let res = cx.with_new_scope(|job_cx| job.run(job_cx));
                         drop(self.gc_job.take()); // release gc tracer
 
                         if res.is_err() {
