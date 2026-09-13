@@ -13,8 +13,8 @@ use crate::{
     function::{Callback, FunctionKind, VarRef},
     object::{
         JS_GPN_SET_ENUM, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,
-        JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_THROW_STRICT,
-        JS_PROP_WRITABLE, Object,
+        JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_WRITABLE,
+        Object,
     },
     stack_frame::{FrameIndex, StackFrameArena},
     string::{JS_ConcatString3, StringRef},
