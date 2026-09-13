@@ -260,17 +260,6 @@ pub fn validate_config(cfg: &AppConfig, presets: &[PresetDef], require_preset: b
 async fn main_impl() {
     let args = Args::parse();
 
-    // TEMP DEBUG: SEGV (0xC0000005) is not a Rust panic, so the panic hook
-    // never runs. Install a vectored exception handler to print the native
-    // stack at the faulting point. REMOVE AFTER DIAGNOSIS.
-    #[cfg(target_os = "windows")]
-    unsafe {
-        windows_debug::AddVectoredExceptionHandler(
-            1,
-            windows_debug::veh_av_backtrace as *const () as usize,
-        );
-    }
-
     // Install a panic hook that prints the script currently being run. This is
     // the zero-cost crash reporter in `panic = "unwind"` builds (debug and
     // release-with-debug): on a panic it runs before the process aborts, so we
