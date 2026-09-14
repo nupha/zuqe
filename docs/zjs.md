@@ -132,42 +132,57 @@ The ZJS example demonstrates how to embed the Zuqe engine in a Rust application.
 1. **Main Entry Point** (`main.rs`):
    - Command-line argument parsing using `clap`
    - Script file loading and execution
-   - Runtime configuration (stack size, module loading)
+   - Runtime configuration (memory limit, stack arena/limit/overflow, module loading)
    - Error handling and result display
+   - Auto-detection of module mode (`.mjs` extension, `-m` flag, or `import`/`export` syntax in source)
 
 2. **Global Functions** (`global.rs`):
    - Implementation of built-in globals: `print()`, the `console` object (`log`/`debug`/`info`/`warn`/`error`), and `scriptArgs`
-   - Integration with the Zuqe runtime
+   - Optional `dumpValue`/`restoreValue` for bytecode persistence (behind the `persistent` feature)
 
 3. **Native class `File`** (`class_file.rs`):
-   - Custom `File` class implementation
-   - File I/O operations integration
-   - Bridge between JavaScript and Rust file operations
+   - Custom `File` class implementation with `FileDesc` enum (Stdin/Stdout/Stderr/File)
+   - File I/O operations: `fileno`, `readAsString`, `puts`, `flush`, `close`
 
-4. **Native module `os`** (`mod_os.rs`):
-   - OS-specific functionality exposure to JavaScript
-   - Time operations (`os.now()`)
-   - Terminal operations (`os.isatty()`, `os.ttyGetWinSize()`)
-   - Signal handling for interrupt management
+4. **Native class `Emitter`** (`class_emitter.rs`):
+   - Simple event emitter class with `on` and `emit` methods
+   - Constructor exposed to global scope via `ClassCtorDef::expose_to_global()`
 
-5. **Native module `std`** (`mod_std.rs`):
-   - Standard library functions exposed to JavaScript
-   - Additional utility functions for script execution
+5. **Value Inspector** (`inspect.rs`):
+   - Node.js `util.inspect`-compatible formatter
+   - Handles all JS types including circular references, Map/Set, TypedArray, RegExp, etc.
+   - Configurable depth, colors, and formatting options
+
+6. **Native module `os`** (`mod_os.rs`):
+   - OS-specific functionality: `now`, `isatty`, `ttyGetWinSize`, `ttySetRaw`
+   - I/O handlers: `setReadHandler`, `setWriteHandler`, `read`, `write`
+   - Signal handling: `signal`, plus signal constants (`SIGINT`, `SIGTERM`, etc.)
+   - Event loop polling via `select` (Unix) / `WaitForMultipleObjects` (Windows)
+   - GC trace for thread-local handlers and timers
+
+7. **Native module `std`** (`mod_std.rs`):
+   - Standard library: `open`, `puts` (stdout), `evalScript`, `gc`, `exit`
+   - Lazy `in`/`out`/`err` values for pre-built `File` instances
 
 The main application flow:
 
-1. **Initialize Runtime**: Create a new Zuqe runtime instance
-2. **Configure Stack Size**: Parse and set the virtual machine stack size
-3. **Setup Module Loader**: Configure custom module loading mechanism
-4. **Register Native Classes**: Register custom JavaScript classes (e.g., `File`)
-5. **Create Context**: Establish execution context with proper configuration
-6. **Initialize Modules**: Load OS and standard library modules
-7. **Setup Globals**: Configure global objects and functions
-8. **Execute Script**: Run the JavaScript code in the appropriate mode (global/module)
+1. **Initialize Runtime**: Create a new Zuqe runtime instance and install the panic handler
+2. **Configure Limits**: Parse and set memory limit, stack arena size, stack limit, and C-stack overflow limit
+3. **Setup Module Loader**: Configure custom module loading mechanism (including zapi extension loading)
+4. **Configure GC Trace**: Register custom GC trace handler for thread-local JS handles
+5. **Register Native Classes**: Register custom JavaScript classes (`File`, `Emitter`)
+6. **Create Context**: Establish execution context with ECMA standard setup
+7. **Enable Classes**: Enable native classes in the context via `cx.use_class()`
+8. **Initialize Modules**: Load OS and standard library modules
+9. **Setup Globals**: Configure global objects and functions (including `scriptArgs`)
+10. **Execute Script**: Run the JavaScript code in the appropriate mode (global/module)
 
 ```rust
 // Create runtime
 let mut rt = Runtime::create().unwrap();
+
+// Install panic handler for debug builds
+rt.install_panic_handler();
 
 // Optional: memory / stack limits (parsed from `--memory-limit`,
 // `--stack-arena`, `--stack-limit`, `--stack-overflow`)
@@ -176,7 +191,7 @@ let mut rt = Runtime::create().unwrap();
 // rt.set_stack_limit(512 << 10);     // 512 KiB value-stack limit
 // rt.set_stack_overflow(512 << 10);  // 512 KiB C-stack recursion guard
 
-// Setup module loader
+// Setup module loader (supports .js, .mjs, and zapi extensions .dylib/.so/.dll)
 rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
 
 // Customized GC trace handler (see docs/gc.md)

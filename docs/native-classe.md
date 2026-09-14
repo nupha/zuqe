@@ -23,7 +23,7 @@ enum FileDesc {
 //   heap `Box` owned by the engine)
 // - Class registration function `JSFile::register(rt)`
 // - Class ID accessor `JSFile::class_id()`
-// - Payload access via `as_native_object::<JSFile>()` (then `.payload()` / `.take_payload()`)
+// - Payload access via `JSFile::payload_of(val)` (returns `Option<&RefCell<FileDesc>>`)
 // - Instance creation via `JSFile::new_instance(ctx, new_target, payload)`
 // - Proper dispose/unregister lifecycle callbacks
 //
@@ -33,16 +33,17 @@ def_native_object!("File", JSFile, RefCell<FileDesc>, CLASS_FILE_PROTO, None);
 // The prototype entries are defined separately:
 const CLASS_FILE_PROTO: &[FieldDef] = &[
     FieldDef::FUNC("fileno", 0, js_file_fileno, 0),
+    FieldDef::FUNC("readAsString", 0, js_file_readAsString, 0),
     FieldDef::FUNC("puts", 1, js_file_puts, 1),
     FieldDef::FUNC("flush", 0, js_file_flush, 0),
     FieldDef::FUNC("close", 0, js_file_close, 0),
 ];
 ```
 
-When using `def_native_object!`, the generated struct implements the `NativeObject` trait, which provides:
+When using `def_native_object!`, the generated struct provides:
 
-- `as_native_object::<T>()` — recover the native object wrapper (`NativeObject`) from a `JSValue`; call `.payload()` to reach the Rust data
-- `take_payload()` — extract and take ownership of the Rust payload (e.g., when closing a resource), freeing its heap allocation
+- `payload_of(val)` — recover the payload reference from a `JSValue` (returns `Option<&T>`)
+- `from_value(val)` — recover the native object wrapper from a `JSValue`; call `.take_payload()` to extract and own the Rust data
 
 The `def_native_object!` macro arguments are:
 
@@ -78,7 +79,7 @@ use zuqe::{CallContext, ClassCtorDef, JSResult, JSValue, ScopedContext, gc_lite:
 
 #[derive(GcTrace)]
 struct EmitterData {
-    listeners: RefCell<Vec<(String, JSValue)>>,
+    listeners: RefCell<Vec<(String, i32)>>, // simplified: (event_name, count)
 }
 
 fn js_emitter_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -112,7 +113,7 @@ def_native_object!(
 
 ## 2. Define methods and properties
 
-Bind Rust functions to JavaScript class methods using `FieldDef::FUNC`, and define properties using helpers such as `FieldDef::INT32`. Access the Rust payload via the `as_native_object::<T>()` method on `JSValue`:
+Bind Rust functions to JavaScript class methods using `FieldDef::FUNC`, and define properties using helpers such as `FieldDef::INT32`. Access the Rust payload via `JSFile::payload_of()`:
 
 ```rust
 use std::io::Write;
@@ -120,12 +121,7 @@ use zuqe::{CallContext, FieldDef, JSResult, JSValue, ScopedContext, JS_PROP_C_W_
 
 // Access the Rust payload from a JSValue
 fn get_file_fd<'a>(ctx: &mut ScopedContext, val: &'a JSValue) -> Result<&'a RefCell<FileDesc>, i32> {
-    val.as_native_object::<JSFile>()
-        .and_then(|o| o.payload())
-        .ok_or_else(|| {
-            ctx.throw_type_error("not a File instance");
-            -1
-        })
+    JSFile::payload_of(val).ok_or_else(|| ctx.throw_type_error("not a File instance"))
 }
 
 fn js_file_puts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -177,10 +173,10 @@ fn js_file_puts(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 const CLASS_FILE_PROTO: &[FieldDef] = &[
     FieldDef::FUNC("fileno", 0, js_file_fileno, 0),
+    FieldDef::FUNC("readAsString", 0, js_file_readAsString, 0),
     FieldDef::FUNC("puts", 1, js_file_puts, 1),
     FieldDef::FUNC("flush", 0, js_file_flush, 0),
     FieldDef::FUNC("close", 0, js_file_close, 0),
-    FieldDef::INT32("DEFAULT_BUFFER_SIZE", 8192, JS_PROP_C_W_E),
 ];
 ```
 
@@ -189,10 +185,8 @@ The `close` method demonstrates how to safely extract and drop the Rust payload:
 ```rust
 fn js_file_close(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let this = cc.this();
-    let mut jsfile = this.as_native_object::<JSFile>().ok_or_else(|| {
-        ctx.throw_type_error("not a File instance");
-        -1
-    })?;
+    let mut jsfile = JSFile::from_value(this)
+        .ok_or_else(|| ctx.throw_type_error("not a File instance"))?;
     let _ = jsfile.take_payload();
     Ok(JSValue::UNDEFINED)
 }
@@ -286,6 +280,14 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
         "out",
         |cx| {
             let obj = JSFile::create_stdout_instance(cx)?;
+            Ok(JSValue::from(obj))
+        },
+        JS_PROP_ENUMERABLE,
+    ),
+    FieldDef::LAZY_VALUE(
+        "err",
+        |cx| {
+            let obj = JSFile::create_stderr_instance(cx)?;
             Ok(JSValue::from(obj))
         },
         JS_PROP_ENUMERABLE,

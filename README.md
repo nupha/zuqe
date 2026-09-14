@@ -69,6 +69,20 @@ Engine-level design choices that set Zuqe apart:
 - **Edge & Embedded Runtimes**: Tiny binary and low memory footprint let Zuqe fit IoT and edge devices
 - **Developer Tools & Sandboxes**: Safe in-process scripting for IDEs, CLIs, and build tooling
 
+## 🧩 Zapi — Version-Independent Native Extensions
+
+Zuqe ships **zapi**, an extension API that decouples the engine version from the extension version. Extensions compiled against the zapi ABI can be loaded by **any** version of the zuqe host — the engine can evolve without breaking existing extensions.
+
+```js
+// JS side: extensions are just ES modules
+import * as my from "./libmymod.so";
+my.add(2, 3); // 5
+```
+
+Extensions are compiled as `cdylib` dynamic libraries. The zapi API is defined by two crates (`zuqe_zapi` + `zuqe_zapi_macros`) with a stable ABI boundary. You write functions, classes, and constants using safe Rust with `#[zq_function]`, `#[zq_class]`, `#[zq_module]` — the macros generate the C ABI glue. Users drop the `.dylib`/`.so`/`.dll` next to their scripts and `import` it, regardless of which zuqe version they're running.
+
+This means extension authors ship a single binary; it works across engine upgrades. See [Writing a Zapi Extension](docs/zapi-extension.md) for the full guide.
+
 ## 🏁 Getting Started
 
 ### Setup `Cargo.toml`
@@ -77,7 +91,7 @@ Add `zuqe` to your dependencies in `Cargo.toml`:
 
 ```toml
 [dependencies]
-zuqe = "0.9.0"
+zuqe = "0.10.0"
 ```
 
 Zuqe provides several Cargo features to customize the build:
