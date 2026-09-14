@@ -96,7 +96,7 @@ unsafe extern "C" fn zapi_new_string(env: ZqRawCtx, ptr: *const u8, len: usize) 
     }
 }
 
-unsafe extern "C" fn zapi_string_read_utf8(
+unsafe extern "C" fn zapi_read_string_utf8(
     env: ZqRawCtx,
     s: ZqRawValue,
     buf: *mut u8,
@@ -331,7 +331,7 @@ unsafe extern "C" fn zapi_get_global_str(
 }
 
 /// minus=error, otherwise the length
-unsafe extern "C" fn zapi_get_length_prop(env: ZqRawCtx, arr: ZqRawValue) -> i64 {
+unsafe extern "C" fn zapi_get_length(env: ZqRawCtx, arr: ZqRawValue) -> i64 {
     let ctx = unsafe { ctx_from_env(env) };
     let v = JSValue(arr, std::marker::PhantomData);
     v.get_length_prop(ctx).unwrap_or(-1)
@@ -619,7 +619,7 @@ unsafe extern "C" fn zapi_new_instance(
     }
 }
 
-unsafe extern "C" fn zapi_object_payload(obj: ZqRawValue) -> *mut c_void {
+unsafe extern "C" fn zapi_get_object_payload(obj: ZqRawValue) -> *mut c_void {
     let val = JSValue(obj, std::marker::PhantomData);
     // Unified payload storage: a class instance's opaque pointer IS the payload
     // pointer, so read it directly. Macro-only (`__private`) API; no class check
@@ -767,14 +767,14 @@ unsafe extern "C" fn zapi_waker_wake(h: *mut ZqWakeHandleS) {
 }
 
 /// Release a waker.
-unsafe extern "C" fn zapi_waker_free(h: *mut ZqWakeHandleS) {
+unsafe extern "C" fn zapi_drop_waker(h: *mut ZqWakeHandleS) {
     if !h.is_null() {
         drop(unsafe { Box::from_raw(h as *mut ZqWakeHandle) });
     }
 }
 
 /// each tick runs `run(data)` on the JS thread until it reports Done/Err.
-unsafe extern "C" fn zapi_add_polling_job(
+unsafe extern "C" fn zapi_add_job(
     env: ZqRawCtx,
     run: ZqJobRunFn,
     trace: Option<ZqJobTraceFn>,
@@ -801,7 +801,7 @@ unsafe extern "C" fn zapi_add_polling_job(
 /// and is registered in the existing body registry via `register_zapi_func_magic`.
 /// No separate callable registry is needed — the trampoline dispatches from
 /// the body registry by token, same as normal zapi functions.
-unsafe extern "C" fn zapi_new_native_function(
+unsafe extern "C" fn zapi_new_builtin_function(
     env: ZqRawCtx,
     run_fn: ZqBodyFn,
     name: ZqRawValue,
@@ -923,12 +923,12 @@ const fn err_type_to_kind(ty: i32) -> Option<ErrorKind> {
 
 /// Raise an arbitrary value as the pending exception. Returns `value_exception`
 /// (the extension should propagate it).
-unsafe extern "C" fn zapi_throw_value(env: ZqRawCtx, val: ZqRawValue) {
+unsafe extern "C" fn zapi_throw(env: ZqRawCtx, val: ZqRawValue) {
     let ctx = unsafe { ctx_from_env(env) };
     let _ = ctx.throw_value(JSValue(val, std::marker::PhantomData));
 }
 
-unsafe extern "C" fn zapi_value_get_type(val: ZqRawValue) -> i32 {
+unsafe extern "C" fn zapi_get_type_of(val: ZqRawValue) -> i32 {
     let v = JSValue(val, std::marker::PhantomData);
     match v.tag() {
         JSValueTag::Undefined | JSValueTag::Uninitialized => ZQ_VALUE_TYPE_UNDEFINED,
@@ -1146,7 +1146,7 @@ const fn buf_kind_to_typed_array_class_id(kind: i32) -> Option<ClassID> {
 }
 
 /// `ZQ_BUF_*` kind of a binary buffer; `ZQ_BUF_NONE` for anything else.
-unsafe extern "C" fn zapi_buf_kind(_env: ZqRawCtx, val: ZqRawValue) -> i32 {
+unsafe extern "C" fn zapi_get_buf_type(_env: ZqRawCtx, val: ZqRawValue) -> i32 {
     let v = JSValue(val, PhantomData);
     if let Some(ta) = v.as_object_TypedArray() {
         return typed_array_class_id_to_buf_kind(ta.class_id()).unwrap_or(ZQ_BUF_NONE);
@@ -1592,12 +1592,12 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         new_number: zapi_new_number,
         new_string: zapi_new_string,
         new_symbol: zapi_new_symbol,
-        ordinary_object_create: zapi_new_object,
-        ordinary_object_create_with_proto: zapi_new_object_with_proto,
-        create_array_from_list: zapi_new_array,
+        new_object: zapi_new_object,
+        new_object_with_proto: zapi_new_object_with_proto,
+        new_array: zapi_new_array,
 
         // ── value query / conversion ──
-        value_get_type: zapi_value_get_type,
+        get_type_of: zapi_get_type_of,
         is_array: zapi_is_array,
         is_callable: zapi_is_callable,
         is_constructor: zapi_is_constructor,
@@ -1605,7 +1605,7 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         to_int64: zapi_value_to_int64,
         to_number: zapi_value_to_float64,
         to_string: zapi_value_to_string,
-        string_read_utf8: zapi_string_read_utf8,
+        read_string_utf8: zapi_read_string_utf8,
 
         // ── property access (raw value key: String | Symbol) ──
         get_property: zapi_get_property,
@@ -1626,7 +1626,7 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         define_accessor_str: zapi_define_accessor_str,
 
         // ── array-like length ──
-        length_of_array_like: zapi_get_length_prop,
+        get_length: zapi_get_length,
 
         // ── own property introspection ──
         get_own_property_descriptor: zapi_get_own_property_descriptor,
@@ -1640,14 +1640,14 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         invoke_str: zapi_invoke_str,
 
         // ── global object ──
-        get_global: zapi_get_global_str,
-        set_global: zapi_set_global_str,
+        get_global_str: zapi_get_global_str,
+        set_global_str: zapi_set_global_str,
 
         // ── native object / class ──
         register_class: zapi_register_class,
         new_instance: zapi_new_instance,
-        object_payload: zapi_object_payload,
-        create_builtin_function: zapi_new_native_function,
+        get_object_payload: zapi_get_object_payload,
+        new_builtin_function: zapi_new_builtin_function,
 
         // ── promise ──
         new_promise_capability: zapi_new_promise_capability,
@@ -1656,21 +1656,21 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         new_async_iterator: zapi_new_async_iterator,
 
         // ── job queue ──
-        add_polling_job: zapi_add_polling_job,
+        add_job: zapi_add_job,
 
         // ── GC ──
         gc_mark: zapi_gc_mark,
         gc_set_trace_func: zapi_gc_set_trace_func,
 
         // ── exception ──
-        throw_value: zapi_throw_value,
+        throw: zapi_throw,
         take_exception: zapi_take_exception,
         exception: zapi_exception,
 
         // ── event-loop wake ──
         new_waker: zapi_new_waker,
-        waker_wake: zapi_waker_wake,
-        waker_free: zapi_waker_free,
+        wake: zapi_waker_wake,
+        drop_waker: zapi_drop_waker,
 
         // ── numeric conversion (ToInt32) ──
         to_int32: zapi_value_to_int32,
@@ -1689,7 +1689,7 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
 
         // ── binary buffers ──
         new_buf_from_bytes: zapi_new_buf_from_bytes,
-        buf_kind: zapi_buf_kind,
-        buf_read_bytes: zapi_buf_read_bytes,
+        get_buf_type: zapi_get_buf_type,
+        read_buf_bytes: zapi_buf_read_bytes,
     })
 }
