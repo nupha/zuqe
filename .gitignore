@@ -1,7 +1,9 @@
 *
 
 !src/
-!tests/**/*.js
-!tests/**/*.mjs
+!tests/
+!tests/**
 !docs/
+!docs/**
 !examples/
+!examples/**
