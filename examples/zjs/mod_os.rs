@@ -203,7 +203,7 @@ fn js_os_poll(ctx: &mut ScopedContext) -> bool {
 
         for func in callbacks.drain(..) {
             if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                let t = ctx.rt().exception().to_text(ctx);
+                let t = ctx.take_exception().to_text(ctx);
                 eprintln!("signal handle error: {}", t.message);
             }
         }
@@ -233,7 +233,7 @@ fn js_os_poll(ctx: &mut ScopedContext) -> bool {
                 if diff <= 0 {
                     let func = std::mem::replace(&mut tmr.func, JSValue::UNDEFINED);
                     if func.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-                        let t = ctx.rt().exception().to_text(ctx);
+                        let t = ctx.take_exception().to_text(ctx);
                         eprintln!("Timer error: {}", t.message);
                     }
                 } else if diff < min_delay {
@@ -358,11 +358,8 @@ fn js_os_poll(ctx: &mut ScopedContext) -> bool {
 
     for f in callbacks {
         if f.call(ctx, JSValue::UNDEFINED, &[]).is_err() {
-            // read handler error
-            // eprintln!(
-            //     "read handler error: {}",
-            //     ctx.rt_ref().exception().to_string(ctx).unwrap()
-            // );
+            // read handler error; discard the exception along with the callback
+            let _ = ctx.take_exception();
             break;
         }
     }
