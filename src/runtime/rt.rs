@@ -9,7 +9,7 @@ use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
 
 use crate::{
     USER_CLASS_ID_START,
-    atom::{Atom, AtomRegistry},
+    atom::{Atom, AtomInfo, AtomKind, AtomRegistry, JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL},
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions, promise::JSHostPromiseRejectionTracker,
     },
@@ -26,7 +26,7 @@ use crate::{
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
     register_all_builtin_classes,
     stack_frame::{ExecMode, FrameIndex, StackFrameArena},
-    string::StringRef,
+    string::{StringData, StringRef},
     utils::js_get_stack_pointer,
     value::JSValue,
 };
@@ -62,12 +62,14 @@ impl<C> InterruptFn for C where C: Fn(&RuntimeImpl) -> bool {}
 pub struct RuntimeImpl {
     /// atom registry
     pub(crate) atom_registry: AtomRegistry,
-    /// Per-runtime symbol values for const Symbol atoms (well-known symbols).
+    /// Per-runtime cached values for const atoms (string + symbol).
     /// Const atoms have no GC descriptor node, so their value identity is
-    /// cached here: `atom_id -> symbol StringRef`. The nodes are GC roots.
-    /// Shared across contexts (atom ids are runtime-global), matching the
-    /// per-runtime atom registry.
-    pub(crate) const_symbol_values: Vec<(u32, StringRef)>,
+    /// cached here: `atom_id -> StringRef`. Each node is a GC root carrying
+    /// the const atom id (via AtomInfo), enabling fast `to_atom` round-trips
+    /// and `===` id-check for symbols. Shared across all contexts (atom ids
+    /// are runtime-global), matching the per-runtime atom registry.
+    /// Populated lazily on first `to_value` call per atom.
+    pub(crate) const_atom_values: Vec<(u32, StringRef)>,
 
     /// registered classes
     pub(crate) class_registry: Vec<ClassDef>,
@@ -219,37 +221,48 @@ impl RuntimeImpl {
         crate::runtime::WakeHandle(self.park.clone())
     }
 
-    /// Return the cached symbol string for a const Symbol atom, minting (and
-    /// caching) one on first use. The node is a GC root carrying the const
-    /// atom id, so symbol-key property lookups resolve to it. Shared across
-    /// all contexts on this runtime (well-known symbol identity is id-based,
-    /// so a single node per atom serves every realm).
-    pub(crate) fn const_symbol_value(&mut self, id: u32) -> Result<StringRef, i32> {
-        use crate::atom::{AtomInfo, AtomKind, JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL};
-        use crate::string::{StringData, StringRef};
-
-        if let Some((_, s)) = self.const_symbol_values.iter().find(|(k, _)| *k == id) {
+    /// Return the cached value (String or Symbol) for a const atom,
+    /// minting and caching one on first use. The node is a GC root with
+    /// AtomInfo carrying the const atom id, so `to_atom` round-trips and
+    /// symbol `===` (id-based) work correctly. Strings use content-based
+    /// hash; symbols use `JS_ATOM_HASH_SYMBOL`/`JS_ATOM_HASH_PRIVATE`.
+    pub(crate) fn const_atom_value(&mut self, id: u32) -> Result<StringRef, i32> {
+        debug_assert!(
+            crate::atom::is_const_atom(id),
+            "const_atom_value called with non-const atom id {id}"
+        );
+        if let Some((_, s)) = self.const_atom_values.iter().find(|(k, _)| *k == id) {
             return Ok(*s);
         }
 
-        let atom = crate::atom::Atom::from_id(id);
-        let hash = if atom == crate::atom::Atom::CONST_Private_brand {
-            JS_ATOM_HASH_PRIVATE
-        } else {
-            JS_ATOM_HASH_SYMBOL
+        let atom = Atom::from_id(id);
+        let kind = atom.const_kind();
+        // The const table only produces String (text_hash) and Symbol kinds.
+        // Symbols carry a type-marker atom_hash so generic descriptor
+        // inspection (`is_normal_desc_string`) treats the node as a normal
+        // well-known symbol; Private_brand keeps its brand marker.
+        let atom_hash = match kind {
+            AtomKind::Symbol => {
+                if atom == Atom::CONST_Private_brand {
+                    JS_ATOM_HASH_PRIVATE
+                } else {
+                    JS_ATOM_HASH_SYMBOL
+                }
+            }
+            _ => atom.const_text_hash(),
         };
         let s = StringRef::create_root(
             self,
             StringData::from_static(atom.const_str()),
             Some(AtomInfo::new(
                 std::num::NonZeroU32::new(id).unwrap(),
-                AtomKind::Symbol,
-                hash,
+                kind,
+                atom_hash,
             )),
         )?;
 
-        self.const_symbol_values.try_reserve(1).map_err(|_| -1)?;
-        self.const_symbol_values.push((id, s));
+        self.const_atom_values.try_reserve(1).map_err(|_| -1)?;
+        self.const_atom_values.push((id, s));
         Ok(s)
     }
 
@@ -289,7 +302,8 @@ impl RuntimeImpl {
 
         let mut rt = Self {
             atom_registry: AtomRegistry::new(),
-            const_symbol_values: Vec::new(),
+            const_atom_values: Vec::new(),
+
             class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
             user_class_id_serial: USER_CLASS_ID_START,
             shape_registry: ShapeRegistry::new(),
@@ -355,7 +369,6 @@ impl RuntimeImpl {
             join_state: JoinState::Active,
         };
 
-        rt.init_const_atoms();
         register_all_builtin_classes(&mut rt)?;
 
         JS_UpdateStackTop(&mut rt);

@@ -15,21 +15,21 @@ use crate::{
 };
 
 use super::{
-    ATOM_CONST_COUNT, ATOM_CONST_DEFS, Atom, AtomInfo, AtomKind, JS_ATOM_HASH_PRIVATE,
-    JS_ATOM_HASH_SYMBOL, JS_ATOM_MAX, JS_ATOM_MAX_INT, JS_ATOM_TAG_INT, USER_ATOM_ID_START,
+    ATOM_CONST_HASH_TABLE, Atom, AtomInfo, AtomKind, JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL,
+    JS_ATOM_MAX, JS_ATOM_MAX_INT, JS_ATOM_TAG_INT, USER_ATOM_ID_START,
 };
 
 pub(crate) struct AtomRegistry {
     /// user atom descriptor slots. None means the slot is unused.
     user_atoms: Vec<Option<StringRef>>,
 
-    /// atom hash lookup table, is dict { atom_hash: [atom_id] },
-    /// slot index = atom_id - 1
+    /// user-atom hash lookup table: `{ text_hash: [user_atom_id] }`.
+    /// Const atoms are resolved entirely at build time via
+    /// `ATOM_CONST_HASH_TABLE` (see `Atom::lookup_const`).
     hash_lut: HashMap<u32, Vec<u32>>,
 }
 
 impl AtomRegistry {
-    /// create atom registry, setup with const atoms.
     pub(crate) fn new() -> Self {
         Self {
             user_atoms: Vec::new(),
@@ -48,7 +48,7 @@ fn register_atom(
     mut atom_kind: AtomKind,
 ) -> Result<Atom, i32> {
     // match for existing atoms, don't register twice for same content.
-    let (desc_str, hash): (StringRef, u32) = match atom_kind {
+    let (desc_str, atom_hash): (StringRef, u32) = match atom_kind {
         AtomKind::String | AtomKind::GlobalSymbol => {
             debug_assert!(!str.content().is_ident());
 
@@ -68,20 +68,18 @@ fn register_atom(
                 str
             };
 
-            let hash = Atom::calc_atom_hash(ss.content(), atom_kind);
+            // const atoms live in the static table, not the hash_lut — dedup
+            // before allocating/probing for a user atom.
+            if let Some(a) = Atom::const_from_content(ss.content(), atom_kind) {
+                return Ok(a);
+            }
+
+            let atom_hash = Atom::calc_atom_hash(ss.content(), atom_kind);
             let a_reg = &mut rt.atom_registry;
 
-            // check for reuse: match registered atoms for (hash, atom_type, string_content)
-            if let Some(kv) = a_reg.hash_lut.get(&hash) {
+            // check for reuse: match registered atoms for (atom_hash, atom_type, string_content)
+            if let Some(kv) = a_reg.hash_lut.get(&atom_hash) {
                 for &atom_id in kv {
-                    let atom = Atom::from_id(atom_id);
-                    if atom.is_const() {
-                        if atom.const_kind() == atom_kind && ss.content().eq_str(atom.const_str()) {
-                            return Ok(atom);
-                        }
-                        continue;
-                    }
-
                     let ds = a_reg.user_atoms[atom_id as usize - USER_ATOM_ID_START as usize]
                         .as_ref()
                         .unwrap();
@@ -92,7 +90,7 @@ fn register_atom(
                 }
             }
 
-            (ss, hash)
+            (ss, atom_hash)
         }
 
         AtomKind::Symbol | AtomKind::Private => {
@@ -115,14 +113,14 @@ fn register_atom(
                 str
             };
 
-            let hash = if atom_kind == AtomKind::Symbol {
+            let atom_hash = if atom_kind == AtomKind::Symbol {
                 JS_ATOM_HASH_SYMBOL
             } else {
                 atom_kind = AtomKind::Symbol;
                 JS_ATOM_HASH_PRIVATE
             };
 
-            (ss, hash)
+            (ss, atom_hash)
         }
     };
 
@@ -165,7 +163,7 @@ fn register_atom(
             (None, new_id)
         };
 
-    match rt.atom_registry.hash_lut.entry(hash) {
+    match rt.atom_registry.hash_lut.entry(atom_hash) {
         Entry::Occupied(kv) => {
             kv.into_mut().push(atom_id);
         }
@@ -177,7 +175,7 @@ fn register_atom(
     desc_str.set_atom_info(AtomInfo::new(
         unsafe { NonZeroU32::new_unchecked(atom_id) },
         atom_kind,
-        hash,
+        atom_hash,
     ));
 
     if let Some(i) = idx {
@@ -206,41 +204,6 @@ fn register_atom(
 }
 
 impl RuntimeImpl {
-    /// init atom registry: seed the hash lookup table with the static const
-    /// atoms. Const atoms have no GC descriptor node — their content/kind come
-    /// from `ATOM_CONST_DEFS` at `(atom_id - 1)`.
-    pub(crate) fn init_const_atoms(&mut self) {
-        debug_assert!(
-            self.atom_registry.hash_lut.is_empty(),
-            "must init atom registry only once"
-        );
-
-        self.atom_registry
-            .hash_lut
-            .reserve(ATOM_CONST_COUNT as usize + 64);
-
-        for (idx, &(str, atom_kind)) in ATOM_CONST_DEFS.iter().enumerate() {
-            let atom_id = idx as u32 + 1;
-
-            let hash: u32 = match atom_kind {
-                AtomKind::String | AtomKind::GlobalSymbol => {
-                    Atom::calc_atom_str_hash(str, atom_kind)
-                }
-                AtomKind::Symbol => JS_ATOM_HASH_SYMBOL,
-                AtomKind::Private => JS_ATOM_HASH_PRIVATE,
-            };
-
-            match self.atom_registry.hash_lut.entry(hash) {
-                Entry::Vacant(kv) => {
-                    kv.insert(vec![atom_id]);
-                }
-                Entry::Occupied(kv) => {
-                    kv.into_mut().push(atom_id);
-                }
-            }
-        }
-    }
-
     /// remove atom from registry.
     /// this is called when the string descriptor is being dropped,
     /// so don't trigger string drop again.
@@ -380,19 +343,13 @@ impl Atom {
             && i <= JS_ATOM_MAX_INT
         {
             return Some(Atom::new_small_int(i));
+        } else if let Some(a) = Self::lookup_const(str, kind) {
+            return Some(a);
         }
 
-        let hash = Self::calc_atom_str_hash(str, kind);
-        // `hash_lut` maps content hash -> candidate atom ids (const + user).
-        for &id in rt.atom_registry.hash_lut.get(&hash)? {
-            let atom = Atom::from_id(id);
-            if atom.is_const() {
-                if atom.const_kind() == kind && atom.const_str() == str {
-                    return Some(atom);
-                }
-                continue;
-            }
-
+        let text_hash = Self::calc_atom_str_hash(str, kind);
+        // `hash_lut` only holds user atoms; const atoms live in the static table.
+        for &id in rt.atom_registry.hash_lut.get(&text_hash)? {
             let Some(desc) = rt.atom_desc_string(id) else {
                 continue;
             };
@@ -488,6 +445,44 @@ impl Atom {
             }
         }
         h
+    }
+
+    /// Resolve a const atom from the build-time sorted hash index.
+    /// Binary search the equal-hash run and verify kind + content.
+    fn const_lookup_by_hash(h: u32, kind: AtomKind, cmp: impl Fn(&str) -> bool) -> Option<Atom> {
+        let table = ATOM_CONST_HASH_TABLE;
+        let mut lo = 0usize;
+        let mut hi = table.len();
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if table[mid].0 < h {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        while lo < table.len() && table[lo].0 == h {
+            let atom = Atom::new_const(table[lo].1);
+            if atom.const_kind() == kind && cmp(atom.const_str()) {
+                return Some(atom);
+            }
+            lo += 1;
+        }
+        None
+    }
+
+    /// Resolve a const atom by content string (`&str`).
+    #[inline(always)]
+    fn lookup_const(str: &str, kind: AtomKind) -> Option<Atom> {
+        Self::const_lookup_by_hash(Self::calc_atom_str_hash(str, kind), kind, |s| s == str)
+    }
+
+    /// Resolve a const atom by content node (`&StringData`).
+    #[inline(always)]
+    fn const_from_content(content: &StringData, kind: AtomKind) -> Option<Atom> {
+        Self::const_lookup_by_hash(Self::calc_atom_hash(content, kind), kind, |s| {
+            content.eq_str(s)
+        })
     }
 }
 
@@ -639,10 +634,10 @@ mod tests {
         Ok(())
     }
 
-    /// Phase 1 acceptance: const Symbol atoms have a stable per-realm value
-    /// identity and round-trip back to the const atom (symbol-key lookups).
+    /// Phase 1 acceptance: const atoms (string + symbol) have stable cached
+    /// values and round-trip back to the const atom via `to_atom`.
     #[test]
-    fn const_symbol_value_is_stable() -> Result<(), i32> {
+    fn const_atom_value_is_stable() -> Result<(), i32> {
         let mut rt = Runtime::create()?;
         let mut ctx = rt.create_context(|cx| {
             ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
@@ -650,19 +645,36 @@ mod tests {
         })?;
 
         ctx.with_new_scope(|cx| {
+            // Symbol: stable identity, correct tag, round-trip.
             let v1 = Atom::CONST_Symbol_iterator.to_value(cx)?;
             let v2 = Atom::CONST_Symbol_iterator.to_value(cx)?;
             assert!(v1.as_symbol(false).is_some());
             assert_eq!(v1, v2, "well-known symbol value identity must be stable");
             assert_eq!(v1.to_atom(cx)?, Atom::CONST_Symbol_iterator);
 
-            // Private-brand const atom mints a symbol without panicking.
+            // Private_brand: mints a symbol without panicking.
             assert!(
                 Atom::CONST_Private_brand
                     .to_value(cx)?
                     .as_symbol(false)
                     .is_some()
             );
+
+            // String: stable value, correct content, round-trip.
+            let s1 = Atom::CONST_Object.to_value(cx)?;
+            let s2 = Atom::CONST_Object.to_value(cx)?;
+            assert!(s1.is_string());
+            assert_eq!(s1, s2, "const string value identity must be stable");
+            assert_eq!(
+                s1.as_string(false)
+                    .unwrap()
+                    .content()
+                    .encode_utf8(false)
+                    .as_ref(),
+                "Object"
+            );
+            assert_eq!(s1.to_atom(cx)?, Atom::CONST_Object);
+
             Ok::<(), i32>(())
         })?;
         Ok(())

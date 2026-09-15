@@ -308,6 +308,28 @@ static ATOM_DESCR_DEFS: &[&str] = &[
     "Symbol_asyncIterator",
 ];
 
+/// Build-time replica of `Atom::calc_atom_str_hash`.
+/// kind_num matches the runtime `AtomKind` repr: String=1, Symbol=3.
+/// Produces the entry `text_hash` (content hash) that seeds the hash lookup.
+fn calc_atom_str_hash(str: &str, kind_num: u32) -> u32 {
+    let mut h = kind_num;
+    if !str.is_empty() {
+        for c in str.chars() {
+            h = h.wrapping_mul(263).wrapping_add(c as u32);
+        }
+    }
+    h
+}
+
+/// AtomKind repr number for a const atom name (String=1, Symbol=3).
+fn kind_num_of(name: &str) -> u32 {
+    if name.starts_with("Symbol_") || name.eq("Private_brand") {
+        3
+    } else {
+        1
+    }
+}
+
 pub fn gen_atoms(outfile: &Path) {
     let text = ATOM_DESCR_DEFS
         .iter()
@@ -358,50 +380,66 @@ pub fn gen_atoms(outfile: &Path) {
     ));
 
     // const atom content table, indexed by (atom_id - 1).
-    // kind mirrors the const descriptors in the old quicksilver model:
-    // Symbol_* and the private-brand marker were Symbol-kind atoms, the rest
-    // String. Kept as display strings ("" / "<brand>" / "Symbol.XXX").
+    // Fields:
+    // - .0 text:      const atom content ("" / "<brand>" / "Symbol.XXX").
+    // - .1 kind:      const atom kind. `Symbol_*` (well-known symbols) and
+    //                 `Private_brand` (the shared brand storage key) get
+    //                 `AtomKind::Symbol`; everything else is `AtomKind::String`.
+    // - .2 text_hash: build-time content hash (`calc_atom_str_hash`), used to
+    //                 seed the runtime hash_lut so content lookup lands on the
+    //                 const atom. NOT the node `atom_hash`: symbol descriptor
+    //                 nodes carry the `JS_ATOM_HASH_SYMBOL`/`JS_ATOM_HASH_PRIVATE`
+    //                 marker instead (see `RuntimeImpl::const_atom_value`).
     let const_defs = ATOM_DESCR_DEFS
         .iter()
         .zip(&text)
         .map(|(name, txt)| {
-            let kind = if name.starts_with("Symbol_") || name.eq(&"Private_brand") {
-                "AtomKind::Symbol"
+            let (kind_str, kind_num) = if name.starts_with("Symbol_") || name.eq(&"Private_brand") {
+                ("AtomKind::Symbol", 3u32)
             } else {
-                "AtomKind::String"
+                ("AtomKind::String", 1u32)
             };
+            let text_hash = calc_atom_str_hash(txt, kind_num);
             format!(
-                "(\"{}\", {kind}),",
-                txt.replace('\\', "\\\\").replace('"', "\\\"")
+                "(\"{}\", {kind_str}, {text_hash}),",
+                txt.replace('\\', "\\\\").replace('"', "\\\""),
             )
         })
         .collect::<String>();
+
+    output.push(
+            "// ATOM_CONST_DEFS, indexed by (atom_id - 1). Fields:\n\
+             //   .0 text:      const atom content (\"\" / \"<brand>\" / \"Symbol.XXX\").\n\
+             //   .1 kind:      AtomKind::Symbol for Symbol_* & Private_brand, else String.\n\
+             //   .2 text_hash: content hash (`calc_atom_str_hash`), building the\n\
+             //                 ATOM_CONST_HASH_TABLE lookup index below.\n\
+             //                 Symbol node atom_hash is JS_ATOM_HASH_SYMBOL / JS_ATOM_HASH_PRIVATE\n\
+             //                 instead (see RuntimeImpl::const_atom_value)."
+                .to_string(),
+        );
+
     output.push(format!(
-        "pub const ATOM_CONST_DEFS: &[(&'static str, AtomKind)] = &[{const_defs}];"
+        "pub const ATOM_CONST_DEFS: &[(&str, AtomKind, u32)] = &[{const_defs}];"
     ));
 
-    // output.push(format!(
-    //     "/// the first builtin const atom\npub const JS_ATOM_FIRST: Atom = Atom::CONST_{};",
-    //     ATOM_DESCR_DEFS.first().unwrap()
-    // ));
-    // output.push(format!(
-    //     "/// the last builtin const atom\npub const JS_ATOM_LAST: Atom = Atom::CONST_{};",
-    //     ATOM_DESCR_DEFS.last().unwrap()
-    // ));
-
-    // output.push("pub const JS_ATOM_LAST_KEYWORD: Atom = Atom::CONST_super;".into());
-    // output.push("pub const JS_ATOM_FIRST_STRICT_KEYWORD: Atom = Atom::CONST_implements;".into());
-    // output.push("pub const JS_ATOM_LAST_STRICT_KEYWORD: Atom = Atom::CONST_yield;".into());
-
-    // Symbol_XXX
-    // output.push(format!(
-    //     "/// the first builtin const Symbol_XXX atom\npub const JS_ATOM_FIRST_SYMBOL: Atom = Atom::CONST_{};",
-    //     ATOM_DESCR_DEFS.iter().find(|x|x.starts_with("Symbol_")).unwrap()
-    // ));
-    // output.push(format!(
-    //     "/// the last builtin const Symbol_XXX atom\npub const JS_ATOM_LAST_SYMBOL: Atom = Atom::CONST_{};",
-    //     ATOM_DESCR_DEFS.iter().rev().find(|x|x.starts_with("Symbol_")).unwrap()
-    // ));
+    // const atom content hash index: (text_hash, atom_id) sorted by text_hash.
+    // `Atom::lookup_const` binary-searches it so content lookup resolves a
+    // const atom with no runtime registration (no hash_lut seeding, no
+    // descriptor nodes).
+    let mut hash_index = ATOM_DESCR_DEFS
+        .iter()
+        .zip(&text)
+        .enumerate()
+        .map(|(idx, (name, txt))| (calc_atom_str_hash(txt, kind_num_of(name)), idx as u32 + 1))
+        .collect::<Vec<_>>();
+    hash_index.sort_unstable_by_key(|t| t.0);
+    let hash_table = hash_index
+        .iter()
+        .map(|(h, id)| format!("({h}, {id}),"))
+        .collect::<String>();
+    output.push(format!(
+        "pub const ATOM_CONST_HASH_TABLE: &[(u32, u32)] = &[{hash_table}];"
+    ));
 
     // atom consts
     output.push(format!("\n\nimpl Atom {{ {} }}\n\n", consts.join("\n")));

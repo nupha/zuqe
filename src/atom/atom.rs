@@ -76,17 +76,28 @@ impl Atom {
     }
 
     /// const atom content, from the static table.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn const_str(&self) -> &'static str {
         debug_assert!(!self.is_null() && self.is_const());
         ATOM_CONST_DEFS[self.id() as usize - 1].0
     }
 
     /// const atom kind, from the static table.
-    #[inline]
+    #[inline(always)]
     pub(crate) fn const_kind(&self) -> AtomKind {
         debug_assert!(!self.is_null() && self.is_const());
         ATOM_CONST_DEFS[self.id() as usize - 1].1
+    }
+
+    /// Build-time precomputed content hash (`text_hash`) for this const atom,
+    /// from the static table. Seeds the hash_lut for content lookup.
+    /// Distinct from the `atom_hash` on minted descriptor nodes, which for
+    /// symbols carries the `JS_ATOM_HASH_SYMBOL`/`JS_ATOM_HASH_PRIVATE` marker
+    /// instead of this text hash.
+    #[inline(always)]
+    pub(crate) fn const_text_hash(&self) -> u32 {
+        debug_assert!(!self.is_null() && self.is_const());
+        ATOM_CONST_DEFS[self.id() as usize - 1].2
     }
 
     /// get atom descriptor kind
@@ -290,13 +301,11 @@ impl Atom {
         } else if self.is_null() {
             Ok(JSValue::NULL)
         } else if self.is_const() {
-            if matches!(self.const_kind(), AtomKind::Symbol | AtomKind::GlobalSymbol) {
-                ctx.rt_mut()
-                    .const_symbol_value(self.id())
-                    .map(JSValue::make_symbol)
-            } else {
-                self.to_string_ref(ctx).map(JSValue::make_string)
-            }
+            let s = ctx.rt_mut().const_atom_value(self.id())?;
+            Ok(match self.const_kind() {
+                AtomKind::Symbol | AtomKind::GlobalSymbol => JSValue::make_symbol(s),
+                _ => JSValue::make_string(s),
+            })
         } else {
             let s = ctx.rt().atom_desc_string(self.id()).unwrap();
             match s.atom_info().unwrap().kind() {
