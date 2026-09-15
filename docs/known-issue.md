@@ -103,12 +103,50 @@ Measurement caveats:
   testing therefore requires a separate `CARGO_TARGET_DIR` (or a `cargo clean`)
   per target, otherwise you silently measure the other toolchain's binary.
 
-Note (current source): on master `d8b6bb2f` (= `origin/master`, 2026-09-14,
-which includes the 2026-09-13 `fix(runtime): run each microtask in its own GC
-scope`; `Cargo.lock` present, so deps pinned), the same unmitigated build is
-clean on **both** targets — window 0/30 and full suite 47940 tests / 0 failed
-each (MSVC rustc 1.96.1, GNU rustc 1.96.0; both LLVM 22.1.2). The miscompile
-is no longer reproducible on master; the diagnosis below predates that fix.
+### Fix attribution
+
+Verified by bisecting at the commit boundary, both toolchains, mitigation
+removed, fresh target dirs, no `Cargo.lock`:
+
+| revision | toolchain | window | full suite |
+|---|---|---|---|
+| `b58d56e5` (499b45b9^, before fix) | MSVC rustc 1.96.1 | **6 / 20 crash** | **CRASH** at ~test 11563 |
+| `b58d56e5` (499b45b9^, before fix) | GNU rustc 1.96.0 | **8 / 20 crash** | — |
+| `499b45b9` (the fix commit) | MSVC rustc 1.96.1 | 0 / 20 | 47940 / 0 |
+| `499b45b9` (the fix commit) | GNU rustc 1.96.0 | 0 / 20 | 47940 / 0 |
+
+`499b45b9 fix(runtime): run each microtask in its own GC scope` is the
+commit that eliminates the miscompile. The `b58d56e5` (parent) full suite
+crashed deterministically — last log line: `built-ins/Promise/allSettled/
+resolved-all-mixed.js`, exit `0xC0000005`.
+
+#### What the fix does and why it resolves the crash
+
+One-line change in `src/runtime/tick.rs` (the oneshot-job drain loop):
+
+```rust
+- let res = job.run(cx);
++ let res = cx.with_new_scope(|job_cx| job.run(job_cx));
+```
+
+Before: the whole microtask queue drained inside a single GC scope, so the
+temporaries one job allocates (async resolve functions, Promise objects created
+per `await`) stayed GC-rooted until the queue emptied. Since each `await`
+enqueues the next job, an `await` loop pinned every step's locals and
+accumulated memory without bound.
+
+The fix runs each microtask in its **own child scope**, so its locals are
+released when the job ends. This changes the lifetime of the per-iteration
+tracer capture (`Box<dyn GcTraceFn>` holding copied JSValues): the capture is
+rooted exactly as long as its job runs, and is swept promptly instead of
+drifting across many jobs on a shared scope.
+
+That is the precise condition the miscompile exploited: the GC mark phase read
+a stale/long-lived tracer capture, decided a still-referenced resolve-function
+node was dead, swept it, and the queued job later called the freed node → SEGV
+in `PromiseResolveFunc::class_call` (settle.rs:54). Scoping each job closes the
+window — the mark-phase root read and the job's live duration now agree, so
+the MemCpyOpt rewrite can no longer produce a use-after-free at runtime.
 
 ## How to eliminate the release UB
 
