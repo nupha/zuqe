@@ -2,9 +2,11 @@
 
 !src/
 !src/**
+!src/**/*.rs
 !tests/
 !tests/**
+!tests/**/*.js
+!tests/**/*.mjs
 !docs/
 !docs/**
-!examples/
 !examples/**

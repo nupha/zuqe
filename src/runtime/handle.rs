@@ -211,11 +211,3 @@ impl From<&mut RuntimeImpl> for RuntimePtr {
         Self(NonNull::from_ref(r))
     }
 }
-
-impl RuntimePtr {
-    #[inline(always)]
-    pub const unsafe fn from_raw(rt: *mut RuntimeImpl) -> Self {
-        debug_assert!(!rt.is_null());
-        Self(unsafe { NonNull::new_unchecked(rt) })
-    }
-}

@@ -572,26 +572,31 @@ impl TypedArray {
     }
 
     /// create Uint8Array instance with vec data.
+    #[inline(always)]
     pub fn create_from_vec_u8(ctx: &mut ScopedContext, data: Vec<u8>) -> Result<Self, i32> {
         Self::create_with_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_UINT8_ARRAY)
     }
 
     /// create Int16Array instance with vec data.
+    #[inline(always)]
     pub fn create_from_vec_i16(ctx: &mut ScopedContext, data: Vec<i16>) -> Result<Self, i32> {
         Self::create_with_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_INT16_ARRAY)
     }
 
     /// create Int32Array instance with vec data.
+    #[inline(always)]
     pub fn create_from_vec_i32(ctx: &mut ScopedContext, data: Vec<i32>) -> Result<Self, i32> {
         Self::create_with_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_INT32_ARRAY)
     }
 
     /// create Uint32Array instance with vec data.
+    #[inline(always)]
     pub fn create_from_vec_u32(ctx: &mut ScopedContext, data: Vec<u32>) -> Result<Self, i32> {
         Self::create_with_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_UINT32_ARRAY)
     }
 
     /// create Float32Array instance with vec data.
+    #[inline(always)]
     pub fn create_from_vec_f32(ctx: &mut ScopedContext, data: Vec<f32>) -> Result<Self, i32> {
         Self::create_with_vec(ctx, JSValue::UNDEFINED, data, JS_CLASS_FLOAT32_ARRAY)
     }
@@ -604,7 +609,7 @@ impl TypedArray {
         class_id: ClassID,
     ) -> Result<Self, i32> {
         let size = 1usize << Self::SIZE_LOG2(class_id);
-        if bytes.len() % size != 0 {
+        if !bytes.len().is_multiple_of(size) {
             return Err(ctx.throw_range_error(
                 "byte length is not a multiple of the typed array element size",
             ));

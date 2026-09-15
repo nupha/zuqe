@@ -745,16 +745,12 @@ pub(crate) fn format_value(
 
     // 11.1.6 FormatNumericValue: ToIntlMathematicalValue then rounding.
     let n = v.to_number(ctx)?.to_f64();
-    format_f64(ctx, this, n)
+    format_f64(this, n)
 }
 
 /// Format an already-converted `f64` value (no further coercion).
-pub(crate) fn format_f64(
-    ctx: &mut ScopedContext,
-    this: &NumberFormatData,
-    n: f64,
-) -> Result<String, i32> {
-    let parts = format_parts(ctx, this, n)?;
+fn format_f64(this: &NumberFormatData, n: f64) -> Result<String, i32> {
+    let parts = format_parts(this, n)?;
     let mut s = String::new();
     for p in parts {
         s.push_str(&p.value);
@@ -808,11 +804,7 @@ fn digits_to_parts(this: &NumberFormatData, s: &str) -> Vec<NPart> {
 
 /// FormatNumericToParts core. Pure (no JS effects); `format_f64` joins the
 /// values.
-pub(crate) fn format_parts(
-    ctx: &mut ScopedContext,
-    this: &NumberFormatData,
-    n: f64,
-) -> Result<Vec<NPart>, i32> {
+pub(crate) fn format_parts(this: &NumberFormatData, n: f64) -> Result<Vec<NPart>, i32> {
     let lang = this.locale.id.language.to_string();
 
     if n.is_nan() {
@@ -1008,7 +1000,6 @@ pub(crate) fn format_parts(
                 let grouped = this.use_grouping
                     && !(this.min_group2 && (1000.0..10000.0).contains(&scaled_abs));
                 format_with_significant(
-                    ctx,
                     scaled_abs,
                     min,
                     max,
@@ -1722,7 +1713,6 @@ fn group_integer(digits: &str, grouping_sep: char, indian: bool) -> String {
 
 #[allow(clippy::too_many_arguments)]
 fn format_with_significant(
-    ctx: &mut ScopedContext,
     n: f64,
     min: u8,
     max: u8,
@@ -1939,7 +1929,7 @@ fn js_number_format_formatToParts(ctx: &mut ScopedContext, cc: CallContext) -> J
     } else {
         // ToNumber must be applied exactly once (per spec step 4).
         let n = value.to_number(ctx)?.to_f64();
-        format_parts(ctx, this, n)?
+        format_parts(this, n)?
     };
 
     let mut parts: Vec<JSValue> = Vec::with_capacity(nparts.len());

@@ -597,7 +597,7 @@ fn partition(
             // Mirror NumberFormat.formatToParts: numeric values may split
             // into minusSign/integer/decimal/fraction parts; standalone units
             // add a trailing unit part.
-            let nparts = super::number_format::format_parts(ctx, &nf, value)?;
+            let nparts = super::number_format::format_parts(&nf, value)?;
             if need_sep {
                 groups.last_mut().unwrap().push(Part {
                     typ: "literal",

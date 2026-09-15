@@ -24,7 +24,6 @@ use crate::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_VALUE, JS_PROP_NO_EXOTIC, JSPropertyDescriptor, Object,
         PayloadPtr, check_define_prop_flags,
     },
-    runtime::RuntimePtr,
     string::{CharCode, StringCharIter, StringData},
     utils::{hash_u32_from_base, unlikely},
     value::JSValue,
@@ -615,10 +614,10 @@ impl StringRef {
     pub fn ascii(&self) -> Option<&[u8]> {
         self.content().ascii()
     }
-    pub fn to_buf(&self) -> Result<StringBuf, TryReserveError> {
+    pub fn to_buf(self) -> Result<StringBuf, TryReserveError> {
         self.content().to_buf()
     }
-    pub fn to_buf_range(&self, range: Range<usize>) -> Result<StringBuf, TryReserveError> {
+    pub fn to_buf_range(self, range: Range<usize>) -> Result<StringBuf, TryReserveError> {
         self.content().to_buf_range(range)
     }
     pub fn parse_u32(&self) -> Option<u32> {
@@ -628,7 +627,7 @@ impl StringRef {
         self.content().parse_i64()
     }
 
-    pub fn to_number(&self, ctx: &mut ScopedContext) -> IntOrFloat {
+    pub fn to_number(self, ctx: &mut ScopedContext) -> IntOrFloat {
         let flat = self
             .flatten(ctx)
             .unwrap_or_else(|_| panic!("out of memory while flattening rope"));
@@ -651,7 +650,7 @@ impl StringRef {
 
     /// Convert this string to an atom. Flattens first so the atom descriptor
     /// is always a flat `StringImpl` (atoms must be flat, per design doc §7C).
-    pub fn to_atom(&self, ctx: &mut ScopedContext, kind: AtomKind) -> Result<Atom, i32> {
+    pub fn to_atom(self, ctx: &mut ScopedContext, kind: AtomKind) -> Result<Atom, i32> {
         let flat = self.flatten(ctx)?;
         flat.as_flat().to_atom(ctx, kind)
     }
