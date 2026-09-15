@@ -92,9 +92,10 @@ Measurement caveats:
   (2026-09-14) — i.e. newer than the 2026-08-29 source. The rustc patch also
   differs between the two runs (MSVC 1.96.1 vs GNU stable 1.96.0); both share
   LLVM 22.1.2, which is the layer the defect lives in.
-- `.cargo/config.toml` injects `-Cllvm-args=-memdep-block-scan-limit=1`
-  globally, which masks the issue. Cross-toolchain measurement requires
-  removing that flag.
+- `.cargo/config.toml` used to inject `-Cllvm-args=-memdep-block-scan-limit=1`
+  globally, masking the issue. Cross-toolchain measurement requires removing
+  that flag. **This config and the build.rs guard have been deleted** with the
+  `499b45b9` fix (this file now documents the historical state).
 - **Cargo target-dir reuse across toolchains (gotcha).** Without an explicit
   `CARGO_TARGET_DIR`, both toolchains write to `target/release`, and cargo does
   **not** invalidate on a host/toolchain switch: after a GNU build, a plain
@@ -150,13 +151,14 @@ the MemCpyOpt rewrite can no longer produce a use-after-free at runtime.
 
 ## How to eliminate the release UB
 
-Apply any one of the following:
+The `499b45b9` fix removes the UB entirely, so none of the historical
+workarounds below are needed on current master. They are kept for reference
+(and still apply to any pre-fix revision):
 
 1. Don't use `panic = "abort"`.
 2. Don't use `lto = "fat"`.
 3. Use `opt-level = 1` (or lower).
-4. If you must keep `panic = "abort"` + O2/O3 + `lto = "fat"`, then add:
-   `RUSTFLAGS="-Cllvm-args=-memdep-block-scan-limit=1"` extra flags when build with cargo.
+4. (Pre-fix only, mechanism now deleted) `RUSTFLAGS="-Cllvm-args=-memdep-block-scan-limit=1"`
    (limits 1 Ok, 4/8 maybe Ok, 16+ does not; verified with the full Test262 suite).
 
 ## Diagnosis summary
