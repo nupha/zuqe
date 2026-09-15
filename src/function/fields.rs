@@ -405,7 +405,7 @@ pub(crate) fn prop_str_to_atom(ctx: &mut ScopedContext, str: &str) -> Result<Ato
         // We assume 8 bit non null strings, which is the case for these symbols
         for id in crate::atom::ATOM_CONST_SYMBOL_RANGE {
             let a = Atom::from_id(id);
-            if a.descriptor(ctx.rt()).content().eq_str(name2) {
+            if a.const_str() == name2 {
                 return Ok(a);
             }
         }

@@ -10,6 +10,10 @@ pub(crate) use registry::*;
 
 include!(concat!(env!("OUT_DIR"), "/atoms.rs"));
 
+/// first user (per-runtime) atom id; ids below are const atoms from the
+/// static `ATOM_CONST_DEFS` table.
+pub const USER_ATOM_ID_START: u32 = ATOM_CONST_COUNT + 1;
+
 use std::num::NonZeroU32;
 
 /// atom descriptor kind
@@ -43,7 +47,7 @@ pub struct AtomInfo {
 
 impl AtomInfo {
     #[inline]
-    pub(super) const fn new(id: NonZeroU32, kind: AtomKind, hash: u32) -> Self {
+    pub(crate) const fn new(id: NonZeroU32, kind: AtomKind, hash: u32) -> Self {
         Self { id, kind, hash }
     }
 

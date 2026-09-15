@@ -7,7 +7,7 @@ use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     RuntimeImpl,
-    atom::{ATOM_CONST_COUNT, AtomDescKind, AtomKind},
+    atom::{ATOM_CONST_DEFS, AtomDescKind, AtomKind, USER_ATOM_ID_START},
     context::ScopedContext,
     number::IntOrFloat,
     string::{CharCode, StringImpl, StringRef},
@@ -20,11 +20,11 @@ pub struct Atom(pub(super) u32);
 
 impl GcTrace for Atom {
     fn trace(&self, tr: &mut GcTraceCtx) {
-        if !self.is_const() && !self.is_small_int() {
+        if !self.is_null() && !self.is_const() && !self.is_small_int() {
             let rt = tr.opaque().cast::<RuntimeImpl>();
             debug_assert!(!rt.is_null());
 
-            let s = self.descriptor(unsafe { &*rt });
+            let s = unsafe { &*rt }.atom_desc_string(self.id()).unwrap();
             s.trace(tr);
         }
     }
@@ -75,10 +75,18 @@ impl Atom {
         is_const_atom(self.0)
     }
 
-    /// get atom descriptor string.
+    /// const atom content, from the static table.
     #[inline]
-    pub(crate) fn descriptor(&self, rt: &RuntimeImpl) -> StringRef {
-        rt.atom_desc_string(self.id()).unwrap()
+    pub(crate) fn const_str(&self) -> &'static str {
+        debug_assert!(!self.is_null() && self.is_const());
+        ATOM_CONST_DEFS[self.id() as usize - 1].0
+    }
+
+    /// const atom kind, from the static table.
+    #[inline]
+    pub(crate) fn const_kind(&self) -> AtomKind {
+        debug_assert!(!self.is_null() && self.is_const());
+        ATOM_CONST_DEFS[self.id() as usize - 1].1
     }
 
     /// get atom descriptor kind
@@ -86,11 +94,62 @@ impl Atom {
         if self.is_small_int() {
             AtomDescKind::JS_ATOM_KIND_STRING
         } else {
-            match self.descriptor(rt).atom_info().unwrap().kind() {
+            match self.kind(rt) {
                 AtomKind::String => AtomDescKind::JS_ATOM_KIND_STRING,
                 AtomKind::Symbol | AtomKind::GlobalSymbol => AtomDescKind::JS_ATOM_KIND_SYMBOL,
                 AtomKind::Private => AtomDescKind::JS_ATOM_KIND_PRIVATE,
             }
+        }
+    }
+
+    /// get the atom kind (const table for const atoms, descriptor otherwise).
+    #[inline]
+    pub(crate) fn kind(&self, rt: &RuntimeImpl) -> AtomKind {
+        if self.is_const() {
+            self.const_kind()
+        } else if self.0 == 0 || self.is_small_int() {
+            AtomKind::String
+        } else {
+            rt.atom_desc_string(self.id())
+                .unwrap()
+                .atom_info()
+                .unwrap()
+                .kind()
+        }
+    }
+
+    /// content of any atom as a string.
+    #[inline]
+    pub(crate) fn str(&self, rt: &RuntimeImpl) -> Cow<'_, str> {
+        if self.is_null() {
+            Cow::Borrowed("<null>")
+        } else if let Some(n) = self.to_small_int() {
+            Cow::Owned(format!("{n}"))
+        } else if self.is_const() {
+            Cow::Borrowed(self.const_str())
+        } else {
+            Cow::Owned(
+                rt.atom_desc_string(self.id())
+                    .unwrap()
+                    .content()
+                    .encode_utf8(false)
+                    .into_owned(),
+            )
+        }
+    }
+
+    /// get the [`StringRef`] backing this atom, allocating a (static) copy for
+    /// const atoms. `null` maps to a static `"<null>"`.
+    #[inline]
+    pub(crate) fn to_string_ref(self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
+        if self.is_null() {
+            StringRef::alloc_static(ctx, "<null>", None)
+        } else if let Some(n) = self.to_small_int() {
+            StringRef::from_utf8_bytes(ctx, format!("{n}").into_bytes())
+        } else if self.is_const() {
+            StringRef::alloc_static(ctx, self.const_str(), None)
+        } else {
+            Ok(ctx.rt().atom_desc_string(self.id()).unwrap())
         }
     }
 
@@ -101,8 +160,13 @@ impl Atom {
 
         if self.is_small_int() {
             false
+        } else if self.is_const() {
+            // Private_brand is the only const Symbol-kind atom that is not a
+            // normal (well-known) symbol desc.
+            *self != Self::CONST_Private_brand
+                && matches!(self.const_kind(), AtomKind::GlobalSymbol | AtomKind::Symbol)
         } else {
-            let s = self.descriptor(rt);
+            let s = rt.atom_desc_string(self.id()).unwrap();
             !s.content().is_ident() && {
                 let a = s.atom_info().unwrap();
                 let k = a.kind();
@@ -146,7 +210,13 @@ impl Atom {
             return Ok(Some(IntOrFloat::Int64(n as _)));
         }
 
-        let s = self.descriptor(ctx.rt());
+        if self.is_null() || self.is_const() {
+            // null; const atoms are keywords/names, never canonical numeric
+            // index strings.
+            return Ok(None);
+        }
+
+        let s = ctx.rt().atom_desc_string(self.id()).unwrap();
         let content = s.content();
 
         if content.is_empty() || content.is_ident() {
@@ -217,8 +287,18 @@ impl Atom {
         if let Some(n) = self.to_small_int() {
             ctx.create_string_from_utf8(format!("{n}",).into_bytes())
                 .map(JSValue::make_string)
+        } else if self.is_null() {
+            Ok(JSValue::NULL)
+        } else if self.is_const() {
+            if matches!(self.const_kind(), AtomKind::Symbol | AtomKind::GlobalSymbol) {
+                ctx.rt_mut()
+                    .const_symbol_value(self.id())
+                    .map(JSValue::make_symbol)
+            } else {
+                self.to_string_ref(ctx).map(JSValue::make_string)
+            }
         } else {
-            let s = self.descriptor(ctx.rt());
+            let s = ctx.rt().atom_desc_string(self.id()).unwrap();
             match s.atom_info().unwrap().kind() {
                 AtomKind::String => Ok(JSValue::make_string(s)),
                 AtomKind::Private => Ok(JSValue::make_string(s)),
@@ -232,8 +312,12 @@ impl Atom {
     pub fn force_string(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
         if let Some(n) = self.to_small_int() {
             StringRef::from_utf8_bytes(ctx, format!("{n}").into_bytes())
+        } else if self.is_null() {
+            StringRef::alloc_static(ctx, "<null>", None)
+        } else if self.is_const() {
+            self.to_string_ref(ctx)
         } else {
-            let s = self.descriptor(ctx.rt());
+            let s = ctx.rt().atom_desc_string(self.id()).unwrap();
             if s.content().is_ident() {
                 Self::CONST_empty_string.force_string(ctx)
             } else {
@@ -244,12 +328,12 @@ impl Atom {
 
     /// if atom can be used as array index, which is an int in range \[0, 2^32-1), returns the int.
     pub fn to_array_index(&self, rt: &RuntimeImpl) -> Option<u32> {
-        if self.0 == 0 {
+        if self.0 == 0 || self.is_const() {
             None
         } else if let Some(n) = self.to_small_int() {
             Some(n)
         } else {
-            let s = self.descriptor(rt);
+            let s = rt.atom_desc_string(self.id()).unwrap();
             let atom_info = s.atom_info().unwrap();
 
             if let AtomKind::String = atom_info.kind() {
@@ -268,12 +352,12 @@ impl Atom {
 
     /// if atom can be represented/parsed as an i64, returns the i64.
     pub fn to_i64(&self, rt: &RuntimeImpl) -> Option<i64> {
-        if self.0 == 0 {
+        if self.0 == 0 || self.is_const() {
             None
         } else if let Some(n) = self.to_small_int() {
             Some(n as i64)
         } else {
-            let s = self.descriptor(rt);
+            let s = rt.atom_desc_string(self.id()).unwrap();
             if let AtomKind::String = s.atom_info().unwrap().kind() {
                 return s.content().parse_i64();
             }
@@ -287,8 +371,13 @@ impl Atom {
             f(Cow::Borrowed("<null>"))
         } else if let Some(n) = self.to_small_int() {
             f(Cow::Owned(format!("{n}")))
+        } else if self.is_const() {
+            f(Cow::Borrowed(self.const_str()))
         } else {
-            f(self.descriptor(rt).content().encode_utf8(false))
+            f(rt.atom_desc_string(self.id())
+                .unwrap()
+                .content()
+                .encode_utf8(false))
         }
     }
 
@@ -419,9 +508,9 @@ pub fn js_atom_concat_num(ctx: &mut ScopedContext, atom: Atom, n: u32) -> Result
 
 #[inline(always)]
 pub(crate) const fn is_const_atom(id: u32) -> bool {
-    // Hint: for u32 atoms, `self.0 as i32` could be minus,
-    // in which case, suggests a small int atom.
-    (id as i32) <= ATOM_CONST_COUNT as i32
+    // const atoms live in `1..USER_ATOM_ID_START`; id 0 is Atom::NULL and
+    // small-int atoms have the high tag bit set.
+    id != 0 && id < USER_ATOM_ID_START
 }
 
 #[inline(always)]

@@ -576,13 +576,13 @@ impl<'c> ScopedContext<'c> {
 
     /// Take the current exception as text
     pub fn take_exception_as_text(&mut self) -> ExceptionText {
-        let exc = std::mem::take(&mut self.rt_mut().cur_exception);
+        let exc = self.take_exception();
         exc.to_text(self)
     }
 
     /// Take the current exception as JSValue
     pub fn take_exception_as_value(&mut self) -> JSValue {
-        let exc = std::mem::take(&mut self.rt_mut().cur_exception);
+        let exc = self.take_exception();
         exc.to_value(self)
     }
 }

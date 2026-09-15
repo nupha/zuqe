@@ -84,7 +84,7 @@ impl RuntimeImpl {
             let a = Atom::root_str(self, class_def.name)?;
             debug_assert!(!a.is_small_int());
             debug_assert!(
-                a.descriptor(self).gc_head().is_root(),
+                a.is_const() || self.atom_desc_string(a.id()).unwrap().gc_head().is_root(),
                 "class name atom should be root gc node"
             );
             a

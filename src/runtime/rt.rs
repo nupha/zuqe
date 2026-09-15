@@ -26,6 +26,7 @@ use crate::{
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
     register_all_builtin_classes,
     stack_frame::{ExecMode, FrameIndex, StackFrameArena},
+    string::StringRef,
     utils::js_get_stack_pointer,
     value::JSValue,
 };
@@ -61,6 +62,13 @@ impl<C> InterruptFn for C where C: Fn(&RuntimeImpl) -> bool {}
 pub struct RuntimeImpl {
     /// atom registry
     pub(crate) atom_registry: AtomRegistry,
+    /// Per-runtime symbol values for const Symbol atoms (well-known symbols).
+    /// Const atoms have no GC descriptor node, so their value identity is
+    /// cached here: `atom_id -> symbol StringRef`. The nodes are GC roots.
+    /// Shared across contexts (atom ids are runtime-global), matching the
+    /// per-runtime atom registry.
+    pub(crate) const_symbol_values: Vec<(u32, StringRef)>,
+
     /// registered classes
     pub(crate) class_registry: Vec<ClassDef>,
     pub(crate) user_class_id_serial: ClassID,
@@ -211,6 +219,40 @@ impl RuntimeImpl {
         crate::runtime::WakeHandle(self.park.clone())
     }
 
+    /// Return the cached symbol string for a const Symbol atom, minting (and
+    /// caching) one on first use. The node is a GC root carrying the const
+    /// atom id, so symbol-key property lookups resolve to it. Shared across
+    /// all contexts on this runtime (well-known symbol identity is id-based,
+    /// so a single node per atom serves every realm).
+    pub(crate) fn const_symbol_value(&mut self, id: u32) -> Result<StringRef, i32> {
+        use crate::atom::{AtomInfo, AtomKind, JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL};
+        use crate::string::{StringData, StringRef};
+
+        if let Some((_, s)) = self.const_symbol_values.iter().find(|(k, _)| *k == id) {
+            return Ok(*s);
+        }
+
+        let atom = crate::atom::Atom::from_id(id);
+        let hash = if atom == crate::atom::Atom::CONST_Private_brand {
+            JS_ATOM_HASH_PRIVATE
+        } else {
+            JS_ATOM_HASH_SYMBOL
+        };
+        let s = StringRef::create_root(
+            self,
+            StringData::from_static(atom.const_str()),
+            Some(AtomInfo::new(
+                std::num::NonZeroU32::new(id).unwrap(),
+                AtomKind::Symbol,
+                hash,
+            )),
+        )?;
+
+        self.const_symbol_values.try_reserve(1).map_err(|_| -1)?;
+        self.const_symbol_values.push((id, s));
+        Ok(s)
+    }
+
     /// Enable/disable the fallback quantum poll for the parked event loop.
     ///
     /// `ms > 0`: every park is capped at this interval — a producer that
@@ -247,6 +289,7 @@ impl RuntimeImpl {
 
         let mut rt = Self {
             atom_registry: AtomRegistry::new(),
+            const_symbol_values: Vec::new(),
             class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
             user_class_id_serial: USER_CLASS_ID_START,
             shape_registry: ShapeRegistry::new(),

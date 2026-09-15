@@ -33,12 +33,8 @@ impl SerializeCtx {
         self.atom_count += 1;
         self.atom_lut.insert(atom.id(), idx);
 
-        let sref = atom.descriptor(cx.rt());
-        let kind = sref
-            .atom_info()
-            .map(|a| a.kind())
-            .unwrap_or(AtomKind::String);
-        let bytes = sref.content().encode_utf8(false);
+        let kind = atom.kind(cx.rt());
+        let bytes = atom.str(cx.rt());
 
         self.write_u8(BC_ATOM_NEW);
         self.write_u8(kind as u8);
@@ -76,10 +72,9 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                     BytecodeSerializeError::Encode("atom registration failed".into())
                 })?;
 
-                debug_assert!(
-                    atom.descriptor(self.ctx.rt()).content().len() == sref.content().len(),
-                    "{:?}",
-                    atom.descriptor(self.ctx.rt()).content()
+                debug_assert_eq!(
+                    atom.str(self.ctx.rt()).as_ref(),
+                    sref.content().encode_utf8(false).as_ref(),
                 );
                 self.atom_table.push(atom);
                 Ok(atom)

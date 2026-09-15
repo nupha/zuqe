@@ -32,7 +32,7 @@ impl<'c> ScopedContext<'c> {
             Atom::from_content_as_is(self, s, atom_kind)?
         };
 
-        let sym = JSValue::make_symbol(atom.descriptor(self.rt()));
+        let sym = JSValue::make_symbol(atom.to_string_ref(self)?);
         Ok(sym)
     }
 
@@ -40,7 +40,7 @@ impl<'c> ScopedContext<'c> {
         if atom.is_small_int() || atom.is_null() {
             Err(self.throw_type_error("invalid atom"))
         } else {
-            let s = atom.descriptor(self.rt());
+            let s = atom.to_string_ref(self)?;
             self.create_symbol(Some(s), atom_kind)
         }
     }

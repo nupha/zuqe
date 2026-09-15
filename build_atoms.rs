@@ -353,9 +353,31 @@ pub fn gen_atoms(outfile: &Path) {
     output.push("".into());
 
     output.push(format!(
-        "pub const ATOM_CONST_COUNT:u32={};\npub const ATOM_USER_BASE_ID:u32={};",
-        ATOM_DESCR_DEFS.len(),
-        ATOM_DESCR_DEFS.len() + 1
+        "pub const ATOM_CONST_COUNT: u32 = {};",
+        ATOM_DESCR_DEFS.len()
+    ));
+
+    // const atom content table, indexed by (atom_id - 1).
+    // kind mirrors the const descriptors in the old quicksilver model:
+    // Symbol_* and the private-brand marker were Symbol-kind atoms, the rest
+    // String. Kept as display strings ("" / "<brand>" / "Symbol.XXX").
+    let const_defs = ATOM_DESCR_DEFS
+        .iter()
+        .zip(&text)
+        .map(|(name, txt)| {
+            let kind = if name.starts_with("Symbol_") || name.eq(&"Private_brand") {
+                "AtomKind::Symbol"
+            } else {
+                "AtomKind::String"
+            };
+            format!(
+                "(\"{}\", {kind}),",
+                txt.replace('\\', "\\\\").replace('"', "\\\"")
+            )
+        })
+        .collect::<String>();
+    output.push(format!(
+        "pub const ATOM_CONST_DEFS: &[(&'static str, AtomKind)] = &[{const_defs}];"
     ));
 
     // output.push(format!(
@@ -380,12 +402,6 @@ pub fn gen_atoms(outfile: &Path) {
     //     "/// the last builtin const Symbol_XXX atom\npub const JS_ATOM_LAST_SYMBOL: Atom = Atom::CONST_{};",
     //     ATOM_DESCR_DEFS.iter().rev().find(|x|x.starts_with("Symbol_")).unwrap()
     // ));
-
-    // full atom text data
-    let full_cstr_buf = text.iter().map(|t| format!("{t}\\0")).collect::<String>();
-    output.push(format!(
-        "\n\npub static ATOM_CONST_CAPTIONS: &[u8] = b\"{full_cstr_buf}\";"
-    ));
 
     // atom consts
     output.push(format!("\n\nimpl Atom {{ {} }}\n\n", consts.join("\n")));

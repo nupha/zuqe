@@ -233,7 +233,7 @@ impl GcTrace for BytecodeImpl {
                     | OpcodeFormat::ATOM_LABEL_U16
             ) {
                 let id = unsafe { read_from_ptr::<u32>(bc.as_ptr().add(pos + 1)) };
-                if !is_const_atom(id) && !is_small_int_atom(id) {
+                if id != 0 && !is_const_atom(id) && !is_small_int_atom(id) {
                     Atom::from_id(id).trace(gcx);
                 }
             }
