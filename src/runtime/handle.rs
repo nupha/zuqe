@@ -76,6 +76,12 @@ impl DerefMut for Runtime {
 }
 
 impl Runtime {
+    /// Whether the platform can report the current thread's stack bottom.
+    /// When false, auto mode (`stack_budget == 0`) cannot arm a C-stack guard
+    /// (see `js_check_stack_overflow`); hosts should fall back to a strict
+    /// budget, e.g. 512 KiB, unless they want unbounded recursion to crash.
+    pub const CAN_AUTO_STACK_BUDGET: bool = crate::utils::STACK_BOTTOM_QUERYABLE;
+
     /// Create a runtime and register it in the current thread's scheduler.
     pub fn create() -> Result<Runtime, i32> {
         let rt = Rc::new(UnsafeCell::new(RuntimeImpl::new()?));

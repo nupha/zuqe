@@ -588,7 +588,7 @@ impl<'c> Context<'c> {
         // native module init, etc.) is complete and unwound, so stack_top
         // anchors at the shallowest frame (main level). Subsequent JS execution
         // (including recursive module linking/eval) gets an accurate stack_size budget.
-        crate::runtime::JS_UpdateStackTop(self.rt_mut());
+        self.rt_mut().refresh_stack_top();
 
         let name = if eval_type == EvalType::Module {
             name.normalize_to_url()
@@ -616,7 +616,7 @@ impl<'c> Context<'c> {
         // native module init, etc.) is complete and unwound, so stack_top
         // anchors at the shallowest frame (main level). Subsequent JS execution
         // (including recursive module linking/eval) gets an accurate stack_size budget.
-        crate::runtime::JS_UpdateStackTop(self.rt_mut());
+        self.rt_mut().refresh_stack_top();
 
         let name = if eval_type == EvalType::Module {
             name.normalize_to_url()
@@ -643,7 +643,7 @@ impl<'c> Context<'c> {
         flags: EvalFlags,
     ) -> ExitStatus {
         // Refresh stack_top at the outermost eval entry point (see sync version).
-        crate::runtime::JS_UpdateStackTop(self.rt_mut());
+        self.rt_mut().refresh_stack_top();
 
         let name = if eval_type == EvalType::Module {
             name.normalize_to_url()

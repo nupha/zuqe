@@ -97,7 +97,8 @@ struct Args {
     #[arg(
         long,
         value_name = "n",
-        help = "set C-stack recursion limit to n (default: 512k)"
+        help = "set C-stack recursion budget (max native stack below the eval SP); \
+                omit/0 for auto mode derived from the thread stack bottom"
     )]
     stack_overflow: Option<String>,
 
@@ -196,11 +197,15 @@ fn run_zjs_prepare() -> (Runtime, Context<'static>, Args, String, bool) {
 
         if let Some(ss) = &args.stack_overflow {
             if let Some(size) = parse_byte_size(ss) {
-                rt.set_stack_overflow(size);
+                rt.set_stack_budget(size);
             } else {
                 colorize_println(format!("invalid stack-overflow: {ss}"), RedFg);
                 std::process::exit(-1);
             }
+        } else if !zuqe::Runtime::CAN_AUTO_STACK_BUDGET {
+            // Platform can't report the stack bottom: auto mode would leave no
+            // C-stack guard, so fall back to a strict 512 KiB budget.
+            rt.set_stack_budget(512 << 10);
         }
 
         if let Some(ss) = &args.stack_limit {
@@ -253,6 +258,20 @@ fn run_zjs_prepare() -> (Runtime, Context<'static>, Args, String, bool) {
 
 #[cfg(not(feature = "async_support"))]
 fn main() -> ExitCode {
+    // Each nested JS call burns ~72KB of native stack in debug vs ~3KB in
+    // release (debug frames are ~23x fatter), so deep-but-legal scripts need
+    // a bigger thread stack in debug only; release fits the default.
+    #[cfg(debug_assertions)]
+    let builder = std::thread::Builder::new()
+        .name("zjs".into())
+        .stack_size(64 * 1024 * 1024);
+    #[cfg(not(debug_assertions))]
+    let builder = std::thread::Builder::new().name("zjs".into());
+    builder.spawn(run_main_sync).unwrap().join().unwrap()
+}
+
+#[cfg(not(feature = "async_support"))]
+fn run_main_sync() -> ExitCode {
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
     // Convert the entry filename to a canonical `file://` URL. `module_name`
@@ -301,8 +320,29 @@ fn main() -> ExitCode {
 }
 
 #[cfg(feature = "async_support")]
-#[tokio::main]
-async fn main() -> ExitCode {
+fn main() -> ExitCode {
+    // See the sync variant: debug builds need a bigger thread stack because
+    // each nested JS call costs ~23x more native stack than in release.
+    #[cfg(debug_assertions)]
+    let builder = std::thread::Builder::new()
+        .name("zjs".into())
+        .stack_size(64 * 1024 * 1024);
+    #[cfg(not(debug_assertions))]
+    let builder = std::thread::Builder::new().name("zjs".into());
+    builder.spawn(run_async_main).unwrap().join().unwrap()
+}
+
+#[cfg(feature = "async_support")]
+fn run_async_main() -> ExitCode {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async_main())
+}
+
+#[cfg(feature = "async_support")]
+async fn async_main() -> ExitCode {
     let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
     // Convert the entry filename to a canonical `file://` URL when running a

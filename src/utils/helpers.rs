@@ -1,24 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-// fn get_frame_address(level: usize) -> Option<*const c_void> {
-//     // NOTE: 除了libc, 还可以用backtrace实现
-
-//     // 定义一个数组来存储调用栈的地址
-//     const MAX_STACK_DEPTH: usize = 32;
-//     let mut addrs: [*mut c_void; MAX_STACK_DEPTH] = [std::ptr::null_mut(); MAX_STACK_DEPTH];
-
-//     // 使用 libc::backtrace 获取调用栈地址
-//     let depth = unsafe { libc::backtrace(addrs.as_mut_ptr(), MAX_STACK_DEPTH as i32) };
-
-//     // 检查 level 是否在有效范围内
-//     if level < depth as usize {
-//         Some(addrs[level])
-//     } else {
-//         None // 如果层级超出调用栈深度，返回 None
-//     }
-// }
-
 /// get stack top level addr
 #[inline(always)]
 pub fn js_get_stack_pointer() -> usize {
@@ -27,6 +9,104 @@ pub fn js_get_stack_pointer() -> usize {
     let d = 0;
     let p = &d as *const i32;
     p as usize
+}
+
+/// Lowest address of the current thread's native stack (its "bottom"), or 0
+/// when the platform can't query it. Cached per thread — stack bounds are fixed
+/// for the lifetime of a thread.
+pub(crate) fn js_get_stack_bottom() -> usize {
+    thread_local! {
+        static STACK_BOTTOM: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+    STACK_BOTTOM.with(|b| {
+        if b.get() == 0 {
+            b.set(current_thread_stack_bottom());
+        }
+        b.get()
+    })
+}
+
+/// Compile-time: can the current target query a thread's stack bottom at all?
+/// Keep the platform list here in sync with the `#[cfg]` arms of
+/// `current_thread_stack_bottom`.
+pub(crate) const STACK_BOTTOM_QUERYABLE: bool = cfg!(any(
+    windows,
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "macos",
+));
+
+#[cfg(windows)]
+fn current_thread_stack_bottom() -> usize {
+    unsafe extern "system" {
+        // Windows 8+: the committed range of the current thread's stack.
+        // Available on any thread (not just the main one).
+        fn GetCurrentThreadStackLimits(low_limit: *mut usize, high_limit: *mut usize) -> i32;
+    }
+    let (mut low, mut high) = (0usize, 0usize);
+    if unsafe { GetCurrentThreadStackLimits(&mut low, &mut high) } == 0 {
+        return 0;
+    }
+    low
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "freebsd",
+    target_os = "dragonfly"
+))]
+fn current_thread_stack_bottom() -> usize {
+    unsafe {
+        let mut attr: libc::pthread_attr_t = std::mem::zeroed();
+        if current_thread_attr(&mut attr) != 0 {
+            return 0;
+        }
+        let mut addr: *mut libc::c_void = std::ptr::null_mut();
+        let mut size: libc::size_t = 0;
+        let rc = libc::pthread_attr_getstack(&attr, &mut addr, &mut size);
+        libc::pthread_attr_destroy(&mut attr);
+        if rc != 0 { 0 } else { addr as usize }
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "netbsd"))]
+unsafe fn current_thread_attr(attr: *mut libc::pthread_attr_t) -> i32 {
+    libc::pthread_getattr_np(libc::pthread_self(), attr)
+}
+
+#[cfg(any(target_os = "freebsd", target_os = "dragonfly"))]
+unsafe fn current_thread_attr(attr: *mut libc::pthread_attr_t) -> i32 {
+    libc::pthread_attr_get_np(libc::pthread_self(), attr)
+}
+
+#[cfg(target_os = "macos")]
+fn current_thread_stack_bottom() -> usize {
+    unsafe {
+        let addr = libc::pthread_get_stackaddr_np(libc::pthread_self()) as usize;
+        let size = libc::pthread_get_stacksize_np(libc::pthread_self());
+        // pthread_get_stackaddr_np returns the stack's HIGH end; the stack
+        // grows down, so the bottom is `addr - size`. CAVEAT: on the main
+        // thread these _np calls may report a conservative (smaller) size —
+        // the guard then trips earlier than strictly needed. That is safe
+        // (only conservative, never past the real bottom); host-created
+        // worker threads report the exact bounds, which is our main case.
+        if size == 0 { 0 } else { addr - size }
+    }
+}
+
+#[cfg(not(any(
+    windows,
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "freebsd",
+    target_os = "dragonfly",
+    target_os = "macos",
+)))]
+fn current_thread_stack_bottom() -> usize {
+    0 // OpenBSD, Solaris, etc.: no portable current-thread stack-geometry query
 }
 
 //

@@ -20,7 +20,7 @@ zjs [options] <filename>
 
 - **`--stack-limit <n>`** *(default: 512k)*: Set the **hard cap on the total live virtual stack** (arena-used + heap-used) to `n` bytes. When a new frame would push the combined usage past this limit, a stack-overflow error is thrown. This is what actually bounds recursion depth.
 
-- **`--stack-overflow <n>`** *(default: 512k)*: Set the **C-stack recursion limit** (the maximum native stack depth before a stack-overflow guard trips) to `n` bytes. This guards the host's real machine stack, independent of the virtual stack above.
+- **`--stack-overflow <n>`**: Set the **C-stack recursion budget** — the maximum native stack bytes JS recursion may consume below the eval-entry SP. Omitted or `0` selects **auto mode**: the guard is derived from the current thread's real stack bottom, keeping a fixed internal head-room (`STACK_RESERVE_MARGIN`) free for the throw path. Auto mode is the default; a strict budget only applies when set explicitly.
 
   Examples:
 
@@ -189,7 +189,7 @@ rt.install_panic_handler();
 // rt.gc_set_memory_limit(limit_in_bytes);
 // rt.set_stack_arena(1 << 20);       // 1 MiB VM stack arena
 // rt.set_stack_limit(512 << 10);     // 512 KiB value-stack limit
-// rt.set_stack_overflow(512 << 10);  // 512 KiB C-stack recursion guard
+// rt.set_stack_overflow(512 << 10);  // omit/0 = auto mode (from thread stack bottom)
 
 // Setup module loader (supports .js, .mjs, and zapi extensions .dylib/.so/.dll)
 rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());

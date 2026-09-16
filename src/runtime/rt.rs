@@ -16,7 +16,7 @@ use crate::{
     class::{ClassDef, ClassID},
     config::{
         GC_ALLOC_CHECK_INTERVAL, GC_ARENA_CAP, GC_ARENA_MAX_ALLOC, STACK_ARENA_CAP,
-        STACK_OVERFLOW_LIMIT,
+        STACK_RESERVE_MARGIN,
     },
     context::ContextPtr,
     error::Exception,
@@ -77,9 +77,13 @@ pub struct RuntimeImpl {
     /// shape registry
     pub(crate) shape_registry: ShapeRegistry,
 
-    pub(crate) stack_overflow: usize, // in bytes, 0 if no limit (C-stack recursion guard)
-    pub(crate) stack_limit: usize,    // lower stack limit
-    pub(crate) stack_top: usize,
+    /// C-stack recursion budget in bytes: recursion may consume at most this
+    /// many bytes below the eval-entry SP. `0` = auto mode — the guard then
+    /// derives the line from the thread's real stack bottom (see
+    /// `js_check_stack_overflow`).
+    pub(crate) stack_budget: usize,
+    pub(crate) stack_limit: usize, // lower stack limit (strict-budget mode only)
+    pub(crate) stack_top: usize,   // eval-entry SP; baseline for the strict budget
 
     /// Bump-arena frame storage for the stackless interpreter.
     /// All active frame headers and data buffers live here.
@@ -318,7 +322,9 @@ impl RuntimeImpl {
 
             context_list: Vec::with_capacity(1),
 
-            stack_overflow: STACK_OVERFLOW_LIMIT,
+            // No strict budget by default: auto mode, derived from the real
+            // thread stack bottom at check time.
+            stack_budget: 0,
             stack_top: 0,
             stack_limit: 0,
 
@@ -371,7 +377,7 @@ impl RuntimeImpl {
 
         register_all_builtin_classes(&mut rt)?;
 
-        JS_UpdateStackTop(&mut rt);
+        rt.refresh_stack_top();
 
         Ok(rt)
     }
@@ -381,18 +387,50 @@ impl RuntimeImpl {
         self as *const Self as usize
     }
 
-    const fn update_stack_limit(&mut self) {
-        self.stack_limit = if self.stack_overflow == 0 {
-            0 // no limit
+    /// (Re)arm the C-stack guard line into `stack_limit`. Auto mode: the
+    /// bottom of the current thread's real stack plus `STACK_RESERVE_MARGIN` —
+    /// fixed for the thread's lifetime, recomputed when re-armed. Strict mode:
+    /// `stack_budget` bytes below the eval-entry SP.
+    fn update_stack_budget(&mut self) {
+        self.stack_limit = if self.stack_budget == 0 {
+            // Auto mode: derive from the thread's stack bottom.
+            let bottom = crate::utils::js_get_stack_bottom();
+            if bottom == 0 {
+                if !crate::utils::STACK_BOTTOM_QUERYABLE {
+                    // `cfg!` folds this error branch away on capable platforms.
+                    log::warn!(
+                        "auto mode C-stack guard unavailable: this platform can't \
+                         report the thread stack bottom; unbounded recursion will crash \
+                         the process. Set a strict stack budget to keep the guard."
+                    );
+                }
+                0 // no guard line
+            } else {
+                bottom + STACK_RESERVE_MARGIN
+            }
         } else {
-            self.stack_top - self.stack_overflow
+            self.stack_top - self.stack_budget
         };
     }
 
-    /// set max C-stack recursion depth (in bytes). 0 for unlimited
-    pub const fn set_stack_overflow(&mut self, stack_size: usize) {
-        self.stack_overflow = stack_size;
-        self.update_stack_limit();
+    /// Set the C-stack recursion budget in bytes: JS recursion may consume at
+    /// most this much native stack below the eval-entry SP. `0` (default) =
+    /// auto mode — the guard is derived from the thread's real stack bottom,
+    /// keeping `STACK_RESERVE_MARGIN` head-room for the throw path.
+    ///
+    /// Will throw stack overflow error when stack using exceeds this budget.
+    pub fn set_stack_budget(&mut self, nbytes: usize) {
+        self.stack_budget = nbytes;
+        self.update_stack_budget();
+    }
+
+    /// Refresh the eval-entry stack top and re-arm the C-stack guard line.
+    /// Called at the outermost eval entry point: after Rust-side init has
+    /// unwound, `stack_top` anchors at the shallowest frame so the strict
+    /// budget, if set, is measured from there.
+    pub(crate) fn refresh_stack_top(&mut self) {
+        self.stack_top = js_get_stack_pointer();
+        self.update_stack_budget();
     }
 
     /// Resize the bump-arena used for frame storage. Returns `Err(())` when the
@@ -583,15 +621,8 @@ impl RuntimeImpl {
 }
 
 pub(crate) fn js_check_stack_overflow(rt: &RuntimeImpl, alloca_size: usize) -> bool {
+    // `stack_limit` is the pre-armed guard line (auto or strict budget); the
+    // hot path only compares.
     let sp = js_get_stack_pointer() - alloca_size;
-    if rt.stack_limit > 0 {
-        sp < rt.stack_limit
-    } else {
-        false
-    }
-}
-
-pub(crate) fn JS_UpdateStackTop(rt: &mut RuntimeImpl) {
-    rt.stack_top = js_get_stack_pointer();
-    rt.update_stack_limit();
+    rt.stack_limit > 0 && sp < rt.stack_limit
 }

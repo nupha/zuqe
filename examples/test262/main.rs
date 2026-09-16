@@ -608,7 +608,30 @@ async fn main_impl() {
     );
 }
 
-#[tokio::main]
-async fn main() {
-    main_impl().await;
+fn main() {
+    // Why the stack size matters: each nested JS call costs ~72KB of native
+    // stack in debug builds vs ~3KB in release (the BFUNCALL→TRAMP→WITHARENA
+    // chain; debug frames are ~23x fatter). S13.2.1_A1_T1 nests 32 function
+    // expressions, needing ~2.3MB in debug — past the platform's default
+    // thread stack. 64MB gives deep-but-legal scripts ample room. Release
+    // frames fit the default stack, so only debug builds enlarge it.
+    #[cfg(debug_assertions)]
+    let builder = std::thread::Builder::new()
+        .name("test262".into())
+        .stack_size(64 * 1024 * 1024);
+    #[cfg(not(debug_assertions))]
+    let builder = std::thread::Builder::new().name("test262".into());
+    builder
+        .spawn(run_harness)
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+fn run_harness() {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(main_impl())
 }

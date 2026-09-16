@@ -55,7 +55,7 @@ fn probe(limit: usize, n: usize) -> bool {
         Err(_) => return false,
     };
     // Set the C-stack recursion guard, then let eval refresh stack_top for us.
-    ctx.rt_mut().set_stack_overflow(limit);
+    ctx.rt_mut().set_stack_budget(limit);
 
     let src = build_deep_if(n);
     ctx.eval(

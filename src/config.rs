@@ -29,12 +29,14 @@ pub(crate) const GC_ALLOC_CHECK_INTERVAL: u32 = 32;
 
 // ── VM / execution stack ───────────────────────────────────────────────
 
-/// C-recursion stack overflow guard in bytes. Cap for native recursive depth
-/// in the interpreter; exceeding it raises a stack-depth error.
+/// Head-room in bytes kept above the current thread's real stack bottom when
+/// the guard runs in **auto mode** (`set_stack_budget(0)`): recursion may
+/// use the whole thread stack except this reserve, which stays free for the
+/// throw path so it never touches the OS guard page.
 #[cfg(debug_assertions)]
-pub(crate) const STACK_OVERFLOW_LIMIT: usize = 512 * 1024;
+pub(crate) const STACK_RESERVE_MARGIN: usize = 512 * 1024;
 #[cfg(not(debug_assertions))]
-pub(crate) const STACK_OVERFLOW_LIMIT: usize = 256 * 1024;
+pub(crate) const STACK_RESERVE_MARGIN: usize = 256 * 1024;
 
 /// VM stack-frame bump-arena capacity in bytes. Frame headers and data are
 /// bump-allocated from this pool; overflow spills to heap buffers.
