@@ -10,11 +10,74 @@ pub(crate) use registry::*;
 
 include!(concat!(env!("OUT_DIR"), "/atoms.rs"));
 
-/// first user (per-runtime) atom id; ids below are const atoms from the
-/// static `ATOM_CONST_DEFS` table.
-pub const USER_ATOM_ID_START: u32 = ATOM_CONST_COUNT + 1;
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroU32,
+    sync::OnceLock,
+};
 
-use std::num::NonZeroU32;
+/// Host const atoms: `(name, kind, text_hash)`, kept in id order. Host atom
+/// ids are `ATOM_CONST_COUNT + 1 .. ATOM_CONST_COUNT + len`, just past the
+/// build-time generated const atoms. Populated once by
+/// `init_host_const_atoms` (from the linkme-collected host class names).
+static ATOM_HOST_CLASS_NAMES: OnceLock<Vec<(&'static str, AtomKind, u32)>> = OnceLock::new();
+
+/// First user (per-runtime) atom id: below it lie the build-time const atoms
+/// plus the runtime-initialized host const atoms.
+pub(crate) fn user_atom_id_start() -> u32 {
+    ATOM_CONST_COUNT + ATOM_HOST_CLASS_NAMES.get().map_or(0, |v| v.len() as u32) + 1
+}
+
+/// Initialize host const atoms from the deduplicated host class names. Must
+/// run before any runtime starts. Text hashes mirror `calc_atom_str_hash` so
+/// minted descriptor hashes agree with the user-atom `hash_lut`. Returns the
+/// `name -> const atom id` map for filling `ClassDef::name_atom`.
+pub(crate) fn init_host_const_atoms(
+    names: impl Iterator<Item = &'static str>,
+) -> HashMap<&'static str, u32> {
+    if let Some(table) = ATOM_HOST_CLASS_NAMES.get() {
+        return table
+            .iter()
+            .enumerate()
+            .map(|(i, (name, _, _))| (*name, ATOM_CONST_COUNT + i as u32 + 1))
+            .collect();
+    }
+    let mut table = Vec::new();
+    let mut id_map = HashMap::new();
+    let mut seen = HashSet::new();
+    for name in names {
+        if seen.insert(name) {
+            let id = ATOM_CONST_COUNT + table.len() as u32 + 1;
+            table.push((
+                name,
+                AtomKind::String,
+                Atom::calc_atom_str_hash(name, AtomKind::String),
+            ));
+            id_map.insert(name, id);
+        }
+    }
+    if let Err(prev) = ATOM_HOST_CLASS_NAMES.set(table) {
+        // Lost the first-call race (another runtime started concurrently).
+        return prev
+            .iter()
+            .enumerate()
+            .map(|(i, (name, _, _))| (*name, ATOM_CONST_COUNT + i as u32 + 1))
+            .collect();
+    }
+    id_map
+}
+
+/// Resolve a host const atom by `(kind, content-vec)` from the host table
+/// (linear scan; the host set is small). Returns `None` before init or on miss.
+pub(crate) fn lookup_host_const(kind: AtomKind, cmp: impl Fn(&str) -> bool) -> Option<Atom> {
+    let host = ATOM_HOST_CLASS_NAMES.get()?;
+    for (i, (name, k, _)) in host.iter().enumerate() {
+        if *k == kind && cmp(name) {
+            return Some(Atom::from_id(ATOM_CONST_COUNT + i as u32 + 1));
+        }
+    }
+    None
+}
 
 /// atom descriptor kind
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
@@ -67,7 +130,7 @@ impl AtomInfo {
     }
 
     #[inline(always)]
-    pub const fn is_const(&self) -> bool {
+    pub fn is_const(&self) -> bool {
         is_const_atom(self.id())
     }
 

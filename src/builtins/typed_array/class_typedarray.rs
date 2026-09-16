@@ -515,7 +515,7 @@ pub(crate) fn js_create_typed_array_iterator(ctx: &mut ScopedContext, cc: CallCo
 
 fn js_typed_array_get_toStringTag(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Some(ta) = cc.this().as_object_TypedArray() {
-        ctx.rt_ptr().class_registry[ta.class_id() as usize]
+        ctx.rt_ptr().class_def(ta.class_id()).unwrap()
             .name_atom
             .force_string(ctx)
             .map(JSValue::make_string)

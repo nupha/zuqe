@@ -375,7 +375,7 @@ impl<'c> ScopedContext<'c> {
 
     #[must_use]
     pub fn throw_type_error_invalid_class(&mut self, class_id: ClassID) -> ErrCode {
-        let name = self.rt_ptr().class_registry[class_id as usize].name_atom;
+        let name = self.rt_ptr().class_def(class_id).unwrap().name_atom;
         self.throw_type_error(&format!("{} object expected", name.to_utf8(self.rt())))
     }
 

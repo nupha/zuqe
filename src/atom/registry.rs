@@ -15,8 +15,9 @@ use crate::{
 };
 
 use super::{
-    ATOM_CONST_HASH_TABLE, Atom, AtomInfo, AtomKind, JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL,
-    JS_ATOM_MAX, JS_ATOM_MAX_INT, JS_ATOM_TAG_INT, USER_ATOM_ID_START,
+    ATOM_CONST_COUNT, ATOM_CONST_HASH_TABLE, Atom, AtomInfo, AtomKind, JS_ATOM_HASH_PRIVATE,
+    JS_ATOM_HASH_SYMBOL, JS_ATOM_MAX, JS_ATOM_MAX_INT, JS_ATOM_TAG_INT, lookup_host_const,
+    user_atom_id_start,
 };
 
 pub(crate) struct AtomRegistry {
@@ -80,7 +81,7 @@ fn register_atom(
             // check for reuse: match registered atoms for (atom_hash, atom_type, string_content)
             if let Some(kv) = a_reg.hash_lut.get(&atom_hash) {
                 for &atom_id in kv {
-                    let ds = a_reg.user_atoms[atom_id as usize - USER_ATOM_ID_START as usize]
+                    let ds = a_reg.user_atoms[atom_id as usize - user_atom_id_start() as usize]
                         .as_ref()
                         .unwrap();
                     let at_info = ds.atom_info().unwrap();
@@ -138,7 +139,7 @@ fn register_atom(
     // find a free slot
     let (idx, atom_id) =
         if let Some(i) = rt.atom_registry.user_atoms.iter().position(|p| p.is_none()) {
-            (Some(i), i as u32 + USER_ATOM_ID_START)
+            (Some(i), i as u32 + user_atom_id_start())
         } else {
             if rt.atom_registry.user_atoms.len() == rt.atom_registry.user_atoms.capacity()
                 && rt.atom_registry.user_atoms.try_reserve(16).is_err()
@@ -152,7 +153,7 @@ fn register_atom(
             // [GUARDIAN] an atom id is a u32 whose highest bit is reserved for the small-int
             // tag, so a registered atom id must stay within `1..=i32::MAX` (== JS_ATOM_MAX).
             // Refuse to allocate past that range instead of overflowing into the tag bit.
-            let new_id = rt.atom_registry.user_atoms.len() as u32 + USER_ATOM_ID_START;
+            let new_id = rt.atom_registry.user_atoms.len() as u32 + user_atom_id_start();
             if new_id > JS_ATOM_MAX {
                 if let Some(c) = ctx {
                     c.throw(Exception::TooManyAtoms);
@@ -179,7 +180,7 @@ fn register_atom(
     ));
 
     if let Some(i) = idx {
-        debug_assert_eq!(i, atom_id as usize - USER_ATOM_ID_START as usize);
+        debug_assert_eq!(i, atom_id as usize - user_atom_id_start() as usize);
         debug_assert!(
             rt.atom_registry.user_atoms[i].is_none(),
             "atom slot {i} is in use"
@@ -190,7 +191,7 @@ fn register_atom(
 
         debug_assert_eq!(
             rt.atom_registry.user_atoms.len(),
-            atom_id as usize - USER_ATOM_ID_START as usize + 1
+            atom_id as usize - user_atom_id_start() as usize + 1
         );
     }
 
@@ -217,7 +218,7 @@ impl RuntimeImpl {
         // Note: atom_id associated descriptor string is now an invalid gc pointer.
         if let Some(slot) = a_reg
             .user_atoms
-            .get_mut(atom_id as usize - USER_ATOM_ID_START as usize)
+            .get_mut(atom_id as usize - user_atom_id_start() as usize)
             && slot.take().is_some()
         {
             let purge = if let Some(ids) = a_reg.hash_lut.get_mut(&atom_hash) {
@@ -262,7 +263,7 @@ impl RuntimeImpl {
         } else {
             self.atom_registry
                 .user_atoms
-                .get(atom_id as usize - USER_ATOM_ID_START as usize)
+                .get(atom_id as usize - user_atom_id_start() as usize)
                 .and_then(|d| *d)
         }
     }
@@ -417,10 +418,12 @@ impl Atom {
         }
     }
 
-    /// Create const atom
+    /// Create const atom. Const fn: a `const` context can only mint build-time
+    /// const atoms (the host const range is filled at runtime, but all host
+    /// ids are `> ATOM_CONST_COUNT`, so this stops early).
     #[inline(always)]
     pub(crate) const fn new_const(id: u32) -> Self {
-        debug_assert!(is_const_atom(id));
+        debug_assert!(id != 0 && id <= ATOM_CONST_COUNT);
         Self(id)
     }
 
@@ -437,7 +440,7 @@ impl Atom {
 
     /// calc atom hash for str and type.
     #[inline(always)]
-    fn calc_atom_str_hash(str: &str, kind: AtomKind) -> u32 {
+    pub(crate) fn calc_atom_str_hash(str: &str, kind: AtomKind) -> u32 {
         let mut h = kind as u32;
         if !str.is_empty() {
             for c in str.chars() {
@@ -473,16 +476,18 @@ impl Atom {
 
     /// Resolve a const atom by content string (`&str`).
     #[inline(always)]
-    fn lookup_const(str: &str, kind: AtomKind) -> Option<Atom> {
-        Self::const_lookup_by_hash(Self::calc_atom_str_hash(str, kind), kind, |s| s == str)
+    pub(crate) fn lookup_const(str: &str, kind: AtomKind) -> Option<Atom> {
+        let a = Self::const_lookup_by_hash(Self::calc_atom_str_hash(str, kind), kind, |s| s == str);
+        a.or_else(|| lookup_host_const(kind, |s| s == str))
     }
 
     /// Resolve a const atom by content node (`&StringData`).
     #[inline(always)]
-    fn const_from_content(content: &StringData, kind: AtomKind) -> Option<Atom> {
-        Self::const_lookup_by_hash(Self::calc_atom_hash(content, kind), kind, |s| {
+    pub(crate) fn const_from_content(content: &StringData, kind: AtomKind) -> Option<Atom> {
+        let a = Self::const_lookup_by_hash(Self::calc_atom_hash(content, kind), kind, |s| {
             content.eq_str(s)
-        })
+        });
+        a.or_else(|| lookup_host_const(kind, |s| content.eq_str(s)))
     }
 }
 

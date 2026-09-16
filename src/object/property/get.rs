@@ -124,10 +124,7 @@ impl ObjectImpl {
                     {
                         return Ok(JSValue::UNDEFINED);
                     }
-                } else if let Some(pm) = ctx.rt_ptr().class_registry[cur_obj.class_id() as usize]
-                    .exotic
-                    .as_ref()
-                {
+                } else if let Some(pm) = ctx.rt().class_def(cur_obj.class_id()).unwrap().exotic {
                     if let Some(cb) = pm.get_property {
                         // XXX: should pass throw_ref_error
                         return cb(ctx, cur_obj.into(), prop, this_obj);

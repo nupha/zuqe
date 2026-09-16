@@ -71,8 +71,7 @@ impl ObjectImpl {
         if self.flags().is_exotic()
             && let Some(f) = ctx
                 .rt()
-                .class_registry
-                .get(self.class_id() as usize)
+                .class_def(self.class_id())
                 .and_then(|c| c.exotic)
                 .and_then(|em| em.get_prototype)
         {
@@ -105,8 +104,7 @@ impl ObjectImpl {
         if self.flags().is_exotic()
             && let Some(f) = ctx
                 .rt()
-                .class_registry
-                .get(self.class_id() as usize)
+                .class_def(self.class_id())
                 .and_then(|c| c.exotic)
                 .and_then(|em| em.set_prototype)
         {

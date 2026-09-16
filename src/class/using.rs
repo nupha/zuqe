@@ -2,112 +2,46 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    FieldDef, USER_CLASS_ID_START,
+    FieldDef,
     atom::Atom,
     builtins::iterator::{js_async_iterator_proto_funcs, js_iterator_proto_funcs},
-    class::{ClassDef, ClassID},
+    class::{ClassDef, ClassID, static_class_count},
     context::{ProtoCtorPair, ScopedContext},
-    error::Exception,
     function::{Callback, CallbackFn, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object},
     runtime::RuntimeImpl,
 };
 
 impl RuntimeImpl {
-    /// Single funnel for all class registrations — both builtin and user
-    /// classes go through here.
-    ///
-    /// # Id allocation contract
-    ///
-    /// | Source | Id range | Allocator |
-    /// |--------|----------|-----------|
-    /// | Builtin | `1..USER_CLASS_ID_START` | Compile-time constants (`JS_CLASS_*`), sequential from `CLASS_DEF_LIST` in `build_stdclass.rs` |
-    /// | User | `USER_CLASS_ID_START..=u16::MAX` | Runtime serial (`user_class_id_serial`), monotonically increasing per `register_class_def` call |
-    ///
-    /// The two ranges are disjoint and exhaustive for `ClassID` (u16).
-    /// A slot occupied by a builtin cannot be overwritten by a user class and
-    /// vice versa — the debug assertion on `name_atom.is_null()` catches
-    /// accidental collisions.
-    fn register_class_internal(
-        &mut self,
-        class_id: ClassID,
-        class_def: ClassDef,
-    ) -> Result<(), i32> {
-        debug_assert!(class_id > 0);
-        debug_assert!(!class_def.name.is_empty());
-        debug_assert!(!class_def.name_atom.is_null());
-
-        #[cfg(debug_assertions)]
-        if class_id >= USER_CLASS_ID_START {
-            for m in self.class_registry[USER_CLASS_ID_START as usize..].iter() {
-                if m.name_atom == class_def.name_atom {
-                    eprintln!(
-                        "WARN: class name {:?} ('{}') already exists",
-                        class_def.name_atom, class_def.name
-                    );
-                }
-            }
-        }
-
-        if (class_id as usize) < self.class_registry.len() {
-            if !self.class_registry[class_id as usize].name_atom.is_null() {
-                return Err(-1);
-            }
-        } else if class_id as usize >= self.class_registry.len() {
-            let extra = class_id as usize - self.class_registry.len() + 1;
-            self.class_registry.try_reserve(extra).map_err(|_| -1)?;
-            self.class_registry
-                .extend(std::iter::repeat_with(ClassDef::default).take(extra));
-        }
-
-        self.class_registry[class_id as usize] = class_def;
-        Ok(())
-    }
-
-    /// Register a builtin class with a pre-assigned compile-time class_id.
-    ///
-    /// Validates that `class_id` is in the builtin range (`< USER_CLASS_ID_START`)
-    /// and that `class_def.name_atom` is non-null (pre-allocated).
+    /// Look up a `ClassDef` by class ID (static table + this runtime's dynamic table).
     #[inline(always)]
-    pub(crate) fn register_builtin_class_def(
-        &mut self,
-        class_id: ClassID,
-        class_def: ClassDef,
-    ) -> Result<(), i32> {
-        debug_assert!(class_id > 0 && class_id < USER_CLASS_ID_START);
-        self.register_class_internal(class_id, class_def)
-    }
-
-    /// Register a user-defined (non-builtin) class, returning its runtime class id.
-    pub fn register_class_def(&mut self, mut class_def: ClassDef) -> Result<ClassID, i32> {
-        class_def.name_atom = {
-            let a = Atom::root_str(self, class_def.name)?;
-            debug_assert!(!a.is_small_int());
-            debug_assert!(
-                a.is_const() || self.atom_desc_string(a.id()).unwrap().gc_head().is_root(),
-                "class name atom should be root gc node"
-            );
-            a
-        };
-
-        // find next class serial
-        let class_id = self.user_class_id_serial;
-        debug_assert!(class_id >= USER_CLASS_ID_START);
-
-        if class_id == u16::MAX {
-            self.set_exception(Exception::TooManyClasses);
-            return Err(-1);
+    pub(crate) fn class_def(&self, cid: ClassID) -> Option<&ClassDef> {
+        if cid == 0 {
+            return None;
         }
 
-        self.user_class_id_serial = class_id + 1;
+        let base = static_class_count();
+        let cid_usize = cid as usize;
 
-        self.register_class_internal(class_id, class_def)?;
-        Ok(class_id)
+        #[cfg(feature = "zapi")]
+        if cid_usize < base {
+            crate::class::class_def(cid)
+        } else {
+            self.zapi_class_defs.get(cid_usize - base).map(|c| &c.def)
+        }
+
+        #[cfg(not(feature = "zapi"))]
+        {
+            debug_assert!(
+                cid_usize < base,
+                "class id {cid} is out of range (static count {base})"
+            );
+            crate::class::class_def(cid)
+        }
     }
 
     pub fn is_class_registered(&self, class_id: ClassID) -> bool {
-        class_id < self.class_registry.len() as ClassID
-            && !self.class_registry[class_id as usize].name_atom.is_null()
+        self.class_def(class_id).is_some()
     }
 }
 
@@ -153,7 +87,11 @@ impl<'c> ScopedContext<'c> {
             "class ctor has been created"
         );
 
-        let class_name = self.rt().class_registry[class_id as usize].name_atom;
+        let class_name = self
+            .rt()
+            .class_def(class_id)
+            .map(|cd| cd.name_atom)
+            .unwrap_or(Atom::NULL);
 
         let mut ctor: Object = NativeFunction::create(
             self,
@@ -336,8 +274,9 @@ impl<'c> ScopedContext<'c> {
     }
 
     pub fn use_classes(&mut self, class_ids: &[ClassID]) -> Result<(), i32> {
+        let total = self.rt().class_count();
         if let Some(mx) = class_ids.iter().max().copied() {
-            if self.rt().class_registry.get(mx as usize).is_some() {
+            if (mx as usize) < total {
                 let n = self.class_slots.len();
                 if mx as usize >= n {
                     // grow slot
@@ -352,9 +291,7 @@ impl<'c> ScopedContext<'c> {
                 for id in class_ids {
                     let class_id = *id;
 
-                    if let Some(class_def) =
-                        self.rt().class_registry.get(class_id as usize).copied()
-                    {
+                    if let Some(class_def) = self.rt().class_def(class_id).copied() {
                         class_def.initialize(self, class_id)?;
                     } else {
                         return Err(

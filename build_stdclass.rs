@@ -747,7 +747,7 @@ pub fn gen_std_class_defs(outfile: &Path) {
     let mut async_start: Option<usize> = None;
     let mut async_end: Option<usize> = None;
 
-    let mut register_lines = Vec::<String>::with_capacity(128);
+    let mut builtin_defs = Vec::<String>::with_capacity(CLASS_DEF_LIST.len());
 
     for (i, cdef) in CLASS_DEF_LIST.iter().enumerate() {
         match cdef.const_name {
@@ -766,7 +766,9 @@ pub fn gen_std_class_defs(outfile: &Path) {
             i + 1
         ));
 
-        register_lines.push(format!("    {}::register(rt)?;", cdef.class_def));
+        // Each class generates a const `<Struct>_DEF` via the def_native_object!
+        // macro (paste); BUILTIN_CLASS_DEFS indexes them in id order.
+        builtin_defs.push(format!("    {}_DEF,", cdef.class_def));
     }
 
     consts.push(format!(
@@ -776,14 +778,14 @@ pub fn gen_std_class_defs(outfile: &Path) {
 
     let mut lines = vec![
         "use crate::class::ClassID;\n".to_string(),
+        "use crate::class::ClassDef;".to_string(),
         consts.join("\n"),
         String::new(),
-        "pub(crate) fn register_all_builtin_classes(rt: &mut crate::RuntimeImpl) -> Result<(), i32> {"
-            .to_string(),
+        "/// Builtin class definitions, indexed by `JS_CLASS_*` id (id = index).".to_string(),
+        "pub static BUILTIN_CLASS_DEFS: &[ClassDef] = &[".to_string(),
     ];
-    lines.extend(register_lines);
-    lines.push("    Ok(())".to_string());
-    lines.push("}".to_string());
+    lines.extend(builtin_defs);
+    lines.push("];".to_string());
     lines.push("// end of std class".to_string());
     lines.push(format!(
         "pub const STD_CLASS_DEFS_ASYNC_INDEX_RANGE: std::ops::RangeInclusive<usize> = {}..={};",

@@ -167,9 +167,8 @@ impl Drop for ContextImpl {
 impl ContextImpl {
     fn new(rt: &mut RuntimeImpl) -> Result<Self, i32> {
         let class_proto = {
-            let n = rt.class_registry.len();
-            let mut lst = Vec::<ProtoCtorPair>::new();
-            lst.try_reserve(n).map_err(|_| -1)?;
+            let n = rt.class_count();
+            let mut lst = Vec::<ProtoCtorPair>::with_capacity(n);
             lst.extend(std::iter::repeat_n(ProtoCtorPair::default(), n));
             lst
         };

@@ -8,12 +8,11 @@ use gc_lite::GcTrace;
 use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
 
 use crate::{
-    USER_CLASS_ID_START,
     atom::{Atom, AtomInfo, AtomKind, AtomRegistry, JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL},
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions, promise::JSHostPromiseRejectionTracker,
     },
-    class::{ClassDef, ClassID},
+    class::{init_static_class_defs, static_class_count},
     config::{
         GC_ALLOC_CHECK_INTERVAL, GC_ARENA_CAP, GC_ARENA_MAX_ALLOC, STACK_ARENA_CAP,
         STACK_RESERVE_MARGIN,
@@ -24,7 +23,6 @@ use crate::{
     module::{ModuleLoadFn, ModuleNormalizeFn},
     object::Promise,
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
-    register_all_builtin_classes,
     stack_frame::{ExecMode, FrameIndex, StackFrameArena},
     string::{StringData, StringRef},
     utils::js_get_stack_pointer,
@@ -62,18 +60,9 @@ impl<C> InterruptFn for C where C: Fn(&RuntimeImpl) -> bool {}
 pub struct RuntimeImpl {
     /// atom registry
     pub(crate) atom_registry: AtomRegistry,
-    /// Per-runtime cached values for const atoms (string + symbol).
-    /// Const atoms have no GC descriptor node, so their value identity is
-    /// cached here: `atom_id -> StringRef`. Each node is a GC root carrying
-    /// the const atom id (via AtomInfo), enabling fast `to_atom` round-trips
-    /// and `===` id-check for symbols. Shared across all contexts (atom ids
-    /// are runtime-global), matching the per-runtime atom registry.
-    /// Populated lazily on first `to_value` call per atom.
+    /// Per-runtime cached values for const atoms (string and symbol).
     pub(crate) const_atom_values: Vec<(u32, StringRef)>,
 
-    /// registered classes
-    pub(crate) class_registry: Vec<ClassDef>,
-    pub(crate) user_class_id_serial: ClassID,
     /// shape registry
     pub(crate) shape_registry: ShapeRegistry,
 
@@ -190,9 +179,11 @@ pub struct RuntimeImpl {
     #[cfg(feature = "zapi")]
     pub(crate) zapi_body_registry:
         std::sync::Mutex<std::collections::HashMap<i32, (zuqe_zapi::ffi::ZqBodyFn, i32)>>,
+    /// Per-runtime zapi class table: each entry pairs the engine-native
+    /// `ClassDef` with the extension's ABI `ZqClassDef`. Class ids are assigned
+    /// as `static_class_count() + index`, independently per runtime.
     #[cfg(feature = "zapi")]
-    pub(crate) zapi_class_map:
-        std::sync::Mutex<std::collections::HashMap<crate::class::ClassID, usize>>,
+    pub(crate) zapi_class_defs: Vec<crate::zapi::ZapiClassDef>,
 
     //
     // ── MULTI-RUNTIME JOIN ──
@@ -307,9 +298,6 @@ impl RuntimeImpl {
         let mut rt = Self {
             atom_registry: AtomRegistry::new(),
             const_atom_values: Vec::new(),
-
-            class_registry: Vec::with_capacity(USER_CLASS_ID_START as usize),
-            user_class_id_serial: USER_CLASS_ID_START,
             shape_registry: ShapeRegistry::new(),
 
             frame_arena: StackFrameArena::with_capacity(arena_cap),
@@ -367,7 +355,7 @@ impl RuntimeImpl {
             #[cfg(feature = "zapi")]
             zapi_body_registry: std::sync::Mutex::new(std::collections::HashMap::new()),
             #[cfg(feature = "zapi")]
-            zapi_class_map: std::sync::Mutex::new(std::collections::HashMap::new()),
+            zapi_class_defs: Vec::new(),
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,
@@ -375,7 +363,7 @@ impl RuntimeImpl {
             join_state: JoinState::Active,
         };
 
-        register_all_builtin_classes(&mut rt)?;
+        init_static_class_defs()?;
 
         rt.refresh_stack_top();
 
@@ -385,6 +373,19 @@ impl RuntimeImpl {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
+    }
+
+    /// Total number of classes known to this runtime (static + dynamic).
+    #[inline(always)]
+    pub(crate) fn class_count(&self) -> usize {
+        #[cfg(feature = "zapi")]
+        {
+            static_class_count() + self.zapi_class_defs.len()
+        }
+        #[cfg(not(feature = "zapi"))]
+        {
+            static_class_count()
+        }
     }
 
     /// (Re)arm the C-stack guard line into `stack_limit`. Auto mode: the
@@ -574,14 +575,6 @@ impl RuntimeImpl {
             gc_lite::GcHeap::sweep_drop_payloads(&link, registry);
 
             self.gc_heap_mut().dealloc_partition(pid, link);
-        }
-
-        // class unregister callbacks
-        let class_registry = std::mem::take(&mut self.class_registry);
-        for c in class_registry {
-            if let Some(f) = c.on_unregister {
-                f(self); // Note: class_registry is already cleared; do NOT reference other ClassDef entries.
-            }
         }
     }
     /// Process pending FinalizationRegistry cleanups.

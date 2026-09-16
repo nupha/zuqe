@@ -183,12 +183,12 @@ impl ObjectImpl {
             } else {
                 bfun.call(ctx, this, new_target, args, flags)
             }
-        } else if let Some(cb) = unsafe {
-            ctx.rt()
-                .class_registry
-                .get_unchecked(self.class_id() as usize)
-                .call
-        } {
+        } else if let Some(cb) = ctx
+            .rt()
+            .class_def(self.class_id())
+            .unwrap()
+            .call
+        {
             // calling class defined exotic callback (e.g. bound function, native function, async function etc)
             let mut result = cb(
                 ctx,

@@ -445,7 +445,7 @@ fn js_object___getClass(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         0 => {
             // get class name
             let name = if let Some(o) = cc.arg(0).as_object() {
-                ctx.rt().class_registry[o.class_id() as usize].name_atom
+                ctx.rt().class_def(o.class_id()).unwrap().name_atom
             } else {
                 Atom::CONST_empty_string
             };

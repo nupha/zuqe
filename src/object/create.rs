@@ -84,6 +84,7 @@ impl<'c> ScopedContext<'c> {
     /// Create a class instance owning a typed payload `P`.
     ///
     /// This is only for def_native_object! use. Don't call this directly.
+    #[inline(always)]
     pub fn create_class_instance<P: GcTrace>(
         &mut self,
         new_target: JSValue,
@@ -94,8 +95,7 @@ impl<'c> ScopedContext<'c> {
         {
             let expected = self
                 .rt()
-                .class_registry
-                .get(class_id as usize)
+                .class_def(class_id as ClassID)
                 .and_then(|cd| cd.payload_type_name);
 
             if let Some(expected) = expected {

@@ -145,9 +145,11 @@ impl ObjectImpl {
                         )?;
                     }
                 }
-            } else if let Some(f) = ctx.rt().class_registry[self.class_id() as usize]
+            } else if let Some(f) = ctx
+                .rt()
+                .class_def(self.class_id())
+                .unwrap()
                 .exotic
-                .as_ref()
                 .and_then(|m| m.get_own_property_names)
             {
                 // Note: exotic keys comes after the object own properties.

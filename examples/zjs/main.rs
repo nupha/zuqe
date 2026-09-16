@@ -16,8 +16,8 @@ use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use url::Url;
 use zuqe::{
-    Context, EvalFlags, EvalName, EvalType, Exception, ExitStatus, JSValue, ModuleDef, Runtime,
-    ScopedContext,
+    Context, EvalFlags, EvalName, EvalType, Exception, ExitStatus, JSValue, ModuleDef, NativeObject,
+    Runtime, ScopedContext,
 };
 
 use crate::{
@@ -229,8 +229,8 @@ fn run_zjs_prepare() -> (Runtime, Context<'static>, Args, String, bool) {
         (rt, is_module)
     };
 
-    let class_id_file = JSFile::register(&mut rt).unwrap();
-    let class_id_emitter = JSEmitter::register(&mut rt).unwrap();
+    let class_id_file = JSFile::class_id();
+    let class_id_emitter = JSEmitter::class_id();
 
     let ctx = rt
         .create_context(|cx| {

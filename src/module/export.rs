@@ -232,8 +232,7 @@ impl ModuleDefImpl {
                         .ok_or_else(|| {
                             let name = ctx
                                 .rt()
-                                .class_registry
-                                .get(class_id as usize)
+                                .class_def(class_id as crate::ClassID)
                                 .map(|d| d.name)
                                 .unwrap_or("<unknown>");
 

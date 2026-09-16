@@ -75,9 +75,11 @@ impl ObjectImpl {
                     // array index is own property
                     return Ok(true);
                 }
-            } else if let Some(cb) = ctx.rt_ptr().class_registry[self.class_id() as usize]
+            } else if let Some(cb) = ctx
+                .rt()
+                .class_def(self.class_id())
+                .unwrap()
                 .exotic
-                .as_ref()
                 .and_then(|x| x.get_own_property)
             {
                 return cb(ctx, Object::from_ref(self).into(), prop).map(|d| d.is_some());
@@ -164,9 +166,11 @@ impl ObjectImpl {
                         setter: JSValue::UNDEFINED,
                     }));
                 }
-            } else if let Some(f) = ctx.rt_ptr().class_registry[self.class_id() as usize]
+            } else if let Some(f) = ctx
+                .rt()
+                .class_def(self.class_id())
+                .unwrap()
                 .exotic
-                .as_ref()
                 .and_then(|x| x.get_own_property)
             {
                 return f(ctx, Object::from_ref(self).into(), prop);
@@ -356,7 +360,7 @@ impl ObjectImpl {
 
                 cid => {
                     if flags & JS_PROP_NO_EXOTIC == 0
-                        && let Some(pm) = ctx.rt_ptr().class_registry[cid as usize].exotic.as_ref()
+                        && let Some(pm) = ctx.rt().class_def(cid).unwrap().exotic
                     {
                         if let Some(f) = pm.define_own_property {
                             return f(

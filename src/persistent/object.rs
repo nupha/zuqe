@@ -45,7 +45,10 @@ pub fn serialize_object(
     if !matches!(cid, JS_CLASS_OBJECT | JS_CLASS_ARRAY | JS_CLASS_MODULE_NS) {
         return Err(BytecodeSerializeError::UnsupportedObject(format!(
             "class {} (only Object/Array/ModuleNamespace are supported)",
-            obj.class_name_str()
+            sc.rt()
+                .class_def(obj.class_id())
+                .map(|d| d.name)
+                .unwrap_or("<unknown>")
         )));
     }
 

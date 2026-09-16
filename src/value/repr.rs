@@ -21,18 +21,18 @@ impl ObjectImpl {
                 | JS_CLASS_MAPPED_ARGUMENTS
                 | JS_CLASS_ERROR
                 | JS_CLASS_BOOLEAN
-                | JS_CLASS_NUMBER) => ctx.rt().class_registry[cid as usize].name_atom,
+                | JS_CLASS_NUMBER) => ctx.rt().class_def(cid).unwrap().name_atom,
                 // NOTE: BigInt wrappers are deliberately absent: per spec they
                 // have no builtin tag; "[object BigInt]" comes from the
                 // prototype's own @@toStringTag, so non-string overrides fall
                 // back to "Object".
                 #[cfg(feature = "builtin_regexp")]
                 crate::JS_CLASS_REGEXP => {
-                    ctx.rt().class_registry[crate::JS_CLASS_REGEXP as usize].name_atom
+                    ctx.rt().class_def(crate::JS_CLASS_REGEXP).unwrap().name_atom
                 }
                 #[cfg(feature = "builtin_date")]
                 crate::JS_CLASS_DATE => {
-                    ctx.rt().class_registry[crate::JS_CLASS_DATE as usize].name_atom
+                    ctx.rt().class_def(crate::JS_CLASS_DATE).unwrap().name_atom
                 }
 
                 _ => Atom::CONST_Object,

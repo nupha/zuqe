@@ -214,10 +214,7 @@ impl GcTrace for ObjectImpl {
             );
             let rt = unsafe { &*(gcx.opaque() as *const RuntimeImpl) };
             if !self.payload.is_null()
-                && let Some(f) = rt
-                    .class_registry
-                    .get(cid as usize)
-                    .and_then(|c| c.on_gc_trace)
+                && let Some(f) = rt.class_def(cid).and_then(|c| c.on_gc_trace)
             {
                 f(self.payload, gcx, cid as usize);
             }
@@ -236,7 +233,7 @@ impl std::fmt::Display for ObjectImpl {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let rt = self.rt_ptr();
         let class_id = self.class_id();
-        let name = rt.class_registry[class_id as usize].name_atom.to_utf8(&rt);
+        let name = rt.class_def(class_id).unwrap().name_atom.to_utf8(&rt);
 
         #[cfg(debug_assertions)]
         {
@@ -351,15 +348,15 @@ impl ObjectImpl {
 
             class_id
             @ (JS_CLASS_NUMBER | JS_CLASS_STRING | JS_CLASS_BOOLEAN | JS_CLASS_BIG_INT) => {
-                if ctx.rt_ptr().class_registry[class_id as usize]
-                    .exotic
-                    .is_some()
-                {
+                if ctx.rt().class_def(class_id).unwrap().exotic.is_some() {
                     flags.set_exotic(true);
                 }
             }
             JS_CLASS_SYMBOL => {
-                if ctx.rt_ptr().class_registry[crate::JS_CLASS_SYMBOL as usize]
+                if ctx
+                    .rt()
+                    .class_def(crate::JS_CLASS_SYMBOL)
+                    .unwrap()
                     .exotic
                     .is_some()
                 {
@@ -373,10 +370,7 @@ impl ObjectImpl {
             crate::JS_CLASS_REGEXP => {}
 
             class_id => {
-                if ctx.rt_ptr().class_registry[class_id as usize]
-                    .exotic
-                    .is_some()
-                {
+                if ctx.rt().class_def(class_id).unwrap().exotic.is_some() {
                     flags.set_exotic(true);
                 }
             }
@@ -460,13 +454,7 @@ impl ObjectImpl {
     /// Get object class name str.
     #[inline(always)]
     pub fn class_name_str(&self) -> &str {
-        debug_assert!((self.class_id() as usize) < self.rt.class_registry.len());
-        unsafe {
-            self.rt
-                .class_registry
-                .get_unchecked(self.class_id() as usize)
-                .name
-        }
+        crate::class::class_def(self.class_id()).map_or("<unknown>", |d| d.name)
     }
 
     /// Get object flags
@@ -536,11 +524,8 @@ impl ObjectImpl {
             }
             _ => {
                 // check if class proto has exotic call handler
-                self.rt_ptr()
-                    .class_registry
-                    .get(self.class_id() as usize)
-                    .and_then(|c| c.call)
-                    .is_some()
+                let cid = self.class_id();
+                self.rt_ptr().class_def(cid).and_then(|c| c.call).is_some()
             }
         }
     }
@@ -670,7 +655,7 @@ impl ObjectImpl {
         }
 
         // call class finalize handler + free payload memory.
-        let class_def = rt.class_registry[class_id as usize];
+        let class_def = *rt.class_def(class_id).unwrap();
         let id = self.id();
 
         // Unified finalize: all classes (builtin + user) go through on_finalize

@@ -7,7 +7,7 @@ use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     RuntimeImpl,
-    atom::{ATOM_CONST_DEFS, AtomDescKind, AtomKind, USER_ATOM_ID_START},
+    atom::{ATOM_CONST_COUNT, ATOM_CONST_DEFS, AtomDescKind, AtomKind},
     context::ScopedContext,
     number::IntOrFloat,
     string::{CharCode, StringImpl, StringRef},
@@ -71,22 +71,32 @@ impl Atom {
 
     /// check if atom is const atom?
     #[inline(always)]
-    pub const fn is_const(&self) -> bool {
+    pub fn is_const(&self) -> bool {
         is_const_atom(self.0)
     }
 
-    /// const atom content, from the static table.
+    /// const atom content. Host const atoms resolve from the runtime host table.
     #[inline(always)]
     pub(crate) fn const_str(&self) -> &'static str {
         debug_assert!(!self.is_null() && self.is_const());
-        ATOM_CONST_DEFS[self.id() as usize - 1].0
+        let id = self.id() as usize;
+        if id <= ATOM_CONST_COUNT as usize {
+            ATOM_CONST_DEFS[id - 1].0
+        } else {
+            super::ATOM_HOST_CLASS_NAMES.get().unwrap()[id - ATOM_CONST_COUNT as usize - 1].0
+        }
     }
 
     /// const atom kind, from the static table.
     #[inline(always)]
     pub(crate) fn const_kind(&self) -> AtomKind {
         debug_assert!(!self.is_null() && self.is_const());
-        ATOM_CONST_DEFS[self.id() as usize - 1].1
+        let id = self.id() as usize;
+        if id <= ATOM_CONST_COUNT as usize {
+            ATOM_CONST_DEFS[id - 1].1
+        } else {
+            super::ATOM_HOST_CLASS_NAMES.get().unwrap()[id - ATOM_CONST_COUNT as usize - 1].1
+        }
     }
 
     /// Build-time precomputed content hash (`text_hash`) for this const atom,
@@ -97,7 +107,12 @@ impl Atom {
     #[inline(always)]
     pub(crate) fn const_text_hash(&self) -> u32 {
         debug_assert!(!self.is_null() && self.is_const());
-        ATOM_CONST_DEFS[self.id() as usize - 1].2
+        let id = self.id() as usize;
+        if id <= ATOM_CONST_COUNT as usize {
+            ATOM_CONST_DEFS[id - 1].2
+        } else {
+            super::ATOM_HOST_CLASS_NAMES.get().unwrap()[id - ATOM_CONST_COUNT as usize - 1].2
+        }
     }
 
     /// get atom descriptor kind
@@ -516,10 +531,20 @@ pub fn js_atom_concat_num(ctx: &mut ScopedContext, atom: Atom, n: u32) -> Result
 }
 
 #[inline(always)]
-pub(crate) const fn is_const_atom(id: u32) -> bool {
-    // const atoms live in `1..USER_ATOM_ID_START`; id 0 is Atom::NULL and
-    // small-int atoms have the high tag bit set.
-    id != 0 && id < USER_ATOM_ID_START
+pub(crate) fn is_const_atom(id: u32) -> bool {
+    // const atoms live in `1..=ATOM_CONST_COUNT` (build-time table) plus the
+    // host const range right after it; id 0 is Atom::NULL and small-int atoms
+    // have the high tag bit set.
+    if id == 0 {
+        return false;
+    }
+    if id <= ATOM_CONST_COUNT {
+        return true;
+    }
+    id <= ATOM_CONST_COUNT
+        + super::ATOM_HOST_CLASS_NAMES
+            .get()
+            .map_or(0, |v| v.len() as u32)
 }
 
 #[inline(always)]

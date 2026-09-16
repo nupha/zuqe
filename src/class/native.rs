@@ -61,17 +61,14 @@ impl JSValue {
 #[macro_export]
 macro_rules! def_native_object {
     // ── @struct_core: shared struct definition + trait impls ──
-    // Generates the struct, CLASS_NAME, as_object methods, register, thread-local
-    // (native only), and the conversion trait impls shared by every class.
-    // `$kind` is the literal `native` (runtime class_id via thread-local) or
-    // `builtin` (compile-time class_id). The register body is written inline so
-    // all metavariables share the hygiene context of the `register()` parameter
-    // `rt`.
+    // Generates the struct, CLASS_NAME, as_object methods, and the conversion
+    // trait impls shared by every class. `$kind` is the literal `native` or
+    // `builtin`. Class registration into the global table happens at engine
+    // init via linkme/distributed slice (native) or the generated
+    // `BUILTIN_CLASS_DEFS` (builtin) — no per-runtime register() is generated.
     (@struct_core $name:expr, $native_ty:ident, $proto_entries:expr, $ctor:expr, $kind:tt
         $(, class_id: $class_id:expr)?
         $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?
         $(, @wire_user_payload: $wire:ty)?
         $(, init_fn: $init_fn:expr)?
         $(, on_finalize: $on_finalize:expr)?
@@ -84,8 +81,6 @@ macro_rules! def_native_object {
         impl $native_ty {
             pub const CLASS_NAME: &str = $name;
 
-            $crate::def_native_object!(@thread_local_if_native $native_ty, $kind);
-
             #[inline(always)]
             pub const fn as_object(&self) -> &$crate::Object {
                 &self.0
@@ -94,35 +89,6 @@ macro_rules! def_native_object {
             #[inline(always)]
             pub const fn as_object_mut(&mut self) -> &mut $crate::Object {
                 &mut self.0
-            }
-
-            pub fn register(rt: &mut $crate::RuntimeImpl) -> Result<$crate::ClassID, i32> {
-                $($on_register(rt);)?
-
-                #[allow(unused_mut)]
-                let mut cd = $crate::def_native_object!(@make_cd $name, $proto_entries, $ctor, $kind
-                    $(, class_id: $class_id)?
-                    $(, extends: $extends_class)?
-                    $(, init_fn: $init_fn)?);
-
-                $crate::def_native_object!(@apply_extra cd, $kind
-                    $(, extends: $extends_class)?
-                    $(, @wire_user_payload: $wire)?
-                    $(, init_fn: $init_fn)?
-                    $(, on_finalize: $on_finalize)?
-                    $(, exotic: $exotic)?
-                    $(, on_call: $on_call)?);
-                $(
-                    cd = cd.payload_drop($crate::drop_payload_fn::<$wire>);
-                    cd = cd.on_gc_trace($crate::user_payload_trace::<$wire>);
-                    #[cfg(debug_assertions)]
-                    {
-                        cd = cd.payload_type_name(Some(std::any::type_name::<$wire>()));
-                    }
-                )?
-                $(cd = cd.on_unregister($on_unregister);)?
-                $crate::def_native_object!(@register_finish cd, $native_ty, rt, $kind
-                    $(, class_id: $class_id)?)
             }
         }
 
@@ -178,15 +144,6 @@ macro_rules! def_native_object {
         }
     };
 
-    // ── @thread_local_if_native: emit thread-local CLASS_ID for native,
-    // nothing for builtin (compile-time constant via `@builtin-impl`).
-    (@thread_local_if_native $native_ty:ident, native) => {
-        thread_local! {
-            static CLASS_ID: std::cell::Cell<$crate::ClassID> = const { std::cell::Cell::new(0) };
-        }
-    };
-    (@thread_local_if_native $native_ty:ident, builtin) => {};
-
     // ── @make_cd: construct the ClassDef ──
     (@make_cd $name:expr, $proto_entries:expr, $ctor:expr, native) => {
         $crate::ClassDef::new($name, $proto_entries, $ctor)
@@ -232,28 +189,50 @@ macro_rules! def_native_object {
         $(, exotic: $exotic:expr)?
         $(, on_call: $on_call:expr)?) => {};
 
-    // ── @register_finish: register the ClassDef into the runtime ──
-    (@register_finish $cd:ident, $native_ty:ident, $rt:ident
-        , native) => {{
-        debug_assert_eq!(<$native_ty as $crate::NativeObject>::class_id(), 0, "class has been registered");
-        let class_id = $rt.register_class_def($cd)?;
-        <$native_ty>::CLASS_ID.with(|x| x.set(class_id));
-        Ok(class_id)
-    }};
-    (@register_finish $cd:ident, $native_ty:ident, $rt:ident
-        , builtin, class_id: $class_id:expr) => {{
-        $rt.register_builtin_class_def($class_id.0, $cd)?;
-        Ok($class_id.0)
+    // ── @build_cd: combine @make_cd + @apply_extra + payload wiring ──
+    // Produces a value expression for the ClassDef. Used in const position for
+    // builtin classes and in linkme element initializers for native classes.
+    (@build_cd $name:expr, $proto_entries:expr, $ctor:expr, $kind:tt
+        $(, class_id: $class_id:expr)?
+        $(, extends: $extends_class:expr)?
+        $(, @wire_user_payload: $wire:ty)?
+        $(, init_fn: $init_fn:expr)?
+        $(, on_finalize: $on_finalize:expr)?
+        $(, exotic: $exotic:expr)?
+        $(, on_call: $on_call:expr)?) => {{
+        #[allow(unused_mut)]
+        let mut cd = $crate::def_native_object!(@make_cd $name, $proto_entries, $ctor, $kind
+            $(, class_id: $class_id)?
+            $(, extends: $extends_class)?
+            $(, init_fn: $init_fn)?);
+
+        $crate::def_native_object!(@apply_extra cd, $kind
+            $(, extends: $extends_class)?
+            $(, @wire_user_payload: $wire)?
+            $(, init_fn: $init_fn)?
+            $(, on_finalize: $on_finalize)?
+            $(, exotic: $exotic)?
+            $(, on_call: $on_call)?);
+        $(
+            cd = cd.payload_drop($crate::drop_payload_fn::<$wire>);
+            cd = cd.on_gc_trace($crate::user_payload_trace::<$wire>);
+        )?
+        cd
     }};
 
-    // ── @impl: generate NativeObject trait impl ──
+    // ── @impl: generate NativeObject trait impl for native classes ──
+    // Reads the class_id from the linkme element's AtomicU16 (assigned at
+    // engine init). Returns 0 until then (e.g. if used before init or the
+    // class is never registered).
     (@impl $native_ty:ident) => {
-        unsafe impl $crate::NativeObject for $native_ty {
-            fn class_id() -> $crate::ClassID {
-                Self::CLASS_ID.with(|x| x.get())
-            }
-            fn class_name() -> &'static str {
-                Self::CLASS_NAME
+        $crate::paste::paste! {
+            unsafe impl $crate::NativeObject for $native_ty {
+                fn class_id() -> $crate::ClassID {
+                    [< $native_ty _DEF >].class_id.load(std::sync::atomic::Ordering::Relaxed)
+                }
+                fn class_name() -> &'static str {
+                    Self::CLASS_NAME
+                }
             }
         }
     };
@@ -342,13 +321,22 @@ macro_rules! def_native_object {
 
     // ── @native-no-payload: without payload ──
     (@native-no-payload $name:expr, $native_ty:ident, $proto_entries:expr, $ctor:expr
-        $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $(, extends: $extends_class:expr)?) => {
         $crate::def_native_object!(@struct_core $name, $native_ty, $proto_entries, $ctor, native
-            $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?);
+            $(, extends: $extends_class)?);
+
+        // linkme element: collected into the process-global HOST_CLASS_DEFS.
+        // class_id is assigned at engine init (init_static_class_defs).
+        $crate::paste::paste! {
+            #[doc(hidden)]
+            #[linkme::distributed_slice($crate::HOST_CLASS_DEFS)]
+            static [< $native_ty _DEF >]: $crate::HostClassDef = $crate::HostClassDef {
+                def: $crate::def_native_object!(@build_cd $name, $proto_entries, $ctor, native
+                    $(, extends: $extends_class)?),
+                class_id: std::sync::atomic::AtomicU16::new(0),
+                payload_type_name: || None,
+            };
+        }
 
         impl $native_ty {
             /// create an instance of the class
@@ -364,14 +352,22 @@ macro_rules! def_native_object {
 
     // ── @native-with-payload: with payload ──
     (@native-with-payload $name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
-        $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $(, extends: $extends_class:expr)?) => {
         $crate::def_native_object!(@struct_core $name, $native_ty, $proto_entries, $ctor, native
             $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?
             , @wire_user_payload: $payload_ty);
+
+        $crate::paste::paste! {
+            #[doc(hidden)]
+            #[linkme::distributed_slice($crate::HOST_CLASS_DEFS)]
+            static [< $native_ty _DEF >]: $crate::HostClassDef = $crate::HostClassDef {
+                def: $crate::def_native_object!(@build_cd $name, $proto_entries, $ctor, native
+                    $(, extends: $extends_class)?
+                    , @wire_user_payload: $payload_ty),
+                class_id: std::sync::atomic::AtomicU16::new(0),
+                payload_type_name: || Some(std::any::type_name::<$payload_ty>()),
+            };
+        }
 
         $crate::def_native_object!(@payload_accessors $native_ty, $payload_ty);
 
@@ -390,27 +386,38 @@ macro_rules! def_native_object {
     };
 
     // ── @builtin-struct: generate struct for builtin class ──
-    // No thread_local CLASS_ID — class_id is a compile-time constant.
+    // class_id is a compile-time constant; the ClassDef const is generated via
+    // `paste!` (name = `<Type>_DEF`) and referenced by generated BUILTIN_CLASS_DEFS.
     // When init_fn is provided, $proto_entries/$ctor are ignored (use () for both).
     (@builtin-struct $name:expr, $native_ty:ident, $class_id:expr, $proto_entries:expr, $ctor:expr
         $(, on_finalize: $on_finalize:expr)?
         $(, exotic: $exotic:expr)?
         $(, on_call: $on_call:expr)?
         $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?
         $(, @wire_user_payload: $wire:ty)?
         $(, init_fn: $init_fn:expr)?) => {
         $crate::def_native_object!(@struct_core $name, $native_ty, $proto_entries, $ctor, builtin
             , class_id: $class_id
             $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?
             $(, @wire_user_payload: $wire)?
             $(, init_fn: $init_fn)?
             $(, on_finalize: $on_finalize)?
             $(, exotic: $exotic)?
             $(, on_call: $on_call)?);
+
+        // The const ClassDef — referenced by generated BUILTIN_CLASS_DEFS.
+        $crate::paste::paste! {
+            #[doc(hidden)]
+            pub const [< $native_ty _DEF >]: $crate::ClassDef =
+                $crate::def_native_object!(@build_cd $name, $proto_entries, $ctor, builtin
+                    , class_id: $class_id
+                    $(, extends: $extends_class)?
+                    $(, @wire_user_payload: $wire)?
+                    $(, init_fn: $init_fn)?
+                    $(, on_finalize: $on_finalize)?
+                    $(, exotic: $exotic)?
+                    $(, on_call: $on_call)?);
+        }
     };
 
     // ── @builtin-no-payload: builtin without payload ──
@@ -419,16 +426,12 @@ macro_rules! def_native_object {
         $(, exotic: $exotic:expr)?
         $(, on_call: $on_call:expr)?
         $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?
         $(, init_fn: $init_fn:expr)?) => {
         $crate::def_native_object!(@builtin-struct $name, $native_ty, $class_id, $proto_entries, $ctor
             $(, on_finalize: $on_finalize)?
             $(, exotic: $exotic)?
             $(, on_call: $on_call)?
             $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?
             $(, init_fn: $init_fn)?);
 
         impl $native_ty {
@@ -449,16 +452,12 @@ macro_rules! def_native_object {
         $(, on_finalize: $on_finalize:expr)?
         $(, exotic: $exotic:expr)?
         $(, on_call: $on_call:expr)?
-        $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $(, extends: $extends_class:expr)?) => {
         $crate::def_native_object!(@builtin-struct $name, $native_ty, $class_id, $proto_entries, $ctor
             $(, on_finalize: $on_finalize)?
             $(, exotic: $exotic)?
             $(, on_call: $on_call)?
             $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?
             , @wire_user_payload: $payload_ty
             $(, init_fn: $init_fn)?);
 
@@ -498,16 +497,12 @@ macro_rules! def_native_object {
         $(, on_finalize: $on_finalize:expr)?
         $(, exotic: $exotic:expr)?
         $(, on_call: $on_call:expr)?
-        $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $(, extends: $extends_class:expr)?) => {
         $crate::def_native_object!(@builtin-no-payload $name, $native_ty, $class_id, $proto_entries, $ctor
             $(, on_finalize: $on_finalize)?
             $(, exotic: $exotic)?
             $(, on_call: $on_call)?
-            $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?);
+            $(, extends: $extends_class)?);
         $crate::def_native_object!(@builtin-impl $native_ty, $class_id);
     };
 
@@ -520,17 +515,13 @@ macro_rules! def_native_object {
         $(, on_finalize: $on_finalize:expr)?
         $(, exotic: $exotic:expr)?
         $(, on_call: $on_call:expr)?
-        $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $(, extends: $extends_class:expr)?) => {
         $crate::def_native_object!(@builtin-with-payload $name, $native_ty, $class_id, $payload_ty, $proto_entries, $ctor
             $(, init_fn: $init_fn)?
             $(, on_finalize: $on_finalize)?
             $(, exotic: $exotic)?
             $(, on_call: $on_call)?
-            $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?);
+            $(, extends: $extends_class)?);
         $crate::def_native_object!(@builtin-impl $native_ty, $class_id);
     };
 
@@ -541,169 +532,97 @@ macro_rules! def_native_object {
         init_fn: $init_fn:expr
         $(, on_finalize: $on_finalize:expr)?
         $(, exotic: $exotic:expr)?
-        $(, on_call: $on_call:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $(, on_call: $on_call:expr)?) => {
         $crate::def_native_object!(@builtin-no-payload $name, $native_ty, $class_id, (), ()
             $(, on_finalize: $on_finalize)?
             $(, exotic: $exotic)?
             $(, on_call: $on_call)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?
             , init_fn: $init_fn);
         $crate::def_native_object!(@builtin-impl $native_ty, $class_id);
     };
 
-    // ── Public: no payload ──
+    // ── Public: no payload (host class) ──
     ($name:expr, $native_ty:ident, (), $proto_entries:expr, $ctor:expr
-        $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $(, extends: $extends_class:expr)?) => {
         $crate::def_native_object!(@native-no-payload $name, $native_ty, $proto_entries, $ctor
-            $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?);
+            $(, extends: $extends_class)?);
         $crate::def_native_object!(@impl $native_ty);
     };
 
-    // ── Public: with payload ──
+    // ── Public: with payload (host class) ──
     ($name:expr, $native_ty:ident, $payload_ty:ty, $proto_entries:expr, $ctor:expr
-        $(, extends: $extends_class:expr)?
-        $(, on_class_register: $on_register:expr)?
-        $(, on_class_unregister: $on_unregister:expr)?) => {
+        $(, extends: $extends_class:expr)?) => {
         $crate::def_native_object!(@native-with-payload $name, $native_ty, $payload_ty, $proto_entries, $ctor
-            $(, extends: $extends_class)?
-            $(, on_class_register: $on_register)?
-            $(, on_class_unregister: $on_unregister)?);
+            $(, extends: $extends_class)?);
         $crate::def_native_object!(@impl $native_ty);
     };
 }
 
+/// Tests for host (external-crate) native classes. These are collected via the
+/// linkme `HOST_CLASS_DEFS` slice and assigned ids at engine init — a distinct
+/// path from zapi dynamic registration (tested in `src/zapi/stub.rs`), and one
+/// that does not require the `zapi` feature.
 #[cfg(test)]
 mod tests {
-    use std::ffi::c_void;
-    use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
-
     use gc_lite::GcTrace;
 
-    use crate::{ClassDef, JSValue, Runtime, RuntimeImpl, ScopedContext};
+    use crate::{JSValue, NativeObject, Runtime, ScopedContext};
 
-    /// Payload carrying a magic value: `on_finalize` must observe it while the
-    /// allocation is still valid.
-    #[derive(GcTrace)]
-    struct DispPayload {
-        magic: u32,
+    #[derive(GcTrace, Debug, PartialEq)]
+    pub struct HostPayload {
+        value: u32,
     }
 
-    /// Monotonic sequence: bumped once when the free channel runs.
-    static FREE_SEQ: AtomicUsize = AtomicUsize::new(0);
-    /// Sequence value observed by `on_finalize` — `0` proves finalize ran
-    /// strictly before the free channel.
-    static DISPOSE_SEQ: AtomicUsize = AtomicUsize::new(usize::MAX);
-    /// Magic read through the payload pointer inside `on_finalize`.
-    static DISPOSE_MAGIC: AtomicU32 = AtomicU32::new(0);
+    crate::def_native_object!("HostTest", HostTest, HostPayload, &[], None);
 
-    /// Free channel for the test class (custom, to make the ordering
-    /// observable; the macro normally wires `drop_payload_fn::<P>` here).
-    unsafe fn test_free(ptr: *mut c_void) {
-        FREE_SEQ.fetch_add(1, Ordering::SeqCst);
-        if !ptr.is_null() {
-            drop(unsafe { Box::from_raw(ptr as *mut DispPayload) });
-        }
-    }
-
-    fn test_dispose(_rt: &mut RuntimeImpl, ptr: *mut c_void, _cid: usize, _id: usize) {
-        DISPOSE_SEQ.store(FREE_SEQ.load(Ordering::SeqCst), Ordering::SeqCst);
-        if !ptr.is_null() {
-            // Reading through the pointer is only sound because dispose runs
-            // BEFORE the free channel — exactly the contract under test.
-            let p = unsafe { &*(ptr as *const DispPayload) };
-            DISPOSE_MAGIC.store(p.magic, Ordering::SeqCst);
-        }
-    }
-
-    /// 回归(U1):`on_finalize` 必须在 payload 释放之前、携带仍有效的 payload
-    /// 指针触发,释放随后由 `payload_drop` 完成。
+    /// The linkme-collected class is present in the static table with an id
+    /// assigned during `init_static_class_defs`.
     #[test]
-    fn on_finalize_fires_before_payload_free() -> Result<(), i32> {
+    fn host_class_registered_at_engine_init() -> Result<(), i32> {
+        let rt = Runtime::create()?;
+
+        let cid = HostTest::class_id();
+        assert_ne!(cid, 0, "host class id must be assigned during engine init");
+        assert!(cid >= crate::USER_CLASS_ID_START);
+        assert_eq!(HostTest::class_name(), "HostTest");
+
+        let cd = rt.class_def(cid).expect("host class def present");
+        assert_eq!(cd.name, "HostTest");
+        #[cfg(debug_assertions)]
+        assert_eq!(
+            cd.payload_type_name,
+            Some(std::any::type_name::<HostPayload>())
+        );
+        Ok(())
+    }
+
+    /// Payload accessors generated by the macro round-trip through a live
+    /// instance.
+    #[test]
+    fn host_class_payload_accessors_roundtrip() -> Result<(), i32> {
         let mut rt = Runtime::create()?;
-        let class_id = rt.register_class_def(
-            ClassDef::new("DispTest", &[], None)
-                .on_finalize(test_dispose)
-                .payload_drop(test_free),
-        )?;
+        let cid = HostTest::class_id();
 
         let mut ctx = rt.create_context(|cx| {
             ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
-            cx.use_class(class_id)?;
+            cx.use_class(cid)?;
             Ok(())
         })?;
 
-        // Create the instance in a child scope and let it die with the scope:
-        // objects created in a live scope are scope-locals and survive
-        // collection until the scope pops (the context's root scope outlives
-        // the test).
         ctx.with_new_scope(|cx| {
-            let _obj = cx.create_class_instance(
-                JSValue::UNDEFINED,
-                class_id,
-                DispPayload { magic: 0xCAFE },
-            )?;
+            let mut obj =
+                HostTest::new_instance(cx, JSValue::UNDEFINED, HostPayload { value: 42 })?;
+
+            assert!(HostTest::is_instance_of(obj.as_object()));
+            assert_eq!(obj.payload().map(|p| p.value), Some(42));
+
+            obj.payload_mut().expect("mutable payload").value = 7;
+            assert_eq!(obj.payload().map(|p| p.value), Some(7));
+
+            assert_eq!(obj.take_payload().map(|p| p.value), Some(7));
+            assert!(obj.payload().is_none(), "payload was moved out");
             Ok::<(), i32>(())
         })?;
-
-        rt.gc_collect();
-
-        // finalize 时 payload 仍有效(magic 完整)...
-        assert_eq!(DISPOSE_MAGIC.load(Ordering::SeqCst), 0xCAFE);
-        // ...且严格先于 free 通道(free 之后不会再触发 dispose)。
-        assert_eq!(DISPOSE_SEQ.load(Ordering::SeqCst), 0);
-        assert!(FREE_SEQ.load(Ordering::SeqCst) >= 1);
-        Ok(())
-    }
-
-    /// user class ids are sequential starting from USER_CLASS_ID_START.
-    #[test]
-    fn user_class_ids_are_sequential() -> Result<(), i32> {
-        use crate::USER_CLASS_ID_START;
-
-        let mut rt = Runtime::create()?;
-        let id1 = rt.register_class_def(ClassDef::new("SeqA", &[], None))?;
-        let id2 = rt.register_class_def(ClassDef::new("SeqB", &[], None))?;
-        let id3 = rt.register_class_def(ClassDef::new("SeqC", &[], None))?;
-
-        assert_eq!(id1, USER_CLASS_ID_START);
-        assert_eq!(id2, USER_CLASS_ID_START + 1);
-        assert_eq!(id3, USER_CLASS_ID_START + 2);
-        Ok(())
-    }
-
-    /// duplicate class name triggers a debug warning (visible in
-    /// debug-assert stderr). We only verify the second registration
-    /// succeeds — the debug warning is fire-and-forget.
-    #[test]
-    fn duplicate_class_name_allowed() -> Result<(), i32> {
-        let mut rt = Runtime::create()?;
-        let _id1 = rt.register_class_def(ClassDef::new("DupTest", &[], None))?;
-        let id2 = rt.register_class_def(ClassDef::new("DupTest", &[], None))?;
-        // Both registrations succeed (slot uniqueness is by id, not name).
-        assert!(id2 > _id1);
-        Ok(())
-    }
-
-    /// `payload_type_name` is set on user class via the macro.
-    #[test]
-    #[cfg(debug_assertions)]
-    fn user_class_payload_type_name_set() -> Result<(), i32> {
-        use crate::USER_CLASS_ID_START;
-
-        let mut rt = Runtime::create()?;
-        let id = rt.register_class_def(
-            ClassDef::new("TypeCheckTest", &[], None).payload_type_name(Some("u32")),
-        )?;
-        assert!(id >= USER_CLASS_ID_START);
-        let cd = &rt.class_registry[id as usize];
-        assert_eq!(cd.payload_type_name, Some("u32"));
         Ok(())
     }
 }

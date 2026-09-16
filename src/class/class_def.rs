@@ -177,7 +177,7 @@ impl ClassDef {
     ///
     /// All hooks start as `None`; use the builder methods (`.on_call()`,
     /// `.on_finalize()`, `.payload_drop()`, etc.) to set them explicitly.
-    pub fn new(
+    pub const fn new(
         name: &'static str,
         proto_entries: &'static [FieldDef],
         ctor: Option<ClassCtorDef>,
@@ -199,7 +199,7 @@ impl ClassDef {
     /// Like `ClassDef::new()` but uses the provided `atom` directly instead of
     /// deriving it from `name` at registration time. Intended for builtin classes
     /// whose atoms are compile-time constants (`Atom::CONST_*`).
-    pub fn new_with_atom(
+    pub const fn new_with_atom(
         name: &'static str,
         atom: Atom,
         proto_entries: &'static [FieldDef],
@@ -221,7 +221,7 @@ impl ClassDef {
     /// Create user-defined class def with proto entries, ctor and extends inheritance.
     /// `extends_class` is a resolver invoked lazily at initialize time, so the
     /// parent class need not be registered before the child.
-    pub fn new_extends(
+    pub const fn new_extends(
         name: &'static str,
         proto_entries: &'static [FieldDef],
         ctor: Option<ClassCtorDef>,
@@ -338,7 +338,7 @@ impl ClassDef {
                     if let Some(c) = ctor
                         && ctx.class_slots[class_id as usize].ctor.is_none()
                     {
-                        let class_name = ctx.rt().class_registry[class_id as usize].name_atom;
+                        let class_name = ctx.rt().class_def(class_id).unwrap().name_atom;
                         let parent_ctor = ctx.class_constructor(parent_id).unwrap();
 
                         let proto = ctx.class_proto(class_id).unwrap();

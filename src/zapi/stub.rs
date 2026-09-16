@@ -33,7 +33,7 @@ use crate::{
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, JSValue, JSValueTag,
     ScopedContext,
     atom::AtomKind,
-    class::ClassID,
+    class::{ClassDef, ClassID},
     object::{
         ArrayBuffer, DataView, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE, PayloadPtr,
@@ -443,17 +443,13 @@ fn zapi_gc_trace_bridge(
 ) {
     let rt = unsafe { &*(gcx.opaque() as *const crate::RuntimeImpl) };
     // Resolve this class's own ZqClassDef via its ClassID (one entry per class).
-    let def_ptr = rt
-        .zapi_class_map
-        .lock()
-        .unwrap()
-        .get(&(class_id as u16))
-        .copied()
-        .unwrap_or(0);
-    if def_ptr == 0 {
+    let Some(def_ptr) = rt.zapi_def(class_id as ClassID) else {
+        return;
+    };
+    if def_ptr.is_null() {
         return;
     }
-    let def = unsafe { &*(def_ptr as *const ZqClassDef) };
+    let def = unsafe { &*def_ptr };
     if let Some(gc_trace) = def.gc_trace {
         let trace_ctx: &mut ZqGcTraceCtxS =
             unsafe { std::mem::transmute::<&mut gc_lite::GcTraceCtx, _>(gcx) };
@@ -467,6 +463,57 @@ const fn field_slice(ptr: *const ZqFieldDef, len: usize) -> &'static [ZqFieldDef
         &[]
     } else {
         unsafe { std::slice::from_raw_parts(ptr, len) }
+    }
+}
+
+impl crate::RuntimeImpl {
+    /// Register a zapi-provided class, minting the class-name atom. Ids grow
+    /// from the static class count. The extension's ABI def is stored alongside
+    /// the engine-native def for later callback dispatch.
+    pub(crate) fn register_class_def(
+        &mut self,
+        mut class_def: ClassDef,
+        zq_def: *const ZqClassDef,
+    ) -> Result<ClassID, i32> {
+        class_def.name_atom = {
+            let a = Atom::root_str(self, class_def.name)?;
+            debug_assert!(!a.is_small_int());
+            debug_assert!(
+                a.is_const() || self.atom_desc_string(a.id()).unwrap().gc_head().is_root(),
+                "class name atom should be root gc node"
+            );
+            a
+        };
+
+        let id = (crate::class::static_class_count() + self.zapi_class_defs.len()) as ClassID;
+        if id >= u16::MAX {
+            self.cur_exception = crate::Exception::TooManyClasses;
+            return Err(-1);
+        }
+
+        self.zapi_class_defs.push(crate::zapi::ZapiClassDef {
+            def: class_def,
+            zq_def,
+        });
+        Ok(id)
+    }
+
+    /// The extension ABI def registered for a zapi class id, if any.
+    fn zapi_def(&self, class_id: ClassID) -> Option<*const ZqClassDef> {
+        let base = crate::class::static_class_count();
+        class_id
+            .checked_sub(base as ClassID)
+            .and_then(|i| self.zapi_class_defs.get(i as usize))
+            .map(|c| c.zq_def)
+    }
+
+    /// Reverse lookup: the class id registered for an extension ABI def.
+    fn zapi_class_id_of(&self, zq_def: *const ZqClassDef) -> Option<ClassID> {
+        let base = crate::class::static_class_count() as ClassID;
+        self.zapi_class_defs
+            .iter()
+            .position(|c| c.zq_def == zq_def)
+            .map(|i| base + i as ClassID)
     }
 }
 
@@ -486,18 +533,13 @@ unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClas
 
         // Build the constructor (ClassCtorDef equivalent): a constructor-flagged
         // native function wired to the zapi `call` body, plus static methods.
-        let class_def = ctx
-            .rt()
-            .zapi_class_map
-            .lock()
-            .unwrap()
-            .get(&class_id)
-            .copied()
-            .unwrap_or(0);
-        if class_def == 0 {
+        let Some(class_def) = ctx.rt().zapi_def(class_id) else {
+            return Ok(());
+        };
+        if class_def.is_null() {
             return Ok(());
         }
-        let def = unsafe { &*(class_def as *const ZqClassDef) };
+        let def = unsafe { &*class_def };
         let Some(body) = def.call else {
             return Ok(());
         };
@@ -545,45 +587,33 @@ unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClas
     }
     if def.finalize.is_some() {
         // Per-class dispatch: the host forwards this object's ClassID, which
-        // maps to its own ZqClassDef in `zapi_class_map` (one entry per class).
+        // resolves to its own ZqClassDef (one entry per class).
         cd = cd.on_finalize(|rt, payload_opaque, class_id, _| {
-            let def_ptr = rt
-                .zapi_class_map
-                .lock()
-                .unwrap()
-                .get(&(class_id as u16))
-                .copied()
-                .unwrap_or(0);
-
-            if def_ptr != 0 {
-                let def = unsafe { &*(def_ptr as *const ZqClassDef) };
-                if std::env::var_os("ZUQE_ZAPI_DEBUG").is_some() {
-                    let name = unsafe { std::ffi::CStr::from_ptr(def.name) }
-                        .to_string_lossy()
-                        .into_owned();
-                    eprintln!("[zapi] finalize class={name}");
-                }
-                if let Some(fin) = def.finalize {
-                    unsafe { fin(std::ptr::null_mut(), payload_opaque) };
-                }
+            let Some(def_ptr) = rt.zapi_def(class_id as ClassID) else {
+                return;
+            };
+            if def_ptr.is_null() {
+                return;
+            }
+            let def = unsafe { &*def_ptr };
+            if std::env::var_os("ZUQE_ZAPI_DEBUG").is_some() {
+                let name = unsafe { std::ffi::CStr::from_ptr(def.name) }
+                    .to_string_lossy()
+                    .into_owned();
+                eprintln!("[zapi] finalize class={name}");
+            }
+            if let Some(fin) = def.finalize {
+                unsafe { fin(std::ptr::null_mut(), payload_opaque) };
             }
         });
     }
 
-    let class_id = match ctx.rt_mut().register_class_def(cd) {
+    let class_id = match ctx.rt_mut().register_class_def(cd, class_def) {
         Ok(id) => id,
         Err(_) => {
             return -1;
         }
     };
-
-    // Register the class-def pointer before use_class() so zapi_class_init can
-    // resolve the constructor body / static methods during initialization.
-    ctx.rt_mut()
-        .zapi_class_map
-        .lock()
-        .unwrap()
-        .insert(class_id, class_def as usize);
 
     if ctx.use_class(class_id).is_err() {
         return -1;
@@ -598,15 +628,7 @@ unsafe extern "C" fn zapi_new_instance(
     payload: *mut c_void,
 ) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
-    let class_id = {
-        ctx.rt()
-            .zapi_class_map
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|(_, v)| **v == class_def as usize)
-            .map(|(k, _)| *k)
-    };
+    let class_id = ctx.rt().zapi_class_id_of(class_def);
     let Some(cid) = class_id else {
         return ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION];
     };
@@ -1025,14 +1047,7 @@ unsafe extern "C" fn zapi_is_instance_of_class(
     class_def: *const ZqClassDef,
 ) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
-    let class_id = ctx
-        .rt()
-        .zapi_class_map
-        .lock()
-        .unwrap()
-        .iter()
-        .find(|(_, v)| **v == class_def as usize)
-        .map(|(k, _)| *k);
+    let class_id = ctx.rt().zapi_class_id_of(class_def);
     let Some(cid) = class_id else {
         return -1;
     };
@@ -1692,4 +1707,144 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         get_buf_type: zapi_get_buf_type,
         read_buf_bytes: zapi_buf_read_bytes,
     })
+}
+
+/// Tests for zapi dynamic class registration (`register_class_def`), the path
+/// used by zapi extension classes. Host native classes (the
+/// `def_native_object!` linkme path) are covered in `src/class/native.rs`.
+#[cfg(test)]
+mod class_registration_tests {
+    use std::ffi::c_void;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+
+    use gc_lite::GcTrace;
+
+    use crate::{ClassDef, JSValue, Runtime, RuntimeImpl, ScopedContext};
+
+    /// Serializes registration so debug output from concurrent tests stays
+    /// readable.
+    static REG_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Payload carrying a magic value: `on_finalize` must observe it while the
+    /// allocation is still valid.
+    #[derive(GcTrace)]
+    struct DispPayload {
+        magic: u32,
+    }
+
+    /// Monotonic sequence: bumped once when the free channel runs.
+    static FREE_SEQ: AtomicUsize = AtomicUsize::new(0);
+    /// Sequence value observed by `on_finalize` — `0` proves finalize ran
+    /// strictly before the free channel.
+    static DISPOSE_SEQ: AtomicUsize = AtomicUsize::new(usize::MAX);
+    /// Magic read through the payload pointer inside `on_finalize`.
+    static DISPOSE_MAGIC: AtomicU32 = AtomicU32::new(0);
+
+    /// Free channel for the test class (custom, to make the ordering
+    /// observable; the macro normally wires `drop_payload_fn::<P>` here).
+    unsafe fn test_free(ptr: *mut c_void) {
+        FREE_SEQ.fetch_add(1, Ordering::SeqCst);
+        if !ptr.is_null() {
+            drop(unsafe { Box::from_raw(ptr as *mut DispPayload) });
+        }
+    }
+
+    fn test_dispose(_rt: &mut RuntimeImpl, ptr: *mut c_void, _cid: usize, _id: usize) {
+        DISPOSE_SEQ.store(FREE_SEQ.load(Ordering::SeqCst), Ordering::SeqCst);
+        if !ptr.is_null() {
+            // Reading through the pointer is only sound because dispose runs
+            // BEFORE the free channel — exactly the contract under test.
+            let p = unsafe { &*(ptr as *const DispPayload) };
+            DISPOSE_MAGIC.store(p.magic, Ordering::SeqCst);
+        }
+    }
+
+    /// `on_finalize` must fire before the payload is freed, with a still-valid
+    /// payload pointer; `payload_drop` releases it afterwards.
+    #[test]
+    fn on_finalize_fires_before_payload_free() -> Result<(), i32> {
+        let _lock = REG_LOCK.lock().unwrap();
+        let mut rt = Runtime::create()?;
+        let class_id = rt.register_class_def(
+            ClassDef::new("DispTest", &[], None)
+                .on_finalize(test_dispose)
+                .payload_drop(test_free),
+            std::ptr::null(),
+        )?;
+
+        let mut ctx = rt.create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            cx.use_class(class_id)?;
+            Ok(())
+        })?;
+
+        // Create the instance in a child scope and let it die with the scope:
+        // objects created in a live scope are scope-locals and survive
+        // collection until the scope pops (the context's root scope outlives
+        // the test).
+        ctx.with_new_scope(|cx| {
+            let _obj = cx.create_class_instance(
+                JSValue::UNDEFINED,
+                class_id,
+                DispPayload { magic: 0xCAFE },
+            )?;
+            Ok::<(), i32>(())
+        })?;
+
+        rt.gc_collect();
+
+        assert_eq!(DISPOSE_MAGIC.load(Ordering::SeqCst), 0xCAFE);
+        assert_eq!(DISPOSE_SEQ.load(Ordering::SeqCst), 0);
+        assert!(FREE_SEQ.load(Ordering::SeqCst) >= 1);
+        Ok(())
+    }
+
+    /// user class ids are sequential starting from the first dynamic id.
+    #[test]
+    fn user_class_ids_are_sequential() -> Result<(), i32> {
+        let _lock = REG_LOCK.lock().unwrap();
+        let mut rt = Runtime::create()?;
+        let base = crate::class::class_count() as crate::ClassID;
+        let id1 = rt.register_class_def(ClassDef::new("SeqA", &[], None), std::ptr::null())?;
+        let id2 = rt.register_class_def(ClassDef::new("SeqB", &[], None), std::ptr::null())?;
+        let id3 = rt.register_class_def(ClassDef::new("SeqC", &[], None), std::ptr::null())?;
+
+        assert_eq!(id1, base);
+        assert_eq!(id2, base + 1);
+        assert_eq!(id3, base + 2);
+        Ok(())
+    }
+
+    /// duplicate class name triggers a debug warning (visible in
+    /// debug-assert stderr). We only verify the second registration
+    /// succeeds — the debug warning is fire-and-forget.
+    #[test]
+    fn duplicate_class_name_allowed() -> Result<(), i32> {
+        let _lock = REG_LOCK.lock().unwrap();
+        let mut rt = Runtime::create()?;
+        let _id1 = rt.register_class_def(ClassDef::new("DupTest", &[], None), std::ptr::null())?;
+        let id2 = rt.register_class_def(ClassDef::new("DupTest", &[], None), std::ptr::null())?;
+        // Both registrations succeed (slot uniqueness is by id, not name).
+        assert!(id2 > _id1);
+        Ok(())
+    }
+
+    /// `payload_type_name` is set on user class via the macro.
+    #[test]
+    #[cfg(debug_assertions)]
+    fn user_class_payload_type_name_set() -> Result<(), i32> {
+        use crate::USER_CLASS_ID_START;
+
+        let _lock = REG_LOCK.lock().unwrap();
+        let mut rt = Runtime::create()?;
+        let id = rt.register_class_def(
+            ClassDef::new("TypeCheckTest", &[], None).payload_type_name(Some("u32")),
+            std::ptr::null(),
+        )?;
+        assert!(id >= USER_CLASS_ID_START);
+        let cd = rt.class_def(id).unwrap();
+        assert_eq!(cd.payload_type_name, Some("u32"));
+        Ok(())
+    }
 }

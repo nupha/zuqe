@@ -194,10 +194,7 @@ impl ObjectImpl {
                         }
                         return Ok(true);
                     }
-                } else if let Some(xm) = ctx.rt_ptr().class_registry[cur_obj.class_id() as usize]
-                    .exotic
-                    .as_ref()
-                {
+                } else if let Some(xm) = ctx.rt().class_def(cur_obj.class_id()).unwrap().exotic {
                     if let Some(f) = xm.set_property {
                         return f(
                             ctx,

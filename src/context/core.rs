@@ -6,7 +6,6 @@ use crate::{
     array::ArrayPayload,
     atom::Atom,
     builtins::error::js_error_proto_funcs,
-    class::ClassID,
     context::{ContextImpl, ScopedContext},
     error::STD_ERROR_NAMES,
     function::{Callback, NativeFunction, js_function_proto},
@@ -29,7 +28,7 @@ impl<'c> ScopedContext<'c> {
             .max()
             .copied()
             .unwrap()
-                < self.rt_ptr().class_registry.len() as ClassID
+                < crate::class::class_count() as crate::ClassID
         );
 
         // Object

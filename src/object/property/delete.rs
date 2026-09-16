@@ -75,9 +75,11 @@ impl ObjectImpl {
                     }
                 } else {
                     // use exotic delete_property callback
-                    if let Some(cb) = ctx.rt().class_registry[self.class_id() as usize]
+                    if let Some(cb) = ctx
+                        .rt()
+                        .class_def(self.class_id())
+                        .unwrap()
                         .exotic
-                        .as_ref()
                         .and_then(|m| m.delete_property)
                     {
                         return cb(ctx, Object::from_ref(self).into(), prop);
