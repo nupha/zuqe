@@ -331,7 +331,7 @@ fn c_invoke_str<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, Zq
     target.invoke_str(cx, &method, &args)
 }
 
-/// Raw `ZqApi::create_builtin_function`: a callable backed by a fixed body.
+/// Raw `ZqApi::new_builtin_function`: a callable backed by a fixed body.
 unsafe extern "C" fn native_answer(_env: ZqRawCtx, _info: *mut ZqCallInfoS) -> ZqRawValue {
     ZqValue::int32(123).raw()
 }
@@ -341,7 +341,7 @@ fn make_native_fn<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>,
     let api = ZqApi::singleton();
     let raw = ZqRawCtx::from(cx);
     let name = ZqValue::new_string(cx, "answer")?;
-    let f = unsafe { (api.create_builtin_function)(raw, native_answer, name.raw(), 0) };
+    let f = unsafe { (api.new_builtin_function)(raw, native_answer, name.raw(), 0) };
     if f == ZqValue::exception_value() {
         Err(ZqError)
     } else {

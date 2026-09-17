@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::{
+    collections::HashMap,
+    ffi::CString,
+    path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+};
+
 use libloading::Library;
 use zuqe_zapi::ffi::{
     ZQ_ABI_VERSION, ZQ_API_VERSION, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_FIELD_BOOL, ZQ_FIELD_CLASS,
@@ -11,6 +18,45 @@ use zuqe_zapi::ffi::{
 use crate::{JSValue, ModuleDef, ScopedContext, class::ClassID, function::Callback};
 
 use super::stub::{ZQ_API_TABLE, zq_to_js_prop_flags};
+
+/// A zapi extension dylib, loaded at most once per process and kept mapped for
+/// the whole process lifetime.
+///
+/// Raw pointers the host hands out or stores (`ZqClassDef*`, `ZqFieldDef`
+/// entries, extension function pointers, name strings, the module path) point
+/// into this mapping, so unloading it would leave dangling pointers. The same
+/// `ZqClassDef` static is shared by every runtime that imports the extension;
+/// each runtime registers it independently into its own dynamic class table.
+struct ExtLib {
+    lib: Library,
+    /// Canonicalized filesystem path handed to the extension via `module_path()`.
+    path: CString,
+}
+
+/// Process-level extension library cache. Keyed by canonicalized path; every
+/// dylib is `Library::new`-ed and leaked at most once.
+fn load_ext_lib(abs_path: &Path) -> Result<&'static ExtLib, String> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, &'static ExtLib>>> = OnceLock::new();
+
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = cache.lock().unwrap();
+
+    if let Some(entry) = map.get(abs_path) {
+        return Ok(entry);
+    }
+
+    let lib = unsafe { Library::new(abs_path) }
+        .map_err(|e| format!("could not load library '{}': {e}", abs_path.display()))?;
+    let path = CString::new(abs_path.to_string_lossy().as_ref())
+        .map_err(|e| format!("invalid extension path '{}': {e}", abs_path.display()))?;
+
+    // Leak one entry per dylib per process: it must outlive every runtime that
+    // imports the extension.
+    let entry: &'static ExtLib = Box::leak(Box::new(ExtLib { lib, path }));
+    map.insert(abs_path.to_path_buf(), entry);
+
+    Ok(entry)
+}
 
 /// Translate a `ZqFieldDef` array into engine `FieldDef` entries (methods,
 /// accessors, and constant data props), for class prototypes/constructors.
@@ -23,10 +69,14 @@ pub(crate) fn push_class_fields(
         let name = f
             .name_str()
             .ok_or_else(|| ctx.throw_internal_error("zapi class member has no name"))?;
-        let name: &'static str = Box::leak(name.to_string().into_boxed_str());
+
+        // Lives in the extension's static data (dylib kept mapped for the whole
+        // process), so no per-runtime copy/leak is needed.
+        let name: &'static str = unsafe { super::ext_str_static(name) };
         // Attribute bits come from the FFI; translate them bit-by-bit so
         // `ZQ_PROP_*` values stay decoupled from engine `JS_PROP_*` bits.
         let prop_flags = zq_to_js_prop_flags(f.prop_flags);
+
         match f.kind {
             ZQ_FIELD_FUNC => {
                 let Some(body) = f.body else {
@@ -64,7 +114,7 @@ pub(crate) fn push_class_fields(
                         .to_str()
                         .map_err(|_| -1)?
                 };
-                let s: &'static str = Box::leak(s.to_string().into_boxed_str());
+                let s: &'static str = unsafe { super::ext_str_static(s) };
                 entries.push(crate::FieldDef::STR(name, s, prop_flags));
             }
             ZQ_FIELD_INT => {
@@ -211,15 +261,13 @@ impl<'a> ScopedContext<'a> {
             ))
         })?;
 
-        let lib = unsafe { Library::new(&abs_path) }.map_err(|e| {
-            self.throw_reference_error(&format!(
-                "could not load library '{}': {e}",
-                abs_path.display()
-            ))
-        })?;
+        // Process-level cache: the dylib is dlopen-ed (and kept mapped) at most
+        // once per process, so every runtime that imports it shares the same
+        // `ZqClassDef` statics and function pointers.
+        let ext = load_ext_lib(&abs_path).map_err(|e| self.throw_reference_error(&e))?;
 
         let module_register_fn: libloading::Symbol<ZqModuleRegisterFn> =
-            unsafe { lib.get(c"zq_module_register") }.map_err(|_| {
+            unsafe { ext.lib.get(c"zq_module_register") }.map_err(|_| {
                 self.throw_reference_error(&format!(
                     "could not find zq_module_register in '{}'",
                     abs_path.display()
@@ -237,30 +285,18 @@ impl<'a> ScopedContext<'a> {
         let api: &ZqApi = &ZQ_API_TABLE;
         let api_ptr = api as *const ZqApi as *mut ZqApi;
 
-        let mut md_info = ZqModuleInfo::default();
-
         // Hand the extension its own canonical load path before registration
         // (dlopen-filename pattern): extensions locate sibling
         // resources relative to it via `zuqe_zapi::module_path()`.
         //
-        // Ownership: intentionally leaked — never freed by the process. The
-        // extension stores this pointer in its own static (`module_path()`
-        // promises `&'static str`) and may read it at any later point, even
-        // during teardown, so freeing it here would be a use-after-free.
-        // Bounded: one allocation per loaded module (cache-deduped).
-        // Reclaimed wholesale by the OS at process exit, like the dylib
-        // mapping kept alive by `mem::forget` below.
-        let path_c = match std::ffi::CString::new(abs_path.to_string_lossy().as_ref()) {
-            Ok(s) => s,
-            Err(e) => {
-                return Err(self.throw_internal_error(&format!(
-                    "invalid extension path '{}': {e}",
-                    abs_path.display()
-                )));
-            }
+        // Ownership: the `CString` is owned by the process-level `ExtLib` cache
+        // entry, which lives for the whole process. The extension stores this
+        // pointer in its own static (`module_path()` promises `&'static str`)
+        // and may read it at any later point, so it must not be freed.
+        let mut md_info = ZqModuleInfo {
+            path: ext.path.as_ptr(),
+            ..Default::default()
         };
-        md_info.path = Box::leak(Box::new(path_c)).as_ptr();
-
         unsafe { module_register_fn(api_ptr, &mut md_info) };
 
         // Validate ABI compatibility: the extension's binary layout must match
@@ -273,6 +309,7 @@ impl<'a> ScopedContext<'a> {
                 file_url, ZQ_ABI_VERSION, ext_abi
             )));
         }
+
         // Validate API capability: the host must provide at least the API tier
         // the extension requires. Lower host API means missing functions.
         let ext_api = md_info.api_version();
@@ -285,8 +322,8 @@ impl<'a> ScopedContext<'a> {
 
         // Pre-pass: snapshot the exports and register every CLASS field (host
         // needs the class registered before module evaluation). The `ZqFieldDef`
-        // array is leaked by the extension, so names/pointers stay valid for the
-        // process lifetime; the library is kept loaded via `mem::forget` below.
+        // array lives in the extension's static data and the dylib stays mapped
+        // for the whole process, so names/pointers stay valid.
         let register_class = api.register_class;
         let fields: Vec<ZqFieldDef> = md_info.exports().to_vec();
         let mut class_ids: Vec<ClassID> = Vec::new();
@@ -326,9 +363,6 @@ impl<'a> ScopedContext<'a> {
         }
         let module_path_str = abs_path.to_string_lossy().into_owned();
         let module_path_clone = module_path_str.clone();
-
-        // Keep the library alive.
-        std::mem::forget(lib);
 
         let init_ptr = md_info.init;
 

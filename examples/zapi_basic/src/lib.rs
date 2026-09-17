@@ -27,7 +27,7 @@ use zuqe_zapi_macros::{
 #[zq_function(name = "typeOf")]
 fn type_of<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let v = cc.arg(0);
-    cx.new_string(v.value_type().name())
+    ZqValue::new_string(cx, v.kind().name())
 }
 
 /// `id(x)` → returns the argument unchanged (round-trip for any value).
@@ -39,15 +39,15 @@ fn id<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
 
 #[zq_function]
 fn add<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let a = cc.arg(0).as_f64(cx)?;
-    let b = cc.arg(1).as_f64(cx)?;
+    let a = cc.arg(0).to_f64(cx)?;
+    let b = cc.arg(1).to_f64(cx)?;
     Ok(ZqValue::number(a + b))
 }
 
 #[zq_function]
 fn mul<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let a = cc.arg(0).as_f64(cx)?;
-    let b = cc.arg(1).as_f64(cx)?;
+    let a = cc.arg(0).to_f64(cx)?;
+    let b = cc.arg(1).to_f64(cx)?;
     Ok(ZqValue::number(a * b))
 }
 
@@ -64,14 +64,14 @@ fn greet<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError>
 /// `echoString(s)` → `"echo:" + s` (reads a string argument, returns a string).
 #[zq_function(name = "echoString")]
 fn echo_string<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let s = cc.arg(0).as_string(cx)?;
-    cx.new_string(&format!("echo:{s}"))
+    let s = cc.arg(0).to_utf8_string(cx)?;
+    ZqValue::new_string(cx, &format!("echo:{s}"))
 }
 
 /// `strLen(s)` → byte length of the string.
 #[zq_function(name = "strLen")]
 fn str_len<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let s = cc.arg(0).as_string(cx)?;
+    let s = cc.arg(0).to_utf8_string(cx)?;
     Ok(ZqValue::number(s.len() as f64))
 }
 
@@ -82,15 +82,15 @@ fn str_len<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError
 /// `makeSymbol(desc)` → `Symbol(desc)`.
 #[zq_function(name = "makeSymbol")]
 fn make_symbol<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let desc = cc.arg(0).as_string(cx)?;
-    cx.new_symbol(&desc)
+    let desc = cc.arg(0).to_utf8_string(cx)?;
+    ZqValue::new_symbol(cx, &desc)
 }
 
 /// `symDesc(sym)` → the symbol's description ("" when absent).
 #[zq_function(name = "symDesc")]
 fn sym_desc<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let desc = cc.arg(0).symbol_description(cx)?;
-    cx.new_string(&desc)
+    ZqValue::new_string(cx, &desc)
 }
 
 // ──────────────────────────────────────
@@ -101,14 +101,17 @@ fn sym_desc<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErro
 /// array), built entirely inside the extension.
 #[zq_function(name = "makeObject")]
 fn make_object<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let obj = cx.new_object()?;
-    obj.set_str(cx, "kind", cx.new_string("demo")?)?;
+    let obj = ZqValue::new_object(cx)?;
+    obj.set_str(cx, "kind", ZqValue::new_string(cx, "demo")?)?;
     obj.set_str(cx, "count", 7i32)?;
-    let nested = cx.new_array(&[
-        ZqValue::bool(true).raw(),
-        ZqValue::number(1.5).raw(),
-        cx.new_string("x")?.raw(),
-    ])?;
+    let nested = ZqValue::new_array(
+        cx,
+        &[
+            ZqValue::bool(true),
+            ZqValue::number(1.5),
+            ZqValue::new_string(cx, "x")?,
+        ],
+    )?;
     obj.set_str(cx, "nested", nested)?;
     Ok(obj)
 }
@@ -141,32 +144,35 @@ fn del_prop<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErro
 /// `makeArray()` → `[1, 2, 3, "four", true]` built inside the extension.
 #[zq_function(name = "makeArray")]
 fn make_array<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let arr = cx.new_array(&[
-        ZqValue::number(1.0).raw(),
-        ZqValue::number(2.0).raw(),
-        ZqValue::number(3.0).raw(),
-        cx.new_string("four")?.raw(),
-    ])?;
-    arr.array_push(cx, ZqValue::bool(true))?;
+    let arr = ZqValue::new_array(
+        cx,
+        &[
+            ZqValue::number(1.0),
+            ZqValue::number(2.0),
+            ZqValue::number(3.0),
+            ZqValue::new_string(cx, "four")?,
+        ],
+    )?;
+    arr.push(cx, ZqValue::bool(true))?;
     Ok(arr)
 }
 
 #[zq_function(name = "arrayLen")]
 fn array_len<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let len = cc.arg(0).get_length_prop(cx)?;
+    let len = cc.arg(0).length(cx)?;
     Ok(ZqValue::number(len as f64))
 }
 
 #[zq_function(name = "arrayGet")]
 fn array_get<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let idx = cc.arg(1).as_i32(cx)?;
-    cc.arg(0).get(cx, idx as i64)
+    let idx = cc.arg(1).to_i32(cx)?;
+    cc.arg(0).get(cx, ZqValue::number(idx as f64))
 }
 
 #[zq_function(name = "arraySet")]
 fn array_set<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let idx = cc.arg(1).as_i32(cx)?;
-    cc.arg(0).set(cx, idx as i64, cc.arg(2))?;
+    let idx = cc.arg(1).to_i32(cx)?;
+    cc.arg(0).set(cx, ZqValue::number(idx as f64), cc.arg(2))?;
     Ok(ZqValue::undefined())
 }
 
@@ -192,7 +198,7 @@ fn call_js<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError
 /// `makeDate(ms)` → `new Date(ms)` (constructor invoked from the extension).
 #[zq_function(name = "makeDate")]
 fn make_date<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let date = cx.get_global("Date")?;
+    let date = cx.get_global_str("Date")?;
     cx.call_constructor(date, &[cc.arg(0)])
 }
 
@@ -207,7 +213,7 @@ fn date_time<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErr
 /// `makeU8(n)` → `new Uint8Array(n)`.
 #[zq_function(name = "makeU8")]
 fn make_u8<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let ctor = cx.get_global("Uint8Array")?;
+    let ctor = cx.get_global_str("Uint8Array")?;
     cx.call_constructor(ctor, &[cc.arg(0)])
 }
 
@@ -281,7 +287,7 @@ impl Counter {
 /// `VERSION` → `"0.1.0"` (built lazily at evaluation time).
 #[zq_export(name = "VERSION")]
 fn version<'a>(cx: ZqCtx<'a>) -> Result<ZqValue<'a>, ZqError> {
-    cx.new_string("0.1.0")
+    ZqValue::new_string(cx, "0.1.0")
 }
 
 // ──────────────────────────────────────

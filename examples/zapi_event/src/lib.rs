@@ -201,7 +201,7 @@ impl EventEmitter {
     /// Static getter-only property.
     #[zq_static_method(get)]
     fn kind<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-        cx.new_string("native")
+        ZqValue::new_string(cx, "native")
     }
 }
 

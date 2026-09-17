@@ -193,6 +193,11 @@ pub struct RuntimeImpl {
     /// as `static_class_count() + index`, independently per runtime.
     #[cfg(feature = "zapi")]
     pub(crate) zapi_class_defs: Vec<crate::zapi::ZapiClassDef>,
+    /// Owns the `ZapiTraceReg` allocations referenced by `gc_trace_fns` entries
+    /// registered by zapi extensions. Boxed so the raw pointer stored in
+    /// `gc_trace_fns` survives this Vec's growth; freed when the runtime drops.
+    #[cfg(feature = "zapi")]
+    pub(crate) zapi_gc_tracers: Vec<Box<crate::zapi::ZapiGcTracer>>,
 
     //
     // ── MULTI-RUNTIME JOIN ──
@@ -368,6 +373,8 @@ impl RuntimeImpl {
             zapi_body_registry: std::sync::Mutex::new(std::collections::HashMap::new()),
             #[cfg(feature = "zapi")]
             zapi_class_defs: Vec::new(),
+            #[cfg(feature = "zapi")]
+            zapi_gc_tracers: Vec::new(),
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,

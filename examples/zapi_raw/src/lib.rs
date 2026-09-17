@@ -70,8 +70,8 @@ fn const_value(slot: usize) -> ZqRawValue {
 /// come through as `undefined` (matching JS call semantics).
 fn arg_at(_: ZqRawCtx, info: *const ZqCallInfoS, i: u32) -> ZqRawValue {
     let info = unsafe { &*info };
-    if i < info.argc {
-        unsafe { *info.args.add(i as usize) }
+    if (i as usize) < info.argc {
+        unsafe { *info.argv.add(i as usize) }
     } else {
         const_value(ZQ_CONST_VALUE_SLOT_UNDEFINED)
     }
@@ -79,7 +79,9 @@ fn arg_at(_: ZqRawCtx, info: *const ZqCallInfoS, i: u32) -> ZqRawValue {
 
 /// Read argument `i` as a JS number (`NaN` for non-numeric values).
 fn arg_number(env: ZqRawCtx, info: *const ZqCallInfoS, i: u32) -> f64 {
-    unsafe { (api().value_to_float64)(env, arg_at(env, info, i)) }
+    let mut out = 0.0_f64;
+    unsafe { (api().to_number)(env, arg_at(env, info, i), &mut out) };
+    out
 }
 
 /// Read a JS string value into UTF-8 bytes ("" for non-strings).
@@ -88,12 +90,12 @@ fn arg_number(env: ZqRawCtx, info: *const ZqCallInfoS, i: u32) -> f64 {
 /// buffer to learn the byte count, allocate, then copy. `-1` = not a string.
 fn string_bytes(env: ZqRawCtx, value: ZqRawValue) -> Vec<u8> {
     let api = api();
-    let len = unsafe { (api.string_get_utf8)(env, value, std::ptr::null_mut(), 0, 0) };
+    let len = unsafe { (api.read_string_utf8)(env, value, std::ptr::null_mut(), 0, 0) };
     if len <= 0 {
         return Vec::new();
     }
     let mut bytes = vec![0u8; len as usize];
-    unsafe { (api.string_get_utf8)(env, value, bytes.as_mut_ptr(), len as usize, 0) };
+    unsafe { (api.read_string_utf8)(env, value, bytes.as_mut_ptr(), len as usize, 0) };
     bytes
 }
 
@@ -123,7 +125,7 @@ unsafe extern "C" fn concat(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue
 
 /// `typeOf(v)` → the JS `typeof` name of `v`.
 unsafe extern "C" fn type_of(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue {
-    let value_type = (api().value_get_type)(arg_at(env, info, 0));
+    let value_type = (api().get_type_of)(arg_at(env, info, 0));
     // `ZqValueType::name()` is the typeof string; no manual mapping needed.
     let type_name =
         unsafe { std::mem::transmute::<i32, zuqe_zapi::ZqValueType>(value_type) }.name();
@@ -137,7 +139,7 @@ unsafe extern "C" fn id(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue {
 
 /// `truthy(v)` → ToBoolean(v).
 unsafe extern "C" fn truthy(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue {
-    let result = unsafe { (api().value_to_bool)(env, arg_at(env, info, 0)) != 0 };
+    let result = unsafe { (api().to_boolean)(env, arg_at(env, info, 0)) != 0 };
     // `true`/`false` are table constants, no FFI call.
     if result {
         const_value(ZQ_CONST_VALUE_SLOT_TRUE)
@@ -148,12 +150,14 @@ unsafe extern "C" fn truthy(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue
 /// `makeSymbol(desc)` → `Symbol(desc)`.
 unsafe extern "C" fn make_symbol(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue {
     let description = arg_at(env, info, 0);
-    unsafe { (api().new_symbol)(env, description) }
+    let bytes = string_bytes(env, description);
+    unsafe { (api().new_symbol)(env, bytes.as_ptr(), bytes.len()) }
 }
 /// `symDesc(symbol)` → the symbol's description ("" when absent).
 unsafe extern "C" fn sym_desc(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue {
     let symbol = arg_at(env, info, 0);
-    let description = unsafe { (api().symbol_get_description)(env, symbol) };
+    let key = make_string(env, b"description");
+    let description = unsafe { (api().get_property)(env, symbol, key) };
     let bytes = string_bytes(env, description);
     make_string(env, &bytes)
 }
@@ -168,12 +172,12 @@ unsafe extern "C" fn make_point(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawV
     let x = arg_number(env, info, 0);
     let y = arg_number(env, info, 1);
     let point = unsafe { (api.new_object)(env) };
-    // `set_property(env, obj, key, val, throw, flags)`: no throwing, default flags.
+    // `set_property(env, obj, key, val)`: throws on failure.
     let key_x = make_string(env, b"x");
     let key_y = make_string(env, b"y");
     unsafe {
-        (api.set_property)(env, point, key_x, (api.new_number)(x), 0, 0);
-        (api.set_property)(env, point, key_y, (api.new_number)(y), 0, 0);
+        (api.set_property)(env, point, key_x, (api.new_number)(x));
+        (api.set_property)(env, point, key_y, (api.new_number)(y));
     }
     point
 }
@@ -184,8 +188,12 @@ unsafe extern "C" fn point_dist(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawV
     let point = arg_at(env, info, 0);
     let key_x = make_string(env, b"x");
     let key_y = make_string(env, b"y");
-    let x = unsafe { (api.value_to_float64)(env, (api.get_property)(env, point, key_x)) };
-    let y = unsafe { (api.value_to_float64)(env, (api.get_property)(env, point, key_y)) };
+    let mut x = 0.0_f64;
+    let mut y = 0.0_f64;
+    unsafe {
+        (api.to_number)(env, (api.get_property)(env, point, key_x), &mut x);
+        (api.to_number)(env, (api.get_property)(env, point, key_y), &mut y);
+    }
     let distance = (x * x + y * y).sqrt();
     (api.new_number)(distance)
 }
@@ -198,13 +206,13 @@ unsafe extern "C" fn make_list(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawVa
     for index in 0..count {
         elements.push((api.new_number)(index as f64));
     }
-    unsafe { (api.new_array)(env, elements.as_ptr(), elements.len()) }
+    unsafe { (api.new_array)(env, elements.len(), elements.as_ptr()) }
 }
 
 /// `listLen(array)` → `array.length`.
 unsafe extern "C" fn list_len(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue {
     let array = arg_at(env, info, 0);
-    let length = unsafe { (api().get_length_prop)(env, array) } as f64;
+    let length = unsafe { (api().get_length)(env, array) } as f64;
     (api().new_number)(length)
 }
 /// `callJs(f, ...args)` → `f(...args)` invoked from inside the extension.
@@ -216,15 +224,15 @@ unsafe extern "C" fn call_js(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValu
     let mut call = ZqCallInfoS {
         target,
         this: const_value(ZQ_CONST_VALUE_SLOT_UNDEFINED),
-        args: if forwarded_count > 0 {
-            unsafe { this_call.args.add(1) } // point just past `target`
+        argv: if forwarded_count > 0 {
+            unsafe { this_call.argv.add(1) } // point just past `target`
         } else {
             std::ptr::null()
         },
         argc: forwarded_count,
         magic: 0,
     };
-    unsafe { (api().call_function)(env, &mut call) }
+    unsafe { (api().call)(env, &mut call) }
 }
 
 // ──────────────────────────────────────
@@ -240,8 +248,8 @@ struct BoxData {
 
 /// Raw pointer to the `Box` payload of `instance` (`null` when the object is
 /// not a `Box`, e.g. a plain JS object passed to an instance method).
-fn box_payload(env: ZqRawCtx, instance: ZqRawValue) -> *mut BoxData {
-    unsafe { (api().get_native_ptr)(env, instance).cast::<BoxData>() }
+fn box_payload(_env: ZqRawCtx, instance: ZqRawValue) -> *mut BoxData {
+    unsafe { (api().get_object_payload)(instance).cast::<BoxData>() }
 }
 
 /// Constructor: `new Box(label, child?)`. Allocates the payload and wraps it in
@@ -304,7 +312,7 @@ unsafe extern "C" fn box_set_child(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqR
 /// Static method `Box.isBox(value)` → whether `value` carries a native payload.
 unsafe extern "C" fn box_is_box(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue {
     let value = arg_at(env, info, 0);
-    let has_payload = !unsafe { (api().get_native_ptr)(env, value) }.is_null();
+    let has_payload = !unsafe { (api().get_object_payload)(value) }.is_null();
     if has_payload {
         const_value(ZQ_CONST_VALUE_SLOT_TRUE)
     } else {
@@ -426,7 +434,7 @@ unsafe extern "C" fn export_stats(env: ZqRawCtx, out: *mut ZqRawValue) -> i32 {
     let key = make_string(env, b"built");
     unsafe {
         // `value_true` is the table constant for JS `true` — no FFI call.
-        (api.set_property)(env, stats, key, const_value(ZQ_CONST_VALUE_SLOT_TRUE), 0, 0);
+        (api.set_property)(env, stats, key, const_value(ZQ_CONST_VALUE_SLOT_TRUE));
         *out = stats;
     }
     0 // success
@@ -455,64 +463,18 @@ unsafe extern "C" fn constants(env: ZqRawCtx, _info: *mut ZqCallInfoS) -> ZqRawV
             obj,
             key_undef,
             const_value(ZQ_CONST_VALUE_SLOT_UNDEFINED),
-            0,
-            0,
         );
-        (api.set_property)(
-            env,
-            obj,
-            key_null,
-            const_value(ZQ_CONST_VALUE_SLOT_NULL),
-            0,
-            0,
-        );
-        (api.set_property)(
-            env,
-            obj,
-            key_true,
-            const_value(ZQ_CONST_VALUE_SLOT_TRUE),
-            0,
-            0,
-        );
-        (api.set_property)(
-            env,
-            obj,
-            key_false,
-            const_value(ZQ_CONST_VALUE_SLOT_FALSE),
-            0,
-            0,
-        );
-        (api.set_property)(
-            env,
-            obj,
-            key_nan,
-            const_value(ZQ_CONST_VALUE_SLOT_NAN),
-            0,
-            0,
-        );
-        (api.set_property)(
-            env,
-            obj,
-            key_zero,
-            const_value(ZQ_CONST_VALUE_SLOT_ZERO),
-            0,
-            0,
-        );
-        (api.set_property)(
-            env,
-            obj,
-            key_inf,
-            const_value(ZQ_CONST_VALUE_SLOT_INFINITY),
-            0,
-            0,
-        );
+        (api.set_property)(env, obj, key_null, const_value(ZQ_CONST_VALUE_SLOT_NULL));
+        (api.set_property)(env, obj, key_true, const_value(ZQ_CONST_VALUE_SLOT_TRUE));
+        (api.set_property)(env, obj, key_false, const_value(ZQ_CONST_VALUE_SLOT_FALSE));
+        (api.set_property)(env, obj, key_nan, const_value(ZQ_CONST_VALUE_SLOT_NAN));
+        (api.set_property)(env, obj, key_zero, const_value(ZQ_CONST_VALUE_SLOT_ZERO));
+        (api.set_property)(env, obj, key_inf, const_value(ZQ_CONST_VALUE_SLOT_INFINITY));
         (api.set_property)(
             env,
             obj,
             key_neg_inf,
             const_value(ZQ_CONST_VALUE_SLOT_MINUS_INFINITY),
-            0,
-            0,
         );
     }
     obj

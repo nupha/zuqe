@@ -33,12 +33,17 @@ use crate::{
     JS_CLASS_UINT8C_ARRAY, JS_CLASS_UINT16_ARRAY, JS_CLASS_UINT32_ARRAY, JSValue, JSValueTag,
     ScopedContext,
     atom::AtomKind,
-    class::{ClassDef, ClassID},
+    class::{ClassDef, ClassID, static_class_count},
     object::{
         ArrayBuffer, DataView, JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE,
         JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_THROW, JS_PROP_WRITABLE, PayloadPtr,
         ThrowPolicy, TypedArray,
     },
+};
+
+use super::{
+    ZapiGcTracer,
+    host::{push_class_fields, register_zapi_func_magic, zapi_trampoline_fn},
 };
 
 /// Translate FFI `ZQ_PROP_*` flags into engine `JS_PROP_*` flags bit-by-bit.
@@ -72,11 +77,9 @@ const fn js_to_zq_prop_flags(flags: u32) -> u32 {
 }
 
 /// The exception sentinel handle from the API table.
-fn zq_exc() -> ZqRawValue {
+fn zq_exception() -> ZqRawValue {
     ZQ_API_TABLE.const_values[ZQ_CONST_VALUE_SLOT_EXCEPTION]
 }
-
-use super::host::{push_class_fields, register_zapi_func_magic, zapi_trampoline_fn};
 
 /// Layout-compatible opaque struct for the FFI environment handle.
 unsafe fn ctx_from_env<'a>(env: ZqRawCtx) -> &'a mut ScopedContext<'a> {
@@ -485,8 +488,8 @@ impl crate::RuntimeImpl {
             a
         };
 
-        let id = (crate::class::static_class_count() + self.zapi_class_defs.len()) as ClassID;
-        if id >= u16::MAX {
+        let id = static_class_count() + self.zapi_class_defs.len();
+        if id >= u16::MAX as usize {
             self.cur_exception = crate::Exception::TooManyClasses;
             return Err(-1);
         }
@@ -495,12 +498,13 @@ impl crate::RuntimeImpl {
             def: class_def,
             zq_def,
         });
-        Ok(id)
+
+        Ok(id as ClassID)
     }
 
     /// The extension ABI def registered for a zapi class id, if any.
     fn zapi_def(&self, class_id: ClassID) -> Option<*const ZqClassDef> {
-        let base = crate::class::static_class_count();
+        let base = static_class_count();
         class_id
             .checked_sub(base as ClassID)
             .and_then(|i| self.zapi_class_defs.get(i as usize))
@@ -509,7 +513,7 @@ impl crate::RuntimeImpl {
 
     /// Reverse lookup: the class id registered for an extension ABI def.
     fn zapi_class_id_of(&self, zq_def: *const ZqClassDef) -> Option<ClassID> {
-        let base = crate::class::static_class_count() as ClassID;
+        let base = static_class_count() as ClassID;
         self.zapi_class_defs
             .iter()
             .position(|c| c.zq_def == zq_def)
@@ -521,11 +525,13 @@ unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClas
     let ctx = unsafe { ctx_from_env(env) };
     let def = unsafe { &*class_def };
     let name_bytes = unsafe { std::ffi::CStr::from_ptr(def.name) };
-    let name = match name_bytes.to_str() {
-        Ok(s) => s,
-        Err(_) => return -1,
+    let Ok(name) = name_bytes.to_str() else {
+        return -1;
     };
-    let leaked: &'static str = Box::leak(name.to_string().into_boxed_str());
+    // The name is a literal in the extension's read-only data; the dylib stays
+    // mapped for the whole process, so it is already valid for `'static` — no
+    // per-runtime copy/leak.
+    let leaked: &'static str = unsafe { crate::zapi::ext_str_static(name) };
 
     fn zapi_class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         let o = ctx.create_instance_with_proto(None, PayloadPtr::none(class_id))?;
@@ -658,33 +664,33 @@ unsafe extern "C" fn zapi_gc_mark(gcx: *mut ZqGcTraceCtxS, val: ZqRawValue) -> i
     0
 }
 
-/// One registered global (thread_local) trace: the extension's callback plus
-/// its opaque. Leaked for the process lifetime (libraries are kept loaded).
-struct ZapiTraceReg {
-    cb: ZqGcTraceFn,
-    opaque: *mut c_void,
-}
-
 /// Runtime-side adapter: `(gcx, opaque)` → extension `(tc, opaque)`.
 fn zapi_gc_trace_adapter(gcx: &mut gc_lite::GcTraceCtx, reg: *mut c_void) {
-    let reg = unsafe { &*(reg as *const ZapiTraceReg) };
+    let reg = unsafe { &*(reg as *const ZapiGcTracer) };
     let tc: &mut ZqGcTraceCtxS = unsafe { std::mem::transmute(gcx) };
-    unsafe { (reg.cb)(tc, reg.opaque) };
+    unsafe { (reg.trace_fn)(tc, reg.opaque) };
 }
 
 unsafe extern "C" fn zapi_gc_set_trace_func(
     env: ZqRawCtx,
-    cb: Option<ZqGcTraceFn>,
+    trace_fn: Option<ZqGcTraceFn>,
     opaque: *mut c_void,
 ) -> i32 {
-    let Some(cb) = cb else {
+    let Some(cb) = trace_fn else {
         return -1;
     };
 
-    let reg = Box::into_raw(Box::new(ZapiTraceReg { cb, opaque }));
+    let tracer = Box::new(ZapiGcTracer {
+        trace_fn: cb,
+        opaque,
+    });
     unsafe {
         let rt = (**env.cast::<ScopedContext>()).rt_mut();
-        rt.gc_add_trace_callback(zapi_gc_trace_adapter, reg as *mut c_void);
+        // Box first, then store the pointer: `rt` owns the allocation for its
+        // lifetime, so the address is stable across `zapi_gc_trace_regs` growth.
+        let ptr = (&*tracer) as *const ZapiGcTracer as *mut c_void;
+        rt.zapi_gc_tracers.push(tracer);
+        rt.gc_add_trace_callback(zapi_gc_trace_adapter, ptr);
     }
 
     0
@@ -1251,7 +1257,7 @@ unsafe extern "C" fn zapi_new_buf_from_bytes(
         Vec::new()
     } else if ptr.is_null() {
         let _ = ctx.throw_type_error("null buffer source pointer");
-        return zq_exc();
+        return zq_exception();
     } else {
         unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()
     };
@@ -1288,13 +1294,13 @@ unsafe extern "C" fn zapi_new_buf_from_bytes(
             }
             None => {
                 let _ = ctx.throw_type_error("invalid binary buffer kind");
-                return zq_exc();
+                return zq_exception();
             }
         },
     };
     match built {
         Ok(v) => v.0,
-        Err(_) => zq_exc(),
+        Err(_) => zq_exception(),
     }
 }
 
@@ -1492,7 +1498,7 @@ unsafe extern "C" fn zapi_get_own_property_names(
     let ctx = unsafe { ctx_from_env(env) };
     let Some(mut obj) = JSValue(target, PhantomData).as_object() else {
         let _ = ctx.throw_type_error("not an object");
-        return zq_exc();
+        return zq_exception();
     };
     let mut flags = JS_GPN_STR_OR_INT_MASK;
     if include_symbols != 0 {
@@ -1504,16 +1510,16 @@ unsafe extern "C" fn zapi_get_own_property_names(
     // yield shape/definition order instead.
     let keys = match obj.get_own_property_names(ctx, flags) {
         Ok(k) => k,
-        Err(_) => return zq_exc(),
+        Err(_) => return zq_exception(),
     };
     let mut vals: Vec<JSValue> = Vec::with_capacity(keys.len());
     for pk in keys.iter() {
         match pk.atom.to_value(ctx) {
             Ok(v) => vals.push(v),
-            Err(_) => return zq_exc(),
+            Err(_) => return zq_exception(),
         }
     }
-    Array::from_slice(ctx, &vals).map_or(zq_exc(), |a| JSValue::from(a).0)
+    Array::from_slice(ctx, &vals).map_or(zq_exception(), |a| JSValue::from(a).0)
 }
 
 // ── value queries ──
@@ -1554,14 +1560,14 @@ unsafe extern "C" fn zapi_new_symbol(env: ZqRawCtx, ptr: *const u8, len: usize) 
     let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
     let Ok(s) = std::str::from_utf8(bytes) else {
         let _ = ctx.throw_type_error("symbol description is not valid UTF-8");
-        return zq_exc();
+        return zq_exception();
     };
     let Ok(desc) = ctx.create_string_interned(s) else {
-        return zq_exc();
+        return zq_exception();
     };
     match ctx.create_symbol(Some(desc), AtomKind::Symbol) {
         Ok(sym) => sym.0,
-        Err(_) => zq_exc(),
+        Err(_) => zq_exception(),
     }
 }
 
@@ -1574,11 +1580,11 @@ unsafe extern "C" fn zapi_new_object_with_proto(env: ZqRawCtx, proto: ZqRawValue
         Some(o)
     } else {
         let _ = ctx.throw_type_error("prototype must be an object or null");
-        return zq_exc();
+        return zq_exception();
     };
     match ctx.create_base_object_with_proto(proto) {
         Ok(o) => JSValue::from(o).0,
-        Err(_) => zq_exc(),
+        Err(_) => zq_exception(),
     }
 }
 
@@ -1845,6 +1851,136 @@ mod class_registration_tests {
         assert!(id >= HOST_CLASS_ID_START);
         let cd = rt.class_def(id).unwrap();
         assert_eq!(cd.payload_type_name, Some("u32"));
+        Ok(())
+    }
+
+    /// Multi-runtime isolation regression: the same extension class (one
+    /// `ZqClassDef*` — a process-level static in real extensions) registered
+    /// into two runtimes must stay fully isolated: per-runtime class ids,
+    /// create/instanceof/gc_trace/finalize, and one runtime's GC must not touch
+    /// the other's objects.
+    #[test]
+    fn zapi_class_isolated_across_runtimes() -> Result<(), i32> {
+        use std::ffi::{c_char, c_void};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use zuqe_zapi::ffi::{ZqClassDef, ZqGcTraceCtxS, ZqRawCtx};
+
+        use crate::{ClassID, Context};
+
+        static FREED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+        static TRACED: AtomicUsize = AtomicUsize::new(0);
+
+        unsafe extern "C" fn fin(_rt: *mut c_void, opaque: *mut c_void) {
+            if !opaque.is_null() {
+                let p = unsafe { Box::from_raw(opaque as *mut DispPayload) };
+                FREED.lock().unwrap().push(p.magic);
+            }
+        }
+        unsafe extern "C" fn trace(_gcx: *mut ZqGcTraceCtxS, _opaque: *mut c_void) {
+            TRACED.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn register_via_ffi(
+            ctx: &mut Context<'_>,
+            zq_ptr: *const ZqClassDef,
+        ) -> Result<ClassID, i32> {
+            let id = ctx.with_new_scope(|cx| unsafe {
+                super::zapi_register_class(cx as *mut ScopedContext as ZqRawCtx, zq_ptr)
+            });
+            if id < 0 { Err(-1) } else { Ok(id as ClassID) }
+        }
+
+        let _lock = REG_LOCK.lock().unwrap();
+        FREED.lock().unwrap().clear();
+        TRACED.store(0, Ordering::SeqCst);
+
+        // The extension-side class def (name literal lives in the binary).
+        let zq = Box::leak(Box::new(ZqClassDef {
+            name: c"MultiRt".as_ptr() as *const c_char,
+            parent_class: std::ptr::null(),
+            finalize: Some(fin),
+            gc_trace: Some(trace),
+            call: None,
+            has_instance: None,
+            call_arity: 0,
+            proto_entries_len: 0,
+            proto_entries: std::ptr::null(),
+            static_entries_len: 0,
+            static_entries: std::ptr::null(),
+        }));
+        let zq_ptr: *const ZqClassDef = zq;
+
+        let mut rt_a = Runtime::create()?;
+        // An extra class registered only in A shifts A's dynamic ids, so the
+        // shared class necessarily lands on a *different* id in A than in B.
+        let _only_a =
+            rt_a.register_class_def(ClassDef::new("OnlyA", &[], None), std::ptr::null())?;
+        let mut rt_b = Runtime::create()?;
+
+        let mut ctx_a = rt_a.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+        let mut ctx_b = rt_b.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        let id_a = register_via_ffi(&mut ctx_a, zq_ptr)?;
+        let id_b = register_via_ffi(&mut ctx_b, zq_ptr)?;
+        assert_ne!(id_a, id_b, "per-runtime dynamic ids must be independent");
+
+        // Reverse lookup is per runtime: the shared extension pointer resolves
+        // to each runtime's own id, and the class def is present in both.
+        assert_eq!(rt_a.zapi_class_id_of(zq_ptr), Some(id_a));
+        assert_eq!(rt_b.zapi_class_id_of(zq_ptr), Some(id_b));
+        assert_eq!(rt_a.class_def(id_a).map(|d| d.name), Some("MultiRt"));
+        assert_eq!(rt_b.class_def(id_b).map(|d| d.name), Some("MultiRt"));
+
+        // Live instances (root scope) so each runtime's GC mark runs its own
+        // gc_trace bridge.
+        ctx_a.with_root_scope(|mut cx| -> Result<(), i32> {
+            let o =
+                cx.create_class_instance(JSValue::UNDEFINED, id_a, DispPayload { magic: 0x0A })?;
+            assert_eq!(o.class_id(), id_a);
+            Ok(())
+        })?;
+        ctx_b.with_root_scope(|mut cx| -> Result<(), i32> {
+            let o =
+                cx.create_class_instance(JSValue::UNDEFINED, id_b, DispPayload { magic: 0x0B })?;
+            assert_eq!(o.class_id(), id_b);
+            Ok(())
+        })?;
+
+        rt_a.gc_collect();
+        rt_b.gc_collect();
+        assert!(
+            TRACED.load(Ordering::SeqCst) >= 2,
+            "each runtime must run its own gc_trace bridge"
+        );
+
+        // Dead instances (child scope pops) collected by each runtime's GC.
+        ctx_a.with_new_scope(|cx| {
+            let _o =
+                cx.create_class_instance(JSValue::UNDEFINED, id_a, DispPayload { magic: 0xCA })?;
+            Ok::<(), i32>(())
+        })?;
+        ctx_b.with_new_scope(|cx| {
+            let _o =
+                cx.create_class_instance(JSValue::UNDEFINED, id_b, DispPayload { magic: 0xCB })?;
+            Ok::<(), i32>(())
+        })?;
+
+        FREED.lock().unwrap().clear();
+        rt_a.gc_collect();
+        assert_eq!(
+            FREED.lock().unwrap().as_slice(),
+            &[0xCA],
+            "A's GC must finalize only A's instance"
+        );
+        rt_b.gc_collect();
+        let mut freed = FREED.lock().unwrap().clone();
+        freed.sort_unstable();
+        assert_eq!(
+            freed.as_slice(),
+            &[0xCA, 0xCB],
+            "B's GC finalizes B's instance"
+        );
         Ok(())
     }
 }
