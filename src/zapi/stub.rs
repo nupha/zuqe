@@ -1834,7 +1834,7 @@ mod class_registration_tests {
     #[test]
     #[cfg(debug_assertions)]
     fn user_class_payload_type_name_set() -> Result<(), i32> {
-        use crate::USER_CLASS_ID_START;
+        use crate::HOST_CLASS_ID_START;
 
         let _lock = REG_LOCK.lock().unwrap();
         let mut rt = Runtime::create()?;
@@ -1842,7 +1842,7 @@ mod class_registration_tests {
             ClassDef::new("TypeCheckTest", &[], None).payload_type_name(Some("u32")),
             std::ptr::null(),
         )?;
-        assert!(id >= USER_CLASS_ID_START);
+        assert!(id >= HOST_CLASS_ID_START);
         let cd = rt.class_def(id).unwrap();
         assert_eq!(cd.payload_type_name, Some("u32"));
         Ok(())

@@ -205,7 +205,7 @@ impl GcTrace for ObjectImpl {
         // macro: user_payload_trace::<P>, zapi: C bridge), builtin classes use
         // the generated per-class dispatch.
         let cid = self.class_id();
-        if cid >= crate::USER_CLASS_ID_START {
+        if cid >= crate::HOST_CLASS_ID_START {
             // Hint: tr.opaque() holds the *const RuntimeImpl, set when heap
             // was created.
             debug_assert!(
@@ -268,7 +268,7 @@ impl ObjectImpl {
 
         #[cfg(debug_assertions)]
         {
-            if class_id < crate::USER_CLASS_ID_START {
+            if class_id < crate::HOST_CLASS_ID_START {
                 debug_assert_eq!(
                     payload_access::payload_type_name(class_id).is_some(),
                     !payload.as_ptr().is_null(),
@@ -440,7 +440,7 @@ impl ObjectImpl {
     pub fn replace_payload(&mut self, new: *mut c_void) -> *mut c_void {
         #[cfg(debug_assertions)]
         debug_assert!(
-            self.class_id() >= crate::USER_CLASS_ID_START,
+            self.class_id() >= crate::HOST_CLASS_ID_START,
             "replace_payload is for user classes"
         );
         std::mem::replace(&mut self.payload, new)
@@ -454,7 +454,7 @@ impl ObjectImpl {
     /// Get object class name str.
     #[inline(always)]
     pub fn class_name_str(&self) -> &str {
-        crate::class::class_def(self.class_id()).map_or("<unknown>", |d| d.name)
+        crate::class::get_static_class_def(self.class_id()).map_or("<unknown>", |d| d.name)
     }
 
     /// Get object flags
@@ -669,7 +669,7 @@ impl ObjectImpl {
         // `wire_builtin_payload_drops`; user: `def_native_object!`; opaque
         // classes register none and are never freed by the engine).
         #[cfg(debug_assertions)]
-        if class_id < crate::USER_CLASS_ID_START && !ptr.is_null() {
+        if class_id < crate::HOST_CLASS_ID_START && !ptr.is_null() {
             debug_assert!(
                 class_def.payload_drop.is_some(),
                 "builtin class {class_id} carries a live payload but no registered drop callback"

@@ -30,6 +30,8 @@ use crate::{
     value::JSValue,
 };
 
+pub type ClassID = u16;
+
 // ── Host class definition (collected via linkme) ──
 
 /// A host class entry collected from `def_native_object!(..)` in external crates.
@@ -37,16 +39,17 @@ use crate::{
 pub struct HostClassDef {
     pub def: ClassDef,
     pub class_id: AtomicU16,
+
     /// Resolves `ClassDef::payload_type_name` at runtime (the linked type name
     /// can't be computed in a const/static initializer). Called once during
     /// `init_static_class_defs`.
+    #[cfg(debug_assertions)]
     pub payload_type_name: fn() -> Option<&'static str>,
 }
 
 unsafe impl Sync for HostClassDef {}
 
 /// Distributed slice collecting all host `ClassDef`s at link time.
-/// Elements are assigned class IDs during `init_static_class_defs()`.
 #[linkme::distributed_slice]
 pub static HOST_CLASS_DEFS: [HostClassDef] = [..];
 
@@ -67,18 +70,12 @@ pub(crate) fn class_count() -> usize {
 }
 
 /// Look up a static `ClassDef` by class ID.
-///
-/// - `cid == 0` → None (slot 0 is the null/default entry)
-/// - `1..static_class_count()` → static table lookup
-/// - `>= static_class_count()` → None (dynamic classes are per-runtime; use
-///   `RuntimeImpl::class_def`)
 #[inline]
-pub(crate) fn class_def(cid: ClassID) -> Option<&'static ClassDef> {
+pub(crate) fn get_static_class_def(cid: ClassID) -> Option<&'static ClassDef> {
     if cid == 0 {
         return None;
     }
-    let cid_usize = cid as usize;
-    STATIC_CLASS_DEFS.get().and_then(|t| t.get(cid_usize))
+    STATIC_CLASS_DEFS.get().and_then(|t| t.get(cid as usize))
 }
 
 /// Initialize the process-global static class table from builtin + host definitions.
@@ -92,10 +89,13 @@ pub(crate) fn init_static_class_defs() -> Result<ClassID, i32> {
 
     let builtin: &[ClassDef] = crate::BUILTIN_CLASS_DEFS;
 
-    // Collect host entries, deduping linkme ICF duplicates by class name.
+    // Collect host entries, dropping linkme ICF duplicates: identical `static`
+    // defs fold to a single address under ICF, so one class can appear twice.
+    // Dedup by address — two distinct classes (even with the same name) always
+    // keep separate addresses, so name-based dedup would wrongly drop one.
     let mut host: Vec<&HostClassDef> = Vec::new();
     for h in HOST_CLASS_DEFS {
-        if !host.iter().any(|p| p.def.name == h.def.name) {
+        if !host.iter().any(|p| std::ptr::addr_eq(*p, h)) {
             host.push(h);
         }
     }
@@ -121,7 +121,12 @@ pub(crate) fn init_static_class_defs() -> Result<ClassID, i32> {
             Some(&id) => Atom::from_id(id),
             _ => unreachable!("host const atom missing"),
         };
-        def.payload_type_name = (h.payload_type_name)();
+
+        #[cfg(debug_assertions)]
+        {
+            def.payload_type_name = (h.payload_type_name)();
+        }
+
         merged.push(def);
     }
 
@@ -133,8 +138,6 @@ pub(crate) fn init_static_class_defs() -> Result<ClassID, i32> {
 
     Ok(static_class_count() as ClassID)
 }
-
-pub type ClassID = u16;
 
 /// Class instance finalize callback, called from `ObjectImpl::finalize()` when a
 /// class instance is garbage collected. Unified for both builtin and user classes.

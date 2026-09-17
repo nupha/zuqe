@@ -13,7 +13,7 @@ use crate::{
 };
 
 impl RuntimeImpl {
-    /// Look up a `ClassDef` by class ID (static table + this runtime's dynamic table).
+    /// Look up a `ClassDef` by class ID (could be static or dynamic class def).
     #[inline(always)]
     pub(crate) fn class_def(&self, cid: ClassID) -> Option<&ClassDef> {
         if cid == 0 {
@@ -25,23 +25,18 @@ impl RuntimeImpl {
 
         #[cfg(feature = "zapi")]
         if cid_usize < base {
-            crate::class::class_def(cid)
+            crate::class::get_static_class_def(cid)
         } else {
             self.zapi_class_defs.get(cid_usize - base).map(|c| &c.def)
         }
-
         #[cfg(not(feature = "zapi"))]
         {
             debug_assert!(
                 cid_usize < base,
                 "class id {cid} is out of range (static count {base})"
             );
-            crate::class::class_def(cid)
+            crate::class::get_static_class_def(cid)
         }
-    }
-
-    pub fn is_class_registered(&self, class_id: ClassID) -> bool {
-        self.class_def(class_id).is_some()
     }
 }
 

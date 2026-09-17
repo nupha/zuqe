@@ -363,19 +363,20 @@ impl RuntimeImpl {
             join_state: JoinState::Active,
         };
 
-        init_static_class_defs()?;
-
         rt.refresh_stack_top();
+
+        init_static_class_defs()?;
 
         Ok(rt)
     }
 
+    /// unique id for this runtime
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
     }
 
-    /// Total number of classes known to this runtime (static + dynamic).
+    /// Total number of classes known to this runtime
     #[inline(always)]
     pub(crate) fn class_count(&self) -> usize {
         #[cfg(feature = "zapi")]

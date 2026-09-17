@@ -5,7 +5,7 @@ use std::ffi::c_void;
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
-use crate::{USER_CLASS_ID_START, class::ClassID};
+use crate::{ClassID, HOST_CLASS_ID_START};
 
 include!(concat!(env!("OUT_DIR"), "/payload_accessors.rs"));
 
@@ -69,7 +69,7 @@ impl PayloadPtr {
     #[inline]
     pub(crate) fn new<T: GcTrace>(class_id: ClassID, value: T) -> Self {
         #[cfg(debug_assertions)]
-        if class_id < USER_CLASS_ID_START {
+        if class_id < HOST_CLASS_ID_START {
             let expected = payload_type_name(class_id);
             debug_assert!(
                 expected == Some(std::any::type_name::<T>()),
@@ -77,6 +77,7 @@ impl PayloadPtr {
                 std::any::type_name::<T>(),
             );
         }
+
         Self {
             class_id,
             ptr: Box::into_raw(Box::new(value)) as *mut c_void,
@@ -107,15 +108,20 @@ impl PayloadPtr {
     /// callbacks.
     #[cfg(feature = "zapi")]
     #[inline]
-    pub(crate) fn opaque(class_id: ClassID, ptr: *mut c_void) -> Self {
-        debug_assert!(class_id >= USER_CLASS_ID_START, "user class expected");
+    pub(crate) const fn opaque(class_id: ClassID, ptr: *mut c_void) -> Self {
+        debug_assert!(
+            class_id >= HOST_CLASS_ID_START,
+            "non-builtin class expected"
+        );
         Self {
             class_id,
             ptr,
             drop_fn: None,
         }
     }
+}
 
+impl PayloadPtr {
     /// The class this payload belongs to. Single source of truth for the
     /// created object: `ObjectImpl::create` derives its class from here.
     #[inline(always)]

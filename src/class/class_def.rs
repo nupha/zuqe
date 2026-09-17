@@ -167,6 +167,7 @@ impl ClassDef {
         on_gc_trace: None,
 
         payload_drop: None,
+
         #[cfg(debug_assertions)]
         payload_type_name: None,
     };

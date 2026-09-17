@@ -250,16 +250,16 @@ impl std::fmt::Display for PayloadKey {
 }
 
 #[derive(Debug)]
-struct ClassInfo {
+struct BuiltinClassInfo {
     const_name: &'static str,
     class_def: &'static str,
     key: PayloadKey,
     narrow: Option<&'static str>,
 }
 
-impl ClassInfo {
+impl BuiltinClassInfo {
     const fn new(const_name: &'static str, class_def: &'static str, key: PayloadKey) -> Self {
-        ClassInfo {
+        BuiltinClassInfo {
             const_name,
             class_def,
             key,
@@ -273,7 +273,7 @@ impl ClassInfo {
         key: PayloadKey,
         narrow: &'static str,
     ) -> Self {
-        ClassInfo {
+        BuiltinClassInfo {
             const_name,
             class_def,
             key,
@@ -282,110 +282,110 @@ impl ClassInfo {
     }
 }
 
-const CLASS_DEF_LIST: &[ClassInfo] = &[
+const BUILTIN_CLASS_DEF_LIST: &[BuiltinClassInfo] = &[
     // CORE CLASSES START
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "OBJECT",
         "crate::builtins::object::CLASS_DEF_OBJECT",
         PayloadKey::None,
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "ARRAY",
         "crate::builtins::array::CLASS_DEF_ARRAY",
         PayloadKey::Array,
         "Array",
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "ERROR",
         "crate::builtins::error::CLASS_DEF_ERROR",
         PayloadKey::None,
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "NUMBER",
         "crate::builtins::number::CLASS_DEF_NUMBER",
         PayloadKey::Value,
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "BOOLEAN",
         "crate::builtins::boolean::CLASS_DEF_BOOLEAN",
         PayloadKey::Bool,
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "STRING",
         "crate::builtins::string::CLASS_DEF_STRING",
         PayloadKey::String,
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "SYMBOL",
         "crate::builtins::symbol::CLASS_DEF_SYMBOL",
         PayloadKey::String,
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "ARGUMENTS",
         "crate::builtins::arguments::CLASS_DEF_ARGUMENTS",
         PayloadKey::Array,
         "Array",
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "MAPPED_ARGUMENTS",
         "crate::builtins::arguments::CLASS_DEF_MAPPED_ARGUMENTS",
         PayloadKey::None,
     ),
     #[cfg(feature = "builtin_date")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "DATE",
         "crate::builtins::date::CLASS_DEF_DATE",
         PayloadKey::Datetime,
     ),
     // CORE CLASSES END
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "MODULE_NS",
         "crate::builtins::CLASS_DEF_MODULE_NS",
         PayloadKey::None,
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "C_FUNCTION",
         "crate::builtins::function::CLASS_DEF_C_FUNCTION",
         PayloadKey::NativeFunc,
         "NativeFunction",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "BYTECODE_FUNCTION",
         "crate::builtins::function::CLASS_DEF_BYTECODE_FUNCTION",
         PayloadKey::BcFunction,
         "BytecodeFunction",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "BOUND_FUNCTION",
         "crate::builtins::function::CLASS_DEF_BOUND_FUNCTION",
         PayloadKey::BoundFunction,
         "BoundFunction",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "C_FUNCTION_DATA",
         "crate::builtins::function::CLASS_DEF_C_FUNCTION_DATA",
         PayloadKey::NativeFunc,
         "NativeFunction",
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "FOR_IN_ITERATOR",
         "crate::builtins::iterator::CLASS_DEF_FOR_IN_ITERATOR",
         PayloadKey::ForInIterator,
     ),
     #[cfg(feature = "builtin_regexp")]
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "REGEXP",
         "crate::builtins::regexp::CLASS_DEF_REGEXP",
         PayloadKey::RegExp,
         "RegExp",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "ARRAY_BUFFER",
         "crate::builtins::array_buffer::CLASS_DEF_ARRAY_BUFFER",
         PayloadKey::ArrayBuffer,
         "ArrayBuffer",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "SHARED_ARRAY_BUFFER",
         "crate::builtins::array_buffer::CLASS_DEF_SHARED_ARRAY_BUFFER",
         PayloadKey::ArrayBuffer,
@@ -394,99 +394,99 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     //
     // start of typed arrays
     //
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "UINT8C_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_UINT8C_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "INT8_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_INT8_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "UINT8_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_UINT8_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "INT16_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_INT16_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "UINT16_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_UINT16_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "INT32_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_INT32_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "UINT32_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_UINT32_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "BIG_INT64_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_BIG_INT64_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "BIG_UINT64_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_BIG_UINT64_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "FLOAT16_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_FLOAT16_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "FLOAT32_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_FLOAT32_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "FLOAT64_ARRAY",
         "crate::builtins::typed_array::CLASS_DEF_FLOAT64_ARRAY",
         PayloadKey::TypedArray,
         "TypedArray",
     ),
     // end of typed arrays
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "DATAVIEW",
         "crate::builtins::typed_array::CLASS_DEF_DATAVIEW",
         PayloadKey::DataView,
         "DataView",
     ),
     #[cfg(feature = "big_int")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "BIG_INT",
         "crate::builtins::CLASS_DEF_BIG_INT",
         PayloadKey::BigInt,
     ),
     #[cfg(not(feature = "big_int"))]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "BIG_INT",
         "crate::builtins::CLASS_DEF_BIG_INT",
         PayloadKey::None,
     ),
     #[cfg(feature = "builtin_json")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "RAWJSON",
         "crate::builtins::json::CLASS_DEF_RAWJSON",
         PayloadKey::None,
@@ -495,58 +495,58 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     // map set and iterators
     //
     #[cfg(feature = "builtin_mapset")]
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "MAP",
         "crate::builtins::mapset::CLASS_DEF_MAP",
         PayloadKey::MapSet,
         "MapSet",
     ),
     #[cfg(feature = "builtin_mapset")]
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "SET",
         "crate::builtins::mapset::CLASS_DEF_SET",
         PayloadKey::MapSet,
         "MapSet",
     ),
     #[cfg(feature = "builtin_mapset")]
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "WEAKMAP",
         "crate::builtins::mapset::CLASS_DEF_WEAK_MAP",
         PayloadKey::MapSet,
         "MapSet",
     ),
     #[cfg(feature = "builtin_mapset")]
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "WEAKSET",
         "crate::builtins::mapset::CLASS_DEF_WEAK_SET",
         PayloadKey::MapSet,
         "MapSet",
     ),
     #[cfg(feature = "builtin_mapset")]
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "MAP_ITERATOR",
         "crate::builtins::mapset::CLASS_DEF_MAP_ITERATOR",
         PayloadKey::MapSetIterator,
         "MapIterator",
     ),
     #[cfg(feature = "builtin_mapset")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "SET_ITERATOR",
         "crate::builtins::mapset::CLASS_DEF_SET_ITERATOR",
         PayloadKey::MapSetIterator,
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "ARRAY_ITERATOR",
         "crate::builtins::array::CLASS_DEF_ARRAY_ITERATOR",
         PayloadKey::ArrayIterator,
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "STRING_ITERATOR",
         "crate::builtins::string::CLASS_DEF_STRING_ITERATOR",
         PayloadKey::ArrayIterator,
     ),
     #[cfg(feature = "builtin_regexp")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "REGEXP_STRING_ITERATOR",
         "crate::builtins::regexp::CLASS_DEF_REGEXP_STRING_ITERATOR",
         PayloadKey::RegExpStringIterator,
@@ -554,12 +554,12 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     //
     //
     //
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "GENERATOR",
         "crate::builtins::generator::CLASS_DEF_GENERATOR",
         PayloadKey::Generator,
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "GENERATOR_FUNCTION",
         "crate::builtins::generator::CLASS_DEF_GENERATOR_FUNCTION",
         PayloadKey::BcFunction,
@@ -569,7 +569,7 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     // Proxy
     //
     #[cfg(feature = "builtin_proxy")]
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "PROXY",
         "crate::builtins::proxy::CLASS_DEF_PROXY",
         PayloadKey::Proxy,
@@ -578,58 +578,58 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     //
     // Async stuff
     //
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "PROMISE",
         "crate::builtins::promise::CLASS_DEF_PROMISE",
         PayloadKey::Promise,
         "Promise",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "PROMISE_RESOLVE_FUNCTION",
         "crate::builtins::promise::CLASS_DEF_PROMISE_RESOLVE_FUNCTION",
         PayloadKey::PromiseResolvingFunction,
         "PromiseResolveFunc",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "PROMISE_REJECT_FUNCTION",
         "crate::builtins::promise::CLASS_DEF_PROMISE_REJECT_FUNCTION",
         PayloadKey::PromiseResolvingFunction,
         "PromiseResolveFunc",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "ASYNC_FUNCTION",
         "crate::builtins::function::CLASS_DEF_ASYNC_FUNCTION",
         PayloadKey::BcFunction,
         "AsyncFunction",
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "ASYNC_FUNCTION_RESOLVE",
         "crate::builtins::function::CLASS_DEF_ASYNC_FUNCTION_RESOLVE",
         PayloadKey::AsyncFunctionResolving,
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "ASYNC_FUNCTION_REJECT",
         "crate::builtins::function::CLASS_DEF_ASYNC_FUNCTION_REJECT",
         PayloadKey::AsyncFunctionResolving,
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "ASYNC_FROM_SYNC_ITERATOR",
         "crate::builtins::iterator::CLASS_DEF_ASYNC_FROM_SYNC_ITERATOR",
         PayloadKey::AsyncFromSyncIterator,
         "AsyncFromSyncIterator",
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "ASYNC_GENERATOR",
         "crate::builtins::generator::CLASS_DEF_ASYNC_GENERATOR",
         PayloadKey::AsyncGenerator,
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "ASYNC_GENERATOR_FUNCTION", // depends on ASYNC_GENERATOR
         "crate::builtins::generator::CLASS_DEF_ASYNC_GENERATOR_FUNCTION",
         PayloadKey::BcFunction,
         "AsyncGeneratorFunction",
     ),
-    ClassInfo::new_narrow(
+    BuiltinClassInfo::new_narrow(
         "ASYNC_ITERABLE_ITERATOR",
         "crate::builtins::iterator::CLASS_DEF_ASYNC_ITERABLE_ITERATOR",
         PayloadKey::AsyncIterableIterator,
@@ -638,39 +638,39 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     //
     // ES2024+ Iterator global object
     //
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "ITERATOR",
         "crate::builtins::iterator::CLASS_DEF_ITERATOR",
         PayloadKey::None,
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "ITERATOR_HELPER",
         "crate::builtins::iterator::CLASS_DEF_ITERATOR_HELPER",
         PayloadKey::IteratorHelper,
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "ITERATOR_WRAP",
         "crate::builtins::iterator::CLASS_DEF_ITERATOR_WRAP",
         PayloadKey::IteratorWrap,
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "ITERATOR_CONCAT",
         "crate::builtins::iterator::CLASS_DEF_ITERATOR_CONCAT",
         PayloadKey::IteratorConcat,
     ),
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "ITERATOR_ZIP",
         "crate::builtins::iterator::CLASS_DEF_ITERATOR_ZIP",
         PayloadKey::IteratorZip,
     ),
     #[cfg(feature = "builtin_weakref")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "WEAKREF",
         "crate::builtins::weakref::CLASS_DEF_WEAKREF",
         PayloadKey::WeakRef,
     ),
     #[cfg(feature = "builtin_weakref")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "FINALIZATION_REGISTRY",
         "crate::builtins::weakref::CLASS_DEF_FINALIZATION_REGISTRY",
         PayloadKey::FinalizationRegistry,
@@ -680,61 +680,61 @@ const CLASS_DEF_LIST: &[ClassInfo] = &[
     // ids form the contiguous range `JS_CLASS_INTL_COLLATOR ..= JS_CLASS_INTL_SEGMENTER`.
     //
     #[cfg(feature = "intl402")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "INTL_COLLATOR",
         "crate::builtins::intl::collator::CLASS_DEF_COLLATOR",
         PayloadKey::IntlCollator,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "INTL_DATE_TIME_FORMAT",
         "crate::builtins::intl::date_time_format::CLASS_DEF_DATE_TIME_FORMAT",
         PayloadKey::IntlDateTimeFormat,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "INTL_DURATION_FORMAT",
         "crate::builtins::intl::duration_format::CLASS_DEF_DURATION_FORMAT",
         PayloadKey::IntlDurationFormat,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "INTL_DISPLAY_NAMES",
         "crate::builtins::intl::display_names::CLASS_DEF_DISPLAY_NAMES",
         PayloadKey::IntlDisplayNames,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "INTL_LIST_FORMAT",
         "crate::builtins::intl::list_format::CLASS_DEF_LIST_FORMAT",
         PayloadKey::IntlListFormat,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "INTL_LOCALE",
         "crate::builtins::intl::locale::CLASS_DEF_LOCALE",
         PayloadKey::IntlLocale,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "INTL_NUMBER_FORMAT",
         "crate::builtins::intl::number_format::CLASS_DEF_NUMBER_FORMAT",
         PayloadKey::IntlNumberFormat,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "INTL_PLURAL_RULES",
         "crate::builtins::intl::plural_rules::CLASS_DEF_PLURAL_RULES",
         PayloadKey::IntlPluralRules,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "INTL_RELATIVE_TIME_FORMAT",
         "crate::builtins::intl::relative_time_format::CLASS_DEF_RELATIVE_TIME_FORMAT",
         PayloadKey::IntlRelativeTimeFormat,
     ),
     #[cfg(feature = "intl402")]
-    ClassInfo::new(
+    BuiltinClassInfo::new(
         "INTL_SEGMENTER",
         "crate::builtins::intl::segmenter::CLASS_DEF_SEGMENTER",
         PayloadKey::IntlSegmenter,
@@ -747,9 +747,9 @@ pub fn gen_std_class_defs(outfile: &Path) {
     let mut async_start: Option<usize> = None;
     let mut async_end: Option<usize> = None;
 
-    let mut builtin_defs = Vec::<String>::with_capacity(CLASS_DEF_LIST.len());
+    let mut builtin_defs = Vec::<String>::with_capacity(BUILTIN_CLASS_DEF_LIST.len());
 
-    for (i, cdef) in CLASS_DEF_LIST.iter().enumerate() {
+    for (i, cdef) in BUILTIN_CLASS_DEF_LIST.iter().enumerate() {
         match cdef.const_name {
             "PROMISE" => {
                 async_start = Some(i);
@@ -772,8 +772,8 @@ pub fn gen_std_class_defs(outfile: &Path) {
     }
 
     consts.push(format!(
-        "pub const USER_CLASS_ID_START: ClassID={};",
-        CLASS_DEF_LIST.len() + 1
+        "pub const HOST_CLASS_ID_START: ClassID={};",
+        BUILTIN_CLASS_DEF_LIST.len() + 1
     ));
 
     let mut lines = vec![
@@ -816,10 +816,10 @@ pub fn gen_payload_accessors(outfile: &Path) {
     let mut name_arms = Vec::<String>::new();
     let mut get_payload_methods = Vec::<String>::new();
 
-    // Collect unique (PayloadKey, type_str) pairs from CLASS_DEF_LIST
+    // Collect unique (PayloadKey, type_str) pairs from BUILTIN_CLASS_DEF_LIST
     let mut seen = std::collections::BTreeSet::<PayloadKey>::new();
     let mut keys_with_types = Vec::<(PayloadKey, &str)>::new();
-    for cdef in CLASS_DEF_LIST {
+    for cdef in BUILTIN_CLASS_DEF_LIST {
         if cdef.key == PayloadKey::None || !seen.insert(cdef.key) {
             continue;
         }
@@ -829,7 +829,7 @@ pub fn gen_payload_accessors(outfile: &Path) {
     }
 
     for (k, pty) in &keys_with_types {
-        let class_ids = CLASS_DEF_LIST
+        let class_ids = BUILTIN_CLASS_DEF_LIST
             .iter()
             .filter_map(|c| {
                 if c.key == *k {
@@ -917,8 +917,8 @@ pub fn gen_payload_accessors(outfile: &Path) {
 }
 
 /// Bulk-generate `object_cast!` boilerplate for the narrow object wrapper
-/// types. The set of narrow types is aggregated from `CLASS_DEF_LIST`: every
-/// class whose `ClassInfo.narrow` is `Some(name)` joins the named narrow
+/// types. The set of narrow types is aggregated from `BUILTIN_CLASS_DEF_LIST`: every
+/// class whose `BuiltinClassInfo.narrow` is `Some(name)` joins the named narrow
 /// type. `BCWrapper` is the single exception: it groups four function classes
 /// (BYTECODE_FUNCTION, GENERATOR_FUNCTION, ASYNC_FUNCTION,
 /// ASYNC_GENERATOR_FUNCTION) that each already map to their own narrow type,
@@ -928,16 +928,16 @@ pub fn gen_payload_accessors(outfile: &Path) {
 /// `src/object/casts.rs` (inside `crate::object`, where `Object`, `ObjectImpl`,
 /// `JSValue`, `GcRef` and the `object_cast!` macro are all in scope).
 ///
-/// Feature handling is implicit: `CLASS_DEF_LIST` entries are gated with
+/// Feature handling is implicit: `BUILTIN_CLASS_DEF_LIST` entries are gated with
 /// `#[cfg(feature)]`, so when a feature is off its classes are not present in
 /// the list and the corresponding narrow type is simply not generated. Each
 /// generated struct is a transparent, `Copy` wrapper with a `pub(crate)` GcRef
 /// field so inherent-method `impl` blocks in the original modules can still
 /// access `.0`.
 pub fn gen_object_casts(outfile: &Path) {
-    let mut groups: std::collections::BTreeMap<&str, Vec<&ClassInfo>> =
+    let mut groups: std::collections::BTreeMap<&str, Vec<&BuiltinClassInfo>> =
         std::collections::BTreeMap::new();
-    for cdef in CLASS_DEF_LIST {
+    for cdef in BUILTIN_CLASS_DEF_LIST {
         if let Some(narrow) = cdef.narrow {
             groups.entry(narrow).or_default().push(cdef);
         }

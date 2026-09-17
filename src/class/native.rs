@@ -334,6 +334,8 @@ macro_rules! def_native_object {
                 def: $crate::def_native_object!(@build_cd $name, $proto_entries, $ctor, native
                     $(, extends: $extends_class)?),
                 class_id: std::sync::atomic::AtomicU16::new(0),
+
+                #[cfg(debug_assertions)]
                 payload_type_name: || None,
             };
         }
@@ -365,6 +367,8 @@ macro_rules! def_native_object {
                     $(, extends: $extends_class)?
                     , @wire_user_payload: $payload_ty),
                 class_id: std::sync::atomic::AtomicU16::new(0),
+
+                #[cfg(debug_assertions)]
                 payload_type_name: || Some(std::any::type_name::<$payload_ty>()),
             };
         }
@@ -583,7 +587,7 @@ mod tests {
 
         let cid = HostTest::class_id();
         assert_ne!(cid, 0, "host class id must be assigned during engine init");
-        assert!(cid >= crate::USER_CLASS_ID_START);
+        assert!(cid >= crate::HOST_CLASS_ID_START);
         assert_eq!(HostTest::class_name(), "HostTest");
 
         let cd = rt.class_def(cid).expect("host class def present");

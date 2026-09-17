@@ -28,6 +28,69 @@ pub(crate) fn user_atom_id_start() -> u32 {
     ATOM_CONST_COUNT + ATOM_HOST_CLASS_NAMES.get().map_or(0, |v| v.len() as u32) + 1
 }
 
+/// Build the initial host const table + `name -> id` map. A host class name
+/// duplicating a build-time const atom resolves to that const atom and is *not*
+/// stored in the host table (or two const atoms would share one content
+/// string). Duplicate host names are deduplicated.
+#[allow(clippy::type_complexity)]
+fn build_host_const_table(
+    names: &[&'static str],
+) -> (
+    Vec<(&'static str, AtomKind, u32)>,
+    HashMap<&'static str, u32>,
+) {
+    let mut table = Vec::new();
+    let mut id_map = HashMap::new();
+    let mut seen = HashSet::new();
+    for name in names {
+        if !seen.insert(*name) {
+            continue;
+        }
+
+        if let Some(a) = Atom::lookup_const(*name, AtomKind::String) {
+            id_map.insert(*name, a.id());
+            continue;
+        }
+
+        let id = ATOM_CONST_COUNT + table.len() as u32 + 1;
+        table.push((
+            *name,
+            AtomKind::String,
+            Atom::calc_atom_str_hash(*name, AtomKind::String),
+        ));
+        id_map.insert(*name, id);
+    }
+
+    (table, id_map)
+}
+
+/// Map class names to const atom ids against an existing host table: names in
+/// the table map to their host slot, names shadowed by a build-time const atom
+/// map to that const atom.
+fn host_class_name_map(
+    table: &[(&'static str, AtomKind, u32)],
+    names: &[&'static str],
+) -> HashMap<&'static str, u32> {
+    names
+        .iter()
+        .map(|&name| {
+            let id = table
+                .iter()
+                .enumerate()
+                .find(|(_, (n, _, _))| *n == name)
+                .map_or_else(
+                    || {
+                        Atom::lookup_const(name, AtomKind::String)
+                            .expect("host class name missing from host const table")
+                            .id()
+                    },
+                    |(i, _)| ATOM_CONST_COUNT + i as u32 + 1,
+                );
+            (name, id)
+        })
+        .collect()
+}
+
 /// Initialize host const atoms from the deduplicated host class names. Must
 /// run before any runtime starts. Text hashes mirror `calc_atom_str_hash` so
 /// minted descriptor hashes agree with the user-atom `hash_lut`. Returns the
@@ -35,36 +98,17 @@ pub(crate) fn user_atom_id_start() -> u32 {
 pub(crate) fn init_host_const_atoms(
     names: impl Iterator<Item = &'static str>,
 ) -> HashMap<&'static str, u32> {
-    if let Some(table) = ATOM_HOST_CLASS_NAMES.get() {
-        return table
-            .iter()
-            .enumerate()
-            .map(|(i, (name, _, _))| (*name, ATOM_CONST_COUNT + i as u32 + 1))
-            .collect();
-    }
-    let mut table = Vec::new();
-    let mut id_map = HashMap::new();
-    let mut seen = HashSet::new();
-    for name in names {
-        if seen.insert(name) {
-            let id = ATOM_CONST_COUNT + table.len() as u32 + 1;
-            table.push((
-                name,
-                AtomKind::String,
-                Atom::calc_atom_str_hash(name, AtomKind::String),
-            ));
-            id_map.insert(name, id);
+    let names: Vec<&'static str> = names.collect();
+    let (table, id_map) = build_host_const_table(&names);
+    match ATOM_HOST_CLASS_NAMES.set(table) {
+        Ok(()) => id_map,
+        Err(prev) => {
+            // Lost the first-call race (another runtime started concurrently):
+            // the winner's table holds the same host entries, and shadowed
+            // names (absent from both) still resolve via the const table.
+            host_class_name_map(&prev, &names)
         }
     }
-    if let Err(prev) = ATOM_HOST_CLASS_NAMES.set(table) {
-        // Lost the first-call race (another runtime started concurrently).
-        return prev
-            .iter()
-            .enumerate()
-            .map(|(i, (name, _, _))| (*name, ATOM_CONST_COUNT + i as u32 + 1))
-            .collect();
-    }
-    id_map
 }
 
 /// Resolve a host const atom by `(kind, content-vec)` from the host table
@@ -137,5 +181,30 @@ impl AtomInfo {
     #[inline(always)]
     pub const fn is_small_int(&self) -> bool {
         is_small_int_atom(self.id())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_const_atoms_shadow_buildtime_consts() {
+        // "Object"/"Symbol" duplicate build-time const atoms: they must reuse
+        // the const id, not mint shadowed host copies. "ZzFakeHost" is not a
+        // const nor a linkme-registered host class in test builds, so it must
+        // be minted as a fresh host const atom.
+        let (table, map) = build_host_const_table(&["Object", "Symbol", "ZzFakeHost", "ZzFakeHost"]);
+        assert_eq!(map["Object"], Atom::CONST_Object.id());
+        assert_eq!(map["Symbol"], Atom::CONST_Symbol.id());
+        let host_id = map["ZzFakeHost"];
+        assert!(host_id > ATOM_CONST_COUNT);
+        assert_eq!(map.len(), 3, "duplicate host names deduplicated");
+        assert_eq!(table.len(), 1, "shadowed names live outside the host table");
+
+        // Re-deriving the map from the stored table yields the same ids.
+        let re = host_class_name_map(&table, &["Object", "ZzFakeHost"]);
+        assert_eq!(re["Object"], Atom::CONST_Object.id());
+        assert_eq!(re["ZzFakeHost"], host_id);
     }
 }
