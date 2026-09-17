@@ -407,6 +407,16 @@ pub const fn js_atomics_pause(_ctx: &mut ScopedContext, _cc: CallContext) -> JSR
 // `Atomics.notify` wakes the waiters sharing that key. This allows agents
 // running in separate `Runtime`s (and therefore separate OS threads) to
 // synchronize through a `SharedArrayBuffer`.
+//
+// The registry itself is deliberately process-global: `Atomics.notify` in one
+// runtime/agent must reach waiters registered by another (same address space,
+// shared `Arc` backing — the ES spec's cross-agent wake semantics, exercised
+// by the test262 agent tests). Making it per-runtime would break that.
+//
+// What IS per-runtime is the *outstanding `waitAsync` count*
+// (`RuntimeImpl::atomics_wait_async_count`), so a `waitAsync` registered by
+// runtime A does not keep runtime B's event loop ticking. Waiters are
+// therefore associated with their owning runtime only via that shared count.
 
 type Waiter = Arc<(Mutex<bool>, Condvar)>;
 
@@ -468,19 +478,6 @@ fn drop_waiter(key: WaitKey, waiter: &Waiter) {
             map.remove(&key);
         }
     }
-}
-
-/// Number of outstanding `Atomics.waitAsync` waiters. Used by the agent
-/// harness's event loop as a `tick_handler` signal: while this is non-zero the
-/// loop keeps polling so the corresponding Promise can settle (driven by a
-/// worker thread) instead of being left pending.
-static WAIT_ASYNC_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-/// Returns `true` when there are outstanding `Atomics.waitAsync` waiters that
-/// have not yet settled. Used by host event loops to decide whether to keep
-/// polling.
-pub fn has_pending_wait_async() -> bool {
-    WAIT_ASYNC_COUNT.load(std::sync::atomic::Ordering::Relaxed) > 0
 }
 
 impl RuntimeImpl {
@@ -776,7 +773,12 @@ pub fn js_atomics_wait_async(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         .entry(key)
         .or_default()
         .push(waiter.clone());
-    WAIT_ASYNC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    // Per-runtime count (see the module comment): register this waiter on the
+    // owning runtime so only ITS tick handler reports pending work.
+    ctx.rt()
+        .atomics_wait_async_count
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     // q is already coerced via ToNumber(timeout). +0 / negative were handled
     // above (synchronous "timed-out"); here q > 0 or +Infinity.
@@ -790,6 +792,10 @@ pub fn js_atomics_wait_async(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
 
     let worker_key = key;
     let worker_waiter = waiter.clone();
+    // The worker runs on a detached OS thread and must decrement the count of
+    // the runtime that registered the waiter (it may outlive the runtime).
+    let wait_async_count = ctx.rt().atomics_wait_async_count.clone();
+
     std::thread::spawn(move || {
         let (lock, cvar) = &*worker_waiter;
         let mut guard = lock.lock().unwrap();
@@ -840,7 +846,7 @@ pub fn js_atomics_wait_async(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
         // unresolved and the test hanging on `$DONE() not called`.
         let val = if woken { "ok" } else { "timed-out" };
         let _ = tx.send(val);
-        WAIT_ASYNC_COUNT.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        wait_async_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     });
 
     result.define_property_value_str(

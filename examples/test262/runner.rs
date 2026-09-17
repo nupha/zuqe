@@ -9,7 +9,6 @@ use std::{
 };
 
 use url::Url;
-use zuqe::builtins::atomics::has_pending_wait_async;
 use zuqe::{
     CallContext, Callback, Context, EvalFlags, EvalName, EvalType, ExceptionText, JSResult,
     JSValue, ModuleDef, Runtime, ScopedContext,
@@ -456,16 +455,14 @@ pub async fn run_test_file(
 
     // SAFETY: ctx is used within this function and dropped before rt.
     let ctx = rt
-        .create_context(|ctx| {
-            ScopedContext::ECMA_CONTEXT_SETUP(ctx)?;
-            setup_ctx_test262_helpers(ctx)?;
+        .create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            setup_ctx_test262_helpers(cx)?;
             // Keep the async event loop ticking while an `Atomics.waitAsync`
             // Promise is pending (its worker thread settles it via notify or
             // timeout). Without this, `run_async` stops before the Promise
             // resolves and the test hangs.
-            ctx.add_tick_handler(|_ctx| {
-                has_pending_wait_async()
-            });
+            cx.add_tick_handler(|cx| cx.rt().has_pending_wait_async());
             Ok(())
         })
         .unwrap();

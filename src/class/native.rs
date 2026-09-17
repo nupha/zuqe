@@ -629,4 +629,36 @@ mod tests {
         })?;
         Ok(())
     }
+
+    /// 回归：class id 表在进程级 once 初始化，多个 runtime 必须看到一致的
+    /// static class def（builtin 与 host class 的 id/name 一致、class_count 一致）。
+    /// per-runtime 仅做动态扩展（zapi class defs），不重排静态表。
+    #[test]
+    fn class_defs_consistent_across_runtimes() -> Result<(), i32> {
+        let rt_a = Runtime::create()?;
+        let rt_b = Runtime::create()?;
+
+        assert_eq!(rt_a.class_count(), rt_b.class_count());
+
+        let cid = HostTest::class_id();
+        assert_eq!(rt_a.class_def(cid).map(|c| c.name), Some("HostTest"));
+        assert_eq!(
+            rt_a.class_def(cid).map(|c| c.name),
+            rt_b.class_def(cid).map(|c| c.name),
+            "host class def must be identical across runtimes"
+        );
+
+        for cid in [
+            crate::JS_CLASS_OBJECT,
+            crate::JS_CLASS_ARRAY,
+            crate::JS_CLASS_ARRAY_BUFFER,
+            crate::JS_CLASS_SHARED_ARRAY_BUFFER,
+        ] {
+            let a = rt_a.class_def(cid).map(|c| c.name);
+            let b = rt_b.class_def(cid).map(|c| c.name);
+            assert!(a.is_some(), "static class {cid} is registered");
+            assert_eq!(a, b, "static class {cid} def must agree across runtimes");
+        }
+        Ok(())
+    }
 }

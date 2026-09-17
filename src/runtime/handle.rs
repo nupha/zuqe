@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 #[cfg(not(debug_assertions))]
-use std::{cell::Cell, sync::Once};
+use std::sync::Once;
 use std::{
     cell::{RefCell, UnsafeCell},
     ops::{Deref, DerefMut},
@@ -48,10 +48,6 @@ fn scheduler_register(rt: &Runtime) {
 
 // ── Panic handler (release builds only) ────────────────────────────────
 
-#[cfg(not(debug_assertions))]
-thread_local! {
-    static PANIC_RUNTIME: Cell<*mut RuntimeImpl> = const { Cell::new(std::ptr::null_mut()) };
-}
 #[cfg(not(debug_assertions))]
 static PANIC_HOOK: Once = Once::new();
 
@@ -112,16 +108,24 @@ impl Runtime {
 
     #[cfg(not(debug_assertions))]
     pub fn install_panic_handler(&self) {
-        let rt_ptr = self.deref() as *const RuntimeImpl as *mut RuntimeImpl;
-        PANIC_RUNTIME.with(|cell| cell.set(rt_ptr));
-
         PANIC_HOOK.call_once(|| {
             let prev = std::panic::take_hook();
             std::panic::set_hook(Box::new(move |info| {
-                PANIC_RUNTIME.with(|cell| {
-                    if let Some(rt) = unsafe { cell.get().as_mut() } {
-                        unsafe {
-                            rt.panic_free_gc();
+                // Release builds abort on panic (`panic = "abort"`), so unwinding
+                // never runs and GC would otherwise leak. Free the GC of every
+                // live runtime on this thread instead of the single runtime that
+                // installed the hook. The thread-local scheduler holds weak refs
+                // to exactly the runtimes created on this thread, so other
+                // threads' runtimes are never touched. If the registry is
+                // mid-borrow (e.g. a panic during runtime creation) we skip the
+                // cleanup rather than double-panicking.
+                RUNTIMES.with(|rts| {
+                    if let Ok(rts) = rts.try_borrow() {
+                        for w in rts.iter() {
+                            if let Some(rc) = w.upgrade() {
+                                let p = rc.get();
+                                unsafe { (&mut *p).panic_free_gc() };
+                            }
                         }
                     }
                 });

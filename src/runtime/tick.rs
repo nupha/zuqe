@@ -74,7 +74,7 @@ impl<'c> ScopedContext<'c> {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub(super) enum TickStatus {
     /// This round made real progress: a job completed (Done/Err), a tick
     /// handler reported new work, or a oneshot job is still queued. The
@@ -270,6 +270,7 @@ mod tests {
     use crate::{
         JSValue, ScopedContext,
         builtins::promise::{Promise, PromiseResultSlot, PromiseState},
+        eval::{EvalFlags, EvalName, EvalType},
         runtime::Runtime,
     };
 
@@ -349,6 +350,138 @@ mod tests {
         drain(&mut rt);
 
         assert_eq!(promise.state(), PromiseState::Rejected);
+        Ok(())
+    }
+
+    /// 回归：`Atomics.waitAsync` 的 pending 计数是 per-runtime 的。
+    ///
+    /// 旧实现用进程级 `WAIT_ASYNC_COUNT`:A runtime 挂起的 waitAsync 会让
+    /// B runtime 的 tick handler 读到共享计数而持续返回 Progress（跨 runtime
+    /// 事件循环忙轮询）。现在每个 runtime 只看到自己的计数;而等待表本身保持
+    /// 进程级——B 里的 `Atomics.notify` 仍能唤醒 A 注册的 waiter（跨 agent
+    /// SAB 同步语义，配套 test262 的 agent 测试)。
+    #[cfg(feature = "builtin_atomic")]
+    #[test]
+    fn wait_async_pending_is_per_runtime() -> Result<(), i32> {
+        use std::sync::{Arc, RwLock};
+
+        use crate::builtins::array_buffer::ArrayBuffer;
+
+        let mut rt_a = Runtime::create()?;
+        let mut ctx_a = rt_a.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+        let mut rt_b = Runtime::create()?;
+        let mut ctx_b = rt_b.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        // Host pattern: keep polling while this runtime has an unsettled wait.
+        ctx_a.with_root_scope(|mut cx| {
+            cx.add_tick_handler(|cx| cx.rt().has_pending_wait_async());
+        });
+
+        // One shared backing Arc → both runtimes expose the "same" SAB bytes.
+        let shared: Arc<RwLock<Box<[u8]>>> = Arc::new(RwLock::new(vec![0u8; 4].into_boxed_slice()));
+        ctx_a.with_root_scope(|mut cx| {
+            let sab = ArrayBuffer::from_shared(&mut cx, shared.clone())?;
+            cx.global_obj()
+                .set_property_str(&mut cx, "__sab", sab.into())?;
+            Ok::<(), i32>(())
+        })?;
+        ctx_b.with_root_scope(|mut cx| {
+            let sab = ArrayBuffer::from_shared(&mut cx, shared)?;
+            cx.global_obj()
+                .set_property_str(&mut cx, "__sab", sab.into())?;
+            Ok::<(), i32>(())
+        })?;
+
+        // timeout = +Infinity → only `notify` can wake it.
+        ctx_a.eval(
+            b"Atomics.waitAsync(new Int32Array(__sab), 0, 0, Infinity)",
+            &EvalName::Name("a.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )?;
+
+        // Registered on A only — B must not see it.
+        assert!(rt_a.has_pending_wait_async());
+        assert!(!rt_b.has_pending_wait_async());
+
+        // B's loop stays idle; A's keeps polling while its waiter is pending.
+        assert_eq!(rt_b.tick(), TickStatus::Idle);
+        assert_eq!(rt_a.tick(), TickStatus::Progress);
+
+        // Cross-runtime notify: B wakes A's waiter (registry is process-global).
+        let woken = ctx_b.eval(
+            b"Atomics.notify(new Int32Array(__sab), 0)",
+            &EvalName::Name("b.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )?;
+        assert_eq!(woken.as_int(), Some(1), "B's notify wakes A's waiter");
+
+        // The worker eventually settles the wait and drops the per-runtime count.
+        for _ in 0..500 {
+            if !rt_a.has_pending_wait_async() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            rt_a.tick();
+        }
+        assert!(
+            !rt_a.has_pending_wait_async(),
+            "waitAsync waiter settled after cross-runtime notify"
+        );
+        drain(&mut rt_a);
+        assert_eq!(rt_a.tick(), TickStatus::Idle);
+        // Still no noise on B.
+        assert_eq!(rt_b.tick(), TickStatus::Idle);
+        Ok(())
+    }
+
+    /// 回归：interleaved tick 下 A 的 job/异常不会泄漏到 B，B 事件循环保持空闲。
+    #[test]
+    fn interleaved_tick_jobs_stay_in_own_runtime() -> Result<(), i32> {
+        let mut rt_a = Runtime::create()?;
+        let mut ctx_a = rt_a.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+        let mut rt_b = Runtime::create()?;
+        let mut ctx_b = rt_b.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        // A queues a multi-step chain plus a job that throws mid-chain.
+        ctx_a.eval(
+            br#"Promise.resolve(1)
+                .then(v => { globalThis.__marker = "a-worked"; return v + 1; })
+                .then(v => { throw new Error("boom"); })
+                .then(() => 0);"#,
+            &EvalName::Name("a.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )?;
+
+        // Interleave: B is polled between every A tick and must stay idle,
+        // never observing A's jobs or the exception A's loop swallows.
+        for _ in 0..50 {
+            assert_eq!(
+                rt_b.tick(),
+                TickStatus::Idle,
+                "B must stay idle while A's jobs run"
+            );
+            rt_a.tick();
+        }
+        drain(&mut rt_a);
+
+        let marker_a = ctx_a.eval(
+            b"globalThis.__marker === 'a-worked'",
+            &EvalName::Name("a.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )?;
+        assert_eq!(marker_a, JSValue::from(true), "A's chain ran inside A");
+        let marker_b = ctx_b.eval(
+            b"globalThis.__marker",
+            &EvalName::Name("b.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )?;
+        assert_eq!(marker_b, JSValue::UNDEFINED, "A's side effects stay in A");
+        assert_eq!(rt_b.tick(), TickStatus::Idle);
         Ok(())
     }
 }

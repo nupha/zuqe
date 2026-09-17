@@ -173,6 +173,15 @@ pub struct RuntimeImpl {
     /// test262's `CanBlockIsFalse` flag), and blocks otherwise.
     pub(crate) agent_can_suspend: bool,
 
+    /// Number of outstanding `Atomics.waitAsync` waiters registered by this
+    /// runtime and not yet settled. Per-runtime (was a process-global static):
+    /// a global count let a `waitAsync` in runtime A keep every other runtime's
+    /// tick handler polling (`cross-runtime interference`). It is an `Arc` so
+    /// the detached worker thread that settles the wait can decrement the count
+    /// of the runtime that registered the waiter after the runtime is gone.
+    #[cfg(feature = "builtin_atomic")]
+    pub(crate) atomics_wait_async_count: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+
     // ── zapi native extension state ──
     #[cfg(feature = "zapi")]
     pub(crate) zapi_next_serial: std::sync::atomic::AtomicI32,
@@ -347,6 +356,9 @@ impl RuntimeImpl {
 
             agent_can_suspend: true,
 
+            #[cfg(feature = "builtin_atomic")]
+            atomics_wait_async_count: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+
             #[cfg(feature = "async_support")]
             promise_future_registry: crate::builtins::promise::PromiseFutureRegistry::new(),
 
@@ -374,6 +386,18 @@ impl RuntimeImpl {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
+    }
+
+    /// Whether this runtime still has an outstanding `Atomics.waitAsync`
+    /// waiter that has not yet settled. Host event loops register a tick
+    /// handler returning this to keep polling while the worker thread resolves
+    /// the promise. Per-runtime: a `waitAsync` in one runtime never reports
+    /// pending work in another.
+    #[cfg(feature = "builtin_atomic")]
+    pub fn has_pending_wait_async(&self) -> bool {
+        self.atomics_wait_async_count
+            .load(std::sync::atomic::Ordering::Relaxed)
+            > 0
     }
 
     /// Total number of classes known to this runtime
