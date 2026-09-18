@@ -330,7 +330,8 @@ macro_rules! def_native_object {
         $crate::paste::paste! {
             #[doc(hidden)]
             #[allow(non_upper_case_globals)]
-            #[linkme::distributed_slice($crate::HOST_CLASS_DEFS)]
+            #[$crate::linkme::distributed_slice($crate::HOST_CLASS_DEFS)]
+            #[linkme(crate = $crate::linkme)]
             static [< $native_ty _DEF >]: $crate::HostClassDef = $crate::HostClassDef {
                 def: $crate::def_native_object!(@build_cd $name, $proto_entries, $ctor, native
                     $(, extends: $extends_class)?),
@@ -363,7 +364,8 @@ macro_rules! def_native_object {
         $crate::paste::paste! {
             #[doc(hidden)]
             #[allow(non_upper_case_globals)]
-            #[linkme::distributed_slice($crate::HOST_CLASS_DEFS)]
+            #[$crate::linkme::distributed_slice($crate::HOST_CLASS_DEFS)]
+            #[linkme(crate = $crate::linkme)]
             static [< $native_ty _DEF >]: $crate::HostClassDef = $crate::HostClassDef {
                 def: $crate::def_native_object!(@build_cd $name, $proto_entries, $ctor, native
                     $(, extends: $extends_class)?

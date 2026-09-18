@@ -37,9 +37,7 @@ mod zapi;
 pub use {
     array::Array,
     atom::Atom,
-    class::{
-        ClassCtorDef, ClassDef, ClassID, HOST_CLASS_DEFS, HostClassDef, NativeObject,
-    },
+    class::{ClassCtorDef, ClassDef, ClassID, HOST_CLASS_DEFS, HostClassDef, NativeObject},
     context::{Context, ContextImpl, ScopeResult, ScopedContext},
     error::{ErrCode, ErrorKind, Exception, ExceptionText, ExitStatus, JSResult},
     eval::{EvalFlags, EvalName, EvalType},
@@ -324,4 +322,6 @@ pub use async_sender::*;
 pub use paste;
 // re-export gc-lite
 pub use gc_lite;
-pub use gc_lite::GcTrace;
+// re-export linkme so downstream crates can use `def_native_object!`
+// without depending on linkme directly
+pub use linkme;
