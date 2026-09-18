@@ -329,6 +329,7 @@ macro_rules! def_native_object {
         // class_id is assigned at engine init (init_static_class_defs).
         $crate::paste::paste! {
             #[doc(hidden)]
+            #[allow(non_upper_case_globals)]
             #[linkme::distributed_slice($crate::HOST_CLASS_DEFS)]
             static [< $native_ty _DEF >]: $crate::HostClassDef = $crate::HostClassDef {
                 def: $crate::def_native_object!(@build_cd $name, $proto_entries, $ctor, native
@@ -361,6 +362,7 @@ macro_rules! def_native_object {
 
         $crate::paste::paste! {
             #[doc(hidden)]
+            #[allow(non_upper_case_globals)]
             #[linkme::distributed_slice($crate::HOST_CLASS_DEFS)]
             static [< $native_ty _DEF >]: $crate::HostClassDef = $crate::HostClassDef {
                 def: $crate::def_native_object!(@build_cd $name, $proto_entries, $ctor, native
