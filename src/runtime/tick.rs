@@ -94,9 +94,59 @@ pub(super) enum TickStatus {
     Idle,
 }
 
+/// Merge one runtime's tick outcome into the tree aggregate.
+fn merge_status(
+    st: TickStatus,
+    progress: &mut bool,
+    parked: &mut bool,
+    hint: &mut Option<Instant>,
+) {
+    match st {
+        TickStatus::Progress => *progress = true,
+        TickStatus::Park(h) => {
+            *parked = true;
+            if let Some(d) = h {
+                *hint = Some(hint.map_or(d, |x| x.min(d)));
+            }
+        }
+        TickStatus::Idle => {}
+    }
+}
+
 impl RuntimeImpl {
-    /// Run background jobs for one round.
+    /// Run background jobs for one round, including this runtime's children.
+    ///
+    /// The aggregate is the strongest outcome across the tree: `Progress` if
+    /// any runtime made progress, else `Park` (earliest reported deadline) if
+    /// any is blocked, else `Idle`. A root runtime's interrupt stops the whole
+    /// tree.
     pub(super) fn tick(&mut self) -> TickStatus {
+        let self_status = self.tick_self();
+
+        // A root interrupt (e.g. `process.exit`) stops the whole tree.
+        if !self.is_child && self.interrupt_code.is_some() {
+            return TickStatus::Idle;
+        }
+
+        let mut progress = false;
+        let mut parked = false;
+        let mut hint: Option<Instant> = None;
+        merge_status(self_status, &mut progress, &mut parked, &mut hint);
+        for child in self.children.iter_mut() {
+            merge_status(child.tick(), &mut progress, &mut parked, &mut hint);
+        }
+
+        if progress {
+            TickStatus::Progress
+        } else if parked {
+            TickStatus::Park(hint)
+        } else {
+            TickStatus::Idle
+        }
+    }
+
+    /// Run this runtime's own jobs for one round (no children).
+    fn tick_self(&mut self) -> TickStatus {
         let mut had_progress = false;
         let mut had_blocked = false;
         let mut hint: Option<Instant> = None;

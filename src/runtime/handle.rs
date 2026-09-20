@@ -92,6 +92,33 @@ impl Runtime {
         Ok(rt)
     }
 
+    /// Create a *child* runtime of `parent`: same as [`Runtime::create`] but
+    /// marked as a child (`is_root()` == false) and registered in
+    /// `parent.children` (strong). The child shares the parent's park state, so
+    /// a wake from the child (IO / deadline) wakes the parent's event loop.
+    /// The parent's `tick()` drives the child; the parent owns its lifetime —
+    /// call [`Runtime::remove_child`] to detach it.
+    pub fn create_child(parent: &Runtime) -> Result<Runtime, i32> {
+        let rt = Self::create()?;
+        {
+            let inner = unsafe { &mut *rt.0.get() };
+            inner.is_child = true;
+            inner.park = parent.park.clone();
+        }
+        unsafe {
+            (*parent.0.get()).children.push(rt.clone());
+        }
+        Ok(rt)
+    }
+
+    /// Detach `child` from this runtime's children (by identity). The child is
+    /// dropped once all other handles are gone. No-op if not a child here.
+    pub fn remove_child(&self, child: &Runtime) {
+        unsafe {
+            (*self.0.get()).children.retain(|c| !Self::ptr_eq(c, child));
+        }
+    }
+
     /// Wrap an existing `Rc<RuntimeImpl>` into a `Runtime` handle.
     /// Used by the scheduler to create handles from upgraded `Weak` refs.
     pub(crate) const fn from_inner(inner: Rc<UnsafeCell<RuntimeImpl>>) -> Self {

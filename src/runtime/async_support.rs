@@ -18,7 +18,7 @@ pub struct RunFuture<'rt> {
 }
 
 impl<'rt> RunFuture<'rt> {
-    pub const fn new(rt: &'rt mut Runtime) -> Self {
+    const fn new(rt: &'rt mut Runtime) -> Self {
         Self { rt }
     }
 }
@@ -62,6 +62,11 @@ fn tick_all_to_idle() {
             for w in rts.iter() {
                 let Some(rt) = w.upgrade() else { continue };
                 let rt = unsafe { &mut *rt.get() };
+                // Children are driven by their parent's `tick()`; only roots
+                // are ticked here (avoids double-ticking the tree).
+                if rt.is_child() {
+                    continue;
+                }
                 if matches!(rt.tick(), TickStatus::Progress) {
                     had_progress = true;
                 }
@@ -116,7 +121,8 @@ impl futures_util::Stream for JoinEachFuture {
                     let Some(rc) = w.upgrade() else { continue };
                     let rt = unsafe { &mut *rc.get() };
 
-                    if rt.join_state == JoinState::Yielded {
+                    // Children are driven by their parent; join tracks roots.
+                    if rt.is_child() || rt.join_state == JoinState::Yielded {
                         continue;
                     }
 
@@ -150,6 +156,9 @@ impl futures_util::Stream for JoinEachFuture {
             for w in rts.iter() {
                 let Some(rc) = w.upgrade() else { continue };
                 let rt = unsafe { &mut *rc.get() };
+                if rt.is_child() {
+                    continue;
+                }
                 if rt.join_state == JoinState::Idle {
                     rt.join_state = JoinState::Yielded;
                     let es = exit_status_of(rt);
@@ -163,11 +172,13 @@ impl futures_util::Stream for JoinEachFuture {
             return Poll::Ready(Some(item));
         }
 
-        // Check if all live runtimes are yielded.
+        // Check if all live *root* runtimes are yielded.
         let all_done = RUNTIMES.with(|rts| {
             rts.borrow().iter().all(|w| {
-                w.upgrade()
-                    .is_none_or(|rc| unsafe { (*rc.get()).join_state == JoinState::Yielded })
+                w.upgrade().is_none_or(|rc| {
+                    let rt = unsafe { &*rc.get() };
+                    rt.is_child() || rt.join_state == JoinState::Yielded
+                })
             })
         });
 

@@ -203,6 +203,17 @@ pub struct RuntimeImpl {
     // ── MULTI-RUNTIME JOIN ──
     //
     pub(crate) join_state: JoinState,
+
+    /// Role marker: `true` for a child runtime (created via
+    /// [`Runtime::create_child`](super::Runtime::create_child)), `false` for a
+    /// root runtime. Hosts use it to gate process/thread-global features
+    /// (signals, process exit, terminal control, ...) that must not run in a
+    /// child runtime.
+    pub(crate) is_child: bool,
+    /// Child runtimes of this runtime, held **strongly** — the tree is the only
+    /// strong owner of a child (`RUNTIMES` holds weak refs). Children are ticked
+    /// from this runtime's `tick()`; a runtime with children is a root.
+    pub(crate) children: Vec<super::Runtime>,
 }
 
 /// State of a runtime within a [`JoinNextFuture`](super::JoinNextFuture) stream.
@@ -380,6 +391,8 @@ impl RuntimeImpl {
             host_promise_rejection_tracker: None,
 
             join_state: JoinState::Active,
+            is_child: false,
+            children: Vec::new(),
         };
 
         rt.refresh_stack_top();
@@ -393,6 +406,20 @@ impl RuntimeImpl {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
+    }
+
+    /// Whether this is a root runtime (`Runtime::create`), as opposed to a
+    /// child runtime (`Runtime::create_child`). Marker only — tick/GC are
+    /// unaffected. Hosts gate process/thread-global features on this.
+    #[inline(always)]
+    pub const fn is_root(&self) -> bool {
+        !self.is_child
+    }
+
+    /// Whether this is a child runtime created via `Runtime::create_child`.
+    #[inline(always)]
+    pub const fn is_child(&self) -> bool {
+        self.is_child
     }
 
     /// Whether this runtime still has an outstanding `Atomics.waitAsync`

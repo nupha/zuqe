@@ -680,6 +680,7 @@ impl<'c> Context<'c> {
                 // would drop it and swallow the rejection (exit 0, no output).
                 let rt_fut = std::pin::pin!(rt.run_async());
                 let script_fut = std::pin::pin!(fut);
+
                 match futures_util::future::select(rt_fut, script_fut).await {
                     // Loop stopped first (or interrupted); observe the promise now.
                     futures_util::future::Either::Left((rt_res, script_fut)) => {
@@ -689,17 +690,25 @@ impl<'c> Context<'c> {
                             rt_res
                         } else {
                             match script_fut.await {
-                                Ok(_) => rt_res,
+                                // Surface the completion value the loop drained
+                                // before observing — the loop's own placeholder
+                                // `Value(UNDEFINED)` must not shadow it.
+                                Ok(v) => ExitStatus::Value(v),
                                 // Top-level module error -> uncaught exception.
                                 Err(reason) => ExitStatus::Exception(Exception::Error(reason)),
                             }
                         }
                     }
+
                     // Promise settled first; keep draining the loop (unless it's a
                     // rejection, which terminates the process regardless of timers).
                     futures_util::future::Either::Right((promise_res, rt_fut)) => match promise_res
                     {
-                        Ok(_) => rt_fut.await,
+                        Ok(v) => match rt_fut.await {
+                            // An interrupt during the drain still wins.
+                            ExitStatus::Interrupted(code) => ExitStatus::Interrupted(code),
+                            _ => ExitStatus::Value(v),
+                        },
                         Err(reason) => ExitStatus::Exception(Exception::Error(reason)),
                     },
                 }
