@@ -62,11 +62,10 @@ fn tick_all_to_idle() {
             for w in rts.iter() {
                 let Some(rt) = w.upgrade() else { continue };
                 let rt = unsafe { &mut *rt.get() };
-                // Children are driven by their parent's `tick()`; only roots
-                // are ticked here (avoids double-ticking the tree).
-                if rt.is_child() {
-                    continue;
-                }
+                // Children are driven by their parent's `tick()`, never here.
+                #[cfg(feature = "child_runtime")]
+                debug_assert!(rt.is_root(), "RUNTIMES holds roots only");
+
                 if matches!(rt.tick(), TickStatus::Progress) {
                     had_progress = true;
                 }
@@ -122,7 +121,10 @@ impl futures_util::Stream for JoinEachFuture {
                     let rt = unsafe { &mut *rc.get() };
 
                     // Children are driven by their parent; join tracks roots.
-                    if rt.is_child() || rt.join_state == JoinState::Yielded {
+                    #[cfg(feature = "child_runtime")]
+                    debug_assert!(rt.is_root(), "RUNTIMES holds roots only");
+
+                    if rt.join_state == JoinState::Yielded {
                         continue;
                     }
 
@@ -156,9 +158,9 @@ impl futures_util::Stream for JoinEachFuture {
             for w in rts.iter() {
                 let Some(rc) = w.upgrade() else { continue };
                 let rt = unsafe { &mut *rc.get() };
-                if rt.is_child() {
-                    continue;
-                }
+                #[cfg(feature = "child_runtime")]
+                debug_assert!(rt.is_root(), "RUNTIMES holds roots only");
+
                 if rt.join_state == JoinState::Idle {
                     rt.join_state = JoinState::Yielded;
                     let es = exit_status_of(rt);
@@ -177,7 +179,10 @@ impl futures_util::Stream for JoinEachFuture {
             rts.borrow().iter().all(|w| {
                 w.upgrade().is_none_or(|rc| {
                     let rt = unsafe { &*rc.get() };
-                    rt.is_child() || rt.join_state == JoinState::Yielded
+                    #[cfg(feature = "child_runtime")]
+                    debug_assert!(rt.is_root(), "RUNTIMES holds roots only");
+
+                    rt.join_state == JoinState::Yielded
                 })
             })
         });

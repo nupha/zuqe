@@ -209,10 +209,12 @@ pub struct RuntimeImpl {
     /// root runtime. Hosts use it to gate process/thread-global features
     /// (signals, process exit, terminal control, ...) that must not run in a
     /// child runtime.
+    #[cfg(feature = "child_runtime")]
     pub(crate) is_child: bool,
     /// Child runtimes of this runtime, held **strongly** — the tree is the only
-    /// strong owner of a child (`RUNTIMES` holds weak refs). Children are ticked
-    /// from this runtime's `tick()`; a runtime with children is a root.
+    /// strong owner of a child (`RUNTIMES` tracks roots only). Children are
+    /// ticked from this runtime's `tick()`; a runtime with children is a root.
+    #[cfg(feature = "child_runtime")]
     pub(crate) children: Vec<super::Runtime>,
 }
 
@@ -391,7 +393,9 @@ impl RuntimeImpl {
             host_promise_rejection_tracker: None,
 
             join_state: JoinState::Active,
+            #[cfg(feature = "child_runtime")]
             is_child: false,
+            #[cfg(feature = "child_runtime")]
             children: Vec::new(),
         };
 
@@ -411,12 +415,14 @@ impl RuntimeImpl {
     /// Whether this is a root runtime (`Runtime::create`), as opposed to a
     /// child runtime (`Runtime::create_child`). Marker only — tick/GC are
     /// unaffected. Hosts gate process/thread-global features on this.
+    #[cfg(feature = "child_runtime")]
     #[inline(always)]
     pub const fn is_root(&self) -> bool {
         !self.is_child
     }
 
     /// Whether this is a child runtime created via `Runtime::create_child`.
+    #[cfg(feature = "child_runtime")]
     #[inline(always)]
     pub const fn is_child(&self) -> bool {
         self.is_child

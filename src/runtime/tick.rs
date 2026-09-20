@@ -95,6 +95,7 @@ pub(super) enum TickStatus {
 }
 
 /// Merge one runtime's tick outcome into the tree aggregate.
+#[cfg(feature = "child_runtime")]
 fn merge_status(
     st: TickStatus,
     progress: &mut bool,
@@ -120,6 +121,7 @@ impl RuntimeImpl {
     /// any runtime made progress, else `Park` (earliest reported deadline) if
     /// any is blocked, else `Idle`. A root runtime's interrupt stops the whole
     /// tree.
+    #[cfg(feature = "child_runtime")]
     pub(super) fn tick(&mut self) -> TickStatus {
         let self_status = self.tick_self();
 
@@ -143,6 +145,13 @@ impl RuntimeImpl {
         } else {
             TickStatus::Idle
         }
+    }
+
+    /// Without the `child_runtime` feature there is no tree: one round of this
+    /// runtime's own jobs.
+    #[cfg(not(feature = "child_runtime"))]
+    pub(super) fn tick(&mut self) -> TickStatus {
+        self.tick_self()
     }
 
     /// Run this runtime's own jobs for one round (no children).

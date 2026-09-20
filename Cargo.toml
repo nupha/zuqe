@@ -19,6 +19,7 @@ serde_json_support = ["serde_json"]
 zapi = ["zuqe_zapi", "libloading"]
 quantum_poll = []
 persistent = []
+child_runtime = []
 
 builtin_proxy = []
 builtin_atomic = []

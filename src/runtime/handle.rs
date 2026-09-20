@@ -17,11 +17,12 @@ use crate::{
 
 // ── Thread-local scheduler ─────────────────────────────────────────────
 //
-// Every Runtime created on the current thread is registered here as a
-// Weak reference. This avoids preventing RuntimeImpl from being dropped
-// when all user handles are gone. `Runtime::tick_all()` upgrades and
-// iterates all live runtimes, skipping dead weak refs.
-
+// Every *root* Runtime created on the current thread is registered here as a
+// Weak reference. Child runtimes (see `Runtime::create_child`) are deliberately
+// absent: they are driven by their parent's `tick()`. This avoids preventing
+// RuntimeImpl from being dropped when all user handles are gone, and lets the
+// scheduler iterate roots without filtering children. Dead weak refs are
+// skipped on upgrade.
 thread_local! {
     pub(crate) static RUNTIMES: RefCell<Vec<Weak<UnsafeCell<RuntimeImpl>>>> = const { RefCell::new(Vec::new()) };
 }
@@ -78,8 +79,10 @@ impl Runtime {
     /// budget, e.g. 512 KiB, unless they want unbounded recursion to crash.
     pub const CAN_AUTO_STACK_BUDGET: bool = crate::utils::STACK_BOTTOM_QUERYABLE;
 
-    /// Create a runtime and register it in the current thread's scheduler.
-    pub fn create() -> Result<Runtime, i32> {
+    /// Build a runtime, optionally registering it in the current thread's
+    /// scheduler. Roots register (so `join_each`/`tick_all_to_idle` see them);
+    /// children do not — they are driven by their parent's `tick()`.
+    fn create_inner() -> Result<Runtime, i32> {
         let rt = Rc::new(UnsafeCell::new(RuntimeImpl::new()?));
 
         let rt_ptr = rt.get();
@@ -87,7 +90,12 @@ impl Runtime {
             (*rt.get()).gc_heap_mut().set_opaque(rt_ptr.cast());
         }
 
-        let rt = Self(rt);
+        Ok(Self(rt))
+    }
+
+    /// Create a runtime and register it in the current thread's scheduler.
+    pub fn create() -> Result<Runtime, i32> {
+        let rt = Self::create_inner()?;
         scheduler_register(&rt);
         Ok(rt)
     }
@@ -98,8 +106,10 @@ impl Runtime {
     /// a wake from the child (IO / deadline) wakes the parent's event loop.
     /// The parent's `tick()` drives the child; the parent owns its lifetime —
     /// call [`Runtime::remove_child`] to detach it.
+    #[cfg(feature = "child_runtime")]
     pub fn create_child(parent: &Runtime) -> Result<Runtime, i32> {
-        let rt = Self::create()?;
+        // Not registered in `RUNTIMES`: the parent's `tick()` drives it.
+        let rt = Self::create_inner()?;
         {
             let inner = unsafe { &mut *rt.0.get() };
             inner.is_child = true;
@@ -113,6 +123,7 @@ impl Runtime {
 
     /// Detach `child` from this runtime's children (by identity). The child is
     /// dropped once all other handles are gone. No-op if not a child here.
+    #[cfg(feature = "child_runtime")]
     pub fn remove_child(&self, child: &Runtime) {
         unsafe {
             (*self.0.get()).children.retain(|c| !Self::ptr_eq(c, child));
@@ -148,10 +159,21 @@ impl Runtime {
                 // cleanup rather than double-panicking.
                 RUNTIMES.with(|rts| {
                     if let Ok(rts) = rts.try_borrow() {
-                        for w in rts.iter() {
-                            if let Some(rc) = w.upgrade() {
-                                let p = rc.get();
-                                unsafe { (&mut *p).panic_free_gc() };
+                        // Roots, plus every descendant (children are not in the
+                        // root-only registry). Hold the handles so each runtime
+                        // stays alive while its GC is freed.
+                        let mut stack: Vec<Runtime> = rts
+                            .iter()
+                            .filter_map(|w| w.upgrade())
+                            .map(Runtime::from_inner)
+                            .collect();
+                        while let Some(rt) = stack.pop() {
+                            let p = rt.0.get();
+                            unsafe { (&mut *p).panic_free_gc() };
+                            #[cfg(feature = "child_runtime")]
+                            {
+                                let children = unsafe { (&*p).children.clone() };
+                                stack.extend(children);
                             }
                         }
                     }
