@@ -109,18 +109,30 @@ impl Runtime {
         Ok(rt)
     }
 
-    /// Create a *child* runtime of `parent`: same as [`Runtime::create`] but
-    /// marked as a child (`is_root()` == false) and registered in
-    /// `parent.children` (strong). The child shares the parent's park state, so
-    /// a wake from the child (IO / deadline) wakes the parent's event loop.
-    /// The parent's `tick()` drives the child; the parent owns its lifetime —
-    /// call [`Runtime::remove_child`] to detach it.
+    /// Create a *child* runtime of `parent` with the default [`NoUserState`].
+    /// See [`Runtime::create_child_with`] for the rest
+    /// (`Runtime::create_child_with(parent, NoUserState)`).
     #[cfg(feature = "child_runtime")]
     pub fn create_child(parent: &Runtime) -> Result<Runtime, i32> {
-        // Not registered in `RUNTIMES`: the parent's `tick()` drives it. A child
-        // gets the default `NoUserState` (the parent's state is a single owned
-        // box and cannot be shared); use `Runtime::create_with` for a stateful root.
-        let rt = Self::create_inner(Box::new(NoUserState))?;
+        Self::create_child_with(parent, NoUserState)
+    }
+
+    /// Create a *child* runtime of `parent` carrying host-defined `state`:
+    /// same as [`Runtime::create`] but marked as a child (`is_root()` == false)
+    /// and registered in `parent.children` (strong). The child shares the
+    /// parent's park state, so a wake from the child (IO / deadline) wakes the
+    /// parent's event loop. The parent's `tick()` drives the child; the parent
+    /// owns its lifetime — call [`Runtime::remove_child`] to detach it.
+    ///
+    /// The child's state is its own box (the parent's cannot be shared); use
+    /// this when per-runtime host state must exist in children too.
+    #[cfg(feature = "child_runtime")]
+    pub fn create_child_with<S: RuntimeUserState>(
+        parent: &Runtime,
+        state: S,
+    ) -> Result<Runtime, i32> {
+        // Not registered in `RUNTIMES`: the parent's `tick()` drives it.
+        let rt = Self::create_inner(Box::new(state))?;
         {
             let inner = unsafe { &mut *rt.0.get() };
             inner.is_child = true;
