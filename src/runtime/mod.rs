@@ -9,7 +9,7 @@ mod tick;
 pub use {
     handle::Runtime,
     park::{DeadlineWaker, WakeHandle},
-    rt::RuntimeImpl,
+    rt::{NoUserState, RuntimeImpl, RuntimeUserState},
 };
 
 pub(crate) use {handle::RuntimePtr, park::ParkState, rt::*};

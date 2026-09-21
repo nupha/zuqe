@@ -12,7 +12,7 @@ use std::{
 
 use crate::{
     error::Exception,
-    runtime::{RuntimeImpl, tick::TickStatus},
+    runtime::{NoUserState, RuntimeImpl, RuntimeUserState, tick::TickStatus},
 };
 
 // ── Thread-local scheduler ─────────────────────────────────────────────
@@ -82,8 +82,8 @@ impl Runtime {
     /// Build a runtime, optionally registering it in the current thread's
     /// scheduler. Roots register (so `join_each`/`tick_all_to_idle` see them);
     /// children do not — they are driven by their parent's `tick()`.
-    fn create_inner() -> Result<Runtime, i32> {
-        let rt = Rc::new(UnsafeCell::new(RuntimeImpl::new()?));
+    fn create_inner(user_state: Box<dyn RuntimeUserState>) -> Result<Runtime, i32> {
+        let rt = Rc::new(UnsafeCell::new(RuntimeImpl::new(user_state)?));
 
         let rt_ptr = rt.get();
         unsafe {
@@ -93,9 +93,18 @@ impl Runtime {
         Ok(Self(rt))
     }
 
-    /// Create a runtime and register it in the current thread's scheduler.
+    /// Create a runtime with the default [`NoUserState`], and register it in the
+    /// current thread's scheduler.
     pub fn create() -> Result<Runtime, i32> {
-        let rt = Self::create_inner()?;
+        Self::create_with(NoUserState)
+    }
+
+    /// Create a runtime carrying host-defined `state`, and register it in the
+    /// current thread's scheduler. The state is fixed at creation — there is no
+    /// setter afterwards; access it via
+    /// [`RuntimeImpl::user_state`](crate::RuntimeImpl::user_state).
+    pub fn create_with<S: RuntimeUserState>(state: S) -> Result<Runtime, i32> {
+        let rt = Self::create_inner(Box::new(state))?;
         scheduler_register(&rt);
         Ok(rt)
     }
@@ -108,8 +117,10 @@ impl Runtime {
     /// call [`Runtime::remove_child`] to detach it.
     #[cfg(feature = "child_runtime")]
     pub fn create_child(parent: &Runtime) -> Result<Runtime, i32> {
-        // Not registered in `RUNTIMES`: the parent's `tick()` drives it.
-        let rt = Self::create_inner()?;
+        // Not registered in `RUNTIMES`: the parent's `tick()` drives it. A child
+        // gets the default `NoUserState` (the parent's state is a single owned
+        // box and cannot be shared); use `Runtime::create_with` for a stateful root.
+        let rt = Self::create_inner(Box::new(NoUserState))?;
         {
             let inner = unsafe { &mut *rt.0.get() };
             inner.is_child = true;

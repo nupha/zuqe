@@ -50,7 +50,7 @@ pub use {
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_WRITABLE, Object,
         drop_payload_fn, user_payload_trace,
     },
-    runtime::{DeadlineWaker, Runtime, RuntimeImpl, WakeHandle},
+    runtime::{DeadlineWaker, NoUserState, Runtime, RuntimeImpl, RuntimeUserState, WakeHandle},
     value::JSValue,
 };
 

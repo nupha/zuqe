@@ -207,6 +207,9 @@ impl RuntimeImpl {
             #[cfg(feature = "async_support")]
             self.promise_future_registry.trace_all(&mut gcx);
 
+            // mark the host user state attached at runtime creation
+            self.user_state.trace(&mut gcx);
+
             gcx.take_nodes()
         };
 

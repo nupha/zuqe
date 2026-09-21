@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, ffi::c_void, process::ExitCode, sync::Arc};
+use std::{any::Any, cell::Cell, ffi::c_void, process::ExitCode, sync::Arc};
 
-#[cfg(feature = "builtin_weakref")]
-use gc_lite::GcTrace;
-use gc_lite::{GcHeap, GcPartitionId, GcTraceFn};
+use gc_lite::{GcHeap, GcPartitionId, GcTrace, GcTraceCtx, GcTraceFn};
 
 use crate::{
     atom::{Atom, AtomInfo, AtomKind, AtomRegistry, JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL},
@@ -56,6 +54,33 @@ fn default_sab_funcs() -> JSSharedArrayBufferFunctions {
 /// interrupt returns true to break execution
 pub trait InterruptFn: Fn(&RuntimeImpl) -> bool {}
 impl<C> InterruptFn for C where C: Fn(&RuntimeImpl) -> bool {}
+
+/// Host-defined per-runtime state, attached once at creation via
+/// [`Runtime::create_with`](super::Runtime::create_with) and accessed through
+/// [`RuntimeImpl::user_state`] / [`RuntimeImpl::user_state_mut`].
+///
+/// The state participates in GC: every `gc_collect_in` traces it, so a host
+/// state that holds `JSValue`s must implement [`GcTrace`] to mark them (a
+/// state with no GC references can use an empty `trace`).
+///
+/// There is deliberately **no blanket impl**: requiring an explicit
+/// `impl RuntimeUserState for MyState {}` means `user_state::<T>()` only
+/// accepts the host's registered state types, rejecting arbitrary/mistyped `T`
+/// at compile time. The concrete type is still erased in storage, so a call
+/// that names a *different* registered type is caught by `debug_assert!` in
+/// debug builds and by the downcast in release.
+pub trait RuntimeUserState: Any + GcTrace {}
+
+/// Placeholder state for runtimes created without host state
+/// ([`Runtime::create`](super::Runtime::create)). Holds no GC references.
+pub struct NoUserState;
+
+impl GcTrace for NoUserState {
+    #[inline(always)]
+    fn trace(&self, _: &mut GcTraceCtx) {}
+}
+
+impl RuntimeUserState for NoUserState {}
 
 pub struct RuntimeImpl {
     /// atom registry
@@ -216,6 +241,22 @@ pub struct RuntimeImpl {
     /// ticked from this runtime's `tick()`; a runtime with children is a root.
     #[cfg(feature = "child_runtime")]
     pub(crate) children: Vec<super::Runtime>,
+
+    /// Host-provided user state. Fixed at creation; the box is owned by the
+    /// runtime and dropped with it. The object itself may still be mutated
+    /// through [`RuntimeImpl::user_state_mut`].
+    pub(crate) user_state: Box<dyn RuntimeUserState>,
+    /// Concrete type of `user_state`, recorded only in debug builds so a
+    /// mismatched `user_state::<T>()` fails as early as possible with a clear
+    /// message. Not stored in release (the downcast still guards it).
+    #[cfg(debug_assertions)]
+    pub(crate) user_state_type: std::any::TypeId,
+}
+
+impl Drop for RuntimeImpl {
+    fn drop(&mut self) {
+        self.finalize();
+    }
 }
 
 /// State of a runtime within a [`JoinNextFuture`](super::JoinNextFuture) stream.
@@ -228,13 +269,6 @@ pub(crate) enum JoinState {
     /// Already yielded to the caller.
     Yielded = 2,
 }
-
-impl Drop for RuntimeImpl {
-    fn drop(&mut self) {
-        self.finalize();
-    }
-}
-
 impl RuntimeImpl {
     /// Clonable handle for external producers (IO threads / tokio tasks) to
     /// wake a parked event loop — call `wake()` after pushing new work into a
@@ -311,7 +345,14 @@ impl RuntimeImpl {
         *self.park.deadline_waker.lock().unwrap() = Some(waker);
     }
 
-    pub(super) fn new() -> Result<Self, i32> {
+    pub(super) fn new(user_state: Box<dyn RuntimeUserState>) -> Result<Self, i32> {
+        // Record the concrete state type before the box is moved into the struct.
+        #[cfg(debug_assertions)]
+        let user_state_type = {
+            let any: &dyn Any = user_state.as_ref();
+            any.type_id()
+        };
+
         // create gc heap and partition for this runtime
         let mut gc_heap = GcHeap::new(&GC_TYPE_REGISTRY);
         gc_heap.set_memory_limit(0); // no memory limit
@@ -397,6 +438,10 @@ impl RuntimeImpl {
             is_child: false,
             #[cfg(feature = "child_runtime")]
             children: Vec::new(),
+
+            user_state,
+            #[cfg(debug_assertions)]
+            user_state_type,
         };
 
         rt.refresh_stack_top();
@@ -410,6 +455,37 @@ impl RuntimeImpl {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
+    }
+
+    /// Borrow the host state attached at creation.
+    ///
+    /// `T` must be the exact type passed to
+    /// [`Runtime::create_with`](super::Runtime::create_with). Debug builds trip
+    /// a `debug_assert!` on mismatch; release builds panic from the downcast.
+    pub fn user_state<T: RuntimeUserState>(&self) -> &T {
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            self.user_state_type,
+            std::any::TypeId::of::<T>(),
+            "user_state type mismatch: requested {}",
+            std::any::type_name::<T>()
+        );
+        let any: &dyn Any = self.user_state.as_ref();
+        any.downcast_ref::<T>().expect("user_state type mismatch")
+    }
+
+    /// Mutably borrow the host state attached at creation. The state object can
+    /// be mutated, but the slot itself is fixed at creation (no setter).
+    pub fn user_state_mut<T: RuntimeUserState>(&mut self) -> &mut T {
+        #[cfg(debug_assertions)]
+        debug_assert_eq!(
+            self.user_state_type,
+            std::any::TypeId::of::<T>(),
+            "user_state type mismatch: requested {}",
+            std::any::type_name::<T>()
+        );
+        let any: &mut dyn Any = self.user_state.as_mut();
+        any.downcast_mut::<T>().expect("user_state type mismatch")
     }
 
     /// Whether this is a root runtime (`Runtime::create`), as opposed to a
@@ -683,4 +759,31 @@ pub(crate) fn js_check_stack_overflow(rt: &RuntimeImpl, alloca_size: usize) -> b
     // hot path only compares.
     let sp = js_get_stack_pointer() - alloca_size;
     rt.stack_limit > 0 && sp < rt.stack_limit
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct HostState {
+        n: i32,
+    }
+    impl GcTrace for HostState {
+        fn trace(&self, _: &mut GcTraceCtx) {}
+    }
+    impl RuntimeUserState for HostState {}
+
+    #[test]
+    fn user_state_roundtrip() {
+        let mut rt = crate::Runtime::create_with(HostState { n: 7 }).unwrap();
+        assert_eq!(rt.user_state::<HostState>().n, 7);
+        rt.user_state_mut::<HostState>().n = 9;
+        assert_eq!(rt.user_state::<HostState>().n, 9);
+    }
+
+    #[test]
+    fn default_user_state() {
+        let rt = crate::Runtime::create().unwrap();
+        let _: &NoUserState = rt.user_state::<NoUserState>();
+    }
 }
