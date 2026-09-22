@@ -8,5 +8,5 @@ description = "Zapi — EventEmitter demo using the zq_* macros (no raw FFI)"
 crate-type = ["cdylib"]
 
 [dependencies]
-zuqe_zapi = { version = "0.2" }
-zuqe_zapi_macros = { version = "0.2" }
+zuqe_zapi = { version = "0.3" }
+zuqe_zapi_macros = { version = "0.3" }

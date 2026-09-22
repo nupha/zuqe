@@ -108,7 +108,7 @@ log = "0.4"
 futures-util = { version = "0.3", optional = true }
 crossbeam = { version = "0.8", optional = true }
 serde_json = { version = "1.0", optional = true }
-zuqe_zapi = { version = "0.2", optional = true }
+zuqe_zapi = { version = "0.3", optional = true }
 libloading = { version = "0.9", optional = true }
 
 [build-dependencies]

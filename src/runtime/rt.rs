@@ -223,6 +223,12 @@ pub struct RuntimeImpl {
     /// `gc_trace_fns` survives this Vec's growth; freed when the runtime drops.
     #[cfg(feature = "zapi")]
     pub(crate) zapi_gc_tracers: Vec<Box<crate::zapi::ZapiGcTracer>>,
+    /// Runtime-finalize hooks of the zapi modules imported into this runtime
+    /// (deduped by pointer). Called once each, in reverse import order, at the
+    /// end of `finalize()` so extensions can release runtime-scoped native
+    /// state after the GC heap is gone. See `ZqModuleInfo::runtime_finalize`.
+    #[cfg(feature = "zapi")]
+    pub(crate) zapi_module_finalizers: Vec<unsafe extern "C" fn(*mut zuqe_zapi::ffi::ZqRuntime)>,
 
     //
     // ── MULTI-RUNTIME JOIN ──
@@ -429,6 +435,8 @@ impl RuntimeImpl {
             zapi_class_defs: Vec::new(),
             #[cfg(feature = "zapi")]
             zapi_gc_tracers: Vec::new(),
+            #[cfg(feature = "zapi")]
+            zapi_module_finalizers: Vec::new(),
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,
@@ -716,6 +724,20 @@ impl RuntimeImpl {
             gc_lite::GcHeap::sweep_drop_payloads(&link, registry);
 
             self.gc_heap_mut().dealloc_partition(pid, link);
+        }
+
+        // zapi module runtime-finalize: the GC heap is gone and no trace
+        // callback can run again, so extensions can safely release their
+        // runtime-scoped native state (thread_locals, boxed GC-trace opaques).
+        // Reverse import order (LIFO, like destructors). The callback must not
+        // call any JS API.
+        #[cfg(feature = "zapi")]
+        {
+            let finalizers = std::mem::take(&mut self.zapi_module_finalizers);
+            let rt = self as *mut RuntimeImpl as *mut zuqe_zapi::ffi::ZqRuntime;
+            for f in finalizers.into_iter().rev() {
+                unsafe { f(rt) };
+            }
         }
     }
     /// Process pending FinalizationRegistry cleanups.

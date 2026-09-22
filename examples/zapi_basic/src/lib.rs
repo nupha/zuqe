@@ -13,6 +13,8 @@
 // `#[zq_function]` generates snake_case marker types for the export manifest.
 #![allow(non_camel_case_types)]
 
+use std::{cell::RefCell, collections::HashMap};
+
 use zuqe_zapi::*;
 use zuqe_zapi_macros::{
     ZqGcTrace, zq_class, zq_class_impl, zq_export, zq_function, zq_method, zq_module,
@@ -291,6 +293,31 @@ fn version<'a>(cx: ZqCtx<'a>) -> Result<ZqValue<'a>, ZqError> {
 }
 
 // ──────────────────────────────────────
+// Per-runtime thread_local resource
+// ──────────────────────────────────────
+
+/// Per-runtime state owned by the extension, kept in a thread_local keyed by
+/// `ZqRuntime::id`. Created in `module_init` and removed by the runtime-finalize
+/// hook when that runtime is torn down. Its `Drop` prints the lifecycle so the
+/// path is observable on stderr.
+struct RtResource {
+    rt_id: usize,
+}
+
+impl Drop for RtResource {
+    fn drop(&mut self) {
+        eprintln!(
+            "[zapi_basic] drop     thread_local resource (runtime id={:#x})",
+            self.rt_id
+        );
+    }
+}
+
+thread_local! {
+    static RT_RESOURCES: RefCell<HashMap<usize, RtResource>> = RefCell::new(HashMap::new());
+}
+
+// ──────────────────────────────────────
 // Module (exports = explicit manifest; init optional)
 // ──────────────────────────────────────
 
@@ -306,6 +333,28 @@ fn version<'a>(cx: ZqCtx<'a>) -> Result<ZqValue<'a>, ZqError> {
         make_date, date_time,
         make_u8, u8_get, u8_set,
         Counter, version,
-    ]
+    ],
+    finalize = module_finalize,
 )]
-fn module_init() {}
+fn module_init(cx: &ZqCtx) -> Result<(), ZqError> {
+    // Bind a per-runtime resource to this runtime (keyed by its identity).
+    let rt_id = cx.runtime().id();
+    RT_RESOURCES.with(|m| {
+        m.borrow_mut().insert(rt_id, RtResource { rt_id });
+    });
+    eprintln!("[zapi_basic] new      thread_local resource (runtime id={rt_id:#x})");
+    Ok(())
+}
+
+/// Runtime-finalize hook: runs once per runtime at teardown. Removes the
+/// resource registered in `module_init`; dropping it prints the "drop" line.
+fn module_finalize(rt: *mut ZqRuntime) {
+    let rt_id = unsafe { &*rt }.id();
+    RT_RESOURCES.with(|m| {
+        let removed = m.borrow_mut().remove(&rt_id);
+        eprintln!(
+            "[zapi_basic] finalize runtime id={rt_id:#x} (resource present={})",
+            removed.is_some()
+        );
+    });
+}

@@ -22,8 +22,9 @@ use zuqe_zapi::ffi::{
     ZQ_PROP_KIND_DATA, ZQ_PROP_WRITABLE, ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL,
     ZQ_VALUE_TYPE_EXCEPTION, ZQ_VALUE_TYPE_FUNCTION, ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER,
     ZQ_VALUE_TYPE_OBJECT, ZQ_VALUE_TYPE_STRING, ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED,
-    ZqApi, ZqBodyFn, ZqCallInfoS, ZqClassDef, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn,
-    ZqJobTraceFn, ZqPromiseCapabilityS, ZqPropertyDescriptorS, ZqRawCtx, ZqRawValue, ZqWakeHandleS,
+    ZqApi, ZqBodyFn, ZqCallInfoS, ZqClassDef, ZqDropFn, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn,
+    ZqJobRunFn, ZqJobTraceFn, ZqPromiseCapabilityS, ZqPropertyDescriptorS, ZqRawCtx, ZqRawValue,
+    ZqRuntime, ZqWakeHandleS,
 };
 
 use crate::{
@@ -502,6 +503,19 @@ impl crate::RuntimeImpl {
         Ok(id as ClassID)
     }
 
+    /// Register a zapi module's runtime-finalize hook for this runtime,
+    /// deduped by pointer (a module may be evaluated in several contexts of the
+    /// same runtime). Called at module evaluation; invoked once at runtime
+    /// teardown.
+    pub(crate) fn zapi_register_module_finalizer(
+        &mut self,
+        f: unsafe extern "C" fn(*mut ZqRuntime),
+    ) {
+        if !self.zapi_module_finalizers.contains(&f) {
+            self.zapi_module_finalizers.push(f);
+        }
+    }
+
     /// The extension ABI def registered for a zapi class id, if any.
     fn zapi_def(&self, class_id: ClassID) -> Option<*const ZqClassDef> {
         let base = static_class_count();
@@ -801,18 +815,54 @@ unsafe extern "C" fn zapi_drop_waker(h: *mut ZqWakeHandleS) {
     }
 }
 
+/// Identity handle of `env`'s runtime: the same pointer the host passes to a
+/// module's runtime-finalize hook. Identity only — not to be dereferenced.
+unsafe extern "C" fn zapi_get_runtime(env: ZqRawCtx) -> *mut ZqRuntime {
+    let ctx = unsafe { ctx_from_env(env) };
+    ctx.rt() as *const crate::RuntimeImpl as *mut ZqRuntime
+}
+
+/// Owns a zapi job's opaque `data` for as long as the job sits in the queue.
+/// Whether the job runs to completion (Done/Err) or is discarded when the
+/// runtime tears the queue down, the host drops this guard and `drop_fn`
+/// releases `data` — the cancellation counterpart to a normal `run`.
+struct ZapiJobData {
+    data: *mut c_void,
+    drop_fn: ZqDropFn,
+}
+
+impl Drop for ZapiJobData {
+    fn drop(&mut self) {
+        unsafe { (self.drop_fn)(self.data) };
+    }
+}
+
+impl ZapiJobData {
+    /// The extension-owned opaque pointer. Calling this (rather than reading
+    /// `.data` directly) forces the runnable closure to capture the whole guard,
+    /// not just the `Copy` pointer — otherwise the guard would drop early.
+    #[inline(always)]
+    const fn data(&self) -> *mut c_void {
+        self.data
+    }
+}
+
 /// each tick runs `run(data)` on the JS thread until it reports Done/Err.
 unsafe extern "C" fn zapi_add_job(
     env: ZqRawCtx,
     run: ZqJobRunFn,
     trace: Option<ZqJobTraceFn>,
+    drop_fn: ZqDropFn,
     data: *mut c_void,
 ) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
+    // The runnable owns `data`: when the host drops the job (Done/Err or queue
+    // teardown) `ZapiJobData::drop` frees it. `run`/`trace` only borrow it.
+    let owned = ZapiJobData { data, drop_fn };
     ctx.queue_job(
         move |cx| {
             let env = cx as *mut ScopedContext as ZqRawCtx;
-            match unsafe { run(data, env) } {
+            match unsafe { run(owned.data(), env) } {
                 0 => Ok(crate::microtask::JobState::Done),
                 1 => Ok(crate::microtask::JobState::Block),
                 2 => Ok(crate::microtask::JobState::Continue),
@@ -861,7 +911,7 @@ struct ZapiFetcher {
     fetch_fn: zuqe_zapi::ffi::ZqAsyncIterFetchFn,
     opaque: *mut c_void,
     trace_fn: Option<zuqe_zapi::ffi::ZqGcTraceFn>,
-    drop_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    drop_fn: ZqDropFn,
 }
 
 unsafe impl Send for ZapiFetcher {}
@@ -901,9 +951,7 @@ impl crate::builtins::iterator::AsyncIteratorFetcher for ZapiFetcher {
     }
 
     fn close(&self) {
-        if let Some(drop_fn) = self.drop_fn {
-            unsafe { drop_fn(self.opaque) };
-        }
+        unsafe { (self.drop_fn)(self.opaque) };
     }
 }
 
@@ -911,7 +959,7 @@ unsafe extern "C" fn zapi_new_async_iterator(
     env: ZqRawCtx,
     fetch_fn: zuqe_zapi::ffi::ZqAsyncIterFetchFn,
     trace_fn: Option<ZqGcTraceFn>,
-    drop_fn: Option<unsafe extern "C" fn(*mut c_void)>,
+    drop_fn: ZqDropFn,
     opaque: *mut c_void,
 ) -> ZqRawValue {
     let ctx = unsafe { ctx_from_env(env) };
@@ -1712,6 +1760,9 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         new_buf_from_bytes: zapi_new_buf_from_bytes,
         get_buf_type: zapi_get_buf_type,
         read_buf_bytes: zapi_buf_read_bytes,
+
+        // ── runtime identity ──
+        get_runtime: zapi_get_runtime,
     })
 }
 
@@ -1981,6 +2032,95 @@ mod class_registration_tests {
             &[0xCA, 0xCB],
             "B's GC finalizes B's instance"
         );
+        Ok(())
+    }
+
+    /// The module runtime-finalize hook fires exactly once when the runtime is
+    /// torn down, with the runtime's own identity handle.
+    #[test]
+    fn zapi_runtime_finalize_fires_on_drop() -> Result<(), i32> {
+        static FIN_CALLED: AtomicUsize = AtomicUsize::new(0);
+        static FIN_ID: AtomicUsize = AtomicUsize::new(0);
+
+        unsafe extern "C" fn fin(rt: *mut zuqe_zapi::ffi::ZqRuntime) {
+            FIN_CALLED.fetch_add(1, Ordering::SeqCst);
+            FIN_ID.store(rt as usize, Ordering::SeqCst);
+        }
+
+        let _lock = REG_LOCK.lock().unwrap();
+        FIN_CALLED.store(0, Ordering::SeqCst);
+        FIN_ID.store(0, Ordering::SeqCst);
+
+        // ctx declared after rt drops first, so rt's finalize runs on scope exit.
+        let mut rt = Runtime::create()?;
+        let expected_id = rt.id();
+        rt.zapi_register_module_finalizer(fin);
+        // Registering the same hook twice for one runtime must dedupe.
+        rt.zapi_register_module_finalizer(fin);
+        assert_eq!(FIN_CALLED.load(Ordering::SeqCst), 0);
+
+        drop(rt);
+        assert_eq!(FIN_CALLED.load(Ordering::SeqCst), 1);
+        assert_eq!(FIN_ID.load(Ordering::SeqCst), expected_id);
+        Ok(())
+    }
+
+    /// `get_runtime` hands the extension the same identity the runtime-finalize
+    /// hook receives.
+    #[test]
+    fn zapi_get_runtime_matches_runtime_id() -> Result<(), i32> {
+        let _lock = REG_LOCK.lock().unwrap();
+        let mut rt = Runtime::create()?;
+        let expected = rt.id();
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        let got = ctx.with_new_scope(|cx| unsafe {
+            super::zapi_get_runtime(cx as *mut ScopedContext as zuqe_zapi::ffi::ZqRawCtx) as usize
+        });
+
+        assert_eq!(got, expected);
+        Ok(())
+    }
+
+    /// A job cancelled by runtime teardown (never run to Done) releases its
+    /// opaque `data` through the registered drop callback.
+    #[test]
+    fn zapi_job_drop_fn_fires_on_runtime_teardown() -> Result<(), i32> {
+        static JOB_DROPPED: AtomicUsize = AtomicUsize::new(0);
+
+        // Never completes: would be re-queued on a tick, but we never tick.
+        unsafe extern "C" fn job_run(_data: *mut c_void, _env: zuqe_zapi::ffi::ZqRawCtx) -> i32 {
+            1 // Block
+        }
+        unsafe extern "C" fn job_drop(data: *mut c_void) {
+            JOB_DROPPED.fetch_add(1, Ordering::SeqCst);
+            drop(unsafe { Box::from_raw(data as *mut u32) });
+        }
+
+        let _lock = REG_LOCK.lock().unwrap();
+        JOB_DROPPED.store(0, Ordering::SeqCst);
+
+        {
+            let mut rt = Runtime::create()?;
+            let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+            ctx.with_new_scope(|cx| {
+                let data = Box::into_raw(Box::new(0xABCD_u32)).cast::<c_void>();
+                unsafe {
+                    super::zapi_add_job(
+                        cx as *mut ScopedContext as zuqe_zapi::ffi::ZqRawCtx,
+                        job_run,
+                        None,
+                        job_drop,
+                        data,
+                    );
+                }
+                Ok::<(), i32>(())
+            })?;
+            assert_eq!(JOB_DROPPED.load(Ordering::SeqCst), 0);
+            // ctx drops first, then rt: teardown clears the job queue.
+        }
+
+        assert_eq!(JOB_DROPPED.load(Ordering::SeqCst), 1);
         Ok(())
     }
 }

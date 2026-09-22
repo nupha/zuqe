@@ -365,12 +365,19 @@ impl<'a> ScopedContext<'a> {
         let module_path_clone = module_path_str.clone();
 
         let init_ptr = md_info.init;
+        let runtime_finalize = md_info.runtime_finalize;
 
         // Module init runs at evaluation time, after the export VarRefs exist:
         // run the extension's init hook first (module-load setup), then publish
         // each field (function / class ctor / value / constant) to the module
         // namespace instead of `globalThis`.
         let init_fn = move |ctx: &mut ScopedContext, md: &ModuleDef| -> Result<(), i32> {
+            // Bind the extension's runtime-finalize hook to this runtime (once;
+            // deduped by pointer). It runs when the runtime is torn down.
+            if let Some(fin) = runtime_finalize {
+                ctx.rt_mut().zapi_register_module_finalizer(fin);
+            }
+
             if let Some(init_f) = init_ptr {
                 let env = ctx as *mut ScopedContext as ZqRawCtx;
                 if unsafe { init_f(env) } != 0 {
