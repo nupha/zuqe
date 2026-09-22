@@ -208,14 +208,6 @@ impl<D: Send + 'static> PromiseResultSlot<D> {
         self.data.value.lock().unwrap().take()
     }
 
-    /// Bind this slot to the runtime's park state so a `commit` from any clone
-    /// wakes the parked event loop promptly. Needed by pull-based consumers
-    /// that drive a slot via `try_take` (e.g. a custom async-iterator fetcher)
-    /// instead of the built-in `create_with_result_slot`.
-    pub fn attach_runtime_wake(&self, ctx: &mut crate::context::ScopedContext) {
-        self.attach_wake(&ctx.rt_mut().park);
-    }
-
     /// Clone the strong reference to the backing storage.
     ///
     /// A job/fetcher that polls the slot should hold the returned strong
