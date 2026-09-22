@@ -226,6 +226,12 @@ impl<D: Send + 'static> PromiseResultSlot<D> {
     pub(crate) fn attach_wake(&self, park: &Arc<crate::runtime::ParkState>) {
         *self.data.wake.lock().unwrap() = Some(Arc::downgrade(park));
     }
+
+    /// Public wrapper: bind this slot to `ctx`'s runtime park so commits from
+    /// any clone (typically IO tasks) wake the parked event loop.
+    pub fn attach_runtime_wake(&self, ctx: &mut crate::ScopedContext) {
+        self.attach_wake(&ctx.rt_mut().park);
+    }
 }
 
 impl<D: Send + 'static> Default for PromiseResultSlot<D> {
