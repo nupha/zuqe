@@ -280,6 +280,14 @@ impl Counter {
         let v = cc.arg(0);
         Ok(ZqValue::bool(Counter::payload(cx, v).is_some()))
     }
+
+    /// `takeCount()` — detaches and drops the payload, releasing it before GC.
+    #[zq_method(name = "takeCount")]
+    fn take_count<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        let c = cc.this();
+        let p = Counter::take_payload(cx, c).ok_or_else(|| cx.throw_type("not a Counter"))?;
+        Ok(ZqValue::number(p.count as f64))
+    }
 }
 
 // ──────────────────────────────────────

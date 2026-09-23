@@ -670,6 +670,17 @@ unsafe extern "C" fn zapi_get_object_payload(obj: ZqRawValue) -> *mut c_void {
         .map_or(std::ptr::null_mut(), |o| o.payload_raw())
 }
 
+unsafe extern "C" fn zapi_take_object_payload(obj: ZqRawValue) -> *mut c_void {
+    let val = JSValue(obj, std::marker::PhantomData);
+    // Detach the payload: ownership of the returned pointer transfers to the
+    // caller; the engine will no longer free or trace it. Macro-only
+    // (`__private`) API; no class check — the generated accessors know the type.
+    match val.as_object() {
+        Some(mut o) => o.replace_payload(std::ptr::null_mut()),
+        None => std::ptr::null_mut(),
+    }
+}
+
 unsafe extern "C" fn zapi_gc_mark(gcx: *mut ZqGcTraceCtxS, val: ZqRawValue) -> i32 {
     let gcx: &mut gc_lite::GcTraceCtx =
         unsafe { std::mem::transmute::<&mut ZqGcTraceCtxS, _>(&mut *gcx) };
@@ -1716,6 +1727,7 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
         register_class: zapi_register_class,
         new_instance: zapi_new_instance,
         get_object_payload: zapi_get_object_payload,
+        take_object_payload: zapi_take_object_payload,
         new_builtin_function: zapi_new_builtin_function,
 
         // ── promise ──
@@ -1854,6 +1866,53 @@ mod class_registration_tests {
         assert_eq!(DISPOSE_MAGIC.load(Ordering::SeqCst), 0xCAFE);
         assert_eq!(DISPOSE_SEQ.load(Ordering::SeqCst), 0);
         assert!(FREE_SEQ.load(Ordering::SeqCst) >= 1);
+        Ok(())
+    }
+
+    /// `zapi_take_object_payload` detaches the payload: ownership of the
+    /// returned pointer transfers to the caller, the instance keeps null
+    /// afterwards (so finalize must not double-free it), and a second take
+    /// returns null.
+    #[test]
+    fn take_object_payload_detaches() -> Result<(), i32> {
+        let _lock = REG_LOCK.lock().unwrap();
+        let mut rt = Runtime::create()?;
+        let class_id = rt.register_class_def(
+            ClassDef::new("TakeTest", &[], None)
+                .on_finalize(test_dispose)
+                .payload_drop(test_free),
+            std::ptr::null(),
+        )?;
+
+        let mut ctx = rt.create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            cx.use_class(class_id)?;
+            Ok(())
+        })?;
+
+        let taken = ctx.with_new_scope(|cx| {
+            let obj = cx.create_class_instance(
+                JSValue::UNDEFINED,
+                class_id,
+                DispPayload { magic: 0xBEEF },
+            )?;
+            let raw = JSValue::from(obj).0;
+
+            // First take returns the payload; the instance payload is now null.
+            let p = unsafe { super::zapi_take_object_payload(raw) };
+            assert!(!p.is_null());
+            assert_eq!(unsafe { (*(p as *const DispPayload)).magic }, 0xBEEF);
+            assert!(unsafe { super::zapi_get_object_payload(raw) }.is_null());
+            // Second take sees null.
+            assert!(unsafe { super::zapi_take_object_payload(raw) }.is_null());
+            Ok::<usize, i32>(p as usize)
+        })?;
+
+        // Caller owns the detached pointer: release it exactly once.
+        unsafe { drop(Box::from_raw(taken as *mut DispPayload)) };
+
+        // Collecting the null-payload instance must not double-free.
+        rt.gc_collect();
         Ok(())
     }
 
