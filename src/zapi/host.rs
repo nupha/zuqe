@@ -10,9 +10,10 @@ use std::{
 
 use libloading::Library;
 use zuqe_zapi::ffi::{
-    ZQ_ABI_VERSION, ZQ_API_VERSION, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_FIELD_BOOL, ZQ_FIELD_CLASS,
-    ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC, ZQ_FIELD_GETSET, ZQ_FIELD_INT, ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED,
-    ZQ_FIELD_VALUE, ZqApi, ZqCallInfoS, ZqFieldDef, ZqModuleInfo, ZqRawCtx, ZqRawValue,
+    ZQ_ABI_BASE, ZQ_ABI_VERSION, ZQ_API_BASE, ZQ_API_VERSION, ZQ_CONST_VALUE_SLOT_EXCEPTION,
+    ZQ_FIELD_BOOL, ZQ_FIELD_CLASS, ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC, ZQ_FIELD_GETSET, ZQ_FIELD_INT,
+    ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED, ZQ_FIELD_VALUE, ZqApi, ZqCallInfoS, ZqFieldDef, ZqModuleInfo,
+    ZqRawCtx, ZqRawValue,
 };
 
 use crate::{JSValue, ModuleDef, ScopedContext, class::ClassID, function::Callback};
@@ -299,24 +300,19 @@ impl<'a> ScopedContext<'a> {
         };
         unsafe { module_register_fn(api_ptr, &mut md_info) };
 
-        // Validate ABI compatibility: the extension's binary layout must match
-        // the host's layout exactly. Mismatch means struct fields or function
-        // signatures differ — using them would be UB.
+        // Validate ABI compatibility
         let ext_abi = md_info.abi_version();
-        if ext_abi != ZQ_ABI_VERSION {
+        if !(ZQ_ABI_BASE..=ZQ_ABI_VERSION).contains(&ext_abi) {
             return Err(self.throw_reference_error(&format!(
-                "zapi module '{}': ABI version mismatch (host={}, ext={})",
-                file_url, ZQ_ABI_VERSION, ext_abi
+                "module '{file_url}': zapi ABI version {ext_abi} mismatch (expect {ZQ_ABI_BASE} - {ZQ_ABI_VERSION})"
             )));
         }
 
-        // Validate API capability: the host must provide at least the API tier
-        // the extension requires. Lower host API means missing functions.
+        // Validate API capability
         let ext_api = md_info.api_version();
-        if ext_api > ZQ_API_VERSION {
+        if !(ZQ_API_BASE..=ZQ_API_VERSION).contains(&ext_api) {
             return Err(self.throw_reference_error(&format!(
-                "zapi module '{}': API version too new (host={}, ext={})",
-                file_url, ZQ_API_VERSION, ext_api
+                "module '{file_url}': zapi API version {ext_api} mismatch (expect {ZQ_API_BASE} - {ZQ_API_VERSION})"
             )));
         }
 
