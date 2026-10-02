@@ -308,6 +308,25 @@ impl Atom {
         self.to_numeric_index(ctx).map(|x| x.is_some())
     }
 
+    /// Resolve a user atom's descriptor string, throwing instead of panicking.
+    ///
+    /// For the two conversion entry points whose callers already handle a
+    /// failure — `to_value` (its `PUSH_ATOM_VALUE` caller substitutes an
+    /// exception value) and `force_string` (most callers propagate with `?`) —
+    /// an unresolvable atom is a reportable error, not a corrupt engine. The
+    /// remaining `atom_desc_string(..).unwrap()` sites are deliberately left as
+    /// fail-fast: there, a missing descriptor means the registry or GC links
+    /// are already broken.
+    fn desc_or_throw(&self, ctx: &mut ScopedContext) -> Result<StringRef, i32> {
+        match ctx.rt().atom_desc_string(self.id()) {
+            Some(s) => Ok(s),
+            None => {
+                Err(ctx
+                    .throw_internal_error(&format!("atom {} has no string descriptor", self.id())))
+            }
+        }
+    }
+
     /// Convert atom to String or Symbol value.
     pub fn to_value(&self, ctx: &mut ScopedContext) -> Result<JSValue, i32> {
         if let Some(n) = self.to_small_int() {
@@ -322,12 +341,17 @@ impl Atom {
                 _ => JSValue::make_string(s),
             })
         } else {
-            let s = ctx.rt().atom_desc_string(self.id()).unwrap();
-            match s.atom_info().unwrap().kind() {
-                AtomKind::String => Ok(JSValue::make_string(s)),
-                AtomKind::Private => Ok(JSValue::make_string(s)),
-                AtomKind::Symbol | AtomKind::GlobalSymbol => Ok(JSValue::make_symbol(s)),
-            }
+            let s = self.desc_or_throw(ctx)?;
+            let Some(kind) = s.atom_info().map(|info| info.kind()) else {
+                return Err(
+                    ctx.throw_internal_error(&format!("atom {} has no atom info", self.id()))
+                );
+            };
+
+            Ok(match kind {
+                AtomKind::String | AtomKind::Private => JSValue::make_string(s),
+                AtomKind::Symbol | AtomKind::GlobalSymbol => JSValue::make_symbol(s),
+            })
         }
     }
 
@@ -341,7 +365,10 @@ impl Atom {
         } else if self.is_const() {
             self.to_string_ref(ctx)
         } else {
-            let s = ctx.rt().atom_desc_string(self.id()).unwrap();
+            // On the error path this is where a throw formats its message, so a
+            // missing descriptor must surface as an exception rather than
+            // aborting the process before the exception can be raised.
+            let s = self.desc_or_throw(ctx)?;
             if s.content().is_ident() {
                 Self::CONST_empty_string.force_string(ctx)
             } else {

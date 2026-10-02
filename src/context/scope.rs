@@ -105,6 +105,13 @@ pub struct ScopedContext<'a> {
 #[cfg(debug_assertions)]
 impl<'a> Drop for ScopedContext<'a> {
     fn drop(&mut self) {
+        // Skip while unwinding: a failed assertion inside Drop turns an
+        // in-flight error into a double panic, which aborts the process and
+        // masks the real cause behind a STATUS_STACK_BUFFER_OVERRUN exit code.
+        if std::thread::panicking() {
+            return;
+        }
+
         if let GcScopeType::Owned(s) = &self.gc_scope {
             let stack_id = self.ctx_ptr.scope_stack_id();
             debug_assert_eq!(s.depth(), self.ctx_ptr.gc_heap().scope_max_depth(stack_id));
