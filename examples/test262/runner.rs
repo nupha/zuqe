@@ -241,7 +241,6 @@ pub fn js_module_loader(
     ctx: &mut ScopedContext,
     module_name: &Url,
     attrs: JSValue,
-    _opaque: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
     let attr_type = get_attr_type(ctx, attrs);
 
@@ -451,7 +450,7 @@ pub async fn run_test_file(
     #[cfg(debug_assertions)]
     rt.install_panic_handler();
 
-    rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
+    rt.set_module_loader(js_module_loader);
 
     // SAFETY: ctx is used within this function and dropped before rt.
     let ctx = rt

@@ -23,19 +23,11 @@ use crate::{
     value::JSValue,
 };
 
-pub type ModuleNormalizeFn = fn(
-    ctx: &mut ScopedContext,
-    base_name: &Url,
-    name: &str,
-    opaque: *mut ::core::ffi::c_void,
-) -> Result<Url, i32>;
+pub type ModuleNormalizeFn =
+    fn(ctx: &mut ScopedContext, base_name: &Url, name: &str) -> Result<Url, i32>;
 
-pub type ModuleLoadFn = fn(
-    ctx: &mut ScopedContext,
-    module_name: &Url,
-    attrs: JSValue,
-    opaque: *mut ::core::ffi::c_void,
-) -> Result<ModuleDef, i32>;
+pub type ModuleLoadFn =
+    fn(ctx: &mut ScopedContext, module_name: &Url, attrs: JSValue) -> Result<ModuleDef, i32>;
 
 pub(crate) trait ModuleInitFn:
     Fn(&mut ScopedContext, &ModuleDef) -> Result<(), i32>
@@ -499,16 +491,24 @@ impl<'c> ScopedContext<'c> {
 }
 
 impl RuntimeImpl {
-    /// set module loader callbacks
-    pub fn set_module_loader(
-        &mut self,
-        norm_func: Option<ModuleNormalizeFn>,
-        load_func: ModuleLoadFn,
-        opaque: *mut std::ffi::c_void,
-    ) {
+    /// Set the module name normalizer, replacing the builtin resolution a
+    /// runtime starts out with (relative and absolute-path joining).
+    ///
+    /// Only the policy "do we override name resolution" is configurable here —
+    /// unlike the loader this is never absent, so a host that wants the builtin
+    /// behaviour back has to hold on to the default pointer itself.
+    pub fn set_module_normalizer(&mut self, norm_func: ModuleNormalizeFn) {
         self.module_normalize_func = norm_func;
-        self.module_load_func = Some(load_func);
-        self.module_load_opaque = opaque;
+    }
+
+    /// Set the module loader, replacing the builtin stub that makes every import
+    /// throw.
+    ///
+    /// Both callbacks are plain `fn` pointers and carry no host state. Per-runtime
+    /// state belongs in [`RuntimeImpl::user_state`], which each callback reaches
+    /// through `ctx.rt()`.
+    pub fn set_module_loader(&mut self, load_func: ModuleLoadFn) {
+        self.module_load_func = load_func;
     }
 }
 

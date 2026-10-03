@@ -128,11 +128,8 @@ pub(super) fn js_host_resolve_imported_module(
             ))
         })?,
     };
-    let norm_name = if let Some(cb) = ctx.rt().module_normalize_func {
-        cb(ctx, &base_url, name, ctx.rt_ptr().module_load_opaque)
-    } else {
-        js_default_module_normalize_name(&base_url, name)
-    }?;
+
+    let norm_name = (ctx.rt().module_normalize_func)(ctx, &base_url, name)?;
 
     // Best-effort canonicalization of `file://` URLs so symlink aliases
     // (e.g. `link/foo.js` → `real/foo.js`) collapse to a single cache key.
@@ -156,20 +153,29 @@ pub(super) fn js_host_resolve_imported_module(
         return Ok(m);
     }
 
-    // load module
-    if let Some(cb) = ctx.rt_ptr().module_load_func {
-        let mut md = cb(ctx, &norm_name, attrs, ctx.rt_ptr().module_load_opaque)?;
-        // Store import attributes on the module so future cache lookups
-        // can distinguish between modules loaded from the same URL with
-        // different attribute types (e.g. `type: "text"` vs no attrs).
-        md.attributes = attrs;
-        Ok(md)
-    } else {
-        #[cfg(debug_assertions)]
-        println!("WARN: module loader function is not set, can't import module.");
+    let mut md = (ctx.rt_ptr().module_load_func)(ctx, &norm_name, attrs)?;
 
-        Err(ctx.throw_reference_error(&format!("could not load module '{}'", norm_name.as_str())))
-    }
+    // Store import attributes on the module so future cache lookups
+    // can distinguish between modules loaded from the same URL with
+    // different attribute types (e.g. `type: "text"` vs no attrs).
+    md.attributes = attrs;
+    Ok(md)
+}
+
+/// Builtin module loader for a runtime that registered none: every import
+/// fails.
+///
+/// This is the initial value of `RuntimeImpl::module_load_func`. Reading modules
+/// from anywhere is host policy — the engine has no filesystem, no registry and
+/// no `require` semantics of its own — so the honest default is a stub that
+/// throws rather than one that guesses. Register a real loader with
+/// [`RuntimeImpl::set_module_loader`](crate::RuntimeImpl::set_module_loader).
+pub(crate) fn js_default_module_loader(
+    ctx: &mut ScopedContext,
+    module_name: &Url,
+    _attrs: JSValue,
+) -> Result<ModuleDef, i32> {
+    Err(ctx.throw_reference_error(&format!("could not load module '{}'", module_name.as_str())))
 }
 
 /// Compare two import attribute objects for semantic equality, used when
@@ -218,7 +224,23 @@ fn attrs_are_same(ctx: &mut ScopedContext, a: JSValue, b: JSValue) -> bool {
 ///
 /// Note: `file://` canonicalization (symlink resolution) is done centrally in
 /// `js_host_resolve_imported_module` so it applies to custom normalizers too.
-fn js_default_module_normalize_name(base_name: &Url, name: &str) -> Result<Url, i32> {
+///
+/// This is the initial value of `RuntimeImpl::module_normalize_func`, so it needs
+/// no registration.
+///
+/// `_ctx` is unused — resolution here is pure URL algebra — but the parameter is
+/// what makes this a `ModuleNormalizeFn` rather than a private helper, so the
+/// builtin default can live in the same field as any host override.
+///
+/// Crate-internal on purpose: a host picks its resolution policy once, at
+/// startup, and never reads the current value back. So there is no supported way
+/// to *restore* this default after overriding it — keep a host-side copy of the
+/// pointer if a reset path is needed.
+pub(crate) fn js_default_module_normalizer(
+    _: &mut ScopedContext,
+    base_name: &Url,
+    name: &str,
+) -> Result<Url, i32> {
     if Path::new(name).is_absolute() {
         // A bare absolute filesystem path: URL-ify it directly.
         path_to_url(name).map_err(|_| -1)

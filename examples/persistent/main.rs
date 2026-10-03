@@ -19,7 +19,7 @@ use zuqe::{
 
 fn new_runtime() -> Runtime {
     let mut rt = Runtime::create().unwrap();
-    rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
+    rt.set_module_loader(js_module_loader);
     rt
 }
 
@@ -27,7 +27,6 @@ fn js_module_loader(
     ctx: &mut ScopedContext<'_>,
     file_name: &Url,
     _attrs: JSValue,
-    _opaque: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
     let path = zuqe::url_to_abspath(file_name)
         .ok_or_else(|| ctx.throw_reference_error("module is not a file:// URL"))?;
