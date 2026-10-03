@@ -522,7 +522,7 @@ library call), doing it inline blocks the whole interpreter. The pattern:
 snapshot the arguments, hand them to a worker thread, return a Promise, and
 build the JS result back on the JS thread when the work finishes.
 
-### 7.1 The one-shot Promise: `spawn_promise`
+### 7.1 The one-shot Promise: `promise_threaded`
 
 The simplest form needs no channels at all:
 
@@ -530,7 +530,7 @@ The simplest form needs no channels at all:
 #[zq_function(name = "doubleAsync")]
 fn double_async<'a>(ctx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let n = cc.arg(0).as_f64(ctx)?;
-    ctx.spawn_promise(
+    ctx.promise_threaded(
         move || n * 2.0,                          // work — off the JS thread
         |ctx, result| Ok(ZqValue::number(result)), // convert — back on JS thread
     )
@@ -558,7 +558,7 @@ Thread-safety constraints:
 
 Some native things must outlive a single call — a database connection, a model,
 a file handle. Put it in the class payload and move a handle into
-`spawn_promise`; how you guard it or which thread it runs on is your call (a
+`promise_threaded`; how you guard it or which thread it runs on is your call (a
 `Mutex`, a channel, a dedicated thread, ...). The payload is plain Rust data:
 
 ```rust
@@ -571,7 +571,7 @@ struct JsDb;
 ```
 
 A method grabs the handle, snapshots its arguments, and hands the blocking call
-to `spawn_promise`:
+to `promise_threaded`:
 
 ```rust
 #[zq_method]
@@ -581,7 +581,7 @@ fn execute<'a>(ctx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErro
     let sql = cc.arg(0).as_string(ctx)?;               // owned Rust data
     let params = collect_params(ctx, &cc, 1)?;         // owned Rust data
 
-    ctx.spawn_promise(
+    ctx.promise_threaded(
         move || db.lock().unwrap().execute(&sql, &params), // off the JS thread
         |ctx, result| match result {
             Ok(changes) => build_changes(ctx, changes),    // back on the JS thread
@@ -722,7 +722,7 @@ Before you ship an extension:
 - [ ] Every payload field holding a JS value is a `ZqRawValue` and is traced
       (derive, manual impl, or a registered global tracer). Payloads with only
       native data are marked `payload_no_gc`.
-- [ ] Slow work runs off the JS thread (`spawn_promise` / async iterator) —
+- [ ] Slow work runs off the JS thread (`promise_threaded` / async iterator) —
       never inline on the JS thread.
 - [ ] Errors use `ctx.throw_*` and return `Err`; the host turns them into real
       JS exceptions.

@@ -449,7 +449,7 @@ unsafe extern "C" fn trace_thread_locals(gcx: *mut ZqGcTraceCtxS, _opaque: *mut 
 }
 
 // ──────────────────────────────────────
-// Async: new_promise_capability, spawn_promise (add_polling_job / new_waker),
+// Async: new_promise_capability, promise_threaded (add_polling_job / new_waker),
 // and new_async_iterator
 // ──────────────────────────────────────
 
@@ -472,12 +472,12 @@ fn cap_reject<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqEr
 #[zq_function(name = "asyncResolve")]
 fn async_resolve<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let x = cc.arg(0).to_i64(cx)?;
-    cx.spawn_promise(move || x + 1, |_cx, t| Ok(ZqValue::number(t as f64)))
+    cx.promise_threaded(move || x + 1, |_cx, t| Ok(ZqValue::number(t as f64)))
 }
 
 #[zq_function(name = "asyncReject")]
 fn async_reject<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    cx.spawn_promise(move || (), |cx, _| Err(cx.throw_range("async boom")))
+    cx.promise_threaded(move || (), |cx, _| Err(cx.throw_range("async boom")))
 }
 
 struct CountIter {
