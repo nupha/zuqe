@@ -18,7 +18,9 @@ use crate::{
     context::ContextPtr,
     error::Exception,
     gc::gc::{GC_TYPE_REGISTRY, GcTraceCallbackFn},
-    module::{ModuleLoadFn, ModuleNormalizeFn},
+    module::{
+        ModuleLoadFn, ModuleNormalizeFn, js_default_module_loader, js_default_module_normalizer,
+    },
     object::Promise,
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
     stack_frame::{ExecMode, FrameIndex, StackFrameArena},
@@ -115,9 +117,8 @@ pub struct RuntimeImpl {
     #[cfg(feature = "builtin_regexp")]
     pub(crate) regexp_precompiled: Vec<crate::builtins::regexp::RegExpData>,
 
-    pub(crate) module_normalize_func: Option<ModuleNormalizeFn>,
-    pub(crate) module_load_func: Option<ModuleLoadFn>,
-    pub(crate) module_load_opaque: *mut c_void,
+    pub(crate) module_normalize_func: ModuleNormalizeFn,
+    pub(crate) module_load_func: ModuleLoadFn,
 
     // timestamp for internal use in module evaluation
     pub(crate) module_async_evaluation_next_timestamp: i64,
@@ -377,7 +378,6 @@ impl RuntimeImpl {
             frame_arena: StackFrameArena::with_capacity(arena_cap),
             active_frame_index: FrameIndex::NULL,
 
-            module_load_opaque: std::ptr::null_mut(),
             sab_funcs: Some(default_sab_funcs()),
 
             eval_base_url: Atom::NULL,
@@ -396,8 +396,8 @@ impl RuntimeImpl {
             #[cfg(feature = "builtin_regexp")]
             regexp_precompiled: Vec::new(),
 
-            module_normalize_func: None,
-            module_load_func: None,
+            module_normalize_func: js_default_module_normalizer,
+            module_load_func: js_default_module_loader,
             module_async_evaluation_next_timestamp: 0,
 
             gc_heap,

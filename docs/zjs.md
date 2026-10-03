@@ -16,9 +16,9 @@ zjs [options] <filename>
 
 - **`--memory-limit <n>`**: Set the memory (GC heap) limit to `n` bytes. Size suffixes `k`/`K`, `m`/`M`, `g`/`G` are supported (multiply by 2^10 / 2^20 / 2^30).
 
-- **`--stack-arena <n>`** *(default: 256k)*: Set the size of the JS virtual machine **stack arena** to `n` bytes. This is a pre-allocated, contiguous bump-region used as the *fast path* for function call frames — frames are carved out of it by simply bumping a pointer.
+- **`--stack-arena <n>`** _(default: 256k)_: Set the size of the JS virtual machine **stack arena** to `n` bytes. This is a pre-allocated, contiguous bump-region used as the _fast path_ for function call frames — frames are carved out of it by simply bumping a pointer.
 
-- **`--stack-limit <n>`** *(default: 512k)*: Set the **hard cap on the total live virtual stack** (arena-used + heap-used) to `n` bytes. When a new frame would push the combined usage past this limit, a stack-overflow error is thrown. This is what actually bounds recursion depth.
+- **`--stack-limit <n>`** _(default: 512k)_: Set the **hard cap on the total live virtual stack** (arena-used + heap-used) to `n` bytes. When a new frame would push the combined usage past this limit, a stack-overflow error is thrown. This is what actually bounds recursion depth.
 
 - **`--stack-overflow <n>`**: Set the **C-stack recursion budget** — the maximum native stack bytes JS recursion may consume below the eval-entry SP. Omitted or `0` selects **auto mode**: the guard is derived from the current thread's real stack bottom, keeping a fixed internal head-room (`STACK_RESERVE_MARGIN`) free for the throw path. Auto mode is the default; a strict budget only applies when set explicitly.
 
@@ -36,11 +36,11 @@ Frames are always allocated from the arena first (fast, no heap allocation). Onc
 
 Because the arena can never hold more than its own size, and any usage beyond the arena comes from heap spill-over, **`--stack-limit` should always be `>= --stack-arena`**:
 
-| Relationship | Effect |
-| --- | --- |
-| `limit < arena` | The limit is hit while still inside the arena, so the heap spill-over path is never reached and the arena memory above `limit` is simply **wasted** (allocated but unusable). |
-| `limit == arena` | All frames live in the fast arena; the stack **never spills to the heap** and the arena is fully utilized. A clean, allocation-free configuration. |
-| `limit > arena` | The arena acts as a fast cache and the heap provides extra headroom up to `limit`. **This is the intended design** — hence the defaults `arena=256k`, `limit=512k`. |
+| Relationship     | Effect                                                                                                                                                                        |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `limit < arena`  | The limit is hit while still inside the arena, so the heap spill-over path is never reached and the arena memory above `limit` is simply **wasted** (allocated but unusable). |
+| `limit == arena` | All frames live in the fast arena; the stack **never spills to the heap** and the arena is fully utilized. A clean, allocation-free configuration.                            |
+| `limit > arena`  | The arena acts as a fast cache and the heap provides extra headroom up to `limit`. **This is the intended design** — hence the defaults `arena=256k`, `limit=512k`.           |
 
 In short: set `--stack-arena` to the size that comfortably covers typical call depth (for speed), and set `--stack-limit` to the maximum depth you are willing to tolerate before aborting (for safety). Setting `limit` below `arena` only wastes memory.
 
@@ -192,7 +192,7 @@ rt.install_panic_handler();
 // rt.set_stack_overflow(512 << 10);  // omit/0 = auto mode (from thread stack bottom)
 
 // Setup module loader (supports .js, .mjs, and zapi extensions .dylib/.so/.dll)
-rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
+rt.set_module_loader(js_module_loader);
 
 // Customized GC trace handler (see docs/gc.md)
 rt.gc_set_trace_handler(|tr| {

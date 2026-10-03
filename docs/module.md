@@ -4,22 +4,18 @@ This guide explains how to enable and use ES (ECMAScript) module support in the 
 
 ## Overview
 
-Zuqe supports ESM modules by providing callbacks for module name normalization and module loading. To enable module support, configure the runtime with these callbacks using `Runtime::set_module_loader`.
+Zuqe supports ESM modules by providing callbacks for module name normalization and module loading. Both have a builtin default installed in every runtime, so neither has to be registered for the engine to compile: name resolution works out of the box, and every import fails with a `ReferenceError` until `Runtime::set_module_loader` supplies a loader. Name resolution only needs `Runtime::set_module_normalizer` when a host wants different resolution.
 
 Callback function signatures are defined for module handling:
 
-The module loader callback receives a `ScopedContext`, the normalized module name (a `file://` URL), an `attrs` `JSValue` carrying the module's import attributes (e.g. `{ type: "json" }` from `import x from './d.json' with { type: 'json' }`), and an opaque pointer. It is responsible for loading the module source and compiling it into a `ModuleDef`.
+The module loader callback receives a `ScopedContext`, the normalized module name (a `file://` URL), and an `attrs` `JSValue` carrying the module's import attributes (e.g. `{ type: "json" }` from `import x from './d.json' with { type: 'json' }`). It is responsible for loading the module source and compiling it into a `ModuleDef`.
 
 ## Setting Up Module Loader
 
-Use `Runtime::set_module_loader` to configure module support:
+Use `Runtime::set_module_loader` to supply a loader (until then every import throws):
 
 ```rust
-rt.set_module_loader(
-    None,           // optional name normalizer, None means to use the builtin default one
-    js_module_loader,
-    std::ptr::null_mut(), // an opaque raw pointer
-);
+rt.set_module_loader(js_module_loader);
 ```
 
 ## Complete Example
@@ -35,7 +31,6 @@ fn module_normalize(
     ctx: &mut ScopedContext,
     base_name: &Url,
     name: &str,
-    _opaque: *mut std::ffi::c_void,
 ) -> Result<Url, i32> {
     // Resolve relative to the importing module's URL. `Url::join` handles
     // `.`/`..` and works uniformly for `file:` and `http:` bases.
@@ -47,7 +42,6 @@ fn module_loader(
     ctx: &mut ScopedContext,
     module_name: &Url,
     attrs: JSValue,
-    _opaque: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
     // `module_name` is the normalized module name (a `file://` URL). Convert it
     // back to a local path for filesystem access; dispatch by scheme here for
@@ -97,11 +91,8 @@ fn main() -> Result<(), i32> {
     let mut rt = Runtime::create()?;
 
     // Setup module loading callbacks
-    rt.set_module_loader(
-        Some(module_normalize), // could be None to use default normalizer
-        module_loader,
-        std::ptr::null_mut()
-    );
+    rt.set_module_normalizer(module_normalize); // omit to keep the default normalizer
+    rt.set_module_loader(module_loader);
 
     // Create execution context
     let mut ctx = rt
@@ -118,13 +109,19 @@ fn main() -> Result<(), i32> {
 
 ## Default Normalization
 
-When you pass `None` for the `ModuleNormalizeFn` parameter:
+A runtime starts out with a builtin normalizer, so `set_module_normalizer` only needs to be called to _override_ it. That default is a simple resolution following the ES module specifications: an absolute path is turned into a URL directly, anything else is joined against the importing module's URL. Note that `file://` URLs are canonicalized centrally after normalization, so symlink aliases collapse to a single cache key for custom normalizers too.
+
+There is no "unset" state, and the builtin normalizer is not exported — a host that needs to go back to it should keep its own copy of the pointer. In practice resolution policy is picked once at startup, so this rarely matters.
+
+## Default Loader
+
+Likewise `module_load_func` starts out holding a stub that throws a `ReferenceError` for every import, because where modules come from is entirely host policy. Until `set_module_loader` is called, every `import` fails with `could not load module '<name>'`:
 
 ```rust
-rt.set_module_loader(None, module_loader, std::ptr::null_mut());
+// Any import at this point throws:
+//   ReferenceError: could not load module './foo.js'
+rt.set_module_loader(module_loader);
 ```
-
-A default simple normalization function is used that provides basic module name resolution according to ES module specifications.
 
 ## Import.meta Support
 

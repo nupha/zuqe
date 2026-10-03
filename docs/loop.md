@@ -170,7 +170,7 @@ fn main() -> ExitCode {
     let mut rt = Runtime::create().unwrap();
 
     // 1. Set up module loader
-    rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
+    rt.set_module_loader(js_module_loader);
 
     // 2. Configure GC
     rt.gc_set_trace_handler(|tracer| {

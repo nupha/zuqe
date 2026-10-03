@@ -76,7 +76,6 @@ fn js_module_loader(
     ctx: &mut ScopedContext<'_>,
     file_name: &Url,
     _attrs: JSValue,
-    _opaque: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
     let path = zuqe::url_to_abspath(file_name).ok_or(-1)?;
     let source = std::fs::read(&path).map_err(|_| -1)?;
@@ -85,7 +84,7 @@ fn js_module_loader(
 
 fn new_runtime() -> Runtime {
     let mut rt = Runtime::create().unwrap();
-    rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
+    rt.set_module_loader(js_module_loader);
     rt
 }
 

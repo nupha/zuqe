@@ -16,8 +16,8 @@ use clap::Parser;
 use colorized::{Colors::*, colorize_println};
 use url::Url;
 use zuqe::{
-    Context, EvalFlags, EvalName, EvalType, Exception, ExitStatus, JSValue, ModuleDef, NativeObject,
-    Runtime, ScopedContext,
+    Context, EvalFlags, EvalName, EvalType, Exception, ExitStatus, JSValue, ModuleDef,
+    NativeObject, Runtime, ScopedContext,
 };
 
 use crate::{
@@ -217,7 +217,7 @@ fn run_zjs_prepare() -> (Runtime, Context<'static>, Args, String, bool) {
             }
         }
 
-        rt.set_module_loader(None, js_module_loader, std::ptr::null_mut());
+        rt.set_module_loader(js_module_loader);
 
         rt.gc_set_trace_handler(|tr| {
             mod_os_gc_trace(tr);
@@ -417,7 +417,6 @@ fn js_module_loader(
     ctx: &mut ScopedContext,
     file_name: &Url,
     attrs: JSValue,
-    _: *mut std::ffi::c_void,
 ) -> Result<ModuleDef, i32> {
     let path = match zuqe::url_to_abspath(file_name) {
         Some(p) => p,
