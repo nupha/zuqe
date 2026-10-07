@@ -32,7 +32,7 @@ mod string;
 mod utils;
 mod value;
 #[cfg(feature = "zapi")]
-mod zapi;
+pub mod zapi;
 
 pub use {
     array::Array,
