@@ -8,6 +8,7 @@
 //   3. the Counter class: constructor, instance methods, static method, plus
 //      the class-payload gc_trace / finalize path
 //   4. a module-level value export (`VERSION`)
+//   5. the module's own load path (`modulePath()` vs the injected `__file__`)
 //
 // Run after building the extension:
 //   cargo build --release --manifest-path examples/zapi_basic/Cargo.toml
@@ -124,6 +125,23 @@ test("Counter payload label survives GC", () => {
 
 // ── 10. module value export ──
 test("VERSION value export", () => eq(basic.VERSION, "0.1.0"));
+
+// ── 11. the module's own load path ──
+// `modulePath()` comes from the host via `ZqModuleInfo.path`; `__file__` is
+// injected into the namespace. Both are derived from the same canonical path, so
+// they must read identically — a divergence means one of them leaked the Windows
+// `\\?\` prefix.
+test("modulePath() is a non-empty string", () =>
+    eq(typeof basic.modulePath(), "string"));
+test("modulePath() matches the injected __file__", () =>
+    eq(basic.modulePath(), basic.__file__, "modulePath vs __file__"));
+test("modulePath() names this dylib", () => {
+    const p = basic.modulePath();
+    if (!p.endsWith("zapi_demo.dll") && !p.endsWith("libzapi_demo.dylib")) {
+        throw Error("unexpected path: " + p);
+    }
+    if (p.startsWith("\\\\?\\")) throw Error("verbatim prefix leaked: " + p);
+});
 
 // ── summary ──
 console.log(fail === 0 ? `ALL PASS (${pass} tests)` : `${fail} FAILURES (${pass} passed, ${fail} failed)`);

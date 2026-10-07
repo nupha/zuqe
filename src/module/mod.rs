@@ -17,4 +17,7 @@ pub use {
     url::{path_to_url, url_to_abspath},
 };
 
-pub(crate) use url::simplified_path;
+// Windows-only helpers, re-exported for the zapi loader (the sole caller, which
+// is behind the `zapi` feature). `url` itself keeps them private otherwise.
+#[cfg(all(windows, feature = "zapi"))]
+pub(crate) use url::{is_unc, simplified_path};

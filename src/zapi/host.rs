@@ -35,7 +35,8 @@ struct ExtLib {
 }
 
 /// Process-level extension library cache. Keyed by canonicalized path; every
-/// dylib is `Library::new`-ed and leaked at most once.
+/// dylib is `Library::new`-ed and leaked at most once. `abs_path` is already
+/// simplified by the caller.
 fn load_ext_lib(abs_path: &Path) -> Result<&'static ExtLib, String> {
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, &'static ExtLib>>> = OnceLock::new();
 
@@ -48,6 +49,7 @@ fn load_ext_lib(abs_path: &Path) -> Result<&'static ExtLib, String> {
 
     let lib = unsafe { Library::new(abs_path) }
         .map_err(|e| format!("could not load library '{}': {e}", abs_path.display()))?;
+    // The extension's own load path, as `module_path()` and `__file__` report it.
     let path = CString::new(abs_path.to_string_lossy().as_ref())
         .map_err(|e| format!("invalid extension path '{}': {e}", abs_path.display()))?;
 
@@ -254,7 +256,11 @@ impl<'a> ScopedContext<'a> {
     pub fn load_zapi_extension(&mut self, path: &std::path::Path) -> Result<ModuleDef, i32> {
         type ZqModuleRegisterFn = unsafe extern "C" fn(api: *mut ZqApi, info: *mut ZqModuleInfo);
 
-        // Resolve absolute path, then try dlopen.
+        // `canonicalize()` resolves symlinks and junctions, so a specifier that merely
+        // *looks* local cannot smuggle in a remote target; on Windows it also
+        // resolves a drive letter mapped to a share. The two `#[cfg(windows)]`
+        // steps below reduce that to a plain local path: reject a share, drop the
+        // `\\?\` prefix. Everything after this deals in one path form.
         let abs_path = path.canonicalize().map_err(|e| {
             self.throw_reference_error(&format!(
                 "could not resolve extension path '{}': {e}",
@@ -262,9 +268,19 @@ impl<'a> ScopedContext<'a> {
             ))
         })?;
 
-        // Process-level cache: the dylib is dlopen-ed (and kept mapped) at most
-        // once per process, so every runtime that imports it shares the same
-        // `ZqClassDef` statics and function pointers.
+        #[cfg(windows)]
+        let abs_path = {
+            if crate::module::is_unc(&abs_path) {
+                return Err(self.throw_reference_error(&format!(
+                    "extension '{}' is on a network share; only local extensions can be loaded",
+                    path.display()
+                )));
+            }
+            crate::module::simplified_path(&abs_path)
+        };
+
+        // dlopen-ed (and kept mapped) at most once per process, so every runtime
+        // that imports it shares the same `ZqClassDef` statics and pointers.
         let ext = load_ext_lib(&abs_path).map_err(|e| self.throw_reference_error(&e))?;
 
         let module_register_fn: libloading::Symbol<ZqModuleRegisterFn> =
@@ -286,9 +302,9 @@ impl<'a> ScopedContext<'a> {
         let api: &ZqApi = &ZQ_API_TABLE;
         let api_ptr = api as *const ZqApi as *mut ZqApi;
 
-        // Hand the extension its own canonical load path before registration
-        // (dlopen-filename pattern): extensions locate sibling
-        // resources relative to it via `zuqe_zapi::module_path()`.
+        // Hand the extension its own load path before registration (dlopen-filename
+        // pattern): extensions locate sibling resources relative to it via
+        // `zuqe_zapi::module_path()`.
         //
         // Ownership: the `CString` is owned by the process-level `ExtLib` cache
         // entry, which lives for the whole process. The extension stores this
@@ -351,20 +367,14 @@ impl<'a> ScopedContext<'a> {
 
         // Inject `__file__` — the canonical load path as a plain string —
         // into the module namespace (Python `__file__` semantics) unless the
-        // extension exports its own (author wins). Done host-side so prebuilt
-        // extensions get it without recompiling.
-        //
-        // `canonicalize()` yields a verbatim `\\?\C:\...` path on Windows; drop
-        // that prefix so `__file__` reads like a normal path
-        // (`C:\...\sqlite.aike`). The verbatim path stays in use for dlopen
-        // and the extension's `module_path()`.
+        // extension exports its own (author wins). Host-side so prebuilt
+        // extensions get it without recompiling. Same value as
+        // `zuqe_zapi::module_path()`.
         let inject_file = !export_names.iter().any(|n| n == "__file__");
         if inject_file {
             export_names.push("__file__".to_string());
         }
-        let module_path_str = crate::module::simplified_path(&abs_path)
-            .to_string_lossy()
-            .into_owned();
+        let module_path_str = abs_path.to_string_lossy().into_owned();
         let module_path_clone = module_path_str.clone();
 
         let init_ptr = md_info.init;

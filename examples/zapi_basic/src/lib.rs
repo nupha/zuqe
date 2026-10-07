@@ -301,6 +301,21 @@ fn version<'a>(cx: ZqCtx<'a>) -> Result<ZqValue<'a>, ZqError> {
 }
 
 // ──────────────────────────────────────
+// The extension's own load path
+// ──────────────────────────────────────
+
+/// `modulePath()` → the dylib path the host handed us at registration, or
+/// `undefined` if the host predates the field. Exported so a test can compare it
+/// against the host-injected `__file__` — they must agree.
+#[zq_function(name = "modulePath")]
+fn module_path<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    match zuqe_zapi::module_path() {
+        Some(p) => ZqValue::new_string(cx, p),
+        None => Ok(ZqValue::undefined()),
+    }
+}
+
+// ──────────────────────────────────────
 // Per-runtime thread_local resource
 // ──────────────────────────────────────
 
@@ -341,6 +356,7 @@ thread_local! {
         make_date, date_time,
         make_u8, u8_get, u8_set,
         Counter, version,
+        module_path,
     ],
     finalize = module_finalize,
 )]

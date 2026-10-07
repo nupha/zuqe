@@ -13,14 +13,13 @@
 use std::path::{Path, PathBuf};
 use url::Url;
 
-/// Canonicalize a path, stripping the Windows `\\?\` prefix that
-/// `canonicalize()` adds, and restoring `\\?\UNC\server\share` → `\\server\share`.
-///
-/// This is the "Win32 path → URL-able path" pre-cleaning step that feeds
-/// `url::Url::from_file_path`; the WHATWG `url` crate does not understand the
-/// `\\?\` extended-length prefix.
+/// `fs::canonicalize` with the Windows verbatim prefix removed, so the result
+/// feeds `url::Url::from_file_path`.
 fn canonicalize_path<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf> {
-    Ok(simplified_path(&std::fs::canonicalize(path)?))
+    let canon = std::fs::canonicalize(path)?;
+    #[cfg(windows)]
+    let canon = simplified_path(&canon);
+    Ok(canon)
 }
 
 /// Resolve a filesystem path to an absolute, canonical path string.
@@ -37,40 +36,48 @@ fn to_absolute_path(path: &str) -> PathBuf {
     }
 }
 
-/// Strip a leading Windows `\\?\` extended-length prefix (and its UNC variant),
-/// leaving a normal Win32 path. `url::Url::from_file_path` does not understand
-/// `\\?\`, so we remove it before handing the path to the URL layer.
-fn strip_extended_prefix(path: &str) -> String {
-    #[cfg(windows)]
-    {
-        if let Some(rest) = path.strip_prefix(r"\\?\") {
-            if let Some(unc) = rest
-                .strip_prefix("UNC\\")
-                .or_else(|| rest.strip_prefix("UNC/"))
-            {
-                // UNC shares keep their two leading slashes.
-                return format!("\\\\{}", unc);
-            }
-            return rest.to_string();
-        }
-    }
-    path.to_string()
+/// Whether a path names a network share (`\\server\share\...`), including the
+/// verbatim form `canonicalize()` returns for one.
+///
+/// Windows-only: POSIX has no UNC form, and `Url::to_file_path()` refuses a
+/// `file:` URL carrying a host everywhere else, so a share cannot reach the
+/// filesystem layer as a path there.
+#[cfg(windows)]
+pub(crate) fn is_unc(path: &Path) -> bool {
+    use std::path::{Component, Prefix};
+
+    matches!(
+        path.components().next(),
+        Some(Component::Prefix(prefix))
+            if matches!(prefix.kind(), Prefix::UNC(..) | Prefix::VerbatimUNC(..))
+    )
 }
 
-/// Turn a verbatim (Windows `\\?\`-prefixed) path into a plain user-facing one:
-/// `\\?\C:\a\b` → `C:\a\b`, `\\?\UNC\srv\share` → `\\srv\share`. Non-Windows
-/// paths pass through unchanged.
+/// Strip a leading Windows `\\?\` extended-length prefix (and its UNC variant):
+/// `\\?\C:\a\b` becomes `C:\a\b`, `\\?\UNC\srv\share` becomes `\\srv\share`.
 ///
-/// `fs::canonicalize` returns the verbatim form on Windows; use the verbatim
-/// path for filesystem calls (it supports >MAX_PATH), but never expose it to
-/// users (e.g. a native module's `__file__`).
-pub(crate) fn simplified_path(path: &Path) -> PathBuf {
-    #[cfg(windows)]
+/// `fs::canonicalize` returns the verbatim form, and `url::Url::from_file_path`
+/// does not understand it, so every path crossing that boundary is cleaned here.
+#[cfg(windows)]
+fn strip_extended_prefix(path: &str) -> String {
+    let Some(rest) = path.strip_prefix(r"\\?\") else {
+        return path.to_string();
+    };
+    match rest
+        .strip_prefix("UNC\\")
+        .or_else(|| rest.strip_prefix("UNC/"))
     {
-        PathBuf::from(strip_extended_prefix(&path.to_string_lossy()))
+        // UNC shares keep their two leading slashes.
+        Some(unc) => format!("\\\\{}", unc),
+        None => rest.to_string(),
     }
-    #[cfg(not(windows))]
-    path.to_path_buf()
+}
+
+/// `strip_extended_prefix` for a path `canonicalize()` produced. Windows-only:
+/// POSIX has no verbatim form, so its `canonicalize()` result is already final.
+#[cfg(windows)]
+pub(crate) fn simplified_path(path: &Path) -> PathBuf {
+    PathBuf::from(strip_extended_prefix(&path.to_string_lossy()))
 }
 
 /// Convert a filesystem path into a canonical `file://` URL.
@@ -87,7 +94,17 @@ pub(crate) fn simplified_path(path: &Path) -> PathBuf {
 /// be parsed.
 pub fn path_to_url(path: &str) -> Result<Url, url::ParseError> {
     let abs = to_absolute_path(path);
-    let cleaned = strip_extended_prefix(&abs.to_string_lossy());
+    let cleaned = {
+        #[cfg(windows)]
+        {
+            strip_extended_prefix(&abs.to_string_lossy())
+        }
+        #[cfg(not(windows))]
+        {
+            abs.to_string_lossy().into_owned()
+        }
+    };
+
     match Url::from_file_path(Path::new(&cleaned)) {
         Ok(u) => Ok(u),
         Err(()) => Url::parse(&format!("file://{}", cleaned)),
@@ -202,12 +219,21 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(windows)]
     #[test]
-    fn simplified_path_is_identity_on_unix() {
-        assert_eq!(
-            simplified_path(Path::new("/home/x/a.so")),
-            PathBuf::from("/home/x/a.so")
-        );
+    fn only_unc_prefixes_count_as_network() {
+        // Both the plain and the verbatim spelling name a share; `canonicalize()`
+        // produces the latter.
+        assert!(is_unc(Path::new(r"\\server\share\a.dll")));
+        assert!(is_unc(Path::new(r"\\server\share\sub\a.dll")));
+        assert!(is_unc(Path::new(r"\\?\UNC\server\share\a.dll")));
+
+        // A drive letter is a local path even when it is mapped to a share; the
+        // syntax alone cannot tell, so it is the caller's policy call.
+        assert!(!is_unc(Path::new(r"C:\a\b.dll")));
+        assert!(!is_unc(Path::new(r"Z:\a\b.dll")));
+        // Verbatim drive paths and device paths are not shares.
+        assert!(!is_unc(Path::new(r"\\?\C:\a\b.dll")));
+        assert!(!is_unc(Path::new(r"\\.\PhysicalDrive0")));
     }
 }
