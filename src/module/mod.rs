@@ -16,3 +16,5 @@ pub use {
     reqres::*,
     url::{path_to_url, url_to_abspath},
 };
+
+pub(crate) use url::simplified_path;

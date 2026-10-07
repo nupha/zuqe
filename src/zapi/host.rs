@@ -353,11 +353,18 @@ impl<'a> ScopedContext<'a> {
         // into the module namespace (Python `__file__` semantics) unless the
         // extension exports its own (author wins). Done host-side so prebuilt
         // extensions get it without recompiling.
+        //
+        // `canonicalize()` yields a verbatim `\\?\C:\...` path on Windows; drop
+        // that prefix so `__file__` reads like a normal path
+        // (`C:\...\sqlite.aike`). The verbatim path stays in use for dlopen
+        // and the extension's `module_path()`.
         let inject_file = !export_names.iter().any(|n| n == "__file__");
         if inject_file {
             export_names.push("__file__".to_string());
         }
-        let module_path_str = abs_path.to_string_lossy().into_owned();
+        let module_path_str = crate::module::simplified_path(&abs_path)
+            .to_string_lossy()
+            .into_owned();
         let module_path_clone = module_path_str.clone();
 
         let init_ptr = md_info.init;
