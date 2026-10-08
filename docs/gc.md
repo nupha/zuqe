@@ -120,8 +120,9 @@ reclaimable) or if it wraps/contains a `GcRef<GcNode>`. Common node types:
 **Not** GC nodes (pure Rust data, no tracing needed): `String`, `Vec<u8>`, numbers, fds, channels,
 `Arc<Mutex<…>>`, `serde_json::Value`, and FFI wrappers such as `LlamaModel`/`LlamaContext`.
 
-There are exactly **two** entry points through which Rust-held nodes can enter the reachability
-graph — if a node isn't covered by one of them, it is unsafe:
+Rules 1 and 2 are the two entry points for **long-lived** Rust-held nodes. A value that is only
+held **during a native call** and is used after JS runs is covered by Rule 4. If a node isn't
+covered by one of these rules, it is unsafe:
 
 ### Rule 1 — class payloads holding GC nodes: implement `GcTrace`
 
@@ -237,6 +238,51 @@ index-out-of-bounds aborts during runtime teardown.
   (`RUSTFLAGS="-Zsanitizer=address"` + nightly); the very first offending access is reported
   with both the use stack and the free stack.
 
+### Rule 4 — values taken out of a traced container, used across JS re-entry
+
+This is the most common way to get a use-after-free in native code, and the one scope protection
+does **not** cover. The pattern:
+
+```rust
+let chunk = queue.borrow_mut().remove(0);  // 1. leaves the traced queue
+call_js_that_may_gc(ctx)?;                  // 2. runs bytecode, may GC
+use(chunk);                                 // 3. chunk may already be freed
+```
+
+Between steps 1 and 3 the only reference to `chunk` is a Rust local, and no traced structure
+holds it. Scope protection does not save it: at a GC safepoint the executor calls
+`clear_locals()` on the current scope **before** `gc_collect()`, so scope-local protection is
+dropped exactly when the GC runs. `ScopedContext::gc_protect_transient` is a no-op unless the
+`gc_protect_transient` feature is on, and it still relies on scope protection, so do not use it
+as a fix.
+
+"Calls JS" includes any call that can run bytecode: `call`, `invoke_*`, a `pull`/`cancel`/`then`
+callback, a thenable check on a value you resolve with, and a getter that runs on `[[Get]]`.
+
+**Fix:** keep the value in a **traced slot owned by the object** that is reachable while the
+native call runs (for example the stream controller). Hold it for the exact duration needed and
+release it right after. Prefer a closure-scoped helper so the hold cannot leak or be popped out of
+order. The `aike` case uses `ReadableControllerPayload::with_in_flight`
+(`aike/src/whatwg/stream/readable_controller.rs`):
+
+```rust
+cp.with_in_flight(|held| -> Result<Promise, i32> {
+    held.borrow_mut().push(chunk);      // traced until the closure returns
+    if cp.should_call_pull(ctx)? { cp.call_pull(ctx)?; }
+    iterator_result_promise(ctx, chunk, false)
+});
+```
+
+Do **not** fix this by pushing to a global roots `Vec` with manual push/pop. That is a hidden
+discipline with no compile-time check, and an early `?` can leak the root.
+
+**Related hazard: holding a `RefCell` borrow across JS.** A `borrow_mut()` taken before a JS call
+stays active during that call. Any GC in the call traces the same cell with `borrow()` and panics
+with "already borrowed". It can also re-enter and panic on the next borrow. Take the borrow
+right before the access and drop it before any call that can run JS. The `aike` fix was in
+`enqueue`: the queue was borrowed for the whole `fill_pending_pull_intos`, which resolves
+promises. It is now borrowed only for the final leftover insert.
+
 ### Review checklist
 
 **Rule 1 (class payload)**
@@ -257,6 +303,19 @@ index-out-of-bounds aborts during runtime teardown.
 - [ ] Can those calls grow the `Vec` (`push`/`insert` → realloc)?
 - [ ] If element-address stability is needed — is the storage `Vec<Box<T>>`, or are the
       pointers re-derived after every mutation?
+
+**Rule 4 (values across JS re-entry)**
+
+- [ ] Does any value leave a traced container (`remove`, `pop`, `take`, `drain`, a `Vec` that was
+      the only holder, a descriptor that is dropped) before a call that can run JS?
+- [ ] If yes — is the value held in a traced slot of an owner until it is handed off, and is that
+      hold closure-scoped or otherwise guaranteed to be released on every exit path, including
+      `?` errors?
+- [ ] Is the value still referenced after JS runs? If it is, it must still be traced at that point.
+- [ ] Does any `RefCell` borrow (`borrow`/`borrow_mut`) stay alive across a call that can run JS?
+      Narrow it to the access, or drop it first.
+- [ ] Did you avoid a global roots `Vec` with manual push/pop, and avoid relying on
+      `gc_protect_transient` or scope protection across JS?
 
 ## Customized GC tracer
 
