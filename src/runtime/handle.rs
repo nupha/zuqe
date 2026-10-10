@@ -12,7 +12,7 @@ use std::{
 
 use crate::{
     error::Exception,
-    runtime::{NoUserState, RuntimeImpl, RuntimeUserState, tick::TickStatus},
+    runtime::{DummyUserState, RuntimeImpl, RuntimeUserState, tick::TickStatus},
 };
 
 // ── Thread-local scheduler ─────────────────────────────────────────────
@@ -96,7 +96,7 @@ impl Runtime {
     /// Create a runtime with the default [`NoUserState`], and register it in the
     /// current thread's scheduler.
     pub fn create() -> Result<Runtime, i32> {
-        Self::create_with(NoUserState)
+        Self::create_with(DummyUserState)
     }
 
     /// Create a runtime carrying host-defined `state`, and register it in the
@@ -114,7 +114,7 @@ impl Runtime {
     /// (`Runtime::create_child_with(parent, NoUserState)`).
     #[cfg(feature = "child_runtime")]
     pub fn create_child(parent: &Runtime) -> Result<Runtime, i32> {
-        Self::create_child_with(parent, NoUserState)
+        Self::create_child_with(parent, DummyUserState)
     }
 
     /// Create a *child* runtime of `parent` carrying host-defined `state`:

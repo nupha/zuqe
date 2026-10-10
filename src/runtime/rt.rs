@@ -75,14 +75,14 @@ pub trait RuntimeUserState: Any + GcTrace {}
 
 /// Placeholder state for runtimes created without host state
 /// ([`Runtime::create`](super::Runtime::create)). Holds no GC references.
-pub struct NoUserState;
+pub(super) struct DummyUserState;
 
-impl GcTrace for NoUserState {
+impl GcTrace for DummyUserState {
     #[inline(always)]
     fn trace(&self, _: &mut GcTraceCtx) {}
 }
 
-impl RuntimeUserState for NoUserState {}
+impl RuntimeUserState for DummyUserState {}
 
 pub struct RuntimeImpl {
     /// atom registry
@@ -806,6 +806,6 @@ mod tests {
     #[test]
     fn default_user_state() {
         let rt = crate::Runtime::create().unwrap();
-        let _: &NoUserState = rt.user_state::<NoUserState>();
+        let _: &DummyUserState = rt.user_state::<DummyUserState>();
     }
 }

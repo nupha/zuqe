@@ -437,6 +437,17 @@ impl ModuleDef {
     }
 }
 
+/// Which modules [`ContextImpl::loaded_module_names`] reports.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleNameFilter {
+    /// Every loaded module.
+    All,
+    /// Only native (Rust-backed) modules — see [`ModuleDef::is_native`].
+    NativeOnly,
+    /// Only compiled JS modules (the non-native ones).
+    BytecodeOnly,
+}
+
 impl<'c> ScopedContext<'c> {
     /// Create native module def with initialization callback. Declare exported names to module.
     pub fn create_module(

@@ -9,7 +9,7 @@ use url::Url;
 use crate::{
     atom::Atom,
     context::{ContextImpl, ScopedContext},
-    module::{ModuleDef, path_to_url, url_to_abspath},
+    module::{ModuleDef, ModuleNameFilter, path_to_url, url_to_abspath},
     value::JSValue,
 };
 
@@ -68,6 +68,43 @@ impl ModuleDef {
 }
 
 impl ContextImpl {
+    /// Names of the modules loaded in this context, in load order, deduplicated.
+    ///
+    /// This is the authoritative registry behind module resolution, so a host
+    /// that needs to know "which modules already exist here" should ask here
+    /// rather than keep a parallel list of its own — the two drift apart the
+    /// moment a module is registered by any path the host does not own
+    /// (`load_zapi_extension`, a future builtin, …).
+    ///
+    /// Names are returned as `String` rather than borrowed slices: an `Atom`
+    /// may be a rope, which has no single contiguous `&str`, so a zero-copy
+    /// view is not always available.
+    ///
+    /// `loaded_modules` never deduplicates, so registering the same name twice
+    /// (e.g. a host asking for the same capability twice) yields one entry
+    /// here — matching [`ContextImpl::find_module_def`], which resolves such a
+    /// name to the first record.
+    pub fn loaded_module_names(&self, filter: ModuleNameFilter) -> Vec<String> {
+        let rt = self.rt();
+        let mut names: Vec<String> = Vec::new();
+        for m in self.loaded_modules.iter() {
+            let keep = match filter {
+                ModuleNameFilter::All => true,
+                ModuleNameFilter::NativeOnly => m.is_native(),
+                ModuleNameFilter::BytecodeOnly => !m.is_native(),
+            };
+            if keep {
+                let name = m.module_name().to_utf8(rt);
+                // `loaded_modules` is tiny (builtins plus the live graph), so a
+                // linear scan beats hashing, and appending preserves load order.
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        names
+    }
+
     /// find the loaded module_def by name.
     pub(super) fn find_module_def(&self, name: Atom) -> Option<ModuleDef> {
         self.loaded_modules.iter().find_map(|m| {
@@ -207,6 +244,84 @@ fn attrs_are_same(ctx: &mut ScopedContext, a: JSValue, b: JSValue) -> bool {
             .map(|s| s.content().encode_utf8(false).to_string())
     });
     type_a == type_b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Context, Runtime};
+
+    /// Names come from the registry itself, so anything registered here is
+    /// visible — a host does not have to record modules separately.
+    #[test]
+    fn native_names_come_from_the_registry() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let ctx: Context = rt.create_context(|cx| {
+            cx.create_module("fs", &[])?;
+            cx.create_module("path", &[])?;
+            Ok(())
+        })?;
+
+        assert_eq!(
+            ctx.loaded_module_names(ModuleNameFilter::NativeOnly),
+            vec!["fs".to_string(), "path".to_string()]
+        );
+        // Nothing was registered under this name, so a host asking about it
+        // learns "absent" rather than guessing.
+        assert!(!ctx
+            .loaded_module_names(ModuleNameFilter::NativeOnly)
+            .iter()
+            .any(|n| n == "nope"));
+        Ok(())
+    }
+
+    /// `loaded_modules` does not deduplicate, but the reported list does —
+    /// a name registered twice is one module as far as `find_module_def` is
+    /// concerned, so it must read as one here too.
+    #[test]
+    fn duplicate_registration_is_reported_once() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let ctx: Context = rt.create_context(|cx| {
+            cx.create_module("fs", &[])?;
+            cx.create_module("fs", &[])?;
+            Ok(())
+        })?;
+
+        assert_eq!(
+            ctx.loaded_module_names(ModuleNameFilter::NativeOnly),
+            vec!["fs".to_string()]
+        );
+        Ok(())
+    }
+
+    /// A native module and a loaded JS module are distinguishable, which is
+    /// what lets a host separate builtins from the module graph.
+    #[test]
+    fn filter_separates_native_from_bytecode() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let ctx: Context = rt.create_context(|cx| {
+            cx.create_module("fs", &[])?;
+            // A module allocated without an init function is the bytecode kind.
+            let name = Atom::intern_str(cx, "file:///a.js")?;
+            ModuleDef::new(cx, name)?;
+            Ok(())
+        })?;
+
+        assert_eq!(
+            ctx.loaded_module_names(ModuleNameFilter::NativeOnly),
+            vec!["fs".to_string()]
+        );
+        assert_eq!(
+            ctx.loaded_module_names(ModuleNameFilter::BytecodeOnly),
+            vec!["file:///a.js".to_string()]
+        );
+        assert_eq!(
+            ctx.loaded_module_names(ModuleNameFilter::All).len(),
+            2,
+            "All is the union, in load order"
+        );
+        Ok(())
+    }
 }
 
 /// default module filename normalizer
