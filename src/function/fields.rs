@@ -81,6 +81,34 @@ impl FieldDef {
         }
     }
 
+    /// Like [`FieldDef::GETSET`] but with the WebIDL attribute descriptor
+    /// `{ [[Getter]], [[Setter]], [[Enumerable]]: true, [[Configurable]]: true }`.
+    /// Use this for WebIDL host objects; ECMA built-ins must stay non-enumerable.
+    pub const fn GETSET_ENUM(
+        name: &'static str,
+        get: Option<GetterFn>,
+        set: Option<SetterFn>,
+        magic: i16,
+    ) -> Self {
+        Self {
+            name,
+            detail: FieldDetail::GetSet {
+                get: if let Some(f) = get {
+                    Some(Callback::Getter(f))
+                } else {
+                    None
+                },
+                set: if let Some(f) = set {
+                    Some(Callback::Setter(f))
+                } else {
+                    None
+                },
+                magic,
+            },
+            prop_flags: JS_PROP_C_W_E as u8,
+        }
+    }
+
     /// Define a lazy initialized class constructor field
     pub const fn CLASS(name: &'static str, f: fn() -> ClassID, prop_flags: u32) -> Self {
         Self {
