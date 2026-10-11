@@ -6,15 +6,25 @@ filtered by ECMAScript edition presets (`ES5` … `ES2027`) and by spec suite
 
 ## Build & run
 
+`intl402` is not a default feature, and the runner declares it via
+`required-features` — builds without it fail with a clear error. Every
+build/run must therefore pass `--features intl402`. Outward conformance runs
+use release builds:
+
 ```sh
-cargo build --example test262
-cargo run --example test262 -- [ARGS]     # `--` separates cargo flags from runner flags
+cargo build --release --example test262 --features intl402
+cargo run --release --example test262 --features intl402 -- [ARGS]  # `--` separates cargo flags from runner flags
 ```
 
-Use debug builds to surface engine bugs (assertions, GC checks):
+Release uses `panic = "abort"`, so a mid-run crash gives no panic output —
+pair release runs with `--log-file` (see CLI) to identify the crashing
+script.
+
+Debug builds keep engine assertions and GC checks on, which surfaces bugs
+locally:
 
 ```sh
-cargo run --example test262 -- --preset ES2025
+cargo run --example test262 --features intl402 -- --preset ES2025
 ```
 
 ## CLI
@@ -29,7 +39,7 @@ cargo run --example test262 -- --preset ES2025
 | `--intl <LIST>` | Allowed ECMA-402 features for suite `402` (comma-separated whitelist). Overrides the config's `intl:`. |
 | `[TEST_FILES]...` | Test files or globs, relative to `<base_path>/test/`. Replaces the config's `tests:` and bypasses `--suite` shaping. |
 | `--error-file <FILE>` | Re-run only the failures listed in this JSONL file, then rewrite it in place (previous copy saved as `<FILE>-last.jsonl`). All other filtering is ignored. Default when absent: `test262-errors.jsonl` receives current failures. |
-| `--log-file <FILE>` | Writes each script path before it runs. After a crash, the last line is the culprit. Essential for release builds (`panic = "abort"`); debug builds print it via panic hook instead. |
+| `--log-file <FILE>` | Writes each script path (flushed) before it runs; after a crash the last line is the culprit. Required for release runs (`panic = "abort"` — the panic hook never fires there); in debug/unwind builds the hook covers Rust panics, but a hard crash (SEGV) still bypasses it. |
 
 ### Filtering semantics (exact)
 
@@ -112,26 +122,33 @@ entirely; suite then has no effect on which files are gathered.
 
 ```sh
 # Full ECMA-262 run at the config's preset
-cargo run --example test262 --
+cargo run --release --example test262 --features intl402 --
 
 # Latest preset, everything including intl402
-cargo run --example test262 -- --preset ES2027 --suite all
+cargo run --release --example test262 --features intl402 -- --preset ES2027 --suite all
 
 # Only intl402
-cargo run --example test262 -- --suite 402
+cargo run --release --example test262 --features intl402 -- --suite 402
 
 # One directory or file
-cargo run --example test262 -- -- built-ins/Array/**
+cargo run --release --example test262 --features intl402 -- -- built-ins/Array/**
 
 # Check one feature across suites
-cargo run --example test262 -- --features iterator-helpers
+cargo run --release --example test262 --features intl402 -- --features iterator-helpers
 
 # Quick-check a single Intl feature (suite 402)
-cargo run --example test262 -- --suite 402 --intl Intl.Segmenter
+cargo run --release --example test262 --features intl402 -- --suite 402 --intl Intl.Segmenter
 
 # Iterate on failures: fix, re-run just those, repeat
-cargo run --example test262 -- --error-file test262-errors.jsonl
+cargo run --release --example test262 --features intl402 -- --error-file test262-errors.jsonl
+
+# Release run with crash triage (last line of the log = crashing script)
+cargo run --release --example test262 --features intl402 -- --log-file run.log
 ```
+
+Note: the runner's own `--features` flag (test262 feature whitelist) is
+unrelated to cargo's `--features`; keep cargo's before `--` and the runner's
+after.
 
 ## Outputs
 
