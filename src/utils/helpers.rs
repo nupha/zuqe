@@ -26,18 +26,6 @@ pub(crate) fn js_get_thread_stack_bottom() -> usize {
     })
 }
 
-/// Compile-time: can the current target query a thread's stack bottom at all?
-/// Keep the platform list here in sync with the `#[cfg]` arms of
-/// `current_thread_stack_bottom`.
-pub(crate) const THREAD_STACK_BOTTOM_QUERYABLE: bool = cfg!(any(
-    windows,
-    target_os = "linux",
-    target_os = "netbsd",
-    target_os = "freebsd",
-    target_os = "dragonfly",
-    target_os = "macos",
-));
-
 #[cfg(windows)]
 fn current_thread_stack_bottom() -> usize {
     unsafe extern "system" {

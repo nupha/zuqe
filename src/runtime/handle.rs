@@ -76,15 +76,15 @@ impl Runtime {
     /// Whether the platform can report the current thread's stack bottom.
     /// When false, auto mode (`thread_stack_limit == 0`) cannot arm a C-stack guard
     /// (see `js_check_thread_stack_overflow`); hosts should fall back to a strict
-    /// limit, e.g. 512 KiB, unless they want unbounded recursion to crash.
-    pub const CAN_AUTO_THREAD_STACK_LIMIT: bool = crate::utils::THREAD_STACK_BOTTOM_QUERYABLE;
-
-    /// Smallest native thread stack the C-stack guard can work with. The guard
-    /// keeps `THREAD_STACK_LIMIT_MARGIN` head-room below the thread's stack bottom,
-    /// so a thread smaller than twice that leaves too little usable stack for
-    /// the engine to even initialize — hosts must size their thread above this
-    /// (see `declare_thread_stack_size`).
-    pub const MIN_THREAD_STACK_SIZE: usize = crate::config::THREAD_STACK_LIMIT_MARGIN * 2;
+    /// limit, unless they want unbounded recursion to crash.
+    pub const CAN_AUTO_THREAD_STACK_LIMIT: bool = cfg!(any(
+        windows,
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "freebsd",
+        target_os = "dragonfly",
+        target_os = "macos",
+    ));
 
     /// Build a runtime, optionally registering it in the current thread's
     /// scheduler. Roots register (so `join_each`/`tick_all_to_idle` see them);

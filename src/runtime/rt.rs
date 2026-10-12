@@ -6,6 +6,7 @@ use std::{any::Any, cell::Cell, ffi::c_void, process::ExitCode, sync::Arc};
 use gc_lite::{GcHeap, GcPartitionId, GcTrace, GcTraceCtx, GcTraceFn};
 
 use crate::{
+    Runtime,
     atom::{Atom, AtomInfo, AtomKind, AtomRegistry, JS_ATOM_HASH_PRIVATE, JS_ATOM_HASH_SYMBOL},
     builtins::{
         array_buffer::JSSharedArrayBufferFunctions, promise::JSHostPromiseRejectionTracker,
@@ -21,8 +22,7 @@ use crate::{
     module::{
         ModuleLoadFn, ModuleNormalizeFn, js_default_module_loader, js_default_module_normalizer,
     },
-    object::Promise,
-    object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
+    object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, Promise, ShapeRegistry},
     string::{StringData, StringRef},
     utils::js_get_thread_stack_pointer,
     value::JSValue,
@@ -100,11 +100,6 @@ pub struct RuntimeImpl {
     pub(crate) thread_stack_limit: usize,
     pub(crate) thread_stack_limit_addr: usize, // armed C-stack limit address (strict mode only)
     pub(crate) thread_stack_top: usize,        // eval-entry SP; baseline for the strict limit
-
-    /// Native (C) stack size in bytes of the thread running this runtime, as
-    /// declared by the host via `declare_thread_stack_size`. `0` = undeclared:
-    /// the guard only has the thread-bottom query to work with.
-    pub(crate) thread_stack_size: usize,
 
     /// Bump-arena frame storage for the stackless interpreter.
     /// All active frame headers and data buffers live here.
@@ -394,7 +389,6 @@ impl RuntimeImpl {
             thread_stack_limit: 0,
             thread_stack_top: 0,
             thread_stack_limit_addr: 0,
-            thread_stack_size: 0,
 
             cur_exception: Exception::No,
             interrupt_code: None,
@@ -549,12 +543,10 @@ impl RuntimeImpl {
     /// 1. `thread_stack_limit` (strict mode): `thread_stack_limit` bytes below the
     ///    eval-entry SP.
     /// 2. The current thread's real stack bottom plus `THREAD_STACK_LIMIT_MARGIN` —
-    ///    fixed for the thread's lifetime, recomputed when re-armed.
-    /// 3. `thread_stack_size` minus `THREAD_STACK_LIMIT_MARGIN` below the eval-entry
-    ///    SP — the fallback for platforms that can't report the stack bottom,
-    ///    where the host has to declare the size instead.
-    /// 4. No limit address (`0`): the host neither set a limit nor declared a
-    ///    size on such a platform, so unbounded recursion would crash.
+    ///    the engine queries the thread's own bounds, so this is fixed for the
+    ///    thread's lifetime and recomputed when re-armed.
+    /// 3. No limit address (`0`): the platform can't report the thread's stack
+    ///    bottom and no strict limit was set, so unbounded recursion would crash.
     fn update_thread_stack_limit(&mut self) {
         self.thread_stack_limit_addr = if self.thread_stack_limit != 0 {
             self.thread_stack_top - self.thread_stack_limit
@@ -562,14 +554,8 @@ impl RuntimeImpl {
             let bottom = crate::utils::js_get_thread_stack_bottom();
             if bottom != 0 {
                 bottom + THREAD_STACK_LIMIT_MARGIN
-            } else if self.thread_stack_size != 0 {
-                self.thread_stack_top.saturating_sub(
-                    self.thread_stack_size
-                        .saturating_sub(THREAD_STACK_LIMIT_MARGIN),
-                )
             } else {
-                if !crate::utils::THREAD_STACK_BOTTOM_QUERYABLE {
-                    // `cfg!` folds this error branch away on capable platforms.
+                if !Runtime::CAN_AUTO_THREAD_STACK_LIMIT {
                     log::warn!(
                         "auto mode C-stack guard unavailable: this platform can't \
                          report the thread stack bottom; unbounded recursion will crash \
@@ -589,24 +575,6 @@ impl RuntimeImpl {
     /// Will throw stack overflow error when stack using exceeds this limit.
     pub fn set_thread_stack_limit(&mut self, nbytes: usize) {
         self.thread_stack_limit = nbytes;
-        self.update_thread_stack_limit();
-    }
-
-    /// Declare the native (C) stack size, in bytes, of the thread that runs
-    /// this runtime. `0` = undeclared.
-    ///
-    /// The runtime can't enlarge its own thread's stack, so a host that needs
-    /// deeper native recursion has to run the runtime on a thread it sized
-    /// itself (e.g. `std::thread::Builder::stack_size`). Declaring the size
-    /// lets the guard account for it on platforms that can't report the stack
-    /// bottom; where the bottom *is* queryable the query is authoritative and
-    /// already reflects the larger thread stack, so this only acts as a
-    /// fallback. Ignored while an explicit `set_thread_stack_limit` is in effect.
-    ///
-    /// Like `set_thread_stack_limit`, the limit lands `THREAD_STACK_LIMIT_MARGIN`
-    /// above the declared stack's bottom, measured from the eval-entry SP.
-    pub fn declare_thread_stack_size(&mut self, nbytes: usize) {
-        self.thread_stack_size = nbytes;
         self.update_thread_stack_limit();
     }
 
