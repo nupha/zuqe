@@ -60,6 +60,13 @@ default = [
     "builtin_weakref",
 ]
 
+# Keep debug-assertions but avoid -O0 stack-slot explosion: at opt-level 0 every
+# MIR local of the giant `execute_with_arena` match gets its own frame slot, so a
+# native->JS reentry burns ~70 KiB of C stack (vs ~3 KiB at opt-level 1) and
+# shallow nesting falsely reports `stack overflow`.
+[profile.dev]
+opt-level = 1
+
 [profile.release]
 panic = "abort"
 overflow-checks = false
