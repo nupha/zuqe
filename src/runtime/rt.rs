@@ -101,6 +101,11 @@ pub struct RuntimeImpl {
     pub(crate) stack_limit: usize, // lower stack limit (strict-budget mode only)
     pub(crate) stack_top: usize,   // eval-entry SP; baseline for the strict budget
 
+    /// Native (C) stack size in bytes of the thread running this runtime, as
+    /// declared by the host via `set_thread_stack_size`. `0` = undeclared:
+    /// the guard only has the thread-bottom query to work with.
+    pub(crate) thread_stack_size: usize,
+
     /// Bump-arena frame storage for the stackless interpreter.
     /// All active frame headers and data buffers live here.
     pub(crate) frame_arena: StackFrameArena,
@@ -389,6 +394,7 @@ impl RuntimeImpl {
             stack_budget: 0,
             stack_top: 0,
             stack_limit: 0,
+            thread_stack_size: 0,
 
             cur_exception: Exception::No,
             interrupt_code: None,
@@ -537,15 +543,31 @@ impl RuntimeImpl {
         }
     }
 
-    /// (Re)arm the C-stack guard line into `stack_limit`. Auto mode: the
-    /// bottom of the current thread's real stack plus `STACK_RESERVE_MARGIN` —
-    /// fixed for the thread's lifetime, recomputed when re-armed. Strict mode:
-    /// `stack_budget` bytes below the eval-entry SP.
+    /// (Re)arm the C-stack guard line into `stack_limit`, in this order of
+    /// precedence:
+    ///
+    /// 1. `stack_budget` (strict mode): `stack_budget` bytes below the
+    ///    eval-entry SP.
+    /// 2. The current thread's real stack bottom plus `STACK_RESERVE_MARGIN` —
+    ///    fixed for the thread's lifetime, recomputed when re-armed.
+    /// 3. `thread_stack_size` minus `STACK_RESERVE_MARGIN` below the eval-entry
+    ///    SP — the fallback for platforms that can't report the stack bottom,
+    ///    where the host has to declare the size instead.
+    /// 4. No guard line (`0`): the host neither set a budget nor declared a
+    ///    size on such a platform, so unbounded recursion would crash.
     fn update_stack_budget(&mut self) {
-        self.stack_limit = if self.stack_budget == 0 {
-            // Auto mode: derive from the thread's stack bottom.
+        self.stack_limit = if self.stack_budget != 0 {
+            self.stack_top - self.stack_budget
+        } else {
             let bottom = crate::utils::js_get_stack_bottom();
-            if bottom == 0 {
+            if bottom != 0 {
+                bottom + STACK_RESERVE_MARGIN
+            } else if self.thread_stack_size != 0 {
+                self.stack_top.saturating_sub(
+                    self.thread_stack_size
+                        .saturating_sub(STACK_RESERVE_MARGIN),
+                )
+            } else {
                 if !crate::utils::STACK_BOTTOM_QUERYABLE {
                     // `cfg!` folds this error branch away on capable platforms.
                     log::warn!(
@@ -555,11 +577,7 @@ impl RuntimeImpl {
                     );
                 }
                 0 // no guard line
-            } else {
-                bottom + STACK_RESERVE_MARGIN
             }
-        } else {
-            self.stack_top - self.stack_budget
         };
     }
 
@@ -571,6 +589,24 @@ impl RuntimeImpl {
     /// Will throw stack overflow error when stack using exceeds this budget.
     pub fn set_stack_budget(&mut self, nbytes: usize) {
         self.stack_budget = nbytes;
+        self.update_stack_budget();
+    }
+
+    /// Declare the native (C) stack size, in bytes, of the thread that runs
+    /// this runtime. `0` = undeclared.
+    ///
+    /// The runtime can't enlarge its own thread's stack, so a host that needs
+    /// deeper native recursion has to run the runtime on a thread it sized
+    /// itself (e.g. `std::thread::Builder::stack_size`). Declaring the size
+    /// lets the guard account for it on platforms that can't report the stack
+    /// bottom; where the bottom *is* queryable the query is authoritative and
+    /// already reflects the larger thread stack, so this only acts as a
+    /// fallback. Ignored while an explicit `set_stack_budget` is in effect.
+    ///
+    /// Like `set_stack_budget`, the guard line lands `STACK_RESERVE_MARGIN`
+    /// above the declared stack's bottom, measured from the eval-entry SP.
+    pub fn set_thread_stack_size(&mut self, nbytes: usize) {
+        self.thread_stack_size = nbytes;
         self.update_stack_budget();
     }
 

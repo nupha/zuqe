@@ -79,6 +79,13 @@ impl Runtime {
     /// budget, e.g. 512 KiB, unless they want unbounded recursion to crash.
     pub const CAN_AUTO_STACK_BUDGET: bool = crate::utils::STACK_BOTTOM_QUERYABLE;
 
+    /// Smallest native thread stack the C-stack guard can work with. The guard
+    /// keeps `STACK_RESERVE_MARGIN` head-room below the thread's stack bottom,
+    /// so a thread smaller than twice that leaves too little usable stack for
+    /// the engine to even initialize — hosts must size their thread above this
+    /// (see `set_thread_stack_size`).
+    pub const MIN_THREAD_STACK_SIZE: usize = crate::config::STACK_RESERVE_MARGIN * 2;
+
     /// Build a runtime, optionally registering it in the current thread's
     /// scheduler. Roots register (so `join_each`/`tick_all_to_idle` see them);
     /// children do not — they are driven by their parent's `tick()`.
