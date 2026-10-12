@@ -624,6 +624,47 @@ impl ArrayBuffer {
             abuf.detached = true;
         }
     }
+
+    /// Detach this ArrayBuffer and hand back its backing store so it can be
+    /// installed into another ArrayBuffer without copying. Used by
+    /// `ArrayBuffer.prototype.transfer`: the spec copies the bytes and then
+    /// detaches the source, so once the source is detached the copy is
+    /// unobservable and the allocation can simply be moved.
+    ///
+    /// Returns `None` for data that cannot be moved: `Shared` buffers are not
+    /// detachable, and `Raw` data carries a free function tied to this payload.
+    pub(crate) fn detatch_take_owned(&mut self, ctx: &mut ScopedContext) -> Option<Box<[u8]>> {
+        let abuf = self.payload_mut();
+        if abuf.is_detached() || !matches!(abuf.data(), ABufData::Owned(_)) {
+            return None;
+        }
+        let data = abuf.replace(ABufData::Empty);
+
+        let rt = ctx.rt_ptr();
+        let heap = rt.gc_heap();
+
+        for o in abuf
+            .typed_array_list
+            .drain(..)
+            .filter_map(|w| w.upgrade(heap))
+        {
+            let mut o = Object::from(o.into_raw());
+            debug_assert!(
+                o.payload_typed_array_mut().is_some(),
+                "expect TypedArray object"
+            );
+            if let Some(ta) = o.payload_typed_array_mut() {
+                ta.set_count(0);
+            }
+        }
+
+        abuf.detached = true;
+
+        match data {
+            ABufData::Owned(b) => Some(b),
+            _ => unreachable!("checked Owned above"),
+        }
+    }
 }
 
 pub fn js_array_buffer_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

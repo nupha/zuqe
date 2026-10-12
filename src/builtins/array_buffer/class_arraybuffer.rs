@@ -140,6 +140,18 @@ fn js_array_buffer_transfer(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
 
     let copy_len = std::cmp::min(old_len, new_len);
 
+    // Fast path: transferring a plain fixed-length buffer to the same length is
+    // a move. The spec copies then detaches the source, so with the source
+    // detached the copy is unobservable and sharing the allocation is exact —
+    // and it keeps large transfers (e.g. BYOB reads of a big body) O(1).
+    if new_len == old_len && !src_resizable {
+        if let Some(bytes) = ab.detatch_take_owned(ctx) {
+            let new_ab =
+                ArrayBuffer::from_bytes(ctx, JSValue::UNDEFINED, bytes, std::ptr::null_mut())?;
+            return Ok(JSValue::from(new_ab));
+        }
+    }
+
     // Read old data before creating new ArrayBuffer to avoid borrow conflicts
     let src = if copy_len > 0 {
         let bytes = ab.payload().bytes();
