@@ -11,7 +11,7 @@ use crate::{
         JS_PROP_ENUMERABLE, JS_PROP_WRITABLE, PayloadPtr, PropertyKey,
     },
     parse::{JSONParseRecord, JSParseState},
-    runtime::js_check_stack_overflow,
+    runtime::js_check_thread_stack_overflow,
     value::JSValue,
 };
 
@@ -73,7 +73,7 @@ fn internalize_json_property(
     text_str: &str,
     parent_record: Option<&JSONParseRecord>,
 ) -> JSResult {
-    if js_check_stack_overflow(ctx.rt(), 0) {
+    if js_check_thread_stack_overflow(ctx.rt(), 0) {
         return Err(ctx.throw_stack_overflow());
     }
 

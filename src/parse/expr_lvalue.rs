@@ -4,8 +4,8 @@
 use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
-    stack_frame::ExecMode,
     utils::read_from_ptr,
+    vm_stack::ExecMode,
 };
 
 use super::{

@@ -467,7 +467,7 @@ impl<'c> ScopedContext<'c> {
 
         // ── Arena mode: traverse FrameHead.prev chain (if active) ──
         if !rt.active_frame_index.is_null() {
-            let arena = &rt.frame_arena;
+            let arena = &rt.vm_stack;
             let mut frame_idx = rt.active_frame_index;
             let mut first = true;
             while !frame_idx.is_null() {

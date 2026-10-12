@@ -74,17 +74,17 @@ impl DerefMut for Runtime {
 
 impl Runtime {
     /// Whether the platform can report the current thread's stack bottom.
-    /// When false, auto mode (`stack_budget == 0`) cannot arm a C-stack guard
-    /// (see `js_check_stack_overflow`); hosts should fall back to a strict
-    /// budget, e.g. 512 KiB, unless they want unbounded recursion to crash.
-    pub const CAN_AUTO_STACK_BUDGET: bool = crate::utils::STACK_BOTTOM_QUERYABLE;
+    /// When false, auto mode (`thread_stack_limit == 0`) cannot arm a C-stack guard
+    /// (see `js_check_thread_stack_overflow`); hosts should fall back to a strict
+    /// limit, e.g. 512 KiB, unless they want unbounded recursion to crash.
+    pub const CAN_AUTO_THREAD_STACK_LIMIT: bool = crate::utils::THREAD_STACK_BOTTOM_QUERYABLE;
 
     /// Smallest native thread stack the C-stack guard can work with. The guard
-    /// keeps `STACK_RESERVE_MARGIN` head-room below the thread's stack bottom,
+    /// keeps `THREAD_STACK_LIMIT_MARGIN` head-room below the thread's stack bottom,
     /// so a thread smaller than twice that leaves too little usable stack for
     /// the engine to even initialize — hosts must size their thread above this
-    /// (see `set_thread_stack_size`).
-    pub const MIN_THREAD_STACK_SIZE: usize = crate::config::STACK_RESERVE_MARGIN * 2;
+    /// (see `declare_thread_stack_size`).
+    pub const MIN_THREAD_STACK_SIZE: usize = crate::config::THREAD_STACK_LIMIT_MARGIN * 2;
 
     /// Build a runtime, optionally registering it in the current thread's
     /// scheduler. Roots register (so `join_each`/`tick_all_to_idle` see them);

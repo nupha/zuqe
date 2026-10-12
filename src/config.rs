@@ -30,22 +30,22 @@ pub(crate) const GC_ALLOC_CHECK_INTERVAL: u32 = 32;
 // ── VM / execution stack ───────────────────────────────────────────────
 
 /// Head-room in bytes kept above the current thread's real stack bottom when
-/// the guard runs in **auto mode** (`set_stack_budget(0)`): recursion may
+/// the guard runs in **auto mode** (`set_thread_stack_limit(0)`): recursion may
 /// use the whole thread stack except this reserve, which stays free for the
 /// throw path so it never touches the OS guard page.
 #[cfg(debug_assertions)]
-pub(crate) const STACK_RESERVE_MARGIN: usize = 512 * 1024;
+pub(crate) const THREAD_STACK_LIMIT_MARGIN: usize = 512 * 1024;
 #[cfg(not(debug_assertions))]
-pub(crate) const STACK_RESERVE_MARGIN: usize = 256 * 1024;
+pub(crate) const THREAD_STACK_LIMIT_MARGIN: usize = 256 * 1024;
 
 /// VM stack-frame bump-arena capacity in bytes. Frame headers and data are
 /// bump-allocated from this pool; overflow spills to heap buffers.
-pub(crate) const STACK_ARENA_CAP: usize = 256 * 1024;
+pub(crate) const VM_STACK_ARENA_CAP: usize = 256 * 1024;
 
 /// Default ceiling on total live virtual stack bytes (bump `data_used` plus
 /// live heap frames). Crossing it raises a stack-depth error instead of
 /// exhausting host memory.
-pub(crate) const STACK_LIMIT_DEFAULT: usize = 512 * 1024;
+pub(crate) const VM_STACK_LIMIT_DEFAULT: usize = 512 * 1024;
 
 /// Number of spilled-frame heap buffers kept cached per arena.
 /// Caches recently released buffers so bursts of deep/async calls do not
@@ -58,7 +58,7 @@ pub(crate) const JS_INTERRUPT_COUNTER_INIT: i32 = 10000;
 
 /// Maximum bytecode stack depth of a single function. A hard upper bound
 /// imposed by the `u16` stack-size encoding — not a tuning knob.
-pub(crate) const STACK_LEN_MAX: u16 = 65534;
+pub(crate) const VM_STACK_LEN_MAX: u16 = 65534;
 
 // ── objects / shapes ───────────────────────────────────────────────────
 

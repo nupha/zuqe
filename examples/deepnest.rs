@@ -4,12 +4,12 @@
 // deepnest — measure the maximum nesting depth the zuqe parser can handle
 // before its C-stack recursion guard fires.
 //
-// The parser installs a stack-overflow check at `next_token` (and at the
+// The parser installs a C-stack recursion check at `next_token` (and at the
 // function-definition entry point). When the native stack pointer drops more
-// than `stack_overflow` bytes below where the runtime was captured, parsing
+// than `thread_stack_limit` bytes below where the runtime was captured, parsing
 // returns a `SyntaxError` ("stack overflow") instead of crashing the process.
-// See src/runtime/rt.rs (`STACK_OVERFLOW_LIMIT`, `set_stack_overflow`) and
-// src/parse/tokenize.rs / src/parse/function.rs (`js_check_stack_overflow`).
+// See src/runtime/rt.rs (`thread_stack_limit_addr`, `set_thread_stack_limit`) and
+// src/parse/tokenize.rs / src/parse/function.rs (`js_check_thread_stack_overflow`).
 //
 // By binary-searching the deepest `if` chain that still parses, we get a
 // concrete "bytes per nesting level" number. Comparing it before vs. after a
@@ -41,7 +41,7 @@ fn build_deep_if(n: usize) -> String {
 }
 
 /// Returns true if a chain of `n` nested `if`s parses (and runs) successfully
-/// under the given stack-overflow limit.
+/// under the given C-stack recursion limit.
 fn probe(limit: usize, n: usize) -> bool {
     let mut rt = match Runtime::create() {
         Ok(rt) => rt,
@@ -54,8 +54,8 @@ fn probe(limit: usize, n: usize) -> bool {
         Ok(ctx) => ctx,
         Err(_) => return false,
     };
-    // Set the C-stack recursion guard, then let eval refresh stack_top for us.
-    ctx.rt_mut().set_stack_budget(limit);
+    // Set the C-stack recursion guard, then let eval refresh thread_stack_top for us.
+    ctx.rt_mut().set_thread_stack_limit(limit);
 
     let src = build_deep_if(n);
     ctx.eval(

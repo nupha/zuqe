@@ -13,9 +13,9 @@ use crate::{
     eval::EvalType,
     function::{FunctionDef, VarRef},
     gcref_wrapper,
-    stack_frame::{ExecMode, FrameIndex},
     utils::{get_leb128, get_sleb128, read_from_ptr},
     value::JSValue,
+    vm_stack::{ExecMode, FrameIndex},
 };
 
 use super::{FunctionKind, closure::ClosureVar, var::JSVarDef};
@@ -668,7 +668,7 @@ impl Bytecode {
             ctx,
             None,
             captured_vars,
-            rt.stack_frame_arena_mut(),
+            rt.vm_stack_mut(),
             parent_frame_idx,
         )?
         .call(ctx, this_obj, &[])

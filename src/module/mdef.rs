@@ -657,7 +657,7 @@ fn current_module_def(ctx: &ScopedContext) -> Option<ModuleDef> {
 /// at all (pure native / host top level).
 pub(crate) fn current_bytecode_filename(ctx: &ScopedContext) -> Option<Atom> {
     let rt = ctx.rt();
-    let arena = rt.stack_frame_arena();
+    let arena = rt.vm_stack();
 
     let mut cur = rt.active_frame_index;
     while !cur.is_null() {
@@ -716,7 +716,7 @@ pub(crate) fn get_script_or_module_name(ctx: &ContextImpl, n_stack_levels: usize
     // non-eval frame's filename.  Start from the *current* frame (the
     // innermost one being executed, which for dynamic import is the
     // eval'd code's frame or the module-evaluation frame).
-    let arena = rt.stack_frame_arena();
+    let arena = rt.vm_stack();
     let mut cur = rt.active_frame_index;
     let mut skipped = 0;
 

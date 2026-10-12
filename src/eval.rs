@@ -14,8 +14,8 @@ use crate::{
     module::{ModuleDef, path_to_url},
     parse::JSParseState,
     runtime::Runtime,
-    stack_frame::{ExecMode, FrameIndex},
     value::JSValue,
+    vm_stack::{ExecMode, FrameIndex},
 };
 
 /// What the host passes as the eval entry's name / base for a single `eval`.
@@ -172,7 +172,7 @@ impl<'c> ScopedContext<'c> {
             if idx.is_null() {
                 (None, None, ExecMode::empty())
             } else {
-                let head = self.rt().stack_frame_arena().frame(idx);
+                let head = self.rt().vm_stack().frame(idx);
                 let cur_func = BCWrapper::try_from(JSValue::from(head.func_obj))
                     .expect("arena frame func_obj must be a BCWrapper");
                 let bc = cur_func.payload().bytecode();
@@ -380,9 +380,8 @@ impl<'c> ScopedContext<'c> {
                         bc.run_as_function(self, FrameIndex::NULL, this_obj, &[])
                     } else {
                         // get captured_vars from the trampoline frame
-                        let bfun =
-                            BCWrapper::try_from(self.rt().stack_frame_arena().frame(idx).func_obj)
-                                .expect("eval: caller must be bytecode function");
+                        let bfun = BCWrapper::try_from(self.rt().vm_stack().frame(idx).func_obj)
+                            .expect("eval: caller must be bytecode function");
                         let captured_vars = bfun.payload().captured_vars();
                         bc.run_as_function(self, idx, this_obj, captured_vars)
                     }
@@ -583,12 +582,12 @@ impl<'c> Context<'c> {
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> JSResult {
-        // Refresh stack_top at the outermost eval entry point.
+        // Refresh thread_stack_top at the outermost eval entry point.
         // At this point all Rust-side initialization (class registration,
-        // native module init, etc.) is complete and unwound, so stack_top
+        // native module init, etc.) is complete and unwound, so thread_stack_top
         // anchors at the shallowest frame (main level). Subsequent JS execution
-        // (including recursive module linking/eval) gets an accurate stack_size budget.
-        self.rt_mut().refresh_stack_top();
+        // (including recursive module linking/eval) measures the limit from there.
+        self.rt_mut().refresh_thread_stack_top();
 
         let name = if eval_type == EvalType::Module {
             name.normalize_to_url()
@@ -611,12 +610,12 @@ impl<'c> Context<'c> {
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> ExitStatus {
-        // Refresh stack_top at the outermost eval entry point.
+        // Refresh thread_stack_top at the outermost eval entry point.
         // At this point all Rust-side initialization (class registration,
-        // native module init, etc.) is complete and unwound, so stack_top
+        // native module init, etc.) is complete and unwound, so thread_stack_top
         // anchors at the shallowest frame (main level). Subsequent JS execution
-        // (including recursive module linking/eval) gets an accurate stack_size budget.
-        self.rt_mut().refresh_stack_top();
+        // (including recursive module linking/eval) measures the limit from there.
+        self.rt_mut().refresh_thread_stack_top();
 
         let name = if eval_type == EvalType::Module {
             name.normalize_to_url()
@@ -642,8 +641,8 @@ impl<'c> Context<'c> {
         eval_type: EvalType,
         flags: EvalFlags,
     ) -> ExitStatus {
-        // Refresh stack_top at the outermost eval entry point (see sync version).
-        self.rt_mut().refresh_stack_top();
+        // Refresh thread_stack_top at the outermost eval entry point (see sync version).
+        self.rt_mut().refresh_thread_stack_top();
 
         let name = if eval_type == EvalType::Module {
             name.normalize_to_url()

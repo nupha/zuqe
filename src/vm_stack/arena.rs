@@ -7,15 +7,15 @@ use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     Object,
-    config::STACK_LIMIT_DEFAULT,
+    config::VM_STACK_LIMIT_DEFAULT,
     context::ScopedContext,
     function::VarRef,
-    stack_frame::{AsyncStackFrame, ExecMode, FrameBuffer, FrameIndex, FrameState, StackFrame},
+    vm_stack::{AsyncStackFrame, ExecMode, FrameBuffer, FrameIndex, FrameState, StackFrame},
     value::JSValue,
 };
 
 /// Bump-allocator frame storage.
-pub(crate) struct StackFrameArena {
+pub(crate) struct VmStack {
     /// MUST stay `Vec<Box<StackFrame>>` — never downgrade to `Vec<StackFrame>`.
     ///
     /// `execute_with_arena` (exec_stackless.rs) caches `&mut frame.cur_sp_offset`
@@ -42,12 +42,12 @@ pub(crate) struct StackFrameArena {
 
     /// Live bytes currently held by heap-allocated frames (async + spilled).
     /// Combined with `data_used` this is the total live virtual stack size in
-    /// bytes, checked against `max_stack_bytes` on every frame allocation.
+    /// bytes, checked against `vm_stack_limit` on every frame allocation.
     live_heap_bytes: usize,
     /// Maximum total live virtual stack size in bytes (bump `data_used` +
     /// `live_heap_bytes`). Exceeding it raises a stack-depth error instead of
     /// running out of host memory.
-    max_stack_bytes: usize,
+    vm_stack_limit: usize,
 
     /// Closure variable references keyed by frame index.
     /// Only frames with closure captures have entries here;
@@ -67,11 +67,11 @@ pub(crate) struct StackFrameArena {
 pub(crate) enum FrameAllocError {
     /// Host could not allocate the backing buffer (out of memory).
     Oom,
-    /// Combined bump+heap virtual stack exceeded `max_stack_bytes`.
+    /// Combined bump+heap virtual stack exceeded `vm_stack_limit`.
     Exceeded,
 }
 
-impl StackFrameArena {
+impl VmStack {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             frames: Vec::with_capacity(256),
@@ -80,7 +80,7 @@ impl StackFrameArena {
             suspended_count: 0,
             heap_buf_cache: Vec::new(),
             live_heap_bytes: 0,
-            max_stack_bytes: STACK_LIMIT_DEFAULT,
+            vm_stack_limit: VM_STACK_LIMIT_DEFAULT,
             var_ref_map: HashMap::new(),
 
             #[cfg(debug_assertions)]
@@ -128,8 +128,8 @@ impl StackFrameArena {
     }
 
     /// Set the maximum total live virtual stack size in bytes (bump + heap).
-    pub(crate) const fn set_stack_limit(&mut self, bytes: usize) {
-        self.max_stack_bytes = bytes;
+    pub(crate) const fn set_vm_stack_limit(&mut self, bytes: usize) {
+        self.vm_stack_limit = bytes;
     }
 
     pub(crate) fn alloc_frame(
@@ -139,7 +139,7 @@ impl StackFrameArena {
         capacity: usize,
     ) -> Result<FrameIndex, FrameAllocError> {
         // Guard the combined virtual stack (bump + heap) before allocating.
-        if self.data_used + self.live_heap_bytes + capacity > self.max_stack_bytes {
+        if self.data_used + self.live_heap_bytes + capacity > self.vm_stack_limit {
             return Err(FrameAllocError::Exceeded);
         }
 
@@ -499,7 +499,7 @@ impl StackFrameArena {
 }
 
 #[cfg(debug_assertions)]
-impl Drop for StackFrameArena {
+impl Drop for VmStack {
     fn drop(&mut self) {
         let total = self.stats_bump + self.stats_heap_async + self.stats_heap_capacity;
         if total == 0 {
@@ -517,7 +517,7 @@ impl Drop for StackFrameArena {
             let cap_bump_pct = self.stats_bump as f64 / cap_total as f64 * 100.0;
             if cap_bump_pct < 99.5 {
                 eprintln!(
-                    "[WARN] StackFrameArena bump_rate={:.1}% (bump={}, non_bump: async={}, cap={}, total={}, data_cap={})",
+                    "[WARN] VmStack bump_rate={:.1}% (bump={}, non_bump: async={}, cap={}, total={}, data_cap={})",
                     cap_bump_pct,
                     self.stats_bump,
                     self.stats_heap_async,
@@ -530,7 +530,7 @@ impl Drop for StackFrameArena {
     }
 }
 
-impl GcTrace for StackFrameArena {
+impl GcTrace for VmStack {
     fn trace(&self, gcx: &mut GcTraceCtx) {
         for (i, frame) in self.frames.iter().enumerate() {
             if frame.state != FrameState::Active {

@@ -12,8 +12,8 @@ use crate::{
     },
     class::{init_static_class_defs, static_class_count},
     config::{
-        GC_ALLOC_CHECK_INTERVAL, GC_ARENA_CAP, GC_ARENA_MAX_ALLOC, STACK_ARENA_CAP,
-        STACK_RESERVE_MARGIN,
+        GC_ALLOC_CHECK_INTERVAL, GC_ARENA_CAP, GC_ARENA_MAX_ALLOC, THREAD_STACK_LIMIT_MARGIN,
+        VM_STACK_ARENA_CAP,
     },
     context::ContextPtr,
     error::Exception,
@@ -23,10 +23,10 @@ use crate::{
     },
     object::Promise,
     object::{JS_PROP_THROW, JS_PROP_THROW_STRICT, ShapeRegistry},
-    stack_frame::{ExecMode, FrameIndex, StackFrameArena},
     string::{StringData, StringRef},
-    utils::js_get_stack_pointer,
+    utils::js_get_thread_stack_pointer,
     value::JSValue,
+    vm_stack::{ExecMode, FrameIndex, VmStack},
 };
 
 use super::park::ParkState;
@@ -93,22 +93,22 @@ pub struct RuntimeImpl {
     /// shape registry
     pub(crate) shape_registry: ShapeRegistry,
 
-    /// C-stack recursion budget in bytes: recursion may consume at most this
+    /// C-stack recursion limit in bytes: recursion may consume at most this
     /// many bytes below the eval-entry SP. `0` = auto mode — the guard then
     /// derives the line from the thread's real stack bottom (see
-    /// `js_check_stack_overflow`).
-    pub(crate) stack_budget: usize,
-    pub(crate) stack_limit: usize, // lower stack limit (strict-budget mode only)
-    pub(crate) stack_top: usize,   // eval-entry SP; baseline for the strict budget
+    /// `js_check_thread_stack_overflow`).
+    pub(crate) thread_stack_limit: usize,
+    pub(crate) thread_stack_limit_addr: usize, // armed C-stack limit address (strict mode only)
+    pub(crate) thread_stack_top: usize,        // eval-entry SP; baseline for the strict limit
 
     /// Native (C) stack size in bytes of the thread running this runtime, as
-    /// declared by the host via `set_thread_stack_size`. `0` = undeclared:
+    /// declared by the host via `declare_thread_stack_size`. `0` = undeclared:
     /// the guard only has the thread-bottom query to work with.
     pub(crate) thread_stack_size: usize,
 
     /// Bump-arena frame storage for the stackless interpreter.
     /// All active frame headers and data buffers live here.
-    pub(crate) frame_arena: StackFrameArena,
+    pub(crate) vm_stack: VmStack,
     /// Current frame being executed by the trampoline, set before each
     /// iteration. Used by GC to double-trace the active frame's func_obj.
     pub(crate) active_frame_index: FrameIndex,
@@ -372,15 +372,15 @@ impl RuntimeImpl {
 
         let gc_part_id = gc_heap.create_partition(GC_ARENA_CAP, GC_ARENA_MAX_ALLOC);
 
-        // `STACK_ARENA_CAP` is expressed in bytes, calc (bytes / sizeof(JSValue)) for slots capacity
-        let arena_cap = STACK_ARENA_CAP / std::mem::size_of::<JSValue>();
+        // `VM_STACK_ARENA_CAP` is expressed in bytes, calc (bytes / sizeof(JSValue)) for slots capacity
+        let arena_cap = VM_STACK_ARENA_CAP / std::mem::size_of::<JSValue>();
 
         let mut rt = Self {
             atom_registry: AtomRegistry::new(),
             const_atom_values: Vec::new(),
             shape_registry: ShapeRegistry::new(),
 
-            frame_arena: StackFrameArena::with_capacity(arena_cap),
+            vm_stack: VmStack::with_capacity(arena_cap),
             active_frame_index: FrameIndex::NULL,
 
             sab_funcs: Some(default_sab_funcs()),
@@ -389,11 +389,11 @@ impl RuntimeImpl {
 
             context_list: Vec::with_capacity(1),
 
-            // No strict budget by default: auto mode, derived from the real
+            // No strict limit by default: auto mode, derived from the real
             // thread stack bottom at check time.
-            stack_budget: 0,
-            stack_top: 0,
-            stack_limit: 0,
+            thread_stack_limit: 0,
+            thread_stack_top: 0,
+            thread_stack_limit_addr: 0,
             thread_stack_size: 0,
 
             cur_exception: Exception::No,
@@ -458,7 +458,7 @@ impl RuntimeImpl {
             user_state_type,
         };
 
-        rt.refresh_stack_top();
+        rt.refresh_thread_stack_top();
 
         init_static_class_defs()?;
 
@@ -543,37 +543,37 @@ impl RuntimeImpl {
         }
     }
 
-    /// (Re)arm the C-stack guard line into `stack_limit`, in this order of
+    /// (Re)arm `thread_stack_limit_addr` (the C-stack limit the guard checks), in this order of
     /// precedence:
     ///
-    /// 1. `stack_budget` (strict mode): `stack_budget` bytes below the
+    /// 1. `thread_stack_limit` (strict mode): `thread_stack_limit` bytes below the
     ///    eval-entry SP.
-    /// 2. The current thread's real stack bottom plus `STACK_RESERVE_MARGIN` —
+    /// 2. The current thread's real stack bottom plus `THREAD_STACK_LIMIT_MARGIN` —
     ///    fixed for the thread's lifetime, recomputed when re-armed.
-    /// 3. `thread_stack_size` minus `STACK_RESERVE_MARGIN` below the eval-entry
+    /// 3. `thread_stack_size` minus `THREAD_STACK_LIMIT_MARGIN` below the eval-entry
     ///    SP — the fallback for platforms that can't report the stack bottom,
     ///    where the host has to declare the size instead.
-    /// 4. No guard line (`0`): the host neither set a budget nor declared a
+    /// 4. No limit address (`0`): the host neither set a limit nor declared a
     ///    size on such a platform, so unbounded recursion would crash.
-    fn update_stack_budget(&mut self) {
-        self.stack_limit = if self.stack_budget != 0 {
-            self.stack_top - self.stack_budget
+    fn update_thread_stack_limit(&mut self) {
+        self.thread_stack_limit_addr = if self.thread_stack_limit != 0 {
+            self.thread_stack_top - self.thread_stack_limit
         } else {
-            let bottom = crate::utils::js_get_stack_bottom();
+            let bottom = crate::utils::js_get_thread_stack_bottom();
             if bottom != 0 {
-                bottom + STACK_RESERVE_MARGIN
+                bottom + THREAD_STACK_LIMIT_MARGIN
             } else if self.thread_stack_size != 0 {
-                self.stack_top.saturating_sub(
+                self.thread_stack_top.saturating_sub(
                     self.thread_stack_size
-                        .saturating_sub(STACK_RESERVE_MARGIN),
+                        .saturating_sub(THREAD_STACK_LIMIT_MARGIN),
                 )
             } else {
-                if !crate::utils::STACK_BOTTOM_QUERYABLE {
+                if !crate::utils::THREAD_STACK_BOTTOM_QUERYABLE {
                     // `cfg!` folds this error branch away on capable platforms.
                     log::warn!(
                         "auto mode C-stack guard unavailable: this platform can't \
                          report the thread stack bottom; unbounded recursion will crash \
-                         the process. Set a strict stack budget to keep the guard."
+                         the process. Set a strict thread stack limit to keep the guard."
                     );
                 }
                 0 // no guard line
@@ -581,15 +581,15 @@ impl RuntimeImpl {
         };
     }
 
-    /// Set the C-stack recursion budget in bytes: JS recursion may consume at
+    /// Set the C-stack recursion limit in bytes: JS recursion may consume at
     /// most this much native stack below the eval-entry SP. `0` (default) =
     /// auto mode — the guard is derived from the thread's real stack bottom,
-    /// keeping `STACK_RESERVE_MARGIN` head-room for the throw path.
+    /// keeping `THREAD_STACK_LIMIT_MARGIN` head-room for the throw path.
     ///
-    /// Will throw stack overflow error when stack using exceeds this budget.
-    pub fn set_stack_budget(&mut self, nbytes: usize) {
-        self.stack_budget = nbytes;
-        self.update_stack_budget();
+    /// Will throw stack overflow error when stack using exceeds this limit.
+    pub fn set_thread_stack_limit(&mut self, nbytes: usize) {
+        self.thread_stack_limit = nbytes;
+        self.update_thread_stack_limit();
     }
 
     /// Declare the native (C) stack size, in bytes, of the thread that runs
@@ -601,34 +601,34 @@ impl RuntimeImpl {
     /// lets the guard account for it on platforms that can't report the stack
     /// bottom; where the bottom *is* queryable the query is authoritative and
     /// already reflects the larger thread stack, so this only acts as a
-    /// fallback. Ignored while an explicit `set_stack_budget` is in effect.
+    /// fallback. Ignored while an explicit `set_thread_stack_limit` is in effect.
     ///
-    /// Like `set_stack_budget`, the guard line lands `STACK_RESERVE_MARGIN`
+    /// Like `set_thread_stack_limit`, the limit lands `THREAD_STACK_LIMIT_MARGIN`
     /// above the declared stack's bottom, measured from the eval-entry SP.
-    pub fn set_thread_stack_size(&mut self, nbytes: usize) {
+    pub fn declare_thread_stack_size(&mut self, nbytes: usize) {
         self.thread_stack_size = nbytes;
-        self.update_stack_budget();
+        self.update_thread_stack_limit();
     }
 
     /// Refresh the eval-entry stack top and re-arm the C-stack guard line.
     /// Called at the outermost eval entry point: after Rust-side init has
-    /// unwound, `stack_top` anchors at the shallowest frame so the strict
-    /// budget, if set, is measured from there.
-    pub(crate) fn refresh_stack_top(&mut self) {
-        self.stack_top = js_get_stack_pointer();
-        self.update_stack_budget();
+    /// unwound, `thread_stack_top` anchors at the shallowest frame so the strict
+    /// limit, if set, is measured from there.
+    pub(crate) fn refresh_thread_stack_top(&mut self) {
+        self.thread_stack_top = js_get_thread_stack_pointer();
+        self.update_thread_stack_limit();
     }
 
     /// Resize the bump-arena used for frame storage. Returns `Err(())` when the
     /// host cannot allocate the requested size (caller raises `throw_stack_fail`).
-    pub fn set_stack_arena(&mut self, size: usize) -> Result<(), ()> {
-        self.frame_arena.set_arena_capacity(size)
+    pub fn set_vm_stack_arena(&mut self, size: usize) -> Result<(), ()> {
+        self.vm_stack.set_arena_capacity(size)
     }
 
     /// Set the maximum total live virtual stack size in bytes (bump + heap).
     /// Exceeding it raises `throw_stack_depth_exceeded` on the next frame alloc.
-    pub const fn set_stack_limit(&mut self, bytes: usize) {
-        self.frame_arena.set_stack_limit(bytes);
+    pub const fn set_vm_stack_limit(&mut self, bytes: usize) {
+        self.vm_stack.set_vm_stack_limit(bytes);
     }
 
     /// Peek current exception
@@ -675,22 +675,22 @@ impl RuntimeImpl {
         self.interrupt_code.take()
     }
 
-    /// Get mutable reference to the StackFrameArena for stackless frame ops.
+    /// Get mutable reference to the VmStack for stackless frame ops.
     #[inline(always)]
-    pub(crate) const fn stack_frame_arena_mut(&mut self) -> &mut StackFrameArena {
-        &mut self.frame_arena
+    pub(crate) const fn vm_stack_mut(&mut self) -> &mut VmStack {
+        &mut self.vm_stack
     }
 
-    /// Get immutable reference to the StackFrameArena.
+    /// Get immutable reference to the VmStack.
     #[inline(always)]
-    pub(crate) const fn stack_frame_arena(&self) -> &StackFrameArena {
-        &self.frame_arena
+    pub(crate) const fn vm_stack(&self) -> &VmStack {
+        &self.vm_stack
     }
 
     /// get current running function
     pub(crate) fn current_function(&self) -> JSValue {
         if !self.active_frame_index.is_null() {
-            let head = self.frame_arena.frame(self.active_frame_index);
+            let head = self.vm_stack.frame(self.active_frame_index);
             head.func_obj.into()
         } else {
             JSValue::UNDEFINED
@@ -701,7 +701,7 @@ impl RuntimeImpl {
     pub(crate) fn is_strict_mode(&self) -> bool {
         if !self.active_frame_index.is_null() {
             let idx = self.active_frame_index.as_usize();
-            self.frame_arena
+            self.vm_stack
                 .frames
                 .get(idx)
                 .is_some_and(|head| head.mode.contains(ExecMode::STRICT))
@@ -812,11 +812,11 @@ impl RuntimeImpl {
     }
 }
 
-pub(crate) fn js_check_stack_overflow(rt: &RuntimeImpl, alloca_size: usize) -> bool {
-    // `stack_limit` is the pre-armed guard line (auto or strict budget); the
+pub(crate) fn js_check_thread_stack_overflow(rt: &RuntimeImpl, alloca_size: usize) -> bool {
+    // `thread_stack_limit_addr` is the pre-armed limit address (auto or strict mode); the
     // hot path only compares.
-    let sp = js_get_stack_pointer() - alloca_size;
-    rt.stack_limit > 0 && sp < rt.stack_limit
+    let sp = js_get_thread_stack_pointer() - alloca_size;
+    rt.thread_stack_limit_addr > 0 && sp < rt.thread_stack_limit_addr
 }
 
 #[cfg(test)]

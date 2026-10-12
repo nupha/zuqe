@@ -9,10 +9,10 @@ use crate::{
     error::JSResult,
     eval::{EvalFlags, EvalType},
     function::{CallContext, FieldDef},
-    stack_frame::FrameIndex,
     string::{CharCode, CharCodeDecoder, StringBuf},
     utils::unlikely,
     value::JSValue,
+    vm_stack::FrameIndex,
 };
 
 pub(crate) fn js_global_eval(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

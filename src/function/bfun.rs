@@ -18,10 +18,10 @@ use crate::{
         BytecodeFunction, JS_PROP_CONFIGURABLE, JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object,
         ObjectImpl,
     },
-    runtime::js_check_stack_overflow,
-    stack_frame::{FrameAllocError, FrameState, StackFrameArena},
+    runtime::js_check_thread_stack_overflow,
     string::JS_ConcatString3,
     value::JSValue,
+    vm_stack::{FrameAllocError, FrameState, VmStack},
 };
 
 use crate::object_cast;
@@ -449,7 +449,7 @@ impl BytecodeFunction {
         // through native code, Proxy traps, etc.) still consume native
         // stack — turn an impending overflow into a catchable error
         // instead of a hard crash.
-        if js_check_stack_overflow(ctx.rt(), 0) {
+        if js_check_thread_stack_overflow(ctx.rt(), 0) {
             return Err(ctx.throw_stack_overflow());
         }
 
@@ -465,7 +465,7 @@ impl BytecodeFunction {
         let mut rt = ctx.rt_ptr();
 
         let parent_frame = rt.active_frame_index;
-        let arena_ptr: *mut StackFrameArena = &raw mut rt.frame_arena;
+        let arena_ptr: *mut VmStack = &raw mut rt.vm_stack;
 
         // init_frame_args uses max(bc.arg_count, actual_args.len()) as the arg region size.
         // Allocate accordingly.

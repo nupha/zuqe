@@ -9,9 +9,9 @@ use crate::{
         ATOD_ACCEPT_BIN_OCT, ATOD_ACCEPT_LEGACY_OCTAL, ATOD_ACCEPT_SUFFIX, ATOD_ACCEPT_UNDERSCORES,
         IntOrFloat, NumValue, js_aton,
     },
-    runtime::js_check_stack_overflow,
-    stack_frame::ExecMode,
+    runtime::js_check_thread_stack_overflow,
     string::{CharCode, CharCodeDecoder, StringBuf, Utf8Stream, char_is_space},
+    vm_stack::ExecMode,
 };
 
 use super::{
@@ -227,7 +227,7 @@ impl<'s> JSParseState<'s> {
     // which will soon use up stack space, and cause stack overflow.
     #[inline(never)]
     pub(super) fn next_token(&mut self) -> Result<TokenKind, i32> {
-        if js_check_stack_overflow(self.ctx().rt_mut(), 0) {
+        if js_check_thread_stack_overflow(self.ctx().rt_mut(), 0) {
             return Err(self.throw_syntax_error("stack overflow"));
         }
 

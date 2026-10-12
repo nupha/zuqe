@@ -3,7 +3,7 @@
 
 /// get stack top level addr
 #[inline(always)]
-pub fn js_get_stack_pointer() -> usize {
+pub fn js_get_thread_stack_pointer() -> usize {
     // get_frame_address(0).unwrap()
 
     let d = 0;
@@ -14,7 +14,7 @@ pub fn js_get_stack_pointer() -> usize {
 /// Lowest address of the current thread's native stack (its "bottom"), or 0
 /// when the platform can't query it. Cached per thread — stack bounds are fixed
 /// for the lifetime of a thread.
-pub(crate) fn js_get_stack_bottom() -> usize {
+pub(crate) fn js_get_thread_stack_bottom() -> usize {
     thread_local! {
         static STACK_BOTTOM: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     }
@@ -29,7 +29,7 @@ pub(crate) fn js_get_stack_bottom() -> usize {
 /// Compile-time: can the current target query a thread's stack bottom at all?
 /// Keep the platform list here in sync with the `#[cfg]` arms of
 /// `current_thread_stack_bottom`.
-pub(crate) const STACK_BOTTOM_QUERYABLE: bool = cfg!(any(
+pub(crate) const THREAD_STACK_BOTTOM_QUERYABLE: bool = cfg!(any(
     windows,
     target_os = "linux",
     target_os = "netbsd",

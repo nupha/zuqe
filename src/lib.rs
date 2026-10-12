@@ -27,10 +27,10 @@ mod parse;
 #[cfg(feature = "persistent")]
 pub mod persistent;
 mod runtime;
-mod stack_frame;
 mod string;
 mod utils;
 mod value;
+mod vm_stack;
 #[cfg(feature = "zapi")]
 pub mod zapi;
 

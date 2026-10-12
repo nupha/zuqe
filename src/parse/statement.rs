@@ -5,8 +5,8 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpCodeTemp},
     function::{BlockEnv, FunctionKind, JSVarDefEnum, OPTIMIZE},
-    stack_frame::ExecMode,
     utils::{unlikely, write_to_ptr},
+    vm_stack::ExecMode,
 };
 
 use super::{

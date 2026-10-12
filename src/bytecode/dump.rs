@@ -7,9 +7,9 @@ use crate::{
     bytecode::OpcodeFormat,
     context::ContextImpl,
     function::{Bytecode, ClosureVar, FunctionKind, JSVarDef, JSVarKindEnum, Label},
-    stack_frame::ExecMode,
     utils::read_from_ptr,
     value::JSValue,
+    vm_stack::ExecMode,
 };
 
 use super::{

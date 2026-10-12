@@ -12,19 +12,18 @@ use crate::{
     error::JSResult,
     function::BCWrapper,
     gcref_wrapper,
-    runtime::js_check_stack_overflow,
-    stack_frame::{
-        AsyncStackFrame, ExecMode, FrameAllocError, FrameBuffer, FrameIndex, StackFrame,
-        StackFrameArena,
-    },
+    runtime::js_check_thread_stack_overflow,
     value::JSValue,
+    vm_stack::{
+        AsyncStackFrame, ExecMode, FrameAllocError, FrameBuffer, FrameIndex, StackFrame, VmStack,
+    },
 };
 
 /// Async frame state: either actively executing in the arena, or suspended as a snapshot.
 /// Uses an enum to statically prevent the invalid states of both-some or both-none.
 #[derive(Debug)]
 pub(crate) enum AsyncFrameState {
-    /// Frame is alive in StackFrameArena, referenced by FrameIndex.
+    /// Frame is alive in VmStack, referenced by FrameIndex.
     Active(FrameIndex),
     /// Frame has been suspended; its data lives in a heap-allocated snapshot.
     Suspended(AsyncStackFrame),
@@ -34,7 +33,7 @@ impl AsyncFrameState {
     /// Get the FrameHead regardless of active/suspended state.
     /// For Active, this requires the arena; for Suspended, it's self-contained.
     #[inline(always)]
-    pub(crate) fn frame<'a>(&'a self, arena: &'a StackFrameArena) -> &'a StackFrame {
+    pub(crate) fn frame<'a>(&'a self, arena: &'a VmStack) -> &'a StackFrame {
         match self {
             AsyncFrameState::Active(idx) => arena.frame(*idx),
             AsyncFrameState::Suspended(snapshot) => &snapshot.frame,
@@ -96,7 +95,7 @@ impl GcTrace for AsyncStateImpl {
                 vr.trace(gcx);
             }
         }
-        // Active frames are traced by StackFrameArena::trace() in gc_collect_in.
+        // Active frames are traced by VmStack::trace() in gc_collect_in.
     }
 }
 
@@ -119,7 +118,7 @@ impl AsyncStateImpl {
         let arg_count = std::cmp::max(arg_count as usize, args.len());
         let buf_capacity = arg_count + local_buf_size as usize;
 
-        let arena = ctx.rt_mut().stack_frame_arena_mut();
+        let arena = ctx.rt_mut().vm_stack_mut();
         let frame_idx =
             match arena.alloc_frame(bytecode_func.into(), mode | ExecMode::ASYNC, buf_capacity) {
                 Ok(idx) => idx,
@@ -209,13 +208,13 @@ impl AsyncStateImpl {
 
     /// Get immutable reference to the FrameHead via the arena.
     #[inline(always)]
-    pub(crate) fn frame<'a>(&'a self, arena: &'a StackFrameArena) -> &'a StackFrame {
+    pub(crate) fn frame<'a>(&'a self, arena: &'a VmStack) -> &'a StackFrame {
         self.frame.frame(arena)
     }
 
     /// put given value to stack at position current stack pointer -1.
-    /// Uses &StackFrameArena (not &mut) since only raw pointer writes are performed.
-    pub(super) fn set_return_value(&mut self, arena: &StackFrameArena, val: JSValue) {
+    /// Uses &VmStack (not &mut) since only raw pointer writes are performed.
+    pub(super) fn set_return_value(&mut self, arena: &VmStack, val: JSValue) {
         let head = self.frame(arena);
         let sp_base = head.stack_base_ptr();
         unsafe {
@@ -230,11 +229,7 @@ impl AsyncStateImpl {
     /// Unlike `pop`, this does NOT adjust SP — it only reads and clears SP[-1].
     /// This is the safe alternative to raw `ptr::replace` on the async stack.
     #[inline(always)]
-    pub(crate) fn take_top_value(
-        &mut self,
-        arena: &StackFrameArena,
-        ctx: &ScopedContext,
-    ) -> JSValue {
+    pub(crate) fn take_top_value(&mut self, arena: &VmStack, ctx: &ScopedContext) -> JSValue {
         // Use frame_head() which works for both Active and Suspended frames.
         // For Suspended frames, the Heap buffer pointer is obtained via
         // arena.data_ptr(head) which handles FrameBufLocation::Heap correctly.
@@ -246,10 +241,10 @@ impl AsyncStateImpl {
     }
 
     /// Store a value at SP[offset] in the async frame without adjusting SP.
-    /// Wraps StackFrameArena::stack_store for the current frame.
+    /// Wraps VmStack::stack_store for the current frame.
     /// Handles both Active (arena) and Suspended (snapshot) frames.
     #[inline]
-    pub(crate) fn stack_store_value(&self, arena: &StackFrameArena, offset: isize, val: JSValue) {
+    pub(crate) fn stack_store_value(&self, arena: &VmStack, offset: isize, val: JSValue) {
         match &self.frame {
             AsyncFrameState::Active(idx) => arena.frame_store_value(*idx, offset, val),
             AsyncFrameState::Suspended(snapshot) => {
@@ -278,14 +273,14 @@ impl AsyncStateImpl {
 
     /// Get current SP offset for the active frame.
     #[inline(always)]
-    pub(crate) fn cur_sp_offset(&self, arena: &StackFrameArena) -> i32 {
+    pub(crate) fn cur_sp_offset(&self, arena: &VmStack) -> i32 {
         self.frame(arena).cur_sp_offset
     }
 
     /// Bump SP offset by the given delta.
     /// Handles both Active (arena) and Suspended (snapshot) frames.
     #[inline(always)]
-    pub(crate) fn bump_sp(&mut self, arena: &mut StackFrameArena, delta: i32) {
+    pub(crate) fn bump_sp(&mut self, arena: &mut VmStack, delta: i32) {
         match &mut self.frame {
             AsyncFrameState::Active(idx) => {
                 arena.frame_mut(*idx).cur_sp_offset += delta;
@@ -306,7 +301,7 @@ impl AsyncStateImpl {
     pub(crate) fn resume(&mut self, ctx: &mut ScopedContext) -> JSResult {
         debug_assert!(!self.is_completed);
 
-        if js_check_stack_overflow(ctx.rt(), 0) {
+        if js_check_thread_stack_overflow(ctx.rt(), 0) {
             return Err(ctx.throw_stack_overflow());
         }
 
@@ -318,7 +313,7 @@ impl AsyncStateImpl {
         if matches!(&self.frame, AsyncFrameState::Suspended(_)) {
             let old = mem::replace(&mut self.frame, AsyncFrameState::Active(FrameIndex::NULL));
             if let AsyncFrameState::Suspended(snapshot) = old {
-                let new_idx = ctx.rt_mut().stack_frame_arena_mut().put_frame(snapshot);
+                let new_idx = ctx.rt_mut().vm_stack_mut().put_frame(snapshot);
                 self.frame = AsyncFrameState::Active(new_idx);
             }
         }
@@ -361,7 +356,7 @@ impl AsyncStateImpl {
         } else {
             // Function suspended (yield/await).
             // Take the frame snapshot from arena.
-            let arena = ctx.rt_mut().stack_frame_arena_mut();
+            let arena = ctx.rt_mut().vm_stack_mut();
             let snapshot = arena.take_frame(frame_idx);
             self.frame = AsyncFrameState::Suspended(snapshot);
         }
@@ -399,7 +394,7 @@ impl AsyncState {
 
         // Backref link is no longer needed: in the arena model, GC tracing
         // handles async frames through AsyncStateImpl.trace() (for Suspended)
-        // and StackFrameArena.trace() (for Active), independently.
+        // and VmStack.trace() (for Active), independently.
         //
         // The state escapes its allocating scope at the first suspend, so
         // scope-local protection ends there. Root it on the runtime until

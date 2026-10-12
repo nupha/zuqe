@@ -6,8 +6,8 @@ use crate::{
     bytecode::{OpcodeGcAlloc, opcode_info_final},
     context::ScopedContext,
     module::add_module_variables,
-    stack_frame::ExecMode,
     value::JSValue,
+    vm_stack::ExecMode,
 };
 
 use super::{

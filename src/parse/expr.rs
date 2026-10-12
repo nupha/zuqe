@@ -7,9 +7,9 @@ use crate::{
     error::{JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW},
     function::{FuncCallType, FunctionKind},
     number::IntOrFloat,
-    stack_frame::ExecMode,
     utils::{read_from_ptr, unlikely},
     value::JSValue,
+    vm_stack::ExecMode,
 };
 
 use super::{

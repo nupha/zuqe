@@ -6,8 +6,8 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp, opcode_info_intermediate, opcodes},
     context::ScopedContext,
     eval::EvalType,
-    stack_frame::ExecMode,
     utils::{M2, read_from_ptr},
+    vm_stack::ExecMode,
 };
 
 use super::{

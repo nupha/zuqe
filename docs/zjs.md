@@ -16,25 +16,25 @@ zjs [options] <filename>
 
 - **`--memory-limit <n>`**: Set the memory (GC heap) limit to `n` bytes. Size suffixes `k`/`K`, `m`/`M`, `g`/`G` are supported (multiply by 2^10 / 2^20 / 2^30).
 
-- **`--stack-arena <n>`** _(default: 256k)_: Set the size of the JS virtual machine **stack arena** to `n` bytes. This is a pre-allocated, contiguous bump-region used as the _fast path_ for function call frames — frames are carved out of it by simply bumping a pointer.
+- **`--vm-stack-arena <n>`** _(default: 256k)_: Set the size of the JS virtual machine **stack arena** to `n` bytes. This is a pre-allocated, contiguous bump-region used as the _fast path_ for function call frames — frames are carved out of it by simply bumping a pointer.
 
-- **`--stack-limit <n>`** _(default: 512k)_: Set the **hard cap on the total live virtual stack** (arena-used + heap-used) to `n` bytes. When a new frame would push the combined usage past this limit, a stack-overflow error is thrown. This is what actually bounds recursion depth.
+- **`--vm-stack-limit <n>`** _(default: 512k)_: Set the **hard cap on the total live virtual stack** (arena-used + heap-used) to `n` bytes. When a new frame would push the combined usage past this limit, a stack-overflow error is thrown. This is what actually bounds recursion depth.
 
-- **`--stack-overflow <n>`**: Set the **C-stack recursion budget** — the maximum native stack bytes JS recursion may consume below the eval-entry SP. Omitted or `0` selects **auto mode**: the guard is derived from the current thread's real stack bottom, keeping a fixed internal head-room (`STACK_RESERVE_MARGIN`) free for the throw path. Auto mode is the default; a strict budget only applies when set explicitly.
+- **`--thread-stack-limit <n>`**: Set the **C-stack recursion limit** — the maximum native stack bytes JS recursion may consume below the eval-entry SP. Omitted or `0` selects **auto mode**: the guard is derived from the current thread's real stack bottom, keeping a fixed internal head-room (`THREAD_STACK_LIMIT_MARGIN`) free for the throw path. Auto mode is the default; a strict limit only applies when set explicitly.
 
   Examples:
 
   ```bash
-  zjs --stack-arena 1m script.js       # 1 MiB VM stack arena
-  zjs --stack-limit 512k script.js     # 512 KiB total virtual-stack cap
-  zjs --stack-overflow 2m script.js    # 2 MiB C-stack recursion guard
+  zjs --vm-stack-arena 1m script.js       # 1 MiB VM stack arena
+  zjs --vm-stack-limit 512k script.js     # 512 KiB total virtual-stack cap
+  zjs --thread-stack-limit 2m script.js    # 2 MiB C-stack recursion guard
   ```
 
-#### How `--stack-arena` and `--stack-limit` interact
+#### How `--vm-stack-arena` and `--vm-stack-limit` interact
 
-Frames are always allocated from the arena first (fast, no heap allocation). Once the arena is full, additional frames **spill over to individual heap allocations**, and this continues until the total live virtual stack (arena-used + heap-used) reaches `--stack-limit`, at which point a stack-overflow error is raised.
+Frames are always allocated from the arena first (fast, no heap allocation). Once the arena is full, additional frames **spill over to individual heap allocations**, and this continues until the total live virtual stack (arena-used + heap-used) reaches `--vm-stack-limit`, at which point a stack-overflow error is raised.
 
-Because the arena can never hold more than its own size, and any usage beyond the arena comes from heap spill-over, **`--stack-limit` should always be `>= --stack-arena`**:
+Because the arena can never hold more than its own size, and any usage beyond the arena comes from heap spill-over, **`--vm-stack-limit` should always be `>= --vm-stack-arena`**:
 
 | Relationship     | Effect                                                                                                                                                                        |
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -42,7 +42,7 @@ Because the arena can never hold more than its own size, and any usage beyond th
 | `limit == arena` | All frames live in the fast arena; the stack **never spills to the heap** and the arena is fully utilized. A clean, allocation-free configuration.                            |
 | `limit > arena`  | The arena acts as a fast cache and the heap provides extra headroom up to `limit`. **This is the intended design** — hence the defaults `arena=256k`, `limit=512k`.           |
 
-In short: set `--stack-arena` to the size that comfortably covers typical call depth (for speed), and set `--stack-limit` to the maximum depth you are willing to tolerate before aborting (for safety). Setting `limit` below `arena` only wastes memory.
+In short: set `--vm-stack-arena` to the size that comfortably covers typical call depth (for speed), and set `--vm-stack-limit` to the maximum depth you are willing to tolerate before aborting (for safety). Setting `limit` below `arena` only wastes memory.
 
 ### Script Execution
 
@@ -66,10 +66,10 @@ zjs hello.js
 zjs -m app.js
 
 # Set custom VM stack arena
-zjs --stack-arena 2m my-script.js
+zjs --vm-stack-arena 2m my-script.js
 
 # Execute with custom stack arena and module mode
-zjs --stack-arena 1m -m esm-script.js
+zjs --vm-stack-arena 1m -m esm-script.js
 ```
 
 ### Interactive REPL
@@ -185,11 +185,11 @@ let mut rt = Runtime::create().unwrap();
 rt.install_panic_handler();
 
 // Optional: memory / stack limits (parsed from `--memory-limit`,
-// `--stack-arena`, `--stack-limit`, `--stack-overflow`)
+// `--vm-stack-arena`, `--vm-stack-limit`, `--thread-stack-limit`)
 // rt.gc_set_memory_limit(limit_in_bytes);
-// rt.set_stack_arena(1 << 20);       // 1 MiB VM stack arena
-// rt.set_stack_limit(512 << 10);     // 512 KiB value-stack limit
-// rt.set_stack_overflow(512 << 10);  // omit/0 = auto mode (from thread stack bottom)
+// rt.set_vm_stack_arena(1 << 20);       // 1 MiB VM stack arena
+// rt.set_vm_stack_limit(512 << 10);     // 512 KiB value-stack limit
+// rt.set_thread_stack_limit(512 << 10);  // omit/0 = auto mode (from thread stack bottom)
 
 // Setup module loader (supports .js, .mjs, and zapi extensions .dylib/.so/.dll)
 rt.set_module_loader(js_module_loader);

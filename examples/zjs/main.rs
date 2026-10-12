@@ -83,24 +83,24 @@ struct Args {
     #[arg(
         long,
         value_name = "n",
-        help = "set virtual stack arena size to n (default: 256k)"
+        help = "set VM stack arena size to n (default: 256k)"
     )]
-    stack_arena: Option<String>,
+    vm_stack_arena: Option<String>,
 
     #[arg(
         long,
         value_name = "n",
-        help = "set virtual stack byte limit to n (default: 512k)"
+        help = "set VM stack byte limit to n (default: 512k)"
     )]
-    stack_limit: Option<String>,
+    vm_stack_limit: Option<String>,
 
     #[arg(
         long,
         value_name = "n",
-        help = "set C-stack recursion budget (max native stack below the eval SP); \
+        help = "set C-stack recursion limit (max native stack below the eval SP); \
                 omit/0 for auto mode derived from the thread stack bottom"
     )]
-    stack_overflow: Option<String>,
+    thread_stack_limit: Option<String>,
 
     #[arg(help = "file to execute")]
     filename: String,
@@ -183,36 +183,39 @@ fn run_zjs_prepare() -> (Runtime, Context<'static>, Args, String, bool) {
             }
         }
 
-        if let Some(ss) = &args.stack_arena {
+        if let Some(ss) = &args.vm_stack_arena {
             if let Some(size) = parse_byte_size(ss) {
-                if rt.set_stack_arena(size).is_err() {
-                    colorize_println(format!("cannot allocate stack-arena of size {ss}"), RedFg);
+                if rt.set_vm_stack_arena(size).is_err() {
+                    colorize_println(
+                        format!("cannot allocate vm-stack-arena of size {ss}"),
+                        RedFg,
+                    );
                     std::process::exit(-1);
                 }
             } else {
-                colorize_println(format!("invalid stack-arena: {ss}"), RedFg);
+                colorize_println(format!("invalid vm-stack-arena: {ss}"), RedFg);
                 std::process::exit(-1);
             }
         }
 
-        if let Some(ss) = &args.stack_overflow {
+        if let Some(ss) = &args.thread_stack_limit {
             if let Some(size) = parse_byte_size(ss) {
-                rt.set_stack_budget(size);
+                rt.set_thread_stack_limit(size);
             } else {
-                colorize_println(format!("invalid stack-overflow: {ss}"), RedFg);
+                colorize_println(format!("invalid thread-stack-limit: {ss}"), RedFg);
                 std::process::exit(-1);
             }
-        } else if !zuqe::Runtime::CAN_AUTO_STACK_BUDGET {
+        } else if !zuqe::Runtime::CAN_AUTO_THREAD_STACK_LIMIT {
             // Platform can't report the stack bottom: auto mode would leave no
-            // C-stack guard, so fall back to a strict 512 KiB budget.
-            rt.set_stack_budget(512 << 10);
+            // C-stack guard, so fall back to a strict 512 KiB limit.
+            rt.set_thread_stack_limit(512 << 10);
         }
 
-        if let Some(ss) = &args.stack_limit {
+        if let Some(ss) = &args.vm_stack_limit {
             if let Some(size) = parse_byte_size(ss) {
-                rt.set_stack_limit(size);
+                rt.set_vm_stack_limit(size);
             } else {
-                colorize_println(format!("invalid stack-limit: {ss}"), RedFg);
+                colorize_println(format!("invalid vm-stack-limit: {ss}"), RedFg);
                 std::process::exit(-1);
             }
         }

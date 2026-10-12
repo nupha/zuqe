@@ -49,11 +49,9 @@ use crate::{
         JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, Object,
         PayloadPtr, ThrowPolicy,
     },
-    stack_frame::{
-        ExecMode, FrameAllocError, FrameIndex, MAX_CALL_DEPTH, StackFrameArena, VirtualFrame,
-    },
     utils::{read_from_ptr, unlikely},
     value::JSValue,
+    vm_stack::{ExecMode, FrameAllocError, FrameIndex, VM_MAX_CALL_DEPTH, VirtualFrame, VmStack},
 };
 
 #[cfg(feature = "big_int")]
@@ -196,7 +194,7 @@ fn get_var_ref(
     is_arg: bool,
     arg_base_ptr: *mut JSValue,
     var_base_ptr: *mut JSValue,
-    arena: &mut StackFrameArena,
+    arena: &mut VmStack,
     cur_frame_idx: FrameIndex,
     arg_count: u16,
     var_count: u16,
@@ -251,7 +249,7 @@ fn get_var_ref(
 impl Bytecode {
     /// Execute bytecodes using the arena-based stackless model.
     ///
-    /// This variant works with FrameIndex + StackFrameArena instead of
+    /// This variant works with FrameIndex + VmStack instead of
     /// the legacy &mut StackFrame. It is called by execute_trampoline()
     /// and supports returning ExecAction for call/return/unwind control.
     ///
@@ -260,7 +258,7 @@ impl Bytecode {
     fn execute_with_arena(
         &self,
         realm_scope: &mut ScopedContext,
-        arena: &mut StackFrameArena,
+        arena: &mut VmStack,
         cur_frame_idx: FrameIndex,
         gc_scope_kind: GcScopeKind,
         this_obj: JSValue,
@@ -306,13 +304,13 @@ impl Bytecode {
         // Single raw root for the arena; everything below re-derives
         // frame-header access from it at each use. Never cache a `&mut`/raw
         // into the arena across interpreter-loop iterations: the loop creates
-        // fresh `&mut StackFrameArena` reborrows (build_callee_frame →
+        // fresh `&mut VmStack` reborrows (build_callee_frame →
         // alloc_frame → frames.push, find_catch_in_frame, ...), and under
         // Stacked Borrows a newer reborrow pops any borrow derived earlier.
         // fat-LTO + panic=abort lets LLVM exploit that violation (nounwind
         // store motion across calls), corrupting sp/pc bookkeeping — same
-        // family as the `frames` incident notes in stack_frame/arena.rs.
-        let arena_ptr: *mut StackFrameArena = arena;
+        // family as the `frames` incident notes in vm_stack/arena.rs.
+        let arena_ptr: *mut VmStack = arena;
 
         // Raw-root accessors: each use re-derives a fresh borrow through
         // arena_ptr (see the discipline note above).
@@ -3490,23 +3488,23 @@ impl Bytecode {
 ///
 /// `caller_depth` is the depth of the calling frame; the callee's depth is set
 /// to `caller_depth + 1` so that runaway non-tail recursion drives the depth
-/// toward `MAX_CALL_DEPTH` and trips a stack-depth error (see the note on
-/// `MAX_CALL_DEPTH`). Exceeding the limit returns `FrameAllocError::Exceeded`,
+/// toward `VM_MAX_CALL_DEPTH` and trips a stack-depth error (see the note on
+/// `VM_MAX_CALL_DEPTH`). Exceeding the limit returns `FrameAllocError::Exceeded`,
 /// which the callers translate into the "maximum call stack size exceeded"
 /// error. The tail-call path passes `depth - 1` so the replacement frame
 /// keeps the caller's depth — tail calls never deepen the chain (TCO).
 #[inline(always)]
 fn build_callee_frame(
-    arena: &mut StackFrameArena,
+    arena: &mut VmStack,
     caller_depth: u32,
     func_obj: Object,
     bc: Bytecode,
     args: &[JSValue],
 ) -> Result<FrameIndex, FrameAllocError> {
-    // saturating_add: with MAX_CALL_DEPTH = 0 (unlimited) an infinite tail-call
+    // saturating_add: with VM_MAX_CALL_DEPTH = 0 (unlimited) an infinite tail-call
     // loop increments depth forever — saturate instead of overflowing u32.
     let callee_depth = caller_depth.saturating_add(1);
-    if MAX_CALL_DEPTH > 0 && callee_depth > MAX_CALL_DEPTH {
+    if VM_MAX_CALL_DEPTH > 0 && callee_depth > VM_MAX_CALL_DEPTH {
         return Err(FrameAllocError::Exceeded);
     }
 
@@ -3544,7 +3542,7 @@ fn drain_saved_scopes(virtual_frames: &mut Vec<VirtualFrame>) {
 fn restore_caller_frame(
     caller_vf: VirtualFrame,
     scope: &mut TrampolineScope,
-    arena: &StackFrameArena,
+    arena: &VmStack,
 ) -> (Bytecode, FrameIndex, usize, usize) {
     if let Some(saved_caller_scope) = caller_vf.caller_scope {
         // Full/Light: drop callee scope and restore caller.
@@ -3587,7 +3585,7 @@ pub(crate) fn execute_trampoline(
     // Get a stable raw pointer to the arena. The arena lives in RuntimeImpl
     // which has the same lifetime as the runtime. Using a raw pointer avoids
     // borrow conflicts between cur_trampoline_scope (which borrows rt) and arena access.
-    let arena_ptr: *mut StackFrameArena = &raw mut rt_ptr.frame_arena;
+    let arena_ptr: *mut VmStack = &raw mut rt_ptr.vm_stack;
 
     let mut realm_ctx = start_bc.realm();
     let mut cur_trampoline_scope = unsafe { TrampolineScope::new(&mut realm_ctx) };
@@ -3729,7 +3727,7 @@ pub(crate) fn execute_trampoline(
 
                 // Tail calls replace the frame instead of deepening the call
                 // chain, so the callee inherits the caller's depth unchanged:
-                // `MAX_CALL_DEPTH` only bounds non-tail calls, and unbounded
+                // `VM_MAX_CALL_DEPTH` only bounds non-tail calls, and unbounded
                 // tail recursion runs at constant depth (true TCO).
                 // `build_callee_frame` adds 1, so pass `depth - 1`;
                 // saturating_sub keeps a root-frame depth of 0 stable.

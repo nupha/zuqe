@@ -16,10 +16,10 @@ use crate::{
         JS_PROP_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_THROW, JS_PROP_WRITABLE,
         Object,
     },
-    stack_frame::{FrameIndex, StackFrameArena},
     string::{JS_ConcatString3, StringRef},
     utils::unlikely,
     value::JSValue,
+    vm_stack::{FrameIndex, VmStack},
 };
 
 // SAFETY NOTE for all `ptr::replace(sp.offset(N), JSValue::UNDEFINED)` below:
@@ -115,7 +115,7 @@ pub(super) fn js_op_define_class_for_arena(
     class_name: Atom,
     class_flags: i32,
     captured_vars: &[VarRef],
-    arena: &mut StackFrameArena,
+    arena: &mut VmStack,
     parent_frame_idx: FrameIndex,
     is_computed_name: bool,
 ) -> Result<(), i32> {

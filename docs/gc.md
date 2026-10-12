@@ -220,7 +220,7 @@ Rules 1–2 the failure mode is not "a node was collected while referenced" but 
 being stomped through the dangling pointer**, which corrupts whatever reuses that memory —
 often GC nodes — so the symptoms surface far away from the cause.
 
-Real-world case: `StackFrameArena::frames: Vec<StackFrame>` grew via `alloc_frame → push`
+Real-world case: `VmStack::frames: Vec<StackFrame>` grew via `alloc_frame → push`
 whenever a native call allocated a callee frame, while `execute_with_arena` cached
 `&mut frame.cur_sp_offset` / `cur_pc_offset` as raw pointers across its whole interpretation
 loop. The stale writes corrupted freed memory later reused by GC nodes — surfacing far from
@@ -232,7 +232,7 @@ index-out-of-bounds aborts during runtime teardown.
 - Never cache an element pointer of a growable `Vec` across a call that may `push` to it;
   re-derive it from the index after every mutation.
 - If element-address stability is actually required, store `Vec<Box<T>>` — `Box` gives
-  per-element stability independent of vector growth (see `StackFrameArena::frames`).
+  per-element stability independent of vector growth (see `VmStack::frames`).
 - Distant, shape-shifting corruption (bad nodes, wrong-callback TypeErrors, teardown bounds
   aborts) is the signature of this class. Run the reproducer under ASAN
   (`RUSTFLAGS="-Zsanitizer=address"` + nightly); the very first offending access is reported

@@ -201,7 +201,7 @@ fn js_generator_next(
             } else {
                 // Read current SP offset to verify SP[-1] is UNDEFINED.
                 {
-                    let arena = ctx.rt_mut().stack_frame_arena_mut();
+                    let arena = ctx.rt_mut().vm_stack_mut();
                     let sp_off = g.async_state.cur_sp_offset(arena);
                     debug_assert!(sp_off > 0);
 
@@ -215,7 +215,7 @@ fn js_generator_next(
                 }
                 // Write val to SP[-1], magic to SP[0], then advance SP by 1.
                 {
-                    let arena = ctx.rt_mut().stack_frame_arena_mut();
+                    let arena = ctx.rt_mut().vm_stack_mut();
                     g.async_state.stack_store_value(arena, -1, val);
                     g.async_state
                         .stack_store_value(arena, 0, JSValue::from(magic));
@@ -250,7 +250,7 @@ fn js_generator_next(
             // Uses take_top which replaces SP[-1] with UNDEFINED and
             // protects the GC node in the current scope.
             let ret_val = {
-                let arena = ctx.rt().stack_frame_arena();
+                let arena = ctx.rt().vm_stack();
                 g.async_state.take_top_value(arena, ctx)
             };
 

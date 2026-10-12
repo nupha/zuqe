@@ -6,7 +6,7 @@ use crate::{
     bytecode::{OpCode, opcodes},
     context::ScopedContext,
     error::JS_THROW_VAR_RO,
-    stack_frame::ExecMode,
+    vm_stack::ExecMode,
 };
 
 use super::{

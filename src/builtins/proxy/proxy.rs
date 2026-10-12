@@ -18,7 +18,7 @@ use crate::{
         JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE,
         JSPropertyDescriptor, Object, PropertyKey, Proxy, ThrowPolicy, check_define_prop_flags,
     },
-    runtime::js_check_stack_overflow,
+    runtime::js_check_thread_stack_overflow,
     utils::unlikely,
     value::JSValue,
 };
@@ -83,7 +83,7 @@ impl ProxyPayload {
     /// get proxied method. returns function object or undefined
     pub fn get_proxy_method(&self, ctx: &mut ScopedContext, name: Atom) -> Result<JSValue, i32> {
         // safer to test recursion in all proxy methods
-        if unlikely(js_check_stack_overflow(ctx.rt(), 0)) {
+        if unlikely(js_check_thread_stack_overflow(ctx.rt(), 0)) {
             Err(ctx.throw_stack_overflow())
         } else if unlikely(self.is_revoked()) {
             Err(ctx.throw_type_error_revoked_proxy())
@@ -253,7 +253,7 @@ impl Proxy {
     }
 
     pub fn is_array(&self, ctx: &mut ScopedContext) -> Result<bool, i32> {
-        if unlikely(js_check_stack_overflow(ctx.rt(), 0)) {
+        if unlikely(js_check_thread_stack_overflow(ctx.rt(), 0)) {
             Err(ctx.throw_stack_overflow())
         } else {
             let p = self.payload();

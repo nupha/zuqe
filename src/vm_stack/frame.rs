@@ -19,13 +19,13 @@ use crate::{
 /// length, so a flat `for` loop that calls a function many times is also
 /// unaffected (each call reuses the same caller depth). What it bounds is
 /// runaway non-tail recursion (e.g. `function f(){ f(); }`), which the
-/// *byte*-based virtual-stack limit (`max_stack_bytes`) also catches —
+/// *byte*-based virtual-stack limit (`vm_stack_limit`) also catches —
 /// this counter provides a deterministic, size-independent cap.
 ///
 /// 0 means no limit.
-pub(crate) const MAX_CALL_DEPTH: u32 = 10_000;
+pub(crate) const VM_MAX_CALL_DEPTH: u32 = 10_000;
 
-/// Index into StackFrameArena::frames, equivalent to a pointer but not
+/// Index into VmStack::frames, equivalent to a pointer but not
 /// constrained by Rust's borrow rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct FrameIndex(pub(super) u32);
@@ -68,7 +68,7 @@ bitflags::bitflags! {
 
 /// Fixed-size header for every stack frame in the arena.
 ///
-/// StackFrame is stored in StackFrameArena::frames (a Vec). It can be safely
+/// StackFrame is stored in VmStack::frames (a Vec). It can be safely
 /// moved during Vec reallocation because:
 /// - arg/var/stack raw pointers point into arena.data or a Heap Box,
 ///   never into StackFrame itself.
@@ -82,7 +82,7 @@ pub(crate) struct StackFrame {
     /// JS-to-JS call nesting depth (0 for the root frame). Each non-tail
     /// call sets the callee's depth to `caller.depth + 1`; a tail call
     /// replaces the frame and keeps the caller's depth, so only non-tail
-    /// recursion drives this toward `MAX_CALL_DEPTH` and trips a stack error.
+    /// recursion drives this toward `VM_MAX_CALL_DEPTH` and trips a stack error.
     pub(crate) depth: u32,
 
     pub(crate) state: FrameState,
@@ -135,7 +135,7 @@ impl StackFrame {
 /// Location of a frame's data buffer (args + vars + operand stack).
 #[derive(Debug)]
 pub(crate) enum FrameBuffer {
-    /// Data stored in StackFrameArena's shared fixed-capacity data slice
+    /// Data stored in VmStack's shared fixed-capacity data slice
     /// (bump-allocated). `data_base` is the arena's data pointer (stable for
     /// the lifetime of the arena — `Box<[JSValue]>` never reallocates);
     /// `buf_offset` is the offset within that slice;

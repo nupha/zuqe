@@ -25,7 +25,7 @@ use crate::{
         JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_THROW, Object,
         PayloadPtr, ThrowPolicy,
     },
-    runtime::js_check_stack_overflow,
+    runtime::js_check_thread_stack_overflow,
     string::{StringBuf, StringRef},
     value::JSValue,
 };
@@ -1182,7 +1182,7 @@ fn JS_FlattenIntoArray(
     mapper_func: JSValue,
     this_arg: JSValue,
 ) -> Result<i64, i32> {
-    if js_check_stack_overflow(ctx.rt(), 0) {
+    if js_check_thread_stack_overflow(ctx.rt(), 0) {
         return Err(ctx.throw_stack_overflow());
     }
 

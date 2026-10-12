@@ -6,7 +6,7 @@ use crate::{
     eval::EvalType,
     function::{FunctionKind, GLOBAL_VAR_OFFSET, JSVarDefEnum, JSVarKindEnum},
     module::ExportType,
-    stack_frame::ExecMode,
+    vm_stack::ExecMode,
 };
 
 use super::{state::JSParseState, tokenize::TokenKind};

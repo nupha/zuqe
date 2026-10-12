@@ -8,7 +8,7 @@ use crate::{
     error::JSResult,
     number::{ATOD_ACCEPT_BIN_OCT, js_aton},
     object::JS_PROP_C_W_E,
-    runtime::js_check_stack_overflow,
+    runtime::js_check_thread_stack_overflow,
     string::{CharCodeDecoder, StringBuf, Utf8Stream},
     utils::unlikely,
     value::JSValue,
@@ -67,7 +67,7 @@ impl JSONParseRecord {
 
 impl<'s> JSParseState<'s> {
     fn json_next_token(&mut self) -> Result<(), i32> {
-        if js_check_stack_overflow(self.ctx().rt_mut(), 0) {
+        if js_check_thread_stack_overflow(self.ctx().rt_mut(), 0) {
             return Err(self.throw_syntax_error("stack overflow"));
         }
 

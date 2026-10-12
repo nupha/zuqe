@@ -4,8 +4,7 @@
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
-    atom::Atom, context::ScopedContext, eval::EvalType, function::FunctionDef,
-    stack_frame::ExecMode,
+    atom::Atom, context::ScopedContext, eval::EvalType, function::FunctionDef, vm_stack::ExecMode,
 };
 
 use super::ARG_SCOPE_INDEX;

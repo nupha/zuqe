@@ -11,10 +11,10 @@ use crate::{
     error::JSResult,
     eval::{CompiledBytecode, EvalFlags, EvalType},
     function::{CallContext, NativeFunction},
-    runtime::js_check_stack_overflow,
-    stack_frame::FrameIndex,
+    runtime::js_check_thread_stack_overflow,
     utils::unlikely,
     value::JSValue,
+    vm_stack::FrameIndex,
 };
 
 use super::{JSModuleStatus, ModuleDef, ModuleDefImpl};
@@ -199,7 +199,7 @@ impl ModuleDef {
             if !worklist[top].entered {
                 worklist[top].entered = true;
 
-                if js_check_stack_overflow(ctx.rt(), 0) {
+                if js_check_thread_stack_overflow(ctx.rt(), 0) {
                     result = Err(ctx
                         .create_error_object(
                             ErrorKind::Internal,
@@ -574,7 +574,7 @@ fn gather_module_ancestors(
     module: ModuleDef,
     exec_list: &mut Vec<ModuleDef>,
 ) -> Result<(), i32> {
-    if js_check_stack_overflow(ctx.rt(), 0) {
+    if js_check_thread_stack_overflow(ctx.rt(), 0) {
         return Err(ctx.throw_stack_overflow());
     }
 

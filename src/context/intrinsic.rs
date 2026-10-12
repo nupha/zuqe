@@ -22,8 +22,8 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_WRITABLE, PayloadPtr,
     },
-    stack_frame::ExecMode,
     value::JSValue,
+    vm_stack::ExecMode,
 };
 
 impl<'c> ScopedContext<'c> {

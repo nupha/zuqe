@@ -42,7 +42,7 @@ impl BoundFunction {
         if let Some(bf) = o.payload_bound_function() {
             let arg_count = bf.bind_args.len() + args.len();
 
-            // if js_check_stack_overflow(ctx.rt_ref(), std::mem::size_of::<JSValue>() * arg_count) {
+            // if js_check_thread_stack_overflow(ctx.rt_ref(), std::mem::size_of::<JSValue>() * arg_count) {
             //     return JS_ThrowStackOverflow(ctx);
             // }
 

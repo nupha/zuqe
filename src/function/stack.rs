@@ -3,7 +3,7 @@
 
 use crate::{
     bytecode::{OP_COUNT_FINAL, OpCode, OpcodeFormat, opcode_info_final, opcodes},
-    config::STACK_LEN_MAX,
+    config::VM_STACK_LEN_MAX,
     context::ScopedContext,
     utils::read_from_ptr,
 };
@@ -36,7 +36,7 @@ fn ss_check(
 
     if stack_len > s.stack_len_max {
         s.stack_len_max = stack_len;
-        if s.stack_len_max > STACK_LEN_MAX {
+        if s.stack_len_max > VM_STACK_LEN_MAX {
             return Err(ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})\0")));
         }
     }
@@ -140,7 +140,7 @@ impl FunctionDef {
 
             if stack_len > s.stack_len_max {
                 s.stack_len_max = stack_len;
-                if s.stack_len_max > STACK_LEN_MAX {
+                if s.stack_len_max > VM_STACK_LEN_MAX {
                     return Err(
                         ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})"))
                     );

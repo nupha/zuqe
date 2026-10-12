@@ -6,7 +6,7 @@ use crate::{
     context::ScopedContext,
     function::BCWrapper,
     module::{ExportType, JSModuleStatus, ModuleDef, ResolveExport, js_create_module_var},
-    runtime::js_check_stack_overflow,
+    runtime::js_check_thread_stack_overflow,
     utils::unlikely,
 };
 
@@ -155,7 +155,7 @@ impl ModuleDef {
             if !worklist[top].entered {
                 worklist[top].entered = true;
 
-                if js_check_stack_overflow(ctx.rt(), 0) {
+                if js_check_thread_stack_overflow(ctx.rt(), 0) {
                     result = Err(ctx.throw_stack_overflow());
                     break;
                 }

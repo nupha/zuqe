@@ -6,8 +6,8 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp, opcodes},
     function::BlockEnv,
     object::PROP_TYPE_IDENT,
-    stack_frame::ExecMode,
     utils::unlikely,
+    vm_stack::ExecMode,
 };
 
 use super::{

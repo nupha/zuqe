@@ -12,9 +12,9 @@ use crate::{
     context::{ContextPtr, ScopedContext},
     error::JSResult,
     object::{NativeFunction, Object, ObjectImpl, PayloadPtr},
-    runtime::js_check_stack_overflow,
-    stack_frame::{ExecMode, FrameAllocError, FrameState, StackFrameArena},
+    runtime::js_check_thread_stack_overflow,
     value::JSValue,
+    vm_stack::{ExecMode, FrameAllocError, FrameState, VmStack},
 };
 
 use super::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR, js_function_set_properties};
@@ -193,7 +193,7 @@ impl NativeFunction {
         let args_length = nfunc.payload().length as usize;
 
         // better to always check stack overflow
-        if js_check_stack_overflow(&rt, std::mem::size_of::<JSValue>() * args_length) {
+        if js_check_thread_stack_overflow(&rt, std::mem::size_of::<JSValue>() * args_length) {
             return Err(ctx.throw_stack_overflow());
         }
 
@@ -205,7 +205,7 @@ impl NativeFunction {
         let cap = std::cmp::max(args_length, args.len()); // only covers the arg region (no var / operand stack).
         let prev_frame = rt.active_frame_index;
         let frame_idx = {
-            let idx = match rt.frame_arena.alloc_frame(*nfunc, ExecMode::empty(), cap) {
+            let idx = match rt.vm_stack.alloc_frame(*nfunc, ExecMode::empty(), cap) {
                 Ok(idx) => idx,
                 Err(e) => {
                     return Err(match e {
@@ -214,7 +214,7 @@ impl NativeFunction {
                     });
                 }
             };
-            rt.frame_arena.frame_mut(idx).prev = prev_frame;
+            rt.vm_stack.frame_mut(idx).prev = prev_frame;
             idx
         };
 
@@ -224,7 +224,7 @@ impl NativeFunction {
 
         // Copy args into arena buffer; missing slots are padded with UNDEFINED
         // by init_frame_args (var_count = 0 = no var region).
-        rt.frame_arena
+        rt.vm_stack
             .init_frame_args(frame_idx, args_length as u16, 0, args);
 
         // Get arg slice from arena for native callback.
@@ -233,7 +233,7 @@ impl NativeFunction {
         // arg_real_count — matching this ensures constructors (Array, Date, String)
         // see the correct number of arguments: 0 for `super()`, not 1 with undefined.
         let nargs = unsafe {
-            let f = rt.frame_arena.frame(frame_idx);
+            let f = rt.vm_stack.frame(frame_idx);
             let ptr = f.buf.data_ptr();
             if f.arg_real_count > 0 {
                 std::slice::from_raw_parts(ptr, f.arg_real_count as usize)
@@ -247,10 +247,10 @@ impl NativeFunction {
         // Cleanup: restore active_trampoline_frame and free frame (on both success and error paths).
         rt.active_frame_index = prev_frame;
 
-        debug_assert!(!rt.frame_arena.has_var_refs(frame_idx));
+        debug_assert!(!rt.vm_stack.has_var_refs(frame_idx));
 
-        if rt.frame_arena.frame(frame_idx).state == FrameState::Active {
-            rt.frame_arena.free_frame(frame_idx);
+        if rt.vm_stack.frame(frame_idx).state == FrameState::Active {
+            rt.vm_stack.free_frame(frame_idx);
         }
 
         result
@@ -275,11 +275,11 @@ impl NativeFunction {
 
         // ── Allocate lightweight arena frame for GC safety ──
         // Even without argument padding, the arena frame ensures args are
-        // traced by StackFrameArena::trace when the native callback triggers GC.
+        // traced by VmStack::trace when the native callback triggers GC.
         let obj: Object = *nfunc;
         let buf_cap = args.len();
         let saved_active = rt.active_frame_index;
-        let arena_ptr: *mut StackFrameArena = &raw mut rt.frame_arena;
+        let arena_ptr: *mut VmStack = &raw mut rt.vm_stack;
 
         let frame_idx = unsafe {
             let arena = &mut *arena_ptr;

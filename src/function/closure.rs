@@ -14,8 +14,8 @@ use crate::{
         JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE, LazyInit, Object,
         PayloadPtr,
     },
-    stack_frame::{FrameIndex, StackFrameArena},
     value::JSValue,
+    vm_stack::{FrameIndex, VmStack},
 };
 
 use super::{
@@ -279,7 +279,7 @@ impl Bytecode {
         ctx: &mut ScopedContext,
         proto: Option<Object>,
         captured_vars: &[VarRef],
-        arena: &mut StackFrameArena,
+        arena: &mut VmStack,
         parent_frame_idx: FrameIndex,
     ) -> Result<BCWrapper, i32> {
         // === Global variable declarations ===

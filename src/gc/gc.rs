@@ -143,15 +143,15 @@ impl RuntimeImpl {
                 c.trace(&mut gcx);
             }
 
-            // mark stackless arena frames (active frames in StackFrameArena)
-            self.frame_arena.trace(&mut gcx);
+            // mark stackless arena frames (active frames in VmStack)
+            self.vm_stack.trace(&mut gcx);
             // mark trampoline virtual frames (caller bytecodes not in arena prev chain).
             // Currently always null; will be wired when trampoline integration is complete.
             // Double-trace active trampoline frame's func_obj (belt-and-suspenders
             // with arena trace: covers the race window between arena state update
             // and trampoline iteration when GC triggers).
             if !self.active_frame_index.is_null() {
-                let head = self.frame_arena.frame(self.active_frame_index);
+                let head = self.vm_stack.frame(self.active_frame_index);
                 head.func_obj.trace(&mut gcx);
             }
 

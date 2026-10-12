@@ -6,8 +6,8 @@ use crate::{
     bytecode::{OpCode, OpCodeTemp},
     eval::EvalType,
     function::FunctionKind,
-    stack_frame::ExecMode,
     string::{CharCode, Utf8Stream},
+    vm_stack::ExecMode,
 };
 
 use super::{

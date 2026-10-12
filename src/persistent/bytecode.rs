@@ -14,7 +14,7 @@ use crate::{
         Bytecode, BytecodeAttrs, BytecodeDebugInfo, BytecodeImpl, ClosureVar,
         DEFINE_GLOBAL_LEX_VAR, FunctionKind, GcScopeKind, JSVarDef,
     },
-    stack_frame::ExecMode,
+    vm_stack::ExecMode,
 };
 
 use super::{BytecodeSerializeError, DeserializeCtx, SerializeCtx};
