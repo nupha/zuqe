@@ -8,7 +8,7 @@ Add `zuqe` to your dependencies and enable the `async_support` feature so the en
 
 ```toml
 [dependencies]
-zuqe = { version = "0.10.0" } # replace with the latest version
+zuqe = { version = "0.11.0" } # replace with the latest version
 tokio = { version = "1", features = ["full"] }
 ```
 
