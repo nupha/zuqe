@@ -20,3 +20,4 @@ scripts/typescript.min.js
 scripts/babel-standalone.js
 examples/virtual_heap_demo.c
 .DS_Store
+**/*.bak
