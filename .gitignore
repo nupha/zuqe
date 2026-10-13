@@ -10,3 +10,13 @@
 !docs/
 !docs/**
 !examples/**
+
+# build artifacts and vendored third-party blobs: never commit
+tests/**/*.dylib
+tests/**/*.so
+tests/**/*.dll
+tests/**/*.o
+scripts/typescript.min.js
+scripts/babel-standalone.js
+examples/virtual_heap_demo.c
+.DS_Store

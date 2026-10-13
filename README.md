@@ -12,7 +12,7 @@ Want to supercharge your Rust application with JavaScript scripting? Look no fur
 
 **Conformance:** Zuqe implements a comprehensive set of ES2023+ features and passes a substantial portion of the [Test262](https://github.com/tc39/test262) conformance suite.
 
-**The name:** Zuqe is named after **朱雀 (Zhuque)**, the Vermilion Bird of Chinese mythology — a creature of fire, rebirth, and guardianship that shape the engine's design. In the spirit of QuickJS, Zuqe is a Rust‑native reimagining of the embeddable JavaScript engine. [Read the full story →](docs/about.md)
+**The name:** Zuqe is named after **朱雀 (Zhuque)**, the Vermilion Bird of Chinese mythology — a creature of fire, rebirth, and guardianship that shape the engine's design. Zuqe is a Rust-native reimagining of the embeddable JavaScript engine. [Read the full story →](docs/about.md)
 
 ## 🎯 Design Goals
 

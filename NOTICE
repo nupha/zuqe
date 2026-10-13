@@ -27,6 +27,7 @@ This product includes software from the following third-party components:
 18. unicode-normalization - Copyright (c) kwantam, Manish Goregaokar - Apache-2.0 OR MIT
 19. unicode-xid - Copyright (c) erick.tryzelaar, kwantam, Manish Goregaokar - Apache-2.0 OR MIT
 20. widestring - Apache-2.0 OR MIT
+21. QuickJS - Copyright (c) Fabrice Bellard, Charlie Gordon - MIT
 
 For detailed license information of each component, please refer to the
 respective source files or the Cargo.toml dependencies section.

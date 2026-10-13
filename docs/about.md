@@ -14,7 +14,7 @@ The Vermilion Bird is a creature of fire: brilliant, immediate, alive. Zuqe inhe
 
 ### Rebirth → a reimagining of the embeddable JS engine
 
-The bird dies in fire and is reborn — a fresh start, free of the old constraints. In the spirit of **QuickJS**, Zuqe is a _Rust‑native reimagining_ of the embeddable JavaScript engine: the same philosophy (small, fast, easy to embed), reborn with Rust's memory safety, a **stackless interpreter** that removes host‑stack overflow risk entirely, and a **bidirectional Promise↔Future bridge** for first‑class async interop. A familiar idea, rebuilt lighter.
+The bird dies in fire and is reborn — a fresh start, free of the old constraints. Zuqe is a _Rust-native reimagining_ of the embeddable JavaScript engine: the philosophy of a small, fast, easy-to-embed runtime, reborn with Rust's memory safety, a **stackless interpreter** that removes host-stack overflow risk entirely, and a **bidirectional Promise↔Future bridge** for first-class async interop. A familiar idea, rebuilt lighter.
 
 ### Guardianship → memory safe
 

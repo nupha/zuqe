@@ -1,13 +1,21 @@
 [package]
 name = "zuqe"
-version = "0.11.0"
+version = "0.11.1"
 edition = "2024"
-description = "Zuqe JS Engine - A lightweight JS engine implemented in Rust, designed for embedded systems and general‑purpose use."
+description = "Rust-native JavaScript engine for embedding: stackless interpreter, host-enforced memory and stack limits, interrupt control, and a Promise/Future bridge. For scripting, plugin runtimes, and resource-limited execution of generated code."
 build = "build.rs"
 readme = "README.md"
 authors = ["John Ray <996351336@qq.com>"]
 repository = "https://github.com/nupha/zuqe"
 license = "Apache-2.0"
+keywords = [
+    "javascript",
+    "javascript-engine",
+    "ecmascript",
+    "scripting",
+    "sandboxing",
+]
+categories = ["compilers", "parser-implementations"]
 
 [features]
 inline_cache = []

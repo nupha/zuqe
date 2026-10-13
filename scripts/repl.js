@@ -1,6 +1,8 @@
 /*
  * ZJS Read Eval Print Loop
  *
+ * Copyright (c) 2017-2020 Fabrice Bellard
+ * Copyright (c) 2017-2020 Charlie Gordon
  * Copyright (c) 2025 John Ray
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
