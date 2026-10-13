@@ -101,7 +101,7 @@ import * as os from "os";
 const time = os.now();
 
 // Use a constant from the module
-os.isatty(0);
+os.SIGINT;
 ```
 
 This tutorial concludes the series on using the `zuqe` crate. You now have the knowledge to create basic scripts, define complex classes, and build native modules that integrate closely with the runtime and its garbage collector.

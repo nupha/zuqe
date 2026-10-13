@@ -93,7 +93,9 @@ You may need to restart your command prompt or terminal for the changes to take 
 >
 > The fix is to use **`rust-lld`** (the LLVM LLD linker bundled with the Rust toolchain) instead of the MinGW GNU ld. LLD generates correct `.pdata` tables for any project size.
 
-Create or edit the `.cargo/config.toml` file in your project root directory:
+Create or edit the `.cargo/config.toml` file in your project root directory.
+
+> **Note:** This repository already ships a `.cargo/config.toml` containing the `[patch.crates-io]` entries `zuqe_zapi = { path = "../zuqe-zapi" }` and `zuqe_zapi_macros = { path = "../zuqe-zapi-macros" }`. If you edit that file, **preserve those entries** and add the sections below alongside them — do not overwrite the file.
 
 ```toml
 [target.x86_64-pc-windows-gnu]
@@ -137,7 +139,7 @@ Open the **MSYS2 MSYS shell** (not PowerShell or CMD) and navigate to the projec
 cargo build --examples
 ```
 
-This command will compile the project using the Windows GNU toolchain and build the `zjs` and `test262` examples.
+This command will compile the project using the Windows GNU toolchain and build the `zjs` example. The `test262` and `persistent` examples are skipped: they declare `required-features` (`intl402` and `persistent` respectively, see `[[example]]` in `Cargo.toml`), and neither feature is in the default feature set.
 
 > **Note:** It is strongly recommended to build inside the **MSYS2 MSYS shell**. Running `cargo build` in PowerShell may cause GCC to crash with errors like `gcc: error: spawn failed (exit status 0xc0000005)` due to DLL conflicts or environment incompatibilities. MSYS2 provides a Unix-like environment that the GNU toolchain expects and avoids these issues.
 

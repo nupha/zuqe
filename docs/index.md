@@ -6,6 +6,7 @@
 - [Native Function](native-function.md) — exposing Rust functions to JavaScript.
 - [Native Classes](native-classe.md) — defining native Rust classes.
 - [Native Module](native-module.md) — building native ES modules.
+- [Writing a Zapi Extension](zapi-extension.md) — building an extension as a dynamic library the engine loads as a module.
 - [Running Loop](loop.md) — `eval_wait`, the tick loop, and async runtime mode.
 - [Garbage Collection](gc.md) — GC scopes, the root scope, and custom tracers.
 - [Promise](promise.md) — Promise ↔ Future integration.

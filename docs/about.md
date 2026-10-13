@@ -45,7 +45,7 @@ Engine‑level design choices that set Zuqe apart:
 - **Hidden Classes & Inline Caches** — Objects share `Shape`s and use per‑opcode inline caches for fast, predictable property access.
 - **String Ropes** — Concatenations are kept as lazy ropes rather than eagerly copied, keeping string operations memory‑efficient.
 - **NaN‑Boxing Values** — JS values are encoded in a compact 64‑bit NaN‑boxed representation for cache‑friendly, low‑overhead storage.
-- **Scope‑Based Garbage Collection** — Generational, scope‑bounded GC with a dedicated StackFrame GC partition.
+- **Scope‑Based Garbage Collection** — Tracing mark-sweep GC; nestable GC scopes protect scope-local values as roots until the scope exits.
 - **Bidirectional Async Bridge** — JS `Promise`s and Rust `Future`s interoperate in both directions (feature `async_support`).
 
 ## When to reach for Zuqe

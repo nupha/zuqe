@@ -86,7 +86,7 @@ You return a value from `with_new_scope` simply as the closure's final expressio
 ```rust
 let obj = ctx.with_root_scope(|mut root| {
     root.with_new_scope(|scope| {
-        let obj = scope.create_base_object()?;
+        let obj = JSValue::from(scope.create_base_object()?);
         // `obj` is promoted to the root scope automatically on return
         Ok(obj)
     })
@@ -220,7 +220,7 @@ Rules 1–2 the failure mode is not "a node was collected while referenced" but 
 being stomped through the dangling pointer**, which corrupts whatever reuses that memory —
 often GC nodes — so the symptoms surface far away from the cause.
 
-Real-world case: `VmStack::frames: Vec<StackFrame>` grew via `alloc_frame → push`
+Real-world case: `VmStack::frames` was a plain `Vec<StackFrame>` and grew via `alloc_frame → push`
 whenever a native call allocated a callee frame, while `execute_with_arena` cached
 `&mut frame.cur_sp_offset` / `cur_pc_offset` as raw pointers across its whole interpretation
 loop. The stale writes corrupted freed memory later reused by GC nodes — surfacing far from

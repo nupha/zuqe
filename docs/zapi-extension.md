@@ -55,8 +55,8 @@ name = "mymod"                 # → libmymod.dylib / libmymod.so
 crate-type = ["cdylib"]        # a dynamic library, not a Rust rlib
 
 [dependencies]
-zuqe_zapi = "0.2"
-zuqe_zapi_macros = "0.2"
+zuqe_zapi = "0.3.0"
+zuqe_zapi_macros = "0.3.0"
 ```
 
 Two things matter here:
@@ -80,16 +80,16 @@ use zuqe_zapi_macros::{zq_function, zq_module};
 // Rust name; rename it with `#[zq_function(name = "...")]`.
 #[zq_function]
 fn add<'a>(ctx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    // cc.arg(i) is the i-th argument.
+    // cc.arg(i) is the i-th argument (undefined when omitted).
     //
-    // as_f64 / as_i32 / as_string are ToNumber / ToString conversions.
-    // They return Result<_, ZqError>. Currently as_f64 and as_i32 always
-    // succeed (returning NaN for non-numeric values), while as_string returns
-    // Err if the engine cannot convert. The `?` propagates the error to JS
-    // as the appropriate exception type (TypeError for most conversion
-    // failures).
-    let a = cc.arg(0).as_f64(ctx)?;
-    let b = cc.arg(1).as_f64(ctx)?;
+    // to_f64 / to_i32 are ToNumber coercions, to_bool is ToBoolean; they return
+    // Result<_, ZqError> and only fail when the coercion itself throws (a
+    // non-numeric value coerces to NaN / 0 like JS ToNumber instead of
+    // failing). string_read_utf8 is a *strict* string read: a non-string is an
+    // Err and leaves a pending TypeError. The `?` propagates the error to JS as
+    // the thrown exception.
+    let a = cc.arg(0).to_f64(ctx)?;
+    let b = cc.arg(1).to_f64(ctx)?;
     Ok(ZqValue::number(a + b)) // build the return value
 }
 ```
@@ -99,20 +99,22 @@ A string in / string out, and two numbers in / object out:
 ```rust
 #[zq_function]
 fn greet<'a>(ctx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let name = cc.arg(0).as_string(ctx)?;           // string → Rust String
-    ctx.new_string(&format!("hello, {name}"))       // Result<ZqValue> — returned directly
+    // coerce_string is ToString (`String(x)`); use string_read_utf8 when the
+    // value is known to be a string, or try_string_read_utf8 to probe.
+    let name = cc.arg(0).coerce_string(ctx)?; // string → Rust String
+    ZqValue::new_string(ctx, &format!("hello, {name}")) // Result<ZqValue> — returned directly
 }
 ```
 
-Note: most `ctx.*` methods (`new_string`, `new_object`, `new_array`, etc.)
-return `Result<ZqValue, ZqError>`. When it's the last expression, return it
-directly — don't add `?` (which would unwrap it) or `Ok(...)` (which would
+Note: the `ZqValue` constructors (`new_string`, `new_object`, `new_array`,
+...) return `Result<ZqValue, ZqError>`. When one is the last expression, return
+it directly — don't add `?` (which would unwrap it) or `Ok(...)` (which would
 double-wrap). When you need the value mid-function, use `?` to unwrap:
 
 ```rust
-let obj = ctx.new_object()?;   // unwrap: now `obj` is ZqValue, not Result
-obj.set_str(ctx, "key", val)?;
-Ok(obj)                        // wrap back for the return type
+let obj = ZqValue::new_object(ctx)?;   // unwrap: now `obj` is ZqValue, not Result
+obj.set_property_str(ctx, "key", val)?;
+Ok(obj)                                // wrap back for the return type
 ```
 
 Another example — building an object:
@@ -120,12 +122,12 @@ Another example — building an object:
 ```rust
 #[zq_function(name = "makePoint")]             // JS name is makePoint
 fn make_point<'a>(ctx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let x = cc.arg(0).as_f64(ctx)?;
-    let y = cc.arg(1).as_f64(ctx)?;
+    let x = cc.arg(0).to_f64(ctx)?;
+    let y = cc.arg(1).to_f64(ctx)?;
 
-    let p = ctx.new_object()?;                 // a fresh `{}`
-    p.set_str(ctx, "x", x)?;                   // p.x = x
-    p.set_str(ctx, "y", y)?;                   // p.y = y
+    let p = ZqValue::new_object(ctx)?;         // a fresh `{}`
+    p.set_property_str(ctx, "x", x)?;          // p.x = x
+    p.set_property_str(ctx, "y", y)?;          // p.y = y
     Ok(p)
 }
 ```
@@ -144,11 +146,12 @@ The pieces you'll reach for most:
 
 ```rust
 // ── read an argument ─────────────────────────────────────────────────────
-cc.arg(0).as_f64(ctx)?            // number → f64
-cc.arg(1).as_i32(ctx)?            // number → i32
-cc.arg(2).as_bool(ctx)?           // truthy → bool
-cc.arg(3).as_string(ctx)?         // string → String
-cc.arg(0).value_type()            // ZqValueType::{Number,String,Bool,Object,...}
+cc.arg(0).to_f64(ctx)?            // number → f64
+cc.arg(1).to_i32(ctx)?            // number → i32
+cc.arg(2).to_bool(ctx)?           // truthy → bool
+cc.arg(3).coerce_string(ctx)?     // ToString → String (string_read_utf8 is strict)
+cc.arg_f64(ctx, 0)?               // same as cc.arg(0).to_f64(ctx); also arg_i32/arg_bool/arg_string
+cc.arg(0).kind()                  // ZqValueType::{Undefined,Null,Bool,Number,String,Symbol,Function,Object,BigInt}
 cc.arg(0).is_undefined()          // argument was omitted
 cc.len()                          // argument count
 cc.this()                         // the `this` value
@@ -159,9 +162,9 @@ ZqValue::number(1.5)              // f64
 ZqValue::bool(true)
 ZqValue::null()
 ZqValue::undefined()
-ctx.new_string("hi")?             // string
-ctx.new_object()?                 // plain object
-ctx.new_array(&[])?               // array
+ZqValue::new_string(ctx, "hi")?   // string
+ZqValue::new_object(ctx)?         // plain object
+ZqValue::new_array(ctx, &[])?     // array
 
 // ── throw a JS error ─────────────────────────────────────────────────────
 // ctx.throw_* returns ZqError (not Result). Wrap it in Err() to propagate.
@@ -172,8 +175,8 @@ return Err(ctx.throw_range("expected 2 arguments")); // RangeError
 let p = JsCounter::payload(ctx, cc.this())
     .ok_or_else(|| ctx.throw_type("not a Counter"))?;
 
-// set_str takes anything IntoZqValue (i32 / f64 / bool / String / ZqValue):
-p.set_str(ctx, "count", 7i32)?;
+// set_property_str takes anything Into<ZqValue> (i32 / f64 / bool / String / ZqValue):
+p.set_property_str(ctx, "count", 7i32)?;
 ```
 
 ### Build and load
@@ -212,13 +215,13 @@ Here's a function that reads an options object and returns a new one:
 fn describe<'a>(ctx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let opts = cc.arg(0);
 
-    // Read a property. get_str returns undefined when absent.
-    let name = opts.get_str(ctx, "name");
-    let name = if name.is_undefined() { "anon".to_string() } else { name.as_string(ctx)? };
+    // Read a property. get_property_str returns undefined when absent.
+    let name = opts.get_property_str(ctx, "name")?;
+    let name = if name.is_undefined() { "anon".to_string() } else { name.coerce_string(ctx)? };
 
-    let out = ctx.new_object()?;
-    out.set_str(ctx, "name", ctx.new_string(&name)?)?;
-    out.set_str(ctx, "count", cc.len() as i32)?;
+    let out = ZqValue::new_object(ctx)?;
+    out.set_property_str(ctx, "name", ZqValue::new_string(ctx, &name)?)?;
+    out.set_property_str(ctx, "count", cc.len() as i32)?;
     Ok(out)
 }
 ```
@@ -226,38 +229,40 @@ fn describe<'a>(ctx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqErr
 The property API mirrors JS:
 
 ```rust
-obj.set_str(ctx, "key", value)?;   // obj.key = value
-obj.get_str(ctx, "key")?;          // obj.key  (undefined if missing)
-obj.has_str(ctx, "key")?;          // "key" in obj
-obj.delete_str(ctx, "key")?;       // delete obj.key
-obj.set(ctx, 0i32, value)?;        // obj[0] = value (any key type)
-obj.get(ctx, any_key)?;            // obj[any_key]
+obj.set_property_str(ctx, "key", value)?;  // obj.key = value
+obj.get_property_str(ctx, "key")?;         // obj.key  (undefined if missing)
+obj.has_property_str(ctx, "key")?;         // "key" in obj
+obj.del_property_str(ctx, "key")?;         // delete obj.key
+obj.set_property(ctx, 0i32, value)?;       // obj[0] = value (any key type)
+obj.get_property(ctx, any_key)?;           // obj[any_key]
 ```
+
+(The shorter aliases `set_str` / `get_str` / `has_str` / `delete_str` / `set` /
+`get` still exist but are deprecated.)
 
 Arrays:
 
 ```rust
-let arr = ctx.new_array(&[])?;
-arr.array_push(ctx, ZqValue::int32(1))?;
-let len = arr.get_length_prop(ctx)?;   // arr.length
-let first = arr.get(ctx, 0i32)?;       // arr[0]
+let arr = ZqValue::new_array(ctx, &[])?;
+arr.push(ctx, ZqValue::int32(1))?;
+let len = arr.length(ctx)?;            // arr.length
+let first = arr.get_property(ctx, 0i32)?;  // arr[0]
 ```
 
-`new_array` takes a slice of `ZqRawValue` (the untyped handle), not `ZqValue`.
-So every element must be converted with `.raw()` — it's a zero-cost cast that
-strips the lifetime marker. Alternatively, build the array empty and push:
+`new_array` takes a slice of `ZqValue`, so elements can be passed directly;
+alternatively build the array empty and push:
 
 ```rust
-// Option A: upfront with .raw()
-ctx.new_array(&[
-    ZqValue::int32(1).raw(),
-    ctx.new_string("two")?.raw(),
+// Option A: upfront
+ZqValue::new_array(ctx, &[
+    ZqValue::int32(1),
+    ZqValue::new_string(ctx, "two")?,
 ])?;
 
 // Option B: push after
-let arr = ctx.new_array(&[])?;
-arr.array_push(ctx, ZqValue::int32(1))?;
-arr.array_push(ctx, ctx.new_string("two")?)?;
+let arr = ZqValue::new_array(ctx, &[])?;
+arr.push(ctx, ZqValue::int32(1))?;
+arr.push(ctx, ZqValue::new_string(ctx, "two")?)?;
 ```
 
 ### Calling JS from the extension
@@ -265,8 +270,8 @@ arr.array_push(ctx, ctx.new_string("two")?)?;
 Grab built-ins from the global object:
 
 ```rust
-let json = ctx.get_global("JSON")?;
-let stringify = json.get_str(ctx, "stringify")?;
+let json = ctx.get_global_str("JSON")?;
+let stringify = json.get_property_str(ctx, "stringify")?;
 let text = ctx.call_function(stringify, json, &[obj])?;
 ```
 
@@ -275,10 +280,10 @@ shorthand method `callee.call(ctx, this, &args)`. Invoke a constructor with
 `ctx.call_constructor(target, &args)`:
 
 ```rust
-let date = ctx.get_global("Date")?;
+let date = ctx.get_global_str("Date")?;
 let now = ctx.call_constructor(date, &[ZqValue::int32(0)])?;
 
-let u8 = ctx.get_global("Uint8Array")?;
+let u8 = ctx.get_global_str("Uint8Array")?;
 let buf = ctx.call_constructor(u8, &[ZqValue::int32(16)])?;
 ```
 
@@ -299,7 +304,7 @@ use zuqe_zapi_macros::zq_export;
 /// `VERSION` → `"0.1.0"`.
 #[zq_export(name = "VERSION")]
 fn version<'a>(ctx: ZqCtx<'a>) -> Result<ZqValue<'a>, ZqError> {
-    ctx.new_string("0.1.0")
+    ZqValue::new_string(ctx, "0.1.0")
 }
 ```
 
@@ -413,7 +418,7 @@ impl JsCounter {
     // Static getter -> `Counter.kind`.
     #[zq_static_method(get)]
     fn kind<'a>(ctx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-        ctx.new_string("native")
+        ZqValue::new_string(ctx, "native")
     }
 }
 
@@ -439,8 +444,8 @@ struct JsPoint;
 #[zq_class_impl]
 impl JsPoint {
     fn constructor<'a>(ctx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-        let x = cc.arg(0).as_i32(ctx)?;
-        let y = cc.arg(1).as_i32(ctx)?;
+        let x = cc.arg(0).to_i32(ctx)?;
+        let y = cc.arg(1).to_i32(ctx)?;
         JsPoint::new_instance(ctx, PointPayload { x, y })
     }
 }
@@ -529,7 +534,7 @@ The simplest form needs no channels at all:
 ```rust
 #[zq_function(name = "doubleAsync")]
 fn double_async<'a>(ctx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let n = cc.arg(0).as_f64(ctx)?;
+    let n = cc.arg(0).to_f64(ctx)?;
     ctx.promise_threaded(
         move || n * 2.0,                          // work — off the JS thread
         |ctx, result| Ok(ZqValue::number(result)), // convert — back on JS thread
@@ -578,7 +583,7 @@ to `promise_threaded`:
 fn execute<'a>(ctx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let p = JsDb::payload(ctx, cc.this()).ok_or_else(|| ctx.throw_type("not a Db"))?;
     let db = Arc::clone(&p.db);                        // move a handle into `work`
-    let sql = cc.arg(0).as_string(ctx)?;               // owned Rust data
+    let sql = cc.arg(0).coerce_string(ctx)?;           // owned Rust data
     let params = collect_params(ctx, &cc, 1)?;         // owned Rust data
 
     ctx.promise_threaded(
@@ -595,7 +600,7 @@ Build the resource in the constructor:
 
 ```rust
 fn constructor<'a>(ctx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    let conn = Connection::open(cc.arg(0).as_string(ctx)?)?;
+    let conn = Connection::open(cc.arg(0).coerce_string(ctx)?)?;
     JsDb::new_instance(ctx, DbPayload { db: Arc::new(Mutex::new(conn)) })
 }
 ```
@@ -639,16 +644,19 @@ loop calls `next` again on the next tick.
 ### 7.4 Streaming with polling jobs
 
 For push-style streams — tokens arriving over time, progress callbacks — use
-`ctx.add_polling_job`. The pattern is:
+`ctx.add_job_no_gc` (or `ctx.add_job` when the payload holds JS values). The
+pattern is:
 
 1. Create a wake channel (`ctx.make_wake_channel()`) to get a sender + receiver.
 2. Spawn a producer thread that sends results through the sender.
-3. Register a polling job that drains the receiver each tick.
+3. Register a job that drains the receiver each tick.
 4. The sender automatically wakes the event loop on every `send`, so the
    polling job runs only when there is data.
 
 The closure runs once per event-loop tick until it returns `ZqPoll::Done`;
-return `ZqPoll::Again` to stay registered. Both come from `zuqe_zapi::ctx`.
+return `ZqPoll::Again` to stay registered, or `ZqPoll::AgainNoHold` for a
+fire-and-forget job that must not keep the process alive. `ZqPoll` comes from
+`zuqe_zapi` (`zuqe_zapi::ctx`).
 
 ```rust
 use zuqe_zapi::*;
@@ -659,7 +667,7 @@ fn start_stream<'a>(
     ctx: ZqCtx<'a>,
     cc: ZqCallInfo<'a>,
 ) -> Result<ZqValue<'a>, ZqError> {
-    let n = cc.arg(0).as_i32(ctx)?;          // how many values to produce
+    let n = cc.arg(0).to_i32(ctx)?;          // how many values to produce
     let callback = cc.arg(1);                 // JS callback to call per value
     let (tx, rx) = ctx.make_wake_channel();
 
@@ -672,7 +680,7 @@ fn start_stream<'a>(
     });
 
     // Polling job: drains the receiver, calls the JS callback for each value.
-    ctx.add_polling_job(move |cx| match rx.try_recv() {
+    ctx.add_job_no_gc(move |cx| match rx.try_recv() {
         Ok(val) => {
             let _ = cx.call_function(
                 callback,

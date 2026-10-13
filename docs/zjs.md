@@ -111,7 +111,6 @@ The REPL supports several special commands (prefixed with `\`):
 - **`Ctrl+B`**: Move backward one character
 - **`Ctrl+F`**: Move forward one character
 - **`Ctrl+K`**: Delete to end of line
-- **`Ctrl+U`**: Delete to beginning of line
 
 The REPL implementation in `scripts/repl.js` is based on and modified from QuickJS's REPL, providing a familiar and feature-rich interactive JavaScript experience.
 
@@ -170,7 +169,7 @@ The main application flow:
 2. **Configure Limits**: Parse and set memory limit, stack arena size, stack limit, and C-stack overflow limit
 3. **Setup Module Loader**: Configure custom module loading mechanism (including zapi extension loading)
 4. **Configure GC Trace**: Register custom GC trace handler for thread-local JS handles
-5. **Register Native Classes**: Register custom JavaScript classes (`File`, `Emitter`)
+5. **Resolve Native Class Ids**: Host classes (`File`, `Emitter`) declared with `def_native_object!` are collected into `HOST_CLASS_DEFS` at link time and assigned ids during engine init; fetch them via `JSFile::class_id()` / `JSEmitter::class_id()`
 6. **Create Context**: Establish execution context with ECMA standard setup
 7. **Enable Classes**: Enable native classes in the context via `cx.use_class()`
 8. **Initialize Modules**: Load OS and standard library modules
@@ -181,7 +180,7 @@ The main application flow:
 // Create runtime
 let mut rt = Runtime::create().unwrap();
 
-// Install panic handler for debug builds
+// Install panic handler for release builds
 rt.install_panic_handler();
 
 // Optional: memory / stack limits (parsed from `--memory-limit`,
@@ -205,9 +204,11 @@ let is_module = args.module
     || args.filename.ends_with(".mjs")
     || ModuleDef::detect_module(script.as_bytes());
 
-// Register native classes
-let class_id_file = JSFile::register(&mut rt).unwrap();
-let class_id_emitter = JSEmitter::register(&mut rt).unwrap();
+// Native classes declared with `def_native_object!` are collected into the
+// process-global `HOST_CLASS_DEFS` slice and get their ids during engine
+// init; just read them back here.
+let class_id_file = JSFile::class_id();
+let class_id_emitter = JSEmitter::class_id();
 
 // Create execution context and set up environment
 let ctx = rt

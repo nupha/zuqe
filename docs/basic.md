@@ -8,7 +8,7 @@ Add `zuqe` to your dependencies and enable the `async_support` feature so the en
 
 ```toml
 [dependencies]
-zuqe = { version = "0.8.0" } # replace with the latest version
+zuqe = { version = "0.10.0" } # replace with the latest version
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -41,8 +41,9 @@ In async mode you drive the runtime with `Runtime::run_async()` and evaluate scr
 The name you pass to `eval()` is an [`EvalName`](loop.md): `EvalName::Name(s)` is a plain debug filename, while `EvalName::BaseUrl(url)` also binds the base URL so that `import.meta.url` and relative dynamic `import()` inside the script resolve correctly.
 
 ```rust
+use zuqe::builtins::promise::Promise;
 use zuqe::{
-    Context, EvalFlags, EvalName, EvalType, JSValue, Promise, Runtime, ScopedContext,
+    Context, EvalFlags, EvalName, EvalType, JSValue, Runtime, ScopedContext,
 };
 
 #[tokio::main]

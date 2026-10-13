@@ -53,12 +53,19 @@ sudo zypper install mingw64-gcc
 
 ## Configuration
 
-Create or edit `.cargo/config.toml` and add the following content:
+Merge the following settings into the existing `.cargo/config.toml`. Do **not** overwrite that file — it already holds the `[patch.crates-io]` entries this project needs:
 
 ```toml
 [target.x86_64-pc-windows-gnu]
-linker = "/usr/local/bin/x86_64-w64-mingw32-gcc"
+linker = "rust-lld"
 ar = "/usr/local/bin/x86_64-w64-mingw32-ar"
+
+# rust-lld does not inherit MinGW library search paths automatically
+# (unlike the MinGW GCC linker driver). Pass them explicitly.
+rustflags = [
+    "-C", "link-arg=-L/usr/local/Cellar/mingw-w64/13.0.0_2/toolchain-x86_64/x86_64-w64-mingw32/lib",
+    "-C", "link-arg=-lwinpthread",
+]
 
 [env]
 CC_x86_64_pc_windows_gnu = "/usr/local/bin/x86_64-w64-mingw32-gcc"
@@ -69,11 +76,14 @@ CXXFLAGS_x86_64_pc_windows_gnu = "-I/usr/local/Cellar/mingw-w64/13.0.0_2/toolcha
 BINDGEN_EXTRA_CLANG_ARGS_x86_64_pc_windows_gnu = "-I/usr/local/Cellar/mingw-w64/13.0.0_2/toolchain-x86_64/x86_64-w64-mingw32/include"
 ```
 
+**Important:** Do **not** use `x86_64-w64-mingw32-gcc` (MinGW's GNU ld) as the linker. It emits malformed `.pdata` unwind entries for large Rust projects, causing a pre-main `STATUS_ACCESS_VIOLATION` crash in debug builds; `rust-lld`, bundled with the Rust toolchain, generates correct `.pdata` (see `docs/build-windows-gnu.md`, Step 5).
+
 **Important:** The paths above are examples for typical macOS installations using Homebrew. You **must** update these paths according to your actual MinGW-w64 installation:
 
 - **macOS with Homebrew**: Use `/usr/local/bin/x86_64-w64-mingw32-*` (as shown in examples)
 - **Linux**: Typically use `/usr/bin/x86_64-w64-mingw32-*`
 - **Custom installations**: Use the actual paths where your MinGW-w64 binaries are located
+- **Link search path**: Point the `-L` argument in `rustflags` at your MinGW-w64 runtime library directory
 
 To find the correct paths on your system, use:
 

@@ -21,11 +21,12 @@ enum FileDesc {
 // - A `#[repr(transparent)]` struct `JSFile` wrapping an `Object` (the payload
 //   `RefCell<FileDesc>` is stored directly in the object's payload slot, as a
 //   heap `Box` owned by the engine)
-// - Class registration function `JSFile::register(rt)`
+// - A link-time class definition collected into the `HOST_CLASS_DEFS`
+//   slice; the engine assigns its class id during engine init
 // - Class ID accessor `JSFile::class_id()`
 // - Payload access via `JSFile::payload_of(val)` (returns `Option<&RefCell<FileDesc>>`)
 // - Instance creation via `JSFile::new_instance(ctx, new_target, payload)`
-// - Proper dispose/unregister lifecycle callbacks
+// - Payload drop and GC-trace callbacks wired into the class
 //
 // Arguments: (name, struct_name, payload_type, proto_entries, ctor_option)
 def_native_object!("File", JSFile, RefCell<FileDesc>, CLASS_FILE_PROTO, None);
@@ -56,8 +57,6 @@ The `def_native_object!` macro arguments are:
 Optional keyword arguments (all prefixed with `,`):
 
 - `extends: $class_id_fn` — register the class as a subclass of another native class
-- `on_class_register: $fn(rt)` — hook called when the class is registered
-- `on_class_unregister: $fn(rt)` — hook called when the class is unregistered
 
 > **⚠️ GC safety (MUST READ):** A `JSValue`/`Object` stored in a class payload or in a
 > `thread_local!` is invisible to Zuqe's GC — if the collector reclaims it while you still use it,
@@ -194,7 +193,7 @@ fn js_file_close(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 ## 3. Register and Use the Class
 
-After defining the class with `def_native_object!`, register it with the runtime and enable it in a context:
+After defining the class with `def_native_object!`, the engine assigns its class id during initialization; read it with `JSFile::class_id()` and enable it in a context:
 
 ```rust
 use zuqe::{Context, ScopedContext, Runtime};
@@ -202,8 +201,9 @@ use zuqe::{Context, ScopedContext, Runtime};
 fn main() {
     let mut rt = Runtime::create().unwrap();
 
-    // Register the class — this stores metadata in the runtime.
-    let class_id = JSFile::register(&mut rt).unwrap();
+    // The class def is collected at link time into HOST_CLASS_DEFS and its id is
+    // assigned during engine init; read it back with `class_id()`.
+    let class_id = JSFile::class_id();
 
     let mut ctx = rt
         .create_context(|cx| {

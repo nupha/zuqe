@@ -10,4 +10,4 @@ description = "Zapi — raw FFI native extension demo for zuqe/zhuque (no safe l
 crate-type = ["cdylib"]
 
 [dependencies]
-zuqe_zapi = { version = "0.3" }
+zuqe_zapi = { version = "0.3.0" }

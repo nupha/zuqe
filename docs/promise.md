@@ -144,20 +144,17 @@ Use this when:
 
 ### `Promise::create_with_receiver`
 
-Zuqe exposes a pair of channel-based helpers: `Promise::create_with_receiver` and `Promise::create_with_channel`. `create_with_receiver` is the lower-level primitive: you provide an existing `Receiver<D>`, and the Promise is driven by values arriving on that channel. `create_with_channel` is a convenience wrapper that allocates a new bounded channel internally and returns the sending side.
+Zuqe exposes a pair of channel-based helpers: `Promise::create_with_receiver` and `Promise::create_with_channel`. `create_with_receiver` is the lower-level primitive: you provide an existing `WakeReceiver<D>`, and the Promise is driven by values arriving on that channel. `create_with_channel` is a convenience wrapper that allocates a new bounded channel internally and returns the sending side.
 
-> **Note on channel types**: Zuqe uses the type aliases `Sender<D>` and `Receiver<D>`, which map to different concrete types depending on the `crossbeam_channel` Cargo feature:
+> **Note on channel types**: The raw `Sender<D>` / `Receiver<D>` type aliases (which map to `std::sync::mpsc` or `crossbeam_channel` depending on the `crossbeam_channel` Cargo feature) live in a private module and are re-exported only crate-internally — they are **not** public API.
 >
-> - **Without** `crossbeam_channel` (default): `Sender<D>` = `std::sync::mpsc::SyncSender<D>`, `Receiver<D>` = `std::sync::mpsc::Receiver<D>`.
-> - **With** `crossbeam_channel`: `Sender<D>` = `crossbeam::channel::Sender<D>`, `Receiver<D>` = `crossbeam::channel::Receiver<D>`.
->
-> This means the channel-based Promise helpers work with either std or crossbeam channels transparently.
+> The public channel types are the newtypes `zuqe::WakeSender<D>` and `zuqe::WakeReceiver<D>`. A `WakeSender<D>` wakes the parked event loop on every successful `send` / `try_send` and on drop, so the polling job observes the value promptly; `WakeReceiver<D>` is the matching receiving half. Obtain a pair from `ScopedContext::make_channel(n)` (bounded, capacity `n`) or `ScopedContext::make_local_channel()` (unbounded, `D` need not be `Send`).
 
 ```rust
 impl Promise {
     pub fn create_with_receiver<D: Send + 'static>(
         ctx: &mut ScopedContext,
-        rx: Receiver<D>,
+        rx: WakeReceiver<D>,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
     ) -> Result<Self, i32>;
 }
@@ -173,7 +170,7 @@ Internally:
 Example: use a manually created channel when you need extra control over the sending side:
 
 ```rust
-let (tx, rx) = std::sync::mpsc::sync_channel(1); // or crossbeam::channel::bounded(1) with crossbeam_channel feature
+let (tx, rx) = ctx.make_channel(1);
 
 let promise = Promise::create_with_receiver(ctx, rx, |cx, res: Result<Vec<u8>, String>| {
     match res {
@@ -198,7 +195,7 @@ std::thread::spawn(move || {
 
 Use `create_with_receiver` when:
 
-- You already have a `Receiver<D>` created elsewhere (for example, shared between multiple producers).
+- You already have a `WakeReceiver<D>` created elsewhere (for example, shared between multiple producers).
 - You need to plug a pre-existing channel into the Promise machinery without allocating a new one.
 
 ### `Promise::create_with_channel`
@@ -210,13 +207,13 @@ impl Promise {
     pub fn create_with_channel<D: Send + 'static>(
         ctx: &mut ScopedContext,
         convert: impl FnOnce(&mut ScopedContext, D) -> JSResult + 'static,
-    ) -> Result<(Self, Sender<D>), i32>;
+    ) -> Result<(Self, WakeSender<D>), i32>;
 }
 ```
 
 This helper composes three concerns:
 
-- Use `Sender<D>` to receive a host-level result `D` from any thread or executor.
+- Use `WakeSender<D>` to receive a host-level result `D` from any thread or executor.
 - From the JS runtime thread, convert `D` into a `JSValue` using `convert`.
 - Resolve or reject the Promise inside the normal Promise job queue.
 
@@ -224,7 +221,7 @@ Semantics:
 
 - On the JS side, you just see a normal `Promise`.
 - On the host side:
-  - You get `(promise, tx)` where `tx` is a `Sender<D>` (see channel types note above).
+  - You get `(promise, tx)` where `tx` is a `WakeSender<D>` (see channel types note above).
   - You run your async work anywhere (thread, tokio, async-std).
   - When done, you call `tx.send(data)` with `data: D`.
   - At some later tick, the job will:
@@ -283,7 +280,7 @@ Use `create_with_channel` when:
 
 - Your async work is naturally expressed as a Rust `Future` or blocking code on some runtime.
 - You want a typed channel from host world (`D`) into JS world, and you need to convert `D` into `JSValue` on the JS runtime thread.
-- You do not already have a `Receiver<D>` and are happy for the helper to create the channel for you. If you already own a `Receiver<D>`, prefer `create_with_receiver`.
+- You do not already have a `WakeReceiver<D>` and are happy for the helper to create the channel for you. If you already own a `WakeReceiver<D>`, prefer `create_with_receiver`.
 
 ### `Promise::create_with_result_slot`
 
@@ -304,7 +301,7 @@ impl Promise {
 A thread-safe, single-shot data container used to submit a result from another thread into the Promise system:
 
 ```rust
-pub struct PromiseResultSlot<D> { /* ... */ }
+pub struct PromiseResultSlot<D: Send> { /* ... */ }
 
 impl<D: Send + 'static> PromiseResultSlot<D> {
     pub fn new() -> Self;

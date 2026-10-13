@@ -41,7 +41,7 @@ fn js_add_numbers(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
 Common conversion methods:
 
-- `to_number(ctx)?` — convert to a JS number, then use `.to_i32()` / `.to_f64()` / `.to_u32()` / `.to_i64()` on the returned `IntOrFloat`
+- `to_number(ctx)?` — convert to a JS number, then use `.to_i32()` / `.to_f64()` / `.to_u32()` / `.to_i64_saturating()` on the returned `IntOrFloat`
 - `to_bool()` — convert to boolean
 - `to_string(ctx)` — convert to a JS string (`StringRef`)
 - `to_index(ctx)` — convert to an array index in the range `[0, MAX_SAFE_INTEGER]`
@@ -182,7 +182,9 @@ fn js_greet(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let name = cc.arg(0).to_string(ctx)?;
     let greeting = format!("Hello, {}!", name.content().encode_utf8(false));
 
-    ctx.create_string_from_str(&greeting).map(JSValue::make_string)
+    // dynamic text: pass UTF-8 bytes so it does not grow the atom table
+    ctx.create_string_from_utf8(greeting.into_bytes())
+        .map(JSValue::make_string)
 }
 
 fn js_calculate(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

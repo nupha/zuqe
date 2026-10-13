@@ -119,7 +119,7 @@ Likewise `module_load_func` starts out holding a stub that throws a `ReferenceEr
 
 ```rust
 // Any import at this point throws:
-//   ReferenceError: could not load module './foo.js'
+//   ReferenceError: could not load module 'file:///path/to/foo.js'
 rt.set_module_loader(module_loader);
 ```
 

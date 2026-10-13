@@ -39,7 +39,7 @@ async fn main() -> std::process::ExitCode {
         ExitStatus::Value(v) => {
             // A value produced by the executed script (a module entry, or a
             // script with a meaningful tail value; `Promise.resolve(42)` above
-            // settles to `undefined` at the top level).
+            // settles to `42` at the top level).
             println!("result: {:?}", v);
             std::process::ExitCode::SUCCESS
         }
@@ -74,7 +74,7 @@ Alternatively you can drive the loop at a lower level yourself:
 The tick is the heart-beat of the running loop — both in the async mode (where `RunFuture` repeatedly calls `tick()`) and in the synchronous mode. Each `tick()` runs, in order:
 
 1. **One-shot jobs** (always complete, never retry) — promise reactions, timer callbacks.
-2. **Polling jobs** (one round only) — jobs that may return `Again` to be re-polled on a later tick (e.g. `Promise::create_with_job`, channel- or slot-driven promises).
+2. **Polling jobs** (one round only) — jobs that may return `Block` to be re-polled on a later tick (e.g. `Promise::create_with_job`, channel- or slot-driven promises).
 3. **Customized tick handlers** registered via `ScopedContext::add_tick_handler()`.
 
 The `tick()` function and its `TickStatus` are internal to the runtime — hosts drive the loop through `eval_wait()` / `run_async()`, they never call `tick()` directly.
@@ -163,7 +163,7 @@ The synchronous `eval_wait` works like this:
 
 ### 3.2 A complex synchronous loop example
 
-Looking at `examples/zjs/main.rs` (the `#[cfg(not(feature = "async_support"))]` variant), here's how a complex application sets up its execution loop:
+Based on `examples/zjs/main.rs` (the `#[cfg(not(feature = "async_support"))]` variant) and adjusted to the current public API, here's how a complex application sets up its execution loop:
 
 ```rust
 fn main() -> ExitCode {

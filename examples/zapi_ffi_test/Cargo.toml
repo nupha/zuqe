@@ -8,5 +8,5 @@ description = "Zapi — conformance test extension exercising every FFI / high-l
 crate-type = ["cdylib"]
 
 [dependencies]
-zuqe_zapi = { version = "0.3" }
-zuqe_zapi_macros = { version = "0.3" }
+zuqe_zapi = { version = "0.3.0" }
+zuqe_zapi_macros = { version = "0.3.0" }
