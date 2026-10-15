@@ -729,7 +729,8 @@ fn jit_policy_of(id: &str) -> JitPolicy {
         "close_loc" => Reject,
         // ── control flow; catch regions land in E5 ──
         "if_false" | "if_true" | "goto" => Native,
-        "catch" | "gosub" | "ret" | "nip_catch" => Reject,
+        "catch" | "gosub" | "ret" => Native,
+        "nip_catch" => Helper,
         "to_object" | "to_propkey" => Helper,
         // ── with / refs ──
         "with_get_var" | "with_put_var" | "with_delete_var" | "with_make_ref" | "with_get_ref" => {

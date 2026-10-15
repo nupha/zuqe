@@ -289,6 +289,7 @@ pub(crate) fn invoke_native(
     sp_base: *mut JSValue,
     cur_sp_offset: *mut i32,
     this: JSValue,
+    pc: u32,
 ) -> Option<(JitExitKind, JitExecFrame)> {
     let state = rt.jit.as_deref()?;
     let entry = bc.jit_slot().entry()?;
@@ -305,6 +306,7 @@ pub(crate) fn invoke_native(
         gc_scope_kind: bc.gc_scope_kind() as u32,
         imm: 0,
         imm2: 0,
+        pc,
         bytecode: &**bc,
         out_value: JSValue::UNDEFINED,
         out_pc: 0,

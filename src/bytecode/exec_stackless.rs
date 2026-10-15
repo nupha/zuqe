@@ -396,17 +396,19 @@ impl Bytecode {
             }
         }
 
-        // ── JIT native entry ──
-        // Only at the function entry, with no pending exception. The native
-        // code runs the frame in place; on `Resume`/`Exception` we rewind
-        // `pc`/`sp` to the offsets it reports and fall through to the
-        // interpreter loop (or the exception handler).
+        // ── JIT native entry / re-entry (OSR) ──
+        // With no pending exception, try to run the frame natively. `pc_offset`
+        // is 0 on function entry and an OSR resume point otherwise — the pc
+        // after a call the trampoline performed for us, or a loop header. The
+        // compiled entry dispatches on it (and exits `Retry` for a pc it has no
+        // entry for). On `Resume`/`Retry`/`Exception` we rewind `pc`/`sp` to the
+        // offsets it reports and fall through to the interpreter loop.
         #[cfg(feature = "jit")]
         let mut jit_initial_action: Option<ExecAction> = None;
         #[cfg(feature = "jit")]
         let jit_scope_ptr = realm_scope as *mut ScopedContext as *mut u8;
         #[cfg(feature = "jit")]
-        if !throwed && pc_offset == 0 {
+        if !throwed {
             let cur_sp_offset_ptr: *mut i32 =
                 unsafe { &mut (*arena_ptr).frame_mut(cur_frame_idx).cur_sp_offset };
             if let Some((kind, jf)) = crate::jit::invoke_native(
@@ -418,6 +420,7 @@ impl Bytecode {
                 sp_base,
                 cur_sp_offset_ptr,
                 this_obj,
+                pc_offset as u32,
             ) {
                 match kind {
                     crate::jit::JitExitKind::Done => {

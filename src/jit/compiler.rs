@@ -34,19 +34,20 @@ use super::{
         HELPER_GET_ARRAY_EL, HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3, HELPER_GET_FIELD,
         HELPER_GET_FIELD2, HELPER_GET_VAR, HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE, HELPER_IN,
         HELPER_INC, HELPER_INSTANCEOF, HELPER_LNOT, HELPER_LT, HELPER_LTE, HELPER_MOD, HELPER_MUL,
-        HELPER_NEG, HELPER_NEQ, HELPER_NOT, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC,
-        HELPER_POST_INC, HELPER_POW, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD, HELPER_PUT_VAR,
-        HELPER_PUT_VAR_INIT, HELPER_SAFEPOINT, HELPER_SAR, HELPER_SHL, HELPER_SHR,
+        HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH, HELPER_NOT, HELPER_OR, HELPER_PLUS,
+        HELPER_POST_DEC, HELPER_POST_INC, HELPER_POW, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD,
+        HELPER_PUT_VAR, HELPER_PUT_VAR_INIT, HELPER_SAFEPOINT, HELPER_SAR, HELPER_SHL, HELPER_SHR,
         HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT,
         HELPER_TO_PROPKEY, HELPER_TYPEOF, HELPER_XOR, JitExecFrame,
     },
-    bytecode::{decode::Instruction, verify::VerifiedFunction},
+    bytecode::{cfg::ControlFlowGraph, decode::Instruction, verify::VerifiedFunction},
     error::JitError,
 };
 
 /// Exit codes as written by generated code (keep in sync with `JitExitKind`).
 const EXIT_DONE: i64 = 0;
 const EXIT_RESUME: i64 = 6;
+const EXIT_RETRY: i64 = 7;
 
 const UNDEFINED_BITS: i64 = 3 << 48;
 const BOOL_TAG: i64 = 1 << 48;
@@ -63,6 +64,7 @@ const O_HELPERS: i32 = offset_of!(JitExecFrame, helpers) as i32;
 const O_THIS: i32 = offset_of!(JitExecFrame, this) as i32;
 const O_IMM: i32 = offset_of!(JitExecFrame, imm) as i32;
 const O_IMM2: i32 = offset_of!(JitExecFrame, imm2) as i32;
+const O_PC: i32 = offset_of!(JitExecFrame, pc) as i32;
 const O_OUT_VALUE: i32 = offset_of!(JitExecFrame, out_value) as i32;
 const O_OUT_PC: i32 = offset_of!(JitExecFrame, out_pc) as i32;
 const O_OUT_SP: i32 = offset_of!(JitExecFrame, out_sp) as i32;
@@ -111,6 +113,9 @@ fn supported(name: &str) -> bool {
                 | "add_loc"
                 | "post_inc"
                 | "post_dec"
+                | "catch"
+                | "gosub"
+                | "ret"
         )
 }
 
@@ -148,6 +153,7 @@ fn helper_for(name: &str) -> Option<usize> {
         "in" => HELPER_IN,
         "instanceof" => HELPER_INSTANCEOF,
         "delete" => HELPER_DELETE,
+        "nip_catch" => HELPER_NIP_CATCH,
         _ => return None,
     })
 }
@@ -392,12 +398,12 @@ pub(crate) fn compile(
     sig.params.push(AbiParam::new(types::I64));
     sig.returns.push(AbiParam::new(types::I32));
 
-    let mut ctx = Context::new();
-    ctx.func.signature = sig;
-    ctx.func.name = UserFuncName::user(0, 1);
+    let mut cgen = Context::new();
+    cgen.func.signature = sig;
+    cgen.func.name = UserFuncName::user(0, 1);
 
     let mut fbctx = FunctionBuilderContext::new();
-    let mut b = FunctionBuilder::new(&mut ctx.func, &mut fbctx);
+    let mut b = FunctionBuilder::new(&mut cgen.func, &mut fbctx);
 
     let mut helper_sig = Signature::new(isa.default_call_conv());
     helper_sig.params.push(AbiParam::new(types::I64));
@@ -431,15 +437,16 @@ pub(crate) fn compile(
     b.def_var(sp_var, fv.sp_base);
 
     let strict = verified.snapshot().mode.contains(ExecMode::STRICT);
+    let osr_pcs = collect_osr_pcs(verified);
     lower(
-        &mut b, &fv, sp_var, helper_sig, truthy_sig, verified, strict,
+        &mut b, &fv, sp_var, helper_sig, truthy_sig, verified, strict, &osr_pcs,
     );
 
     b.seal_all_blocks();
     b.finalize();
 
     let mut ctrl = ControlPlane::default();
-    let compiled = ctx
+    let compiled = cgen
         .compile(isa, &mut ctrl)
         .map_err(|e| JitError::Cranelift(format!("{e:?}")))?;
     if !compiled.buffer.relocs().is_empty() {
@@ -447,7 +454,75 @@ pub(crate) fn compile(
         // something we cannot relocate: fail closed.
         return Err(JitError::Cranelift("unexpected relocations".into()));
     }
+
     Ok(compiled.code_buffer().into())
+}
+
+/// Pc values the compiled entry can be started at. 0 is the function entry;
+/// loop headers (hot-loop OSR) and the pc right after each call are the OSR
+/// entry points. After a call, the trampoline re-enters this frame at the
+/// post-call pc, so the function keeps running natively instead of staying in
+/// the interpreter.
+fn collect_osr_pcs(verified: &VerifiedFunction) -> Vec<u32> {
+    let mut pcs: Vec<u32> = verified
+        .osr_points()
+        .iter()
+        .map(|point| point.pc())
+        .collect();
+    for instruction in verified.instructions() {
+        if matches!(
+            instruction.name(),
+            "call" | "call_method" | "call_constructor"
+        ) {
+            pcs.push(instruction.pc() + instruction.size() as u32);
+        }
+    }
+    pcs.sort_unstable();
+    pcs.dedup();
+    pcs
+}
+
+/// Entry dispatch. `frame.pc == 0` runs the function entry; an OSR pc starts at
+/// its block with `sp` taken from the frame's current stack top; an unknown pc
+/// exits `Retry` so the interpreter runs from there.
+fn emit_osr_prologue(
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    sp_var: Variable,
+    state: &mut State,
+    entry_block: Block,
+    osr_pcs: &[u32],
+) {
+    let pc = b.ins().load(types::I32, MemFlags::new(), fv.frame, O_PC);
+    let is_entry = b.ins().icmp_imm(IntCC::Equal, pc, 0);
+    let dispatch = b.create_block();
+    b.ins().brif(is_entry, entry_block, &[], dispatch, &[]);
+    b.switch_to_block(dispatch);
+
+    for &pc_val in osr_pcs {
+        let target = state.block_for(b, pc_val);
+        let osr_block = b.create_block();
+        let next = b.create_block();
+        let matches = b.ins().icmp_imm(IntCC::Equal, pc, i64::from(pc_val));
+        b.ins().brif(matches, osr_block, &[], next, &[]);
+        // An OSR pc resumes with the frame's current operand-stack top
+        // (`fv.cur_sp` points at `StackFrame.cur_sp_offset`).
+        b.switch_to_block(osr_block);
+        let slots = b.ins().load(types::I32, MemFlags::new(), fv.cur_sp, 0);
+        let slots64 = b.ins().uextend(types::I64, slots);
+        let byte_off = b.ins().ishl_imm(slots64, 3);
+        let sp_osr = b.ins().iadd(fv.sp_base, byte_off);
+        b.def_var(sp_var, sp_osr);
+        b.ins().jump(target, &[]);
+        b.switch_to_block(next);
+    }
+
+    // Unknown pc: report it (with the current sp) and let the interpreter run.
+    let slots = b.ins().load(types::I32, MemFlags::new(), fv.cur_sp, 0);
+    b.ins().store(MemFlags::new(), pc, fv.frame, O_OUT_PC);
+    b.ins().store(MemFlags::new(), slots, fv.frame, O_OUT_SP);
+    let retry = b.ins().iconst(types::I32, EXIT_RETRY);
+    b.ins().return_(&[retry]);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -459,6 +534,7 @@ fn lower(
     truthy_sig: cranelift_codegen::ir::SigRef,
     verified: &VerifiedFunction,
     strict: bool,
+    osr_pcs: &[u32],
 ) {
     let instructions = verified.instructions();
     let cfg = verified.control_flow_graph();
@@ -467,10 +543,18 @@ fn lower(
         pending: Vec::new(),
     };
     let entry_block = state.block_for(b, 0);
-    b.ins().jump(entry_block, &[]);
+    if osr_pcs.is_empty() {
+        b.ins().jump(entry_block, &[]);
+    } else {
+        emit_osr_prologue(b, fv, sp_var, &mut state, entry_block, osr_pcs);
+    }
 
     while let Some(start_pc) = state.pending.pop() {
-        let Some(block) = cfg.block(start_pc) else {
+        // A block either starts at a CFG boundary, or — for an OSR resume point
+        // after a call — in the middle of a CFG block. In the latter case lower
+        // from `start_pc` to the end of the containing block, keeping the same
+        // tail for the fallthrough.
+        let Some((range, tail_index, successors)) = block_range(instructions, cfg, start_pc) else {
             continue;
         };
         let cranelift_block = state.blocks[&start_pc];
@@ -478,9 +562,9 @@ fn lower(
         let mut sp = b.use_var(sp_var);
         let mut stopped = false;
 
-        for insn in &instructions[block.instruction_range()] {
+        for insn in &instructions[range] {
             match lower_insn(
-                b, fv, sp_var, helper_sig, truthy_sig, strict, &mut state, insn, sp,
+                b, fv, sp_var, helper_sig, truthy_sig, strict, &mut state, insn, sp, successors,
             ) {
                 Step::Continue(new_sp) => sp = new_sp,
                 Step::Stop => {
@@ -492,13 +576,36 @@ fn lower(
 
         if !stopped {
             // Only reached for blocks ending in a non-branch instruction.
-            let tail = &instructions[block.instruction_range().end - 1];
+            let tail = &instructions[tail_index];
             let next = tail.pc() + tail.size() as u32;
             let next_block = state.block_for(b, next);
             b.def_var(sp_var, sp);
             b.ins().jump(next_block, &[]);
         }
     }
+}
+
+/// Instruction range a block starting at `start_pc` must lower, the index of
+/// that range's tail (for the fallthrough), and the containing CFG block's
+/// successors (for the dynamic `ret`). Handles both CFG boundaries and OSR
+/// resume points that sit inside a CFG block.
+fn block_range<'a>(
+    instructions: &[Instruction],
+    cfg: &'a ControlFlowGraph,
+    start_pc: u32,
+) -> Option<(std::ops::Range<usize>, usize, &'a [u32])> {
+    if let Some(block) = cfg.block(start_pc) {
+        let range = block.instruction_range();
+        let tail = range.end - 1;
+        return Some((range, tail, block.successors()));
+    }
+    let block = cfg
+        .blocks()
+        .iter()
+        .find(|block| block.start_pc() <= start_pc && start_pc < block.end_pc())?;
+    let range = block.instruction_range();
+    let first = (range.start..range.end).find(|&index| instructions[index].pc() == start_pc)?;
+    Some((first..range.end, range.end - 1, block.successors()))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -512,6 +619,7 @@ fn lower_insn(
     state: &mut State,
     insn: &Instruction,
     sp: Value,
+    ret_targets: &[u32],
 ) -> Step {
     let name = insn.name();
     let pc = insn.pc();
@@ -700,6 +808,45 @@ fn lower_insn(
                 b.switch_to_block(cont);
             }
             b.ins().jump(dest, &[]);
+            Step::Stop
+        }
+        // `catch` pushes the handler sentinel; the interpreter's catch scan
+        // reads it after a native exception exit.
+        "catch" => {
+            let handler = insn.branch_target().expect("catch target") as u32;
+            let sentinel = (5i64 << 48) | i64::from(handler);
+            let v = b.ins().iconst(types::I64, sentinel);
+            Step::Continue(push(b, sp, v))
+        }
+        // `gosub` pushes the return address and jumps to the `finally` body.
+        "gosub" => {
+            let target = insn.branch_target().expect("gosub target") as u32;
+            let ret = b.ins().iconst(types::I64, i64::from(pc + size));
+            let sp = push(b, sp, ret);
+            let dest = state.block_for(b, target);
+            b.def_var(sp_var, sp);
+            b.ins().jump(dest, &[]);
+            Step::Stop
+        }
+        // `ret` returns from a `finally` body to the `gosub` site. The return
+        // address is dynamic; the CFG knows the possible return points, so hop
+        // through a small dispatch (an unmatched address resumes to the
+        // interpreter, which validates and reports it).
+        "ret" => {
+            let (sp, target) = pop(b, sp);
+            let t = b.ins().ireduce(types::I32, target);
+            for &return_pc in ret_targets {
+                let dest = state.block_for(b, return_pc);
+                let hit = b.create_block();
+                let miss = b.create_block();
+                let matches = b.ins().icmp_imm(IntCC::Equal, t, i64::from(return_pc));
+                b.ins().brif(matches, hit, &[], miss, &[]);
+                b.switch_to_block(hit);
+                b.def_var(sp_var, sp);
+                b.ins().jump(dest, &[]);
+                b.switch_to_block(miss);
+            }
+            exit(b, fv, EXIT_RESUME, pc, sp);
             Step::Stop
         }
         "if_true" | "if_false" => {
@@ -1329,6 +1476,21 @@ mod tests {
             0,
             1,
         ));
+
+        // Epic E5: exception regions. `catch` pushes the handler sentinel;
+        // `gosub`/`ret` are the `finally` subroutine.
+        let gosub_ret = seq(&[
+            &branch(op::OP_gosub, 5),
+            &[op::OP_return_undef],
+            &[op::OP_ret],
+        ]);
+        cases.push(("gosub_ret", gosub_ret, 0, 0));
+        let catch_body = seq(&[
+            &branch(op::OP_catch, 5),
+            &[op::OP_return_undef],
+            &[op::OP_return_undef],
+        ]);
+        cases.push(("catch", catch_body, 0, 0));
 
         for (name, bytes, args, vars) in cases {
             compile_bytes(bytes, args, vars)

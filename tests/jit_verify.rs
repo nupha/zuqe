@@ -315,6 +315,49 @@ fn misc_operators_match_interpreter() {
     }
 }
 
+/// Epic E4: a call exits to the trampoline, which runs the callee and then
+/// re-enters the caller's native code at the post-call pc. Mutual recursion
+/// stresses that re-entry (every return lands back in native code).
+#[test]
+fn calls_reenter_native() {
+    let define = b"\
+        function isEven(n){ if (n === 0) return true; return isOdd(n - 1); } \
+        function isOdd(n){ if (n === 0) return false; return isEven(n - 1); } \
+        isEven(1);";
+    let mut total = 0u64;
+    for arg in [20u32, 73, 200] {
+        let metrics = native_vs_interpreter(define, &format!("isEven({arg}) ? 1 : 0"));
+        total += metrics.native_entries;
+    }
+    assert!(total > 0, "no native entries");
+}
+
+/// A call re-enters the caller's native code; the caller must still see its own
+/// `this` afterwards (the callee may have had a different one).
+#[test]
+fn this_after_call_matches_interpreter() {
+    let define = b"\
+        var O5 = { p: 7, h: function(){ var a = (function(){ return 0; })(); return this.p + a; } }; \
+        O5.h();";
+    native_vs_interpreter(define, "O5.h()");
+}
+
+/// Epic E5: functions with `try`/`catch`/`finally` now compile (the `catch`
+/// sentinel is pushed natively; a native exception exits and the interpreter's
+/// catch scan runs; `finally` uses gosub/ret).
+#[test]
+fn exceptions_match_interpreter() {
+    let define = b"\
+        function tc(n){ var s = 0; for (var i = 0; i < n; i++){ try { if (i % 3 === 0) throw i; s = s + i; } catch (e) { s = s + 1; } } return s; } \
+        function tc2(n){ var s = 0; for (var i = 0; i < n; i++){ try { var o = null; s = s + o.x; } catch (e) { s = s + 1; } } return s; } \
+        function fin(n){ var s = 0; try { for (var i = 0; i < n; i++){ try { s = s + i; if (i === 5) throw 1; } finally { s = s + 100; } } } catch (e) { s = s + 10000; } return s; } \
+        function nested(n){ var s = 0; for (var i = 0; i < n; i++){ try { try { if (i === 2) throw 1; s = s + 1; } finally { s = s + 10; } } catch (e) { s = s + 1000; } } return s; } \
+        tc(1); tc2(1); fin(1); nested(1);";
+    for kernel in ["tc", "tc2", "fin", "nested"] {
+        native_vs_interpreter(define, &format!("{kernel}(20)"));
+    }
+}
+
 #[test]
 fn native_loop_handles_gc_and_interrupt_safepoints() {
     // A long allocation loop: the back-edge safepoint must run collections

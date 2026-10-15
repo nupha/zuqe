@@ -14,5 +14,7 @@ mod coordinator;
 mod hotness;
 mod install;
 
-pub(crate) use coordinator::{CompileOutcome, Coordinator, Request};
-pub(crate) use install::publish;
+pub(crate) use {
+    coordinator::{CompileOutcome, Coordinator, Request},
+    install::publish,
+};

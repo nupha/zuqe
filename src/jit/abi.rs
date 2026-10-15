@@ -86,6 +86,10 @@ pub(crate) struct JitExecFrame {
     pub imm: u32,
     /// Second immediate (inline-cache index for `get_field`/`put_field`).
     pub imm2: u32,
+    /// Entry pc: 0 is the function entry; any other value is an OSR resume
+    /// point (a loop header for a hot loop, or the pc after a call the
+    /// trampoline performed on our behalf).
+    pub pc: u32,
     /// The running function's bytecode, for helpers that need more than a
     /// scalar (global-variable names; the inline cache). Valid for the whole
     /// call: the frame's `func_obj` keeps it reachable.
@@ -122,8 +126,7 @@ impl FunctionSlot {
     /// The installed entry, or `None` while the function is interpreted.
     #[inline]
     pub(crate) fn entry(&self) -> Option<NativeEntry> {
-        use std::sync::atomic::Ordering;
-        let raw = self.entry.load(Ordering::Acquire);
+        let raw = self.entry.load(std::sync::atomic::Ordering::Acquire);
         if raw.is_null() {
             None
         } else {
@@ -876,6 +879,29 @@ unsafe extern "C" fn h_put_field(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// `nip_catch`: `[catch_offset, …, value, ^] -> […, value, ^]`; unwinds the
+/// operand stack down to the innermost `CatchOffset` and writes `value` there.
+unsafe extern "C" fn h_nip_catch(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let sp_base = f.sp_base;
+        let mut sp = f.sp.offset(-1);
+        let value = *sp;
+        while sp > sp_base && !(*sp.offset(-1)).is_catch_offset() {
+            sp = sp.offset(-1);
+        }
+        if sp == sp_base {
+            let _ = scope.throw_internal_error("nip_catch");
+            HELPER_EXCEPTION
+        } else {
+            *sp.offset(-1) = value;
+            f.sp = sp;
+            HELPER_OK
+        }
+    }
+}
+
 /// Loop back edge: deliver interrupts and run a deferred collection. Mirrors
 /// the interpreter's per-opcode safepoint.
 unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
@@ -898,7 +924,7 @@ unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
 }
 
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 51;
+pub(crate) const HELPER_COUNT: usize = 52;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -975,6 +1001,8 @@ pub(crate) const HELPER_ADD_LOC: usize = 48;
 pub(crate) const HELPER_POST_INC: usize = 49;
 /// Index of [`h_post_dec`].
 pub(crate) const HELPER_POST_DEC: usize = 50;
+/// Index of [`h_nip_catch`].
+pub(crate) const HELPER_NIP_CATCH: usize = 51;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -1034,4 +1062,5 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_add_loc as *const (),
     h_post_inc as *const (),
     h_post_dec as *const (),
+    h_nip_catch as *const (),
 ]);
