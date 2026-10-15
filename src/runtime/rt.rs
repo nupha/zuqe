@@ -258,6 +258,11 @@ pub struct RuntimeImpl {
     /// message. Not stored in release (the downcast still guards it).
     #[cfg(debug_assertions)]
     pub(crate) user_state_type: std::any::TypeId,
+
+    /// Attached JIT, if any (feature `jit`). Not traced by GC: it holds no
+    /// `JSValue`s — the interpreter remains the only owner of frame state.
+    #[cfg(feature = "jit")]
+    pub(crate) jit: Option<Box<crate::jit::JitState>>,
 }
 
 impl Drop for RuntimeImpl {
@@ -450,6 +455,8 @@ impl RuntimeImpl {
             user_state,
             #[cfg(debug_assertions)]
             user_state_type,
+            #[cfg(feature = "jit")]
+            jit: None,
         };
 
         rt.refresh_thread_stack_top();
@@ -463,6 +470,13 @@ impl RuntimeImpl {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
+    }
+
+    /// The attached JIT state, if a JIT is attached (feature `jit`).
+    #[cfg(feature = "jit")]
+    #[inline(always)]
+    pub(crate) fn jit(&self) -> Option<&crate::jit::JitState> {
+        self.jit.as_deref()
     }
 
     /// Borrow the host state attached at creation.

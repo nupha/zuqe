@@ -9,7 +9,7 @@ mod build_tokens;
 use std::{env, path::PathBuf};
 
 use build_atoms::gen_atoms;
-use build_opcodes::gen_opcodes;
+use build_opcodes::{gen_jit_policy, gen_opcodes};
 use build_stdclass::{gen_object_casts, gen_payload_accessors, gen_std_class_defs};
 use build_tokens::gen_tokens;
 
@@ -24,6 +24,7 @@ fn main() {
 
     gen_atoms(&out_path.join("atoms.rs"));
     gen_opcodes(&out_path.join("opcodes.rs"));
+    gen_jit_policy(&out_path.join("jit-opcode-policy.rs"));
     gen_tokens(&out_path.join("tokens.rs"));
     gen_std_class_defs(&out_path.join("std_class_def.rs"));
     gen_payload_accessors(&out_path.join("payload_accessors.rs"));

@@ -621,6 +621,11 @@ pub struct Opcode {
     )
     .unwrap();
 
+    run_rustfmt(outfile);
+}
+
+/// Run `rustfmt` over a generated file; abort the build on failure.
+fn run_rustfmt(outfile: &Path) {
     let output = std::process::Command::new("rustfmt")
         .arg("--")
         .arg(outfile)
@@ -633,4 +638,187 @@ pub struct Opcode {
         );
         std::process::exit(1);
     }
+}
+
+/// JIT strategy for a single opcode (see `src/jit/policy.rs`).
+#[derive(Debug, Clone, Copy)]
+enum JitPolicy {
+    /// Inline the opcode as native machine code.
+    Native,
+    /// Call back into the interpreter's Rust semantics.
+    Helper,
+    /// Never compile a function containing this opcode (fail-closed).
+    Reject,
+}
+
+/// The single authority for opcode → JIT strategy. Every opcode in `OP_CODES`
+/// (common *and* temp) must appear here; an unclassified opcode aborts the build,
+/// so adding an opcode without a policy cannot compile.
+fn jit_policy_of(id: &str) -> JitPolicy {
+    use JitPolicy::{Helper, Native, Reject};
+    match id {
+        // ── pushes / constants ──
+        "invalid" => Reject,
+        "push_i32" | "push_const" | "undefined" | "null" | "push_this" | "push_false"
+        | "push_true" => Native,
+        "fclosure" | "push_atom_value" | "private_symbol" => Helper,
+        "object" | "special_object" | "rest" => Helper,
+        // ── stack shuffle ──
+        "drop" | "nip" | "nip1" | "dup" | "dup1" | "dup2" | "dup3" | "insert2" | "insert3"
+        | "insert4" | "perm3" | "perm4" | "perm5" | "swap" | "swap2" | "rot3l" | "rot3r"
+        | "rot4l" | "rot5l" => Native,
+        // ── calls: v1 exits to the interpreter at the call site ──
+        "call" | "call_method" | "call_constructor" => Helper,
+        // TCO needs frame recycling the baseline tier cannot do yet (E4): bail out.
+        "tail_call" | "tail_call_method" => Reject,
+        "array_from" | "apply" => Helper,
+        // ── return / constructor / brand ──
+        "return" | "return_undef" => Native,
+        "check_ctor_return" | "check_ctor" | "init_ctor" | "check_brand" | "add_brand"
+        | "return_async" => Reject,
+        "throw" | "throw_error" => Helper,
+        // ── unsupported interpreters ──
+        "eval" | "tail_eval" | "apply_eval" | "import" => Reject,
+        "regexp" => Helper,
+        "get_super" => Reject,
+        // ── variables ──
+        "get_var_undef" | "get_var" | "put_var" | "put_var_init" | "get_ref_value"
+        | "put_ref_value" => Helper,
+        // ── properties ──
+        "get_field" | "get_field2" | "put_field" => Helper,
+        "get_array_el" | "get_array_el2" | "get_array_el3" | "put_array_el" => Helper,
+        "get_private_field"
+        | "put_private_field"
+        | "define_private_field"
+        | "get_super_value"
+        | "put_super_value"
+        | "private_in" => Reject,
+        // class / object-literal machinery (v1)
+        "define_field"
+        | "set_name"
+        | "set_name_computed"
+        | "set_proto"
+        | "set_home_object"
+        | "define_array_el"
+        | "append"
+        | "copy_data_properties"
+        | "define_method"
+        | "define_method_computed"
+        | "define_class"
+        | "define_class_computed"
+        | "set_class_name" => Reject,
+        // ── locals / args / var refs ──
+        "get_loc"
+        | "put_loc"
+        | "set_loc"
+        | "get_arg"
+        | "put_arg"
+        | "set_arg"
+        | "get_var_ref"
+        | "put_var_ref"
+        | "set_var_ref"
+        | "set_loc_uninitialized"
+        | "get_loc_check"
+        | "put_loc_check"
+        | "put_loc_check_init"
+        | "set_loc_check"
+        | "get_loc_checkthis"
+        | "get_var_ref_check"
+        | "put_var_ref_check"
+        | "put_var_ref_check_init" => Native,
+        "close_loc" => Reject,
+        // ── control flow; catch regions land in E5 ──
+        "if_false" | "if_true" | "goto" => Native,
+        "catch" | "gosub" | "ret" | "nip_catch" => Reject,
+        "to_object" | "to_propkey" => Helper,
+        // ── with / refs ──
+        "with_get_var" | "with_put_var" | "with_delete_var" | "with_make_ref" | "with_get_ref" => {
+            Reject
+        }
+        "make_loc_ref" | "make_arg_ref" | "make_var_ref_ref" | "make_var_ref" => Helper,
+        // ── iterators / generators / async ──
+        "for_in_start"
+        | "for_of_start"
+        | "for_await_of_start"
+        | "for_in_next"
+        | "for_of_next"
+        | "for_await_of_next"
+        | "iterator_check_object"
+        | "iterator_get_value_done"
+        | "iterator_close"
+        | "iterator_next"
+        | "iterator_call"
+        | "initial_yield"
+        | "yield"
+        | "yield_star"
+        | "async_yield_star"
+        | "await" => Reject,
+        // ── unary / arithmetic / comparison / bitwise ──
+        "neg" | "plus" | "dec" | "inc" | "post_dec" | "post_inc" | "dec_loc" | "inc_loc"
+        | "add_loc" | "not" | "typeof" | "delete" | "delete_var" | "mul" | "div" | "mod"
+        | "add" | "sub" | "pow" | "lt" | "lte" | "gt" | "gte" | "instanceof" | "in" | "eq"
+        | "neq" => Helper,
+        "shl"
+        | "sar"
+        | "shr"
+        | "strict_eq"
+        | "strict_neq"
+        | "and"
+        | "xor"
+        | "or"
+        | "is_undefined_or_null" => Native,
+        "lnot" => Native,
+        "push_bigint_i32" => Helper,
+        "nop" => Native,
+        // ── temp opcodes (must not appear in final bytecode) ──
+        "enter_scope"
+        | "leave_scope"
+        | "label"
+        | "scope_get_var_undef"
+        | "scope_get_var"
+        | "scope_put_var"
+        | "scope_delete_var"
+        | "scope_make_ref"
+        | "scope_get_ref"
+        | "scope_put_var_init"
+        | "scope_get_var_checkthis"
+        | "scope_get_private_field"
+        | "scope_get_private_field2"
+        | "scope_put_private_field"
+        | "scope_in_private_field" => Reject,
+        "get_field_opt_chain" | "get_array_el_opt_chain" => Helper,
+        "line_num" => Native,
+        other => panic!("jit policy: opcode `{other}` is not classified"),
+    }
+}
+
+/// Generate `OUT_DIR/jit-opcode-policy.rs`: `opcode → JitPolicy`, indexed by the
+/// final (common) opcode id, in the same order as `JS_COMMON_OPCODES_INFO`.
+pub fn gen_jit_policy(outfile: &Path) {
+    // Force every opcode — including temp ones that never reach the final
+    // table — to be classified; an unknown id panics here, failing the build.
+    for op in OP_CODES.iter() {
+        let _ = jit_policy_of(op.id);
+    }
+
+    let common: Vec<&OpcodeDef> = OP_CODES
+        .iter()
+        .filter(|o| o.kind == OpcodeKind::Common)
+        .collect();
+
+    let mut out = String::new();
+    out.push_str("// @generated by build_opcodes.rs — do not edit.\n");
+    out.push_str("/// opcode -> JIT strategy, indexed by the final opcode id.\n");
+    out.push_str("#[allow(dead_code)]\n");
+    out.push_str(&format!(
+        "pub(crate) const JS_JIT_OPCODE_POLICY: [JitPolicy; {}] = [\n",
+        common.len()
+    ));
+    for op in &common {
+        out.push_str(&format!("    JitPolicy::{:?},\n", jit_policy_of(op.id)));
+    }
+    out.push_str("];\n");
+
+    std::fs::write(outfile, out).unwrap();
+    run_rustfmt(outfile);
 }

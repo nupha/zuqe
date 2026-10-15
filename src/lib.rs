@@ -19,6 +19,8 @@ mod error;
 mod eval;
 mod function;
 mod gc;
+#[cfg(feature = "jit")]
+pub mod jit;
 mod microtask;
 mod module;
 mod number;
@@ -53,6 +55,9 @@ pub use {
     runtime::{DeadlineWaker, Runtime, RuntimeImpl, RuntimeUserState, WakeHandle},
     value::JSValue,
 };
+
+#[cfg(feature = "jit")]
+pub use jit::{Jit, JitConfig, JitConfigBuilder, JitError, JitMetrics, JitTierPolicy};
 
 #[cfg(not(feature = "async_support"))]
 pub use runtime::park_all;

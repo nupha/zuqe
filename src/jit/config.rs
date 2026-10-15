@@ -1,0 +1,196 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
+//! JIT configuration and its builder.
+
+use super::metrics::JitMetrics;
+
+/// Sink for human-readable diagnostics.
+pub(crate) type DiagnosticSink = Box<dyn Fn(&str)>;
+/// Sink called with a metrics snapshot after each poll.
+pub(crate) type MetricsSink = Box<dyn Fn(&JitMetrics)>;
+
+const DEFAULT_CALL_THRESHOLD: u32 = 32;
+const DEFAULT_LOOP_THRESHOLD: u32 = 56;
+const DEFAULT_MAX_CODE_BYTES: usize = 16 * 1024 * 1024;
+const DEFAULT_MAX_METADATA_BYTES: usize = 16 * 1024 * 1024;
+const DEFAULT_MAX_QUEUE_LEN: usize = 256;
+const DEFAULT_WORKERS: usize = 1;
+const DEFAULT_COMPILE_TIMEOUT_MS: u64 = 30_000;
+const DEFAULT_MAX_COMPILE_ATTEMPTS: u32 = 4;
+
+/// Which tier the JIT is allowed to reach.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum JitTierPolicy {
+    /// JIT disabled: hooks count nothing, nothing is compiled.
+    Interpreter,
+    /// Baseline translation only.
+    Tier1,
+    /// Optimizing tier only (not yet implemented).
+    Tier2,
+    /// Pick the tier automatically from the hotness feedback.
+    #[default]
+    Automatic,
+}
+
+/// Host-tunable JIT settings. Build one with [`JitConfig::builder`], or take
+/// [`JitConfig::default`] as-is.
+pub struct JitConfig {
+    pub(crate) call_threshold: u32,
+    pub(crate) loop_threshold: u32,
+    pub(crate) tier_policy: JitTierPolicy,
+    pub(crate) max_code_bytes: usize,
+    pub(crate) max_metadata_bytes: usize,
+    pub(crate) max_queue_len: usize,
+    pub(crate) workers: usize,
+    pub(crate) compile_timeout_ms: u64,
+    pub(crate) max_compile_attempts: u32,
+    /// Sink for human-readable diagnostics.
+    pub(crate) diagnostic_callback: Option<DiagnosticSink>,
+    /// Called with a snapshot after each `Jit::poll`.
+    pub(crate) metrics_observer: Option<MetricsSink>,
+}
+
+impl std::fmt::Debug for JitConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JitConfig")
+            .field("call_threshold", &self.call_threshold)
+            .field("loop_threshold", &self.loop_threshold)
+            .field("tier_policy", &self.tier_policy)
+            .field("max_code_bytes", &self.max_code_bytes)
+            .field("max_metadata_bytes", &self.max_metadata_bytes)
+            .field("max_queue_len", &self.max_queue_len)
+            .field("workers", &self.workers)
+            .field("compile_timeout_ms", &self.compile_timeout_ms)
+            .field("max_compile_attempts", &self.max_compile_attempts)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for JitConfig {
+    fn default() -> Self {
+        Self {
+            call_threshold: DEFAULT_CALL_THRESHOLD,
+            loop_threshold: DEFAULT_LOOP_THRESHOLD,
+            tier_policy: JitTierPolicy::default(),
+            max_code_bytes: DEFAULT_MAX_CODE_BYTES,
+            max_metadata_bytes: DEFAULT_MAX_METADATA_BYTES,
+            max_queue_len: DEFAULT_MAX_QUEUE_LEN,
+            workers: DEFAULT_WORKERS,
+            compile_timeout_ms: DEFAULT_COMPILE_TIMEOUT_MS,
+            max_compile_attempts: DEFAULT_MAX_COMPILE_ATTEMPTS,
+            diagnostic_callback: None,
+            metrics_observer: None,
+        }
+    }
+}
+
+impl JitConfig {
+    pub fn builder() -> JitConfigBuilder {
+        JitConfigBuilder(Self::default())
+    }
+
+    pub const fn call_threshold(&self) -> u32 {
+        self.call_threshold
+    }
+
+    pub const fn loop_threshold(&self) -> u32 {
+        self.loop_threshold
+    }
+
+    pub const fn tier_policy(&self) -> JitTierPolicy {
+        self.tier_policy
+    }
+
+    pub const fn max_code_bytes(&self) -> usize {
+        self.max_code_bytes
+    }
+
+    pub const fn max_metadata_bytes(&self) -> usize {
+        self.max_metadata_bytes
+    }
+
+    pub const fn max_queue_len(&self) -> usize {
+        self.max_queue_len
+    }
+
+    pub const fn workers(&self) -> usize {
+        self.workers
+    }
+
+    pub const fn compile_timeout_ms(&self) -> u64 {
+        self.compile_timeout_ms
+    }
+
+    pub const fn max_compile_attempts(&self) -> u32 {
+        self.max_compile_attempts
+    }
+}
+
+/// Builder for [`JitConfig`]. Counts are clamped to `>= 1` so an accidental
+/// `0` cannot make a function compile on every single call.
+#[derive(Default)]
+pub struct JitConfigBuilder(JitConfig);
+
+impl JitConfigBuilder {
+    pub fn call_threshold(mut self, n: u32) -> Self {
+        self.0.call_threshold = n.max(1);
+        self
+    }
+
+    pub fn loop_threshold(mut self, n: u32) -> Self {
+        self.0.loop_threshold = n.max(1);
+        self
+    }
+
+    pub const fn tier_policy(mut self, p: JitTierPolicy) -> Self {
+        self.0.tier_policy = p;
+        self
+    }
+
+    pub const fn max_code_bytes(mut self, n: usize) -> Self {
+        self.0.max_code_bytes = n;
+        self
+    }
+
+    pub const fn max_metadata_bytes(mut self, n: usize) -> Self {
+        self.0.max_metadata_bytes = n;
+        self
+    }
+
+    pub fn max_queue_len(mut self, n: usize) -> Self {
+        self.0.max_queue_len = n.max(1);
+        self
+    }
+
+    pub fn workers(mut self, n: usize) -> Self {
+        self.0.workers = n.max(1);
+        self
+    }
+
+    pub fn compile_timeout_ms(mut self, n: u64) -> Self {
+        self.0.compile_timeout_ms = n.max(1);
+        self
+    }
+
+    pub const fn max_compile_attempts(mut self, n: u32) -> Self {
+        self.0.max_compile_attempts = n;
+        self
+    }
+
+    /// Install a sink for human-readable diagnostics.
+    pub fn diagnostic_callback(mut self, f: impl Fn(&str) + 'static) -> Self {
+        self.0.diagnostic_callback = Some(Box::new(f));
+        self
+    }
+
+    /// Install an observer called with a metrics snapshot after each poll.
+    pub fn metrics_observer(mut self, f: impl Fn(&JitMetrics) + 'static) -> Self {
+        self.0.metrics_observer = Some(Box::new(f));
+        self
+    }
+
+    pub fn build(self) -> JitConfig {
+        self.0
+    }
+}

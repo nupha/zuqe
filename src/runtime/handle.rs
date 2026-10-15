@@ -171,6 +171,23 @@ impl Runtime {
         Rc::ptr_eq(&a.0, &b.0)
     }
 
+    /// Install a JIT state, failing if one is already attached. Host-facing
+    /// entry point is `Jit::attach`. Takes `&self` because the runtime uses
+    /// interior mutability; the host must be single-threaded (it is — the
+    /// runtime is `!Send`).
+    #[cfg(feature = "jit")]
+    pub(crate) fn jit_install(
+        &self,
+        state: Box<crate::jit::JitState>,
+    ) -> Result<(), crate::jit::JitError> {
+        let inner = unsafe { &mut *self.0.get() };
+        if inner.jit.is_some() {
+            return Err(crate::jit::JitError::AlreadyAttached);
+        }
+        inner.jit = Some(state);
+        Ok(())
+    }
+
     #[cfg(debug_assertions)]
     pub const fn install_panic_handler(&self) {}
 

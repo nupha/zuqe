@@ -551,6 +551,14 @@ impl Bytecode {
         };
     }
 
+        // ── JIT hooks ──
+        // `function_id` identifies this bytecode; the GC never moves nodes, so
+        // it is stable for the runtime's lifetime.
+        #[cfg(feature = "jit")]
+        let jit_function_id = self.gc_node_ptr().as_ptr() as u64;
+        #[cfg(feature = "jit")]
+        crate::jit::note_enter(&rt, jit_function_id);
+
         // ── Opcode dispatch loop ──
         // The outer 'arena_loop handles exception catch re-entry.
         // CallBytecode / TailCall / Return return ExecAction to the trampoline.
@@ -2282,6 +2290,14 @@ impl Bytecode {
                         let n = unsafe { read_from_ptr::<i32>(pc) }; // could be minus
                         PC_GO!(n);
 
+                        // Negative offset = loop back edge.
+                        #[cfg(feature = "jit")]
+                        if n < 0 {
+                            crate::jit::note_backedge(&rt, jit_function_id, unsafe {
+                                pc.offset_from(pc_base) as usize
+                            });
+                        }
+
                         if unlikely(realm_scope.poll_interrupts()) {
                             break ExecAction::Exception;
                         }
@@ -2305,10 +2321,18 @@ impl Bytecode {
                         };
 
                         if b == test {
+                            let off = unsafe { read_from_ptr::<i32>(pc.offset(-4)) };
+
+                            // Taken backward branch = loop back edge.
+                            #[cfg(feature = "jit")]
+                            if off < 0 {
+                                crate::jit::note_backedge(&rt, jit_function_id, unsafe {
+                                    pc.offset_from(pc_base) as usize
+                                });
+                            }
+
                             // jump pc
-                            pc = unsafe {
-                                pc.offset((read_from_ptr::<i32>(pc.offset(-4)) - 4) as isize)
-                            };
+                            pc = unsafe { pc.offset((off - 4) as isize) };
                         }
 
                         if unlikely(realm_scope.poll_interrupts()) {
