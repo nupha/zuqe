@@ -14,7 +14,10 @@ use crate::{
     bytecode::{
         OpCode,
         arithmatic::{UnaryOp, op_binary_logic},
+        operators::{js_operator_delete, js_operator_in, js_operator_instanceof},
     },
+    context::GlobalVarSetMode,
+    object::{JSProperty, ThrowPolicy},
 };
 
 /// Status returned by every helper. Non-zero exits the native frame.
@@ -78,8 +81,15 @@ pub(crate) struct JitExecFrame {
     pub this: JSValue,
     /// `GcScopeKind` as a `u32` (0 = Full, 2 = None).
     pub gc_scope_kind: u32,
-    /// Immediate for the few helpers that need one (`push_atom_value`).
+    /// Immediate for the few helpers that need one (`push_atom_value`, global
+    /// variable index, property atom).
     pub imm: u32,
+    /// Second immediate (inline-cache index for `get_field`/`put_field`).
+    pub imm2: u32,
+    /// The running function's bytecode, for helpers that need more than a
+    /// scalar (global-variable names; the inline cache). Valid for the whole
+    /// call: the frame's `func_obj` keeps it reachable.
+    pub bytecode: *const crate::function::BytecodeImpl,
     /// Return value for `Done`.
     pub out_value: JSValue,
     /// Byte offset into the opcode stream for `Resume`/`Exception`.
@@ -435,6 +445,437 @@ unsafe extern "C" fn h_dec_local(f: *mut JitExecFrame) -> u32 {
     unsafe { local_unary(f, false) }
 }
 
+// `pow`: the interpreter's `arith_pow` (Int fast paths, float, BigInt).
+binary_wrapper!(h_pow, JSValue::arith_pow);
+
+/// `to_object`: objectify a primitive, no-op for an object.
+unsafe extern "C" fn h_to_object(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let value = *f.sp.offset(-1);
+        if value.is_object() {
+            return HELPER_OK;
+        }
+        match value.objectify(scope) {
+            Ok(o) => {
+                *f.sp.offset(-1) = JSValue::from(o);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `to_propkey`: ToPropertyKey unless already a string/symbol/int.
+unsafe extern "C" fn h_to_propkey(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let key = *f.sp.offset(-1);
+        if key.is_string_or_symbol() || key.is_int() {
+            return HELPER_OK;
+        }
+        match key.to_propkey(scope) {
+            Ok(pk) => {
+                *f.sp.offset(-1) = pk;
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `in`: `[prop, obj, ^] -> [bool, ^]`.
+unsafe extern "C" fn h_in(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let sp = f.sp;
+        match js_operator_in(scope, &*sp.offset(-1), &*sp.offset(-2)) {
+            Ok(b) => {
+                *sp.offset(-2) = JSValue::from(b);
+                f.sp = sp.offset(-1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `instanceof`: `[ctor, val, ^] -> [bool, ^]`.
+unsafe extern "C" fn h_instanceof(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let sp = f.sp;
+        match js_operator_instanceof(scope, sp) {
+            Ok(()) => {
+                f.sp = sp.offset(-1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `delete`: `[obj, prop, ^] -> [bool, ^]`.
+unsafe extern "C" fn h_delete(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let sp = f.sp;
+        if js_operator_delete(scope, sp) != 0 {
+            HELPER_EXCEPTION
+        } else {
+            f.sp = sp.offset(-1);
+            HELPER_OK
+        }
+    }
+}
+
+/// `add_loc`: `[v, ^] -> [^]`, `loc += v` (the operand is popped first, so an
+/// error exit leaves `sp` exactly as the interpreter would).
+unsafe extern "C" fn h_add_loc(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let operand = *f.sp.offset(-1);
+        f.sp = f.sp.offset(-1);
+        let slot = f.var_base.add(f.imm as usize);
+        match JSValue::arith_add(scope, *slot, operand) {
+            Ok(value) => {
+                *slot = value;
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `post_inc` / `post_dec`: `[v, ^] -> [ToNumber(v), v ± 1, ^]`.
+unsafe fn post_inc_dec(f: *mut JitExecFrame, inc: bool) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let operand = *f.sp.offset(-1);
+        if operand.is_bigint() {
+            let result = UnaryOp::new(scope, operand, true).and_then(|unary| {
+                if inc {
+                    unary.inc(scope)
+                } else {
+                    unary.dec(scope)
+                }
+            });
+            return match result {
+                Ok(next) => {
+                    *f.sp.offset(-1) = operand;
+                    *f.sp = next;
+                    f.sp = f.sp.add(1);
+                    HELPER_OK
+                }
+                Err(_) => HELPER_EXCEPTION,
+            };
+        }
+        let Ok(number) = operand.to_number(scope) else {
+            return HELPER_EXCEPTION;
+        };
+        *f.sp.offset(-1) = JSValue::from(number);
+        match UnaryOp::new(scope, JSValue::from(number), true).and_then(|unary| {
+            if inc {
+                unary.inc(scope)
+            } else {
+                unary.dec(scope)
+            }
+        }) {
+            Ok(next) => {
+                *f.sp = next;
+                f.sp = f.sp.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+unsafe extern "C" fn h_post_inc(f: *mut JitExecFrame) -> u32 {
+    unsafe { post_inc_dec(f, true) }
+}
+unsafe extern "C" fn h_post_dec(f: *mut JitExecFrame) -> u32 {
+    unsafe { post_inc_dec(f, false) }
+}
+
+/// `get_var` / `get_var_undef`: push a global binding, reusing the interpreter's
+/// `get_global_var`. `throw` is true only for `get_var`.
+unsafe fn global_get(f: *mut JitExecFrame, throw: bool) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let name = (*f.bytecode).global_var_refs()[f.imm as usize].var_name;
+        match scope.get_global_var(name, throw) {
+            Ok(value) => {
+                *f.sp = value;
+                f.sp = f.sp.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+unsafe extern "C" fn h_get_var(f: *mut JitExecFrame) -> u32 {
+    unsafe { global_get(f, true) }
+}
+unsafe extern "C" fn h_get_var_undef(f: *mut JitExecFrame) -> u32 {
+    unsafe { global_get(f, false) }
+}
+
+/// `put_var` / `put_var_init`: `set_global_var` handles TDZ and read-only checks.
+unsafe fn global_put(f: *mut JitExecFrame, init: bool) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let name = (*f.bytecode).global_var_refs()[f.imm as usize].var_name;
+        let value = *f.sp.offset(-1);
+        let mode = if init {
+            GlobalVarSetMode::Init
+        } else {
+            GlobalVarSetMode::Normal
+        };
+        let result = scope.set_global_var(name, value, mode);
+        f.sp = f.sp.offset(-1);
+        if result.is_err() {
+            HELPER_EXCEPTION
+        } else {
+            HELPER_OK
+        }
+    }
+}
+
+unsafe extern "C" fn h_put_var(f: *mut JitExecFrame) -> u32 {
+    unsafe { global_put(f, false) }
+}
+unsafe extern "C" fn h_put_var_init(f: *mut JitExecFrame) -> u32 {
+    unsafe { global_put(f, true) }
+}
+
+/// `get_array_el`: `[array, prop, ^] -> [value, ^]`.
+unsafe extern "C" fn h_get_array_el(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let value = (*f.sp.offset(-2))
+            .get_property_value(scope, *f.sp.offset(-1))
+            .unwrap_or(JSValue::EXCEPTION);
+        let is_err = value.is_exception();
+        *f.sp.offset(-2) = value;
+        f.sp = f.sp.offset(-1);
+        if is_err { HELPER_EXCEPTION } else { HELPER_OK }
+    }
+}
+
+/// `get_array_el2`: `[array, prop, ^] -> [array, value, ^]`.
+unsafe extern "C" fn h_get_array_el2(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let value = (*f.sp.offset(-2))
+            .get_property_value(scope, *f.sp.offset(-1))
+            .unwrap_or(JSValue::EXCEPTION);
+        let is_err = value.is_exception();
+        *f.sp.offset(-1) = value;
+        if is_err { HELPER_EXCEPTION } else { HELPER_OK }
+    }
+}
+
+/// `get_array_el3`: `[array, prop, ^] -> [array, prop1, value, ^]`.
+unsafe extern "C" fn h_get_array_el3(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let array = *f.sp.offset(-2);
+        if !array.is_int() && !array.is_string_or_symbol() {
+            if array.is_undefined_or_null() {
+                let _ = scope.throw_type_error("value has no property ");
+                return HELPER_EXCEPTION;
+            }
+            let Ok(prop1) = (*f.sp.offset(-1)).to_propkey(scope) else {
+                return HELPER_EXCEPTION;
+            };
+            *f.sp.offset(-1) = prop1;
+        }
+        let value = array
+            .get_property_value(scope, *f.sp.offset(-1))
+            .unwrap_or(JSValue::EXCEPTION);
+        let is_err = value.is_exception();
+        *f.sp = value;
+        f.sp = f.sp.add(1);
+        if is_err { HELPER_EXCEPTION } else { HELPER_OK }
+    }
+}
+
+/// `put_array_el`: `[arr, prop, value, ^] -> [^]`.
+unsafe extern "C" fn h_put_array_el(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let mut array = *f.sp.offset(-3);
+        let prop = *f.sp.offset(-2);
+        let value = *f.sp.offset(-1);
+        let result = array.set_property_value(scope, prop, value, ThrowPolicy::StrictOnly, false);
+        f.sp = f.sp.offset(-3);
+        if result.is_err() {
+            HELPER_EXCEPTION
+        } else {
+            HELPER_OK
+        }
+    }
+}
+
+/// Write a `get_field`/`get_field2` result: replace the target, or push (for
+/// `get_field2`, which keeps the target).
+fn finish_field_get(f: &mut JitExecFrame, value: JSValue, push: bool) -> u32 {
+    if push {
+        unsafe { *f.sp = value };
+        f.sp = unsafe { f.sp.add(1) };
+    } else {
+        unsafe { *f.sp.offset(-1) = value };
+    }
+    HELPER_OK
+}
+
+/// `get_field` / `get_field2`: the interpreter's inline-cache fast path, then
+/// the full lookup that also refreshes the cache. Kept out of generated code so
+/// the guard sequence can never drift from `exec_stackless`.
+unsafe fn field_get(f: *mut JitExecFrame, push: bool) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let target = *f.sp.offset(-1);
+        let atom = crate::atom::Atom::from_id(f.imm);
+
+        #[cfg(feature = "inline_cache")]
+        {
+            let ic_idx = f.imm2 as usize;
+            let cache = &*(*f.bytecode).inline_cache.get();
+            if ic_idx < cache.len()
+                && let Some(o) = target.as_object()
+                && let Some(shape) = o.shape()
+            {
+                let entry = &cache[ic_idx];
+                let shape_ptr = shape.gc_ref().as_ptr().as_ptr();
+                if entry.shape_ptr == shape_ptr && entry.shape_uid == shape.uid {
+                    let slot = entry.slot as usize;
+                    if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
+                        return match o.prop_slot(slot).value(scope, o.into()) {
+                            Ok(value) => finish_field_get(f, value, push),
+                            Err(_) => HELPER_EXCEPTION,
+                        };
+                    }
+                }
+            }
+        }
+
+        match target.get_property(scope, atom) {
+            Ok(value) => {
+                #[cfg(feature = "inline_cache")]
+                {
+                    let ic_idx = f.imm2 as usize;
+                    if let Some(o) = target.as_object()
+                        && let Some(shape) = o.shape()
+                        && let Some((idx, flags)) = o.find_shape_property(atom)
+                    {
+                        let cache = &mut *(*f.bytecode).inline_cache.get();
+                        if ic_idx < cache.len() {
+                            cache[ic_idx] = crate::function::InlineCacheEntry {
+                                shape_ptr: shape.gc_ref().as_ptr().as_ptr(),
+                                shape_uid: shape.uid,
+                                slot: idx as u32,
+                                flags: flags as u8,
+                            };
+                        }
+                    }
+                }
+                finish_field_get(f, value, push)
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+unsafe extern "C" fn h_get_field(f: *mut JitExecFrame) -> u32 {
+    unsafe { field_get(f, false) }
+}
+unsafe extern "C" fn h_get_field2(f: *mut JitExecFrame) -> u32 {
+    unsafe { field_get(f, true) }
+}
+
+/// `put_field`: cached direct slot write when the shape and flags allow it,
+/// otherwise the full property set (which refreshes the cache).
+unsafe extern "C" fn h_put_field(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let target = *f.sp.offset(-2);
+        let value = *f.sp.offset(-1);
+        let atom = crate::atom::Atom::from_id(f.imm);
+
+        #[cfg(feature = "inline_cache")]
+        {
+            let ic_idx = f.imm2 as usize;
+            let cache = &*(*f.bytecode).inline_cache.get();
+            if ic_idx < cache.len()
+                && let Some(o) = target.as_object()
+                && let Some(shape) = o.shape()
+            {
+                let entry = &cache[ic_idx];
+                let shape_ptr = shape.gc_ref().as_ptr().as_ptr();
+                if entry.shape_ptr == shape_ptr && entry.shape_uid == shape.uid {
+                    let slot = entry.slot as usize;
+                    if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
+                        let flags = entry.flags as u32;
+                        if flags & crate::object::JS_PROP_TMASK == crate::object::JS_PROP_NORMAL
+                            && flags & crate::object::JS_PROP_WRITABLE != 0
+                            && flags & crate::object::JS_PROP_LENGTH == 0
+                        {
+                            let mut o = target.as_object_unchecked();
+                            o.set_prop_slot(slot, JSProperty::Normal(value));
+                            f.sp = f.sp.offset(-2);
+                            return HELPER_OK;
+                        }
+                    }
+                }
+            }
+        }
+
+        let result =
+            target.set_property_internal(scope, atom, value, None, ThrowPolicy::StrictOnly, false);
+        f.sp = f.sp.offset(-2);
+        if result.is_err() {
+            return HELPER_EXCEPTION;
+        }
+
+        #[cfg(feature = "inline_cache")]
+        if let Some(o) = target.as_object()
+            && let Some(shape) = o.shape()
+            && let Some((idx, flags)) = o.find_shape_property(atom)
+        {
+            let ic_idx = f.imm2 as usize;
+            let cache = &mut *(*f.bytecode).inline_cache.get();
+            if ic_idx < cache.len() {
+                cache[ic_idx] = crate::function::InlineCacheEntry {
+                    shape_ptr: shape.gc_ref().as_ptr().as_ptr(),
+                    shape_uid: shape.uid,
+                    slot: idx as u32,
+                    flags: flags as u8,
+                };
+            }
+        }
+
+        HELPER_OK
+    }
+}
+
 /// Loop back edge: deliver interrupts and run a deferred collection. Mirrors
 /// the interpreter's per-opcode safepoint.
 unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
@@ -457,7 +898,7 @@ unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
 }
 
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 31;
+pub(crate) const HELPER_COUNT: usize = 51;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -494,6 +935,46 @@ pub(crate) const HELPER_PUSH_ATOM: usize = 28;
 pub(crate) const HELPER_INC_LOCAL: usize = 29;
 /// Index of [`h_dec_local`].
 pub(crate) const HELPER_DEC_LOCAL: usize = 30;
+/// Index of [`h_get_var`].
+pub(crate) const HELPER_GET_VAR: usize = 31;
+/// Index of [`h_get_var_undef`].
+pub(crate) const HELPER_GET_VAR_UNDEF: usize = 32;
+/// Index of [`h_put_var`].
+pub(crate) const HELPER_PUT_VAR: usize = 33;
+/// Index of [`h_put_var_init`].
+pub(crate) const HELPER_PUT_VAR_INIT: usize = 34;
+/// Index of [`h_get_array_el`].
+pub(crate) const HELPER_GET_ARRAY_EL: usize = 35;
+/// Index of [`h_get_array_el2`].
+pub(crate) const HELPER_GET_ARRAY_EL2: usize = 36;
+/// Index of [`h_get_array_el3`].
+pub(crate) const HELPER_GET_ARRAY_EL3: usize = 37;
+/// Index of [`h_put_array_el`].
+pub(crate) const HELPER_PUT_ARRAY_EL: usize = 38;
+/// Index of [`h_get_field`].
+pub(crate) const HELPER_GET_FIELD: usize = 39;
+/// Index of [`h_get_field2`].
+pub(crate) const HELPER_GET_FIELD2: usize = 40;
+/// Index of [`h_put_field`].
+pub(crate) const HELPER_PUT_FIELD: usize = 41;
+/// Index of [`h_pow`].
+pub(crate) const HELPER_POW: usize = 42;
+/// Index of [`h_to_object`].
+pub(crate) const HELPER_TO_OBJECT: usize = 43;
+/// Index of [`h_to_propkey`].
+pub(crate) const HELPER_TO_PROPKEY: usize = 44;
+/// Index of [`h_in`].
+pub(crate) const HELPER_IN: usize = 45;
+/// Index of [`h_instanceof`].
+pub(crate) const HELPER_INSTANCEOF: usize = 46;
+/// Index of [`h_delete`].
+pub(crate) const HELPER_DELETE: usize = 47;
+/// Index of [`h_add_loc`].
+pub(crate) const HELPER_ADD_LOC: usize = 48;
+/// Index of [`h_post_inc`].
+pub(crate) const HELPER_POST_INC: usize = 49;
+/// Index of [`h_post_dec`].
+pub(crate) const HELPER_POST_DEC: usize = 50;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -533,4 +1014,24 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_push_atom as *const (),
     h_inc_local as *const (),
     h_dec_local as *const (),
+    h_get_var as *const (),
+    h_get_var_undef as *const (),
+    h_put_var as *const (),
+    h_put_var_init as *const (),
+    h_get_array_el as *const (),
+    h_get_array_el2 as *const (),
+    h_get_array_el3 as *const (),
+    h_put_array_el as *const (),
+    h_get_field as *const (),
+    h_get_field2 as *const (),
+    h_put_field as *const (),
+    h_pow as *const (),
+    h_to_object as *const (),
+    h_to_propkey as *const (),
+    h_in as *const (),
+    h_instanceof as *const (),
+    h_delete as *const (),
+    h_add_loc as *const (),
+    h_post_inc as *const (),
+    h_post_dec as *const (),
 ]);

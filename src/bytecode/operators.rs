@@ -32,7 +32,7 @@ use crate::{
 // Therefore no GC bug can occur at these sites.
 
 #[inline(always)]
-pub(super) fn js_operator_delete(ctx: &mut ScopedContext, sp: *mut JSValue) -> i32 {
+pub(crate) fn js_operator_delete(ctx: &mut ScopedContext, sp: *mut JSValue) -> i32 {
     let (mut op1, op2) = unsafe {
         (
             std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED),
@@ -55,7 +55,7 @@ pub(super) fn js_operator_delete(ctx: &mut ScopedContext, sp: *mut JSValue) -> i
     }
 }
 
-pub(super) fn js_operator_instanceof(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(crate) fn js_operator_instanceof(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
     let (val, ctor) = unsafe {
         (
             std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED),
@@ -71,7 +71,7 @@ pub(super) fn js_operator_instanceof(ctx: &mut ScopedContext, sp: *mut JSValue) 
     Ok(())
 }
 
-pub(super) fn js_operator_in(
+pub(crate) fn js_operator_in(
     ctx: &mut ScopedContext,
     obj: &JSValue,
     prop: &JSValue,

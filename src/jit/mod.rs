@@ -212,6 +212,7 @@ fn build_host_isa() -> Result<Arc<dyn TargetIsa>, JitError> {
 
 /// Host handle to a runtime's JIT. Created with [`Jit::attach`]; holds a strong
 /// reference to the runtime so it stays valid as long as the handle does.
+#[repr(transparent)]
 pub struct Jit {
     rt: Runtime,
 }
@@ -219,7 +220,7 @@ pub struct Jit {
 impl Jit {
     /// Attach a JIT to `rt` with `cfg`. Fails if a JIT is already attached, or
     /// if the host has no Cranelift backend.
-    pub fn attach(rt: &Runtime, cfg: JitConfig) -> Result<Jit, JitError> {
+    pub fn attach_to(rt: &Runtime, cfg: JitConfig) -> Result<Jit, JitError> {
         let state = JitState::new(cfg)?;
         rt.jit_install(Box::new(state))?;
         Ok(Jit { rt: rt.clone() })
@@ -303,6 +304,8 @@ pub(crate) fn invoke_native(
         this,
         gc_scope_kind: bc.gc_scope_kind() as u32,
         imm: 0,
+        imm2: 0,
+        bytecode: &**bc,
         out_value: JSValue::UNDEFINED,
         out_pc: 0,
         out_sp: 0,
@@ -326,7 +329,7 @@ mod tests {
     #[test]
     fn attach_reports_metrics_and_target() {
         let rt = crate::Runtime::create().unwrap();
-        let jit = Jit::attach(&rt, JitConfig::default()).unwrap();
+        let jit = Jit::attach_to(&rt, JitConfig::default()).unwrap();
         assert_eq!(jit.metrics(), JitMetrics::default());
         assert!(jit.target_isa().is_some());
     }
@@ -334,9 +337,9 @@ mod tests {
     #[test]
     fn second_attach_is_rejected() {
         let rt = crate::Runtime::create().unwrap();
-        let _jit = Jit::attach(&rt, JitConfig::default()).unwrap();
+        let _jit = Jit::attach_to(&rt, JitConfig::default()).unwrap();
         assert!(matches!(
-            Jit::attach(&rt, JitConfig::default()),
+            Jit::attach_to(&rt, JitConfig::default()),
             Err(JitError::AlreadyAttached)
         ));
     }
@@ -344,7 +347,7 @@ mod tests {
     #[test]
     fn poll_counts() {
         let rt = crate::Runtime::create().unwrap();
-        let jit = Jit::attach(&rt, JitConfig::default()).unwrap();
+        let jit = Jit::attach_to(&rt, JitConfig::default()).unwrap();
         jit.poll();
         jit.poll();
         assert_eq!(jit.metrics().polls, 2);
@@ -365,7 +368,7 @@ mod tests {
             .eval(src, &name, EvalType::Global, EvalFlags::empty())
             .unwrap();
 
-        let jit = Jit::attach(&rt, JitConfig::default()).unwrap();
+        let jit = Jit::attach_to(&rt, JitConfig::default()).unwrap();
         let after = ctx
             .eval(src, &name, EvalType::Global, EvalFlags::empty())
             .unwrap();
@@ -384,7 +387,7 @@ mod tests {
         let mut ctx = rt
             .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
             .unwrap();
-        let jit = Jit::attach(
+        let jit = Jit::attach_to(
             &rt,
             JitConfig::builder()
                 .call_threshold(1)
@@ -433,7 +436,7 @@ mod tests {
         let mut ctx = rt
             .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
             .unwrap();
-        let jit = Jit::attach(
+        let jit = Jit::attach_to(
             &rt,
             JitConfig::builder()
                 .call_threshold(1)
@@ -470,7 +473,7 @@ mod tests {
         let mut ctx = rt
             .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
             .unwrap();
-        let jit = Jit::attach(
+        let jit = Jit::attach_to(
             &rt,
             JitConfig::builder()
                 .call_threshold(1)
@@ -513,7 +516,7 @@ mod tests {
             .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
             .unwrap();
         // One byte of code budget: every publish is refused.
-        let jit = Jit::attach(
+        let jit = Jit::attach_to(
             &rt,
             JitConfig::builder()
                 .call_threshold(1)

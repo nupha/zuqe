@@ -9,7 +9,7 @@
 #![cfg(feature = "jit")]
 
 use zuqe::{
-    EvalFlags, EvalName, EvalType, Jit, JitConfig, JitMetrics, JSValue, Runtime, ScopedContext,
+    EvalFlags, EvalName, EvalType, JSValue, Jit, JitConfig, JitMetrics, Runtime, ScopedContext,
 };
 
 /// Files that benchmark or run indefinitely, or need a harness this test does
@@ -41,7 +41,7 @@ fn eval_once(source: &[u8], attach: Option<JitConfig>) -> (String, Option<JitMet
     let mut ctx = rt
         .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
         .unwrap();
-    let jit = attach.map(|cfg| Jit::attach(&rt, cfg).unwrap());
+    let jit = attach.map(|cfg| Jit::attach_to(&rt, cfg).unwrap());
     let name = EvalName::Name("jit-verify.js".into());
     let result = ctx.eval(source, &name, EvalType::Global, EvalFlags::empty());
     let observed = observe(result);
@@ -169,7 +169,7 @@ fn native_vs_interpreter(define: &[u8], call: &str) -> JitMetrics {
     let mut ctx = rt
         .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
         .unwrap();
-    let jit = Jit::attach(&rt, eager_config()).unwrap();
+    let jit = Jit::attach_to(&rt, eager_config()).unwrap();
     let name = EvalName::Name("jit-native.js".into());
 
     // Run once to get the function hot, then poll to compile and install it.
@@ -250,6 +250,71 @@ fn native_execution_matches_interpreter() {
     native_vs_interpreter(rec, "fib(20)");
 }
 
+/// Epic E1: the integer fast paths (two-int add/sub/mul/compare/bitwise) plus
+/// their fallbacks, all returning an int so `observe` compares the value.
+#[test]
+fn integer_fast_paths_match_interpreter() {
+    let define = b"\
+        function ovf(n){ var s = 0; for (var i = 0; i < n; i++){ s = s + 2000000000; if (s > 2000000000) s = s - 3999999999; if (s < -2000000000) s = s + 3999999999; } return s | 0; } \
+        function bigshift(n){ var x = 1; for (var i = 0; i < n; i++){ x = (x << 33) ^ (i >> 40); } return x; } \
+        function quirks(n){ var x = 0; for (var i = 0; i < n; i++){ x = x + ((-1 | 0) >>> 31); x = x ^ (i & 0); } return x | 0; } \
+        function cmps(n){ var c = 0; for (var i = -3; i < n; i++){ if (i < 0) c = c + 1; if (i >= -1 && i <= 2) c = c + 1; if (i == -2 || i != 0) c = c + 1; } return c; } \
+        function mixed(n){ var s = 0; for (var i = 0; i < n; i++){ s = s + 7; s = 2147483647 + 1; } return s; } \
+        ovf(1); bigshift(1); quirks(1); cmps(1); mixed(1);";
+    for kernel in ["ovf", "bigshift", "quirks", "cmps", "mixed"] {
+        native_vs_interpreter(define, &format!("{kernel}(500)"));
+    }
+}
+
+/// Epic E3: global-variable and array-element helpers match the interpreter.
+#[test]
+fn globals_and_arrays_match_interpreter() {
+    let define = b"\
+        var G = 0; \
+        function gv(n){ var s = 0; for (var i = 0; i < n; i++){ G = G + 1; s = s + G; } return s; } \
+        function gundef(n){ var s = 0; for (var i = 0; i < n; i++){ if (typeof NOPE === 'undefined') s = s + 1; } return s; } \
+        function ar(n){ var a = [10, 20, 30, 40]; var s = 0; for (var i = 0; i < n; i++){ s = s + a[i & 3]; } return s; } \
+        function astore(n){ var a = [0, 0, 0, 0]; var s = 0; for (var i = 0; i < n; i++){ a[i & 3] = i; s = s + a[i & 3]; } return s; } \
+        gv(1); gundef(1); ar(1); astore(1);";
+    for kernel in ["gv", "gundef", "ar", "astore"] {
+        native_vs_interpreter(define, &format!("{kernel}(500)"));
+    }
+}
+
+/// Epic E2: property access (inline-cache guards) matches the interpreter.
+/// Objects live in globals so the functions under test contain no object
+/// literal (`define_field` is fail-closed).
+#[test]
+fn properties_match_interpreter() {
+    let define = b"\
+        var OBJ = { a: 1, b: 2, c: 3 }; \
+        var MO = { m: function(){ return 5; } }; \
+        function props(n){ var s = 0; for (var i = 0; i < n; i++){ s = s + OBJ.a + OBJ.b + OBJ.c; OBJ.a = s & 7; } return s; } \
+        function methods(n){ var s = 0; for (var i = 0; i < n; i++){ s = s + MO.m(); } return s; } \
+        function shapes(n){ var s = 0; for (var i = 0; i < n; i++){ s = s + OBJ.a; } return s; } \
+        props(1); methods(1); shapes(1);";
+    for kernel in ["props", "methods", "shapes"] {
+        native_vs_interpreter(define, &format!("{kernel}(500)"));
+    }
+}
+
+/// Epic E1 remainder: pow / in / instanceof / delete / post-inc / add_loc.
+#[test]
+fn misc_operators_match_interpreter() {
+    let define = b"\
+        var OBJ2 = { k: 1, m: function(){ return 1; } }; \
+        function powk(n){ var s = 1; for (var i = 0; i < n; i++){ s = (s + (2 ** 3)) & 255; } return s; } \
+        function ink(n){ var s = 0; for (var i = 0; i < n; i++){ if (i in OBJ2) s = s + 1; } return s; } \
+        function instk(n){ var s = 0; for (var i = 0; i < n; i++){ if (OBJ2.m instanceof Object) s = s + 1; } return s; } \
+        function delk(n){ var s = 0; for (var i = 0; i < n; i++){ delete OBJ2.missing; s = s + 1; } return s; } \
+        function postk(n){ var x = 0; var s = 0; for (var i = 0; i < n; i++){ s = s + (x++); } return s; } \
+        function addk(n){ var s = 0; for (var i = 0; i < n; i++){ s += 2; } return s; } \
+        powk(1); ink(1); instk(1); delk(1); postk(1); addk(1);";
+    for kernel in ["powk", "ink", "instk", "delk", "postk", "addk"] {
+        native_vs_interpreter(define, &format!("{kernel}(500)"));
+    }
+}
+
 #[test]
 fn native_loop_handles_gc_and_interrupt_safepoints() {
     // A long allocation loop: the back-edge safepoint must run collections
@@ -266,13 +331,14 @@ fn native_exception_matches_interpreter() {
     // `x + 1n` throws (cannot mix BigInt and Number) from the `add` helper; the
     // function is otherwise fully native, so the exception exits the native run
     // with `pc`/`sp` the interpreter can unwind from.
-    let define = b"function t(n){ var x = 0; for (var i = 0; i < n; i++) x = x + 1n; return x; } t(0);";
+    let define =
+        b"function t(n){ var x = 0; for (var i = 0; i < n; i++) x = x + 1n; return x; } t(0);";
 
     let mut rt = Runtime::create().unwrap();
     let mut ctx = rt
         .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
         .unwrap();
-    let jit = Jit::attach(&rt, eager_config()).unwrap();
+    let jit = Jit::attach_to(&rt, eager_config()).unwrap();
     let name = EvalName::Name("jit-throw.js".into());
     ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
         .unwrap();

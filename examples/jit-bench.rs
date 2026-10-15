@@ -16,10 +16,15 @@ const DEFINE: &[u8] =
 const WORK: &str = "var s = 0; for (var k = 0; k < 4000; k++) s = fib(30); s;";
 
 fn eval(ctx: &mut Context, src: &[u8]) -> i32 {
-    ctx.eval(src, &EvalName::Name("jit-bench.js".into()), EvalType::Global, EvalFlags::empty())
-        .unwrap()
-        .as_int()
-        .unwrap()
+    ctx.eval(
+        src,
+        &EvalName::Name("jit-bench.js".into()),
+        EvalType::Global,
+        EvalFlags::empty(),
+    )
+    .unwrap()
+    .as_int()
+    .unwrap()
 }
 
 fn time_repeated(ctx: &mut Context, rounds: usize) -> Duration {
@@ -35,16 +40,23 @@ fn main() {
 
     // Interpreter baseline.
     let mut base_rt = Runtime::create().unwrap();
-    let mut base_ctx = base_rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP).unwrap();
+    let mut base_ctx = base_rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .unwrap();
     eval(&mut base_ctx, DEFINE);
     let interpreter = time_repeated(&mut base_ctx, rounds);
 
     // Native: compile first, then time the same work.
     let mut jit_rt = Runtime::create().unwrap();
-    let mut jit_ctx = jit_rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP).unwrap();
-    let jit = Jit::attach(
+    let mut jit_ctx = jit_rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .unwrap();
+    let jit = Jit::attach_to(
         &jit_rt,
-        JitConfig::builder().call_threshold(1).loop_threshold(1).build(),
+        JitConfig::builder()
+            .call_threshold(1)
+            .loop_threshold(1)
+            .build(),
     )
     .unwrap();
     eval(&mut jit_ctx, DEFINE);
@@ -58,7 +70,10 @@ fn main() {
     let ratio = interpreter.as_secs_f64() / native.as_secs_f64();
     println!("interpreter: {:>10.3?}", interpreter / rounds as u32);
     println!("native:      {:>10.3?}", native / rounds as u32);
-    println!("speedup:     {ratio:.2}x  (native is {:.0}% faster)", (ratio - 1.0) * 100.0);
+    println!(
+        "speedup:     {ratio:.2}x  (native is {:.0}% faster)",
+        (ratio - 1.0) * 100.0
+    );
     println!(
         "metrics: compiled={} native_entries={} verified={} rejected={}",
         metrics.functions_compiled,

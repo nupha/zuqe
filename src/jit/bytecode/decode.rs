@@ -152,6 +152,7 @@ pub(crate) fn decode_bounded(
         result.push(insn);
         pc = end;
     }
+
     Ok(result)
 }
 

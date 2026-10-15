@@ -30,11 +30,15 @@ use crate::vm_stack::ExecMode;
 
 use super::{
     abi::{
-        HELPER_ADD, HELPER_AND, HELPER_DEC, HELPER_DIV, HELPER_EQ, HELPER_GT, HELPER_GTE,
-        HELPER_INC, HELPER_LNOT, HELPER_LT, HELPER_LTE, HELPER_MOD, HELPER_MUL, HELPER_NEG,
-        HELPER_NEQ, HELPER_NOT, HELPER_OR, HELPER_PLUS, HELPER_SAFEPOINT, HELPER_SAR, HELPER_SHL,
-        HELPER_SHR, HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TYPEOF,
-        HELPER_XOR, JitExecFrame,
+        HELPER_ADD, HELPER_ADD_LOC, HELPER_AND, HELPER_DEC, HELPER_DELETE, HELPER_DIV, HELPER_EQ,
+        HELPER_GET_ARRAY_EL, HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3, HELPER_GET_FIELD,
+        HELPER_GET_FIELD2, HELPER_GET_VAR, HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE, HELPER_IN,
+        HELPER_INC, HELPER_INSTANCEOF, HELPER_LNOT, HELPER_LT, HELPER_LTE, HELPER_MOD, HELPER_MUL,
+        HELPER_NEG, HELPER_NEQ, HELPER_NOT, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC,
+        HELPER_POST_INC, HELPER_POW, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD, HELPER_PUT_VAR,
+        HELPER_PUT_VAR_INIT, HELPER_SAFEPOINT, HELPER_SAR, HELPER_SHL, HELPER_SHR,
+        HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT,
+        HELPER_TO_PROPKEY, HELPER_TYPEOF, HELPER_XOR, JitExecFrame,
     },
     bytecode::{decode::Instruction, verify::VerifiedFunction},
     error::JitError,
@@ -45,6 +49,9 @@ const EXIT_DONE: i64 = 0;
 const EXIT_RESUME: i64 = 6;
 
 const UNDEFINED_BITS: i64 = 3 << 48;
+const BOOL_TAG: i64 = 1 << 48;
+/// `js_new_float64(d) == d.to_bits() - (0xFFF9 << 48)` for a non-NaN value.
+const FLOAT64_ADDEND: i64 = 0xFFF9 << 48;
 
 const O_ARG_BASE: i32 = offset_of!(JitExecFrame, arg_base) as i32;
 const O_VAR_BASE: i32 = offset_of!(JitExecFrame, var_base) as i32;
@@ -55,6 +62,7 @@ const O_CUR_SP: i32 = offset_of!(JitExecFrame, cur_sp_offset) as i32;
 const O_HELPERS: i32 = offset_of!(JitExecFrame, helpers) as i32;
 const O_THIS: i32 = offset_of!(JitExecFrame, this) as i32;
 const O_IMM: i32 = offset_of!(JitExecFrame, imm) as i32;
+const O_IMM2: i32 = offset_of!(JitExecFrame, imm2) as i32;
 const O_OUT_VALUE: i32 = offset_of!(JitExecFrame, out_value) as i32;
 const O_OUT_PC: i32 = offset_of!(JitExecFrame, out_pc) as i32;
 const O_OUT_SP: i32 = offset_of!(JitExecFrame, out_sp) as i32;
@@ -89,6 +97,20 @@ fn supported(name: &str) -> bool {
                 | "return"
                 | "return_undef"
                 | "nop"
+                | "get_var"
+                | "get_var_undef"
+                | "put_var"
+                | "put_var_init"
+                | "get_array_el"
+                | "get_array_el2"
+                | "get_array_el3"
+                | "put_array_el"
+                | "get_field"
+                | "get_field2"
+                | "put_field"
+                | "add_loc"
+                | "post_inc"
+                | "post_dec"
         )
 }
 
@@ -99,6 +121,7 @@ fn helper_for(name: &str) -> Option<usize> {
         "mul" => HELPER_MUL,
         "div" => HELPER_DIV,
         "mod" => HELPER_MOD,
+        "pow" => HELPER_POW,
         "lt" => HELPER_LT,
         "lte" => HELPER_LTE,
         "gt" => HELPER_GT,
@@ -120,6 +143,60 @@ fn helper_for(name: &str) -> Option<usize> {
         "lnot" => HELPER_LNOT,
         "not" => HELPER_NOT,
         "typeof" => HELPER_TYPEOF,
+        "to_object" => HELPER_TO_OBJECT,
+        "to_propkey" => HELPER_TO_PROPKEY,
+        "in" => HELPER_IN,
+        "instanceof" => HELPER_INSTANCEOF,
+        "delete" => HELPER_DELETE,
+        _ => return None,
+    })
+}
+
+/// Arithmetic / comparison / bitwise operators with an inline two-int fast
+/// path. Every other operand shape falls back to the interpreter helper, which
+/// owns the full ToNumber/ToInt32/overflow/string semantics.
+#[derive(Clone, Copy)]
+enum FastOp {
+    Add,
+    Sub,
+    Mul,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+    Eq,
+    Neq,
+    StrictEq,
+    StrictNeq,
+    And,
+    Or,
+    Xor,
+    Shl,
+    Shr,
+    Sar,
+}
+
+/// Maps an opcode name to its fast-path form and the fallback helper id.
+fn fast_op(name: &str) -> Option<(FastOp, usize)> {
+    use FastOp::*;
+    Some(match name {
+        "add" => (Add, HELPER_ADD),
+        "sub" => (Sub, HELPER_SUB),
+        "mul" => (Mul, HELPER_MUL),
+        "lt" => (Lt, HELPER_LT),
+        "lte" => (Lte, HELPER_LTE),
+        "gt" => (Gt, HELPER_GT),
+        "gte" => (Gte, HELPER_GTE),
+        "eq" => (Eq, HELPER_EQ),
+        "neq" => (Neq, HELPER_NEQ),
+        "strict_eq" => (StrictEq, HELPER_STRICT_EQ),
+        "strict_neq" => (StrictNeq, HELPER_STRICT_NEQ),
+        "and" => (And, HELPER_AND),
+        "or" => (Or, HELPER_OR),
+        "xor" => (Xor, HELPER_XOR),
+        "shl" => (Shl, HELPER_SHL),
+        "shr" => (Shr, HELPER_SHR),
+        "sar" => (Sar, HELPER_SAR),
         _ => return None,
     })
 }
@@ -440,6 +517,9 @@ fn lower_insn(
     let pc = insn.pc();
     let size = insn.size() as u32;
 
+    if let Some((op, helper_id)) = fast_op(name) {
+        return lower_fast_binary(b, fv, sp_var, helper_sig, sp, insn, op, helper_id);
+    }
     if let Some(id) = helper_for(name) {
         let sp = call_stack_helper(b, fv, helper_sig, sp, id, pc + size);
         return Step::Continue(sp);
@@ -494,6 +574,56 @@ fn lower_insn(
         "null" => {
             let v = b.ins().iconst(types::I64, 2i64 << 48);
             Step::Continue(push(b, sp, v))
+        }
+        "get_var" | "get_var_undef" | "put_var" | "put_var_init" => {
+            let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
+            b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM);
+            let id = match name {
+                "get_var" => HELPER_GET_VAR,
+                "get_var_undef" => HELPER_GET_VAR_UNDEF,
+                "put_var" => HELPER_PUT_VAR,
+                _ => HELPER_PUT_VAR_INIT,
+            };
+            let sp = call_stack_helper(b, fv, helper_sig, sp, id, pc + size);
+            Step::Continue(sp)
+        }
+        "get_array_el" | "get_array_el2" | "get_array_el3" | "put_array_el" => {
+            let id = match name {
+                "get_array_el" => HELPER_GET_ARRAY_EL,
+                "get_array_el2" => HELPER_GET_ARRAY_EL2,
+                "get_array_el3" => HELPER_GET_ARRAY_EL3,
+                _ => HELPER_PUT_ARRAY_EL,
+            };
+            let sp = call_stack_helper(b, fv, helper_sig, sp, id, pc + size);
+            Step::Continue(sp)
+        }
+        "get_field" | "get_field2" | "put_field" => {
+            let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+            b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
+            let ic = b.ins().iconst(types::I32, i64::from(ic_index(insn)));
+            b.ins().store(MemFlags::new(), ic, fv.frame, O_IMM2);
+            let id = match name {
+                "get_field" => HELPER_GET_FIELD,
+                "get_field2" => HELPER_GET_FIELD2,
+                _ => HELPER_PUT_FIELD,
+            };
+            let sp = call_stack_helper(b, fv, helper_sig, sp, id, pc + size);
+            Step::Continue(sp)
+        }
+        "add_loc" => {
+            let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u8(1)));
+            b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM);
+            let sp = call_stack_helper(b, fv, helper_sig, sp, HELPER_ADD_LOC, pc + size);
+            Step::Continue(sp)
+        }
+        "post_inc" | "post_dec" => {
+            let id = if name == "post_inc" {
+                HELPER_POST_INC
+            } else {
+                HELPER_POST_DEC
+            };
+            let sp = call_stack_helper(b, fv, helper_sig, sp, id, pc + size);
+            Step::Continue(sp)
         }
         "push_false" => {
             let v = b.ins().iconst(types::I64, 1i64 << 48);
@@ -620,6 +750,138 @@ fn loc_offset_u16(insn: &Instruction) -> i32 {
     i32::from(insn.operand_u16(1)) * 8
 }
 
+/// Inline-cache index of a `get_field`/`put_field` instruction. Without the
+/// `inline_cache` feature the opcode carries only the atom, so there is no
+/// cache to index.
+#[cfg(feature = "inline_cache")]
+fn ic_index(insn: &Instruction) -> u32 {
+    u32::from(insn.operand_u16(5))
+}
+
+#[cfg(not(feature = "inline_cache"))]
+fn ic_index(_insn: &Instruction) -> u32 {
+    0
+}
+
+/// Box a 32-bit bit-operation result exactly like `JSValue::from(u32)`: an `Int`
+/// when it fits in `i32`, otherwise a `Float64`. (The interpreter really does
+/// return `4294967295` for `-1 | 0`; the baseline matches it bit-for-bit.)
+fn box_bit_result(b: &mut FunctionBuilder, result: Value) -> Value {
+    let nonneg = b.ins().icmp_imm(IntCC::SignedGreaterThanOrEqual, result, 0);
+    let as_int = b.ins().uextend(types::I64, result);
+    let as_float = b.ins().fcvt_from_uint(types::F64, result);
+    let bits = b.ins().bitcast(types::I64, MemFlags::new(), as_float);
+    let addend = b.ins().iconst(types::I64, FLOAT64_ADDEND);
+    let as_float = b.ins().isub(bits, addend);
+    b.ins().select(nonneg, as_int, as_float)
+}
+
+/// Two-int fast path for a binary operator, with the interpreter helper as the
+/// slow path (mixed types, overflow, string `+`, …). Operands stay in the frame
+/// buffer the whole time, so the helper sees exactly what the interpreter would.
+#[allow(clippy::too_many_arguments)]
+fn lower_fast_binary(
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    sp_var: Variable,
+    helper_sig: cranelift_codegen::ir::SigRef,
+    sp: Value,
+    insn: &Instruction,
+    op: FastOp,
+    helper_id: usize,
+) -> Step {
+    let pc_after = insn.pc() + insn.size() as u32;
+    let a = b.ins().load(types::I64, MemFlags::new(), sp, -16);
+    let c = b.ins().load(types::I64, MemFlags::new(), sp, -8);
+    let ta = b.ins().ushr_imm(a, 48);
+    let tc = b.ins().ushr_imm(c, 48);
+    let int_a = b.ins().icmp_imm(IntCC::Equal, ta, 0);
+    let int_c = b.ins().icmp_imm(IntCC::Equal, tc, 0);
+    let both_int = b.ins().band(int_a, int_c);
+
+    let fast = b.create_block();
+    let slow = b.create_block();
+    let cont = b.create_block();
+    b.ins().brif(both_int, fast, &[], slow, &[]);
+
+    b.switch_to_block(fast);
+    let ai = b.ins().ireduce(types::I32, a);
+    let ci = b.ins().ireduce(types::I32, c);
+    match op {
+        FastOp::Add | FastOp::Sub | FastOp::Mul => {
+            let (result, overflow) = match op {
+                FastOp::Add => b.ins().sadd_overflow(ai, ci),
+                FastOp::Sub => b.ins().ssub_overflow(ai, ci),
+                _ => b.ins().smul_overflow(ai, ci),
+            };
+            // Overflow escapes the i32 domain: the helper produces a Float64.
+            let ok = b.create_block();
+            b.ins().brif(overflow, slow, &[], ok, &[]);
+            b.switch_to_block(ok);
+            let boxed = b.ins().uextend(types::I64, result);
+            b.ins().store(MemFlags::new(), boxed, sp, -16);
+            let sp_next = b.ins().iadd_imm(sp, -8);
+            b.def_var(sp_var, sp_next);
+            b.ins().jump(cont, &[]);
+        }
+        FastOp::Lt
+        | FastOp::Lte
+        | FastOp::Gt
+        | FastOp::Gte
+        | FastOp::Eq
+        | FastOp::Neq
+        | FastOp::StrictEq
+        | FastOp::StrictNeq => {
+            let cond = match op {
+                FastOp::Lt => b.ins().icmp(IntCC::SignedLessThan, ai, ci),
+                FastOp::Lte => b.ins().icmp(IntCC::SignedLessThanOrEqual, ai, ci),
+                FastOp::Gt => b.ins().icmp(IntCC::SignedGreaterThan, ai, ci),
+                FastOp::Gte => b.ins().icmp(IntCC::SignedGreaterThanOrEqual, ai, ci),
+                FastOp::Eq | FastOp::StrictEq => b.ins().icmp(IntCC::Equal, ai, ci),
+                _ => b.ins().icmp(IntCC::NotEqual, ai, ci),
+            };
+            let widened = b.ins().uextend(types::I64, cond);
+            let boxed = b.ins().bor_imm(widened, BOOL_TAG);
+            b.ins().store(MemFlags::new(), boxed, sp, -16);
+            let sp_next = b.ins().iadd_imm(sp, -8);
+            b.def_var(sp_var, sp_next);
+            b.ins().jump(cont, &[]);
+        }
+        _ => {
+            // ToInt32 of an int is itself; shifts use the low 5 bits of the
+            // count, exactly like `WrappingOp::shl/shr/sar`.
+            let count = b.ins().band_imm(ci, 31);
+            let result = match op {
+                FastOp::And => b.ins().band(ai, ci),
+                FastOp::Or => b.ins().bor(ai, ci),
+                FastOp::Xor => b.ins().bxor(ai, ci),
+                FastOp::Shl => b.ins().ishl(ai, count),
+                FastOp::Shr => b.ins().ushr(ai, count),
+                _ => b.ins().sshr(ai, count),
+            };
+            // `shl`/`sar` are `From<i32>` (always an Int); `and`/`or`/`xor` and
+            // `shr` are `From<u32>` — Int, or a Float64 once the sign bit is
+            // set. Match the interpreter exactly, quirk included.
+            let boxed = match op {
+                FastOp::Shl | FastOp::Sar => b.ins().uextend(types::I64, result),
+                _ => box_bit_result(b, result),
+            };
+            b.ins().store(MemFlags::new(), boxed, sp, -16);
+            let sp_next = b.ins().iadd_imm(sp, -8);
+            b.def_var(sp_var, sp_next);
+            b.ins().jump(cont, &[]);
+        }
+    }
+
+    b.switch_to_block(slow);
+    let sp_slow = call_stack_helper(b, fv, helper_sig, sp, helper_id, pc_after);
+    b.def_var(sp_var, sp_slow);
+    b.ins().jump(cont, &[]);
+
+    b.switch_to_block(cont);
+    Step::Continue(b.use_var(sp_var))
+}
+
 /// Pop the condition, test it (inline fast paths; helper for the rest), then
 /// branch. Both the fast and slow paths duplicate the branch, avoiding a phi.
 #[allow(clippy::too_many_arguments)]
@@ -732,6 +994,16 @@ mod tests {
         compile(&verified, isa.as_ref()).map(|_| ())
     }
 
+    /// Like `compile_bytes`, but with `gv` global-variable references so
+    /// `get_var`/`put_var` index checks pass.
+    fn compile_bytes_gv(bytes: Vec<u8>, args: u16, vars: u16, gv: u16) -> Result<(), JitError> {
+        let isa = crate::jit::build_host_isa().unwrap();
+        let snap = CompileSnapshot::from_raw(bytes, args, vars, gv, 16);
+        let verified = verify(snap, VerifyLimits::default())
+            .unwrap_or_else(|e| panic!("verify rejected: {e:?}"));
+        compile(&verified, isa.as_ref()).map(|_| ())
+    }
+
     fn seq(parts: &[&[u8]]) -> Vec<u8> {
         parts.concat()
     }
@@ -767,6 +1039,17 @@ mod tests {
         let mut out = [0u8; 5];
         out[0] = opcode;
         out[1..].copy_from_slice(&i32b(off));
+        out
+    }
+
+    /// `get_field`/`put_field` encoding: `[op, atom:u32]`, plus `[ic_idx:u16]`
+    /// when the inline cache is compiled in.
+    fn field(opcode: u8, ic: u16) -> Vec<u8> {
+        let mut out = vec![opcode];
+        out.extend_from_slice(&u32b(0));
+        #[cfg(feature = "inline_cache")]
+        out.extend_from_slice(&u16b(ic));
+        let _ = ic;
         out
     }
 
@@ -947,9 +1230,132 @@ mod tests {
             cases.push((name, seq(&[&push_i32(1), &[*code], &ret]), 0, 0));
         }
 
+        // Epic E3: array-element helpers. Stack effects differ per opcode.
+        cases.push((
+            "get_array_el",
+            seq(&[&push_i32(0), &push_i32(0), &[op::OP_get_array_el], &ret]),
+            0,
+            0,
+        ));
+        cases.push((
+            "get_array_el2",
+            seq(&[&push_i32(0), &push_i32(0), &[op::OP_get_array_el2], &ret]),
+            0,
+            0,
+        ));
+        cases.push((
+            "get_array_el3",
+            seq(&[&push_i32(0), &push_i32(0), &[op::OP_get_array_el3], &ret]),
+            0,
+            0,
+        ));
+        cases.push((
+            "put_array_el",
+            seq(&[
+                &push_i32(0),
+                &push_i32(0),
+                &push_i32(0),
+                &[op::OP_put_array_el, op::OP_return_undef],
+            ]),
+            0,
+            0,
+        ));
+
+        // Epic E2: property helpers (`get_field`/`get_field2`/`put_field`).
+        // Stack effects differ; the operand is atom + (inline_cache) ic index.
+        let get_field = field(op::OP_get_field, 0);
+        let get_field2 = field(op::OP_get_field2, 0);
+        let put_field = field(op::OP_put_field, 0);
+        cases.push(("get_field", seq(&[&push_i32(0), &get_field, &ret]), 0, 0));
+        cases.push(("get_field2", seq(&[&push_i32(0), &get_field2, &ret]), 0, 0));
+        cases.push((
+            "put_field",
+            seq(&[
+                &push_i32(0),
+                &push_i32(0),
+                &put_field,
+                &[op::OP_return_undef],
+            ]),
+            0,
+            0,
+        ));
+
+        // Completing E1: the remaining stack ops.
+        cases.push((
+            "pow",
+            seq(&[&push_i32(2), &push_i32(3), &[op::OP_pow], &ret]),
+            0,
+            0,
+        ));
+        for (name, code) in [
+            ("to_object", op::OP_to_object),
+            ("to_propkey", op::OP_to_propkey),
+        ] {
+            cases.push((name, seq(&[&push_i32(1), &[code], &ret]), 0, 0));
+        }
+        for (name, code) in [
+            ("in", op::OP_in),
+            ("instanceof", op::OP_instanceof),
+            ("delete", op::OP_delete),
+        ] {
+            cases.push((
+                name,
+                seq(&[&push_i32(0), &push_i32(0), &[code], &ret]),
+                0,
+                0,
+            ));
+        }
+        cases.push((
+            "post_inc",
+            seq(&[&push_i32(1), &[op::OP_post_inc], &ret]),
+            0,
+            0,
+        ));
+        cases.push((
+            "post_dec",
+            seq(&[&push_i32(1), &[op::OP_post_dec], &ret]),
+            0,
+            0,
+        ));
+        cases.push((
+            "add_loc",
+            seq(&[
+                &push_i32(0),
+                &loc(op::OP_put_loc, 0),
+                &push_i32(0),
+                &loc8(op::OP_add_loc, 0),
+                &[op::OP_return_undef],
+            ]),
+            0,
+            1,
+        ));
+
         for (name, bytes, args, vars) in cases {
             compile_bytes(bytes, args, vars)
                 .unwrap_or_else(|e| panic!("opcode {name} failed to lower: {e:?}"));
+        }
+
+        // Epic E3: global-variable helpers need a non-zero global-var-ref count,
+        // so they use their own snapshot shape.
+        let globals: &[(&str, u8)] = &[
+            ("get_var", op::OP_get_var),
+            ("get_var_undef", op::OP_get_var_undef),
+        ];
+        for (name, code) in globals {
+            compile_bytes_gv(seq(&[&loc(*code, 0), &ret]), 0, 0, 1)
+                .unwrap_or_else(|e| panic!("opcode {name} failed to lower: {e:?}"));
+        }
+        for (name, code) in [
+            ("put_var", op::OP_put_var),
+            ("put_var_init", op::OP_put_var_init),
+        ] {
+            compile_bytes_gv(
+                seq(&[&push_i32(0), &loc(code, 0), &[op::OP_return_undef]]),
+                0,
+                0,
+                1,
+            )
+            .unwrap_or_else(|e| panic!("opcode {name} failed to lower: {e:?}"));
         }
     }
 
