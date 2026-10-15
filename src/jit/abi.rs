@@ -91,6 +91,45 @@ pub(crate) struct JitExecFrame {
 /// The compiled entry. Returns a [`JitExitKind`] as a `u32`.
 pub(crate) type NativeEntry = unsafe extern "C" fn(*mut JitExecFrame) -> u32;
 
+/// Per-function storage for the installed native entry, living on
+/// `BytecodeImpl`. Null until a compile installs one. The field is atomic only
+/// because the slot is written through `&Bytecode` (interior mutability); all
+/// access happens on the single runtime thread.
+#[repr(transparent)]
+pub(crate) struct FunctionSlot {
+    entry: std::sync::atomic::AtomicPtr<()>,
+}
+
+impl Default for FunctionSlot {
+    fn default() -> Self {
+        Self {
+            entry: std::sync::atomic::AtomicPtr::new(std::ptr::null_mut()),
+        }
+    }
+}
+
+impl FunctionSlot {
+    /// The installed entry, or `None` while the function is interpreted.
+    #[inline]
+    pub(crate) fn entry(&self) -> Option<NativeEntry> {
+        use std::sync::atomic::Ordering;
+        let raw = self.entry.load(Ordering::Acquire);
+        if raw.is_null() {
+            None
+        } else {
+            // SAFETY: the pointer was produced by `install` from a `NativeEntry`.
+            Some(unsafe { std::mem::transmute::<*mut (), NativeEntry>(raw) })
+        }
+    }
+
+    /// Publish `entry`. Callers must have already made the backing code
+    /// executable. (A tier tag arrives with Tier 2.)
+    pub(crate) fn install(&self, entry: NativeEntry) {
+        self.entry
+            .store(entry as *mut (), std::sync::atomic::Ordering::Release);
+    }
+}
+
 #[inline]
 unsafe fn scope_of<'a>(f: &JitExecFrame) -> &'a mut ScopedContext<'static> {
     unsafe { &mut *(f.scope as *mut ScopedContext<'static>) }
@@ -372,8 +411,13 @@ unsafe fn local_unary(f: *mut JitExecFrame, inc: bool) -> u32 {
         let f = &mut *f;
         let scope = scope_of(f);
         let slot = f.var_base.add(f.imm as usize);
-        let result = UnaryOp::new(scope, *slot, true)
-            .and_then(|unary| if inc { unary.inc(scope) } else { unary.dec(scope) });
+        let result = UnaryOp::new(scope, *slot, true).and_then(|unary| {
+            if inc {
+                unary.inc(scope)
+            } else {
+                unary.dec(scope)
+            }
+        });
         match result {
             Ok(value) => {
                 *slot = value;

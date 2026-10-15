@@ -183,6 +183,13 @@ impl RuntimeImpl {
             // kept alive by any GC object, so it must be traced here directly.
             self.eval_base_url.trace(&mut gcx);
 
+            // Keep functions pinned by an in-flight JIT compile alive until the
+            // result is installed into their `jit` slot (see `jit::JitState`).
+            #[cfg(feature = "jit")]
+            if let Some(jit) = self.jit.as_deref() {
+                jit.trace(&mut gcx);
+            }
+
             // NOTE: Atom registry is NOT responsible for keeping atom
             // descriptor strings alive. Atom descriptors are traced through
             // objects that reference them (BytecodeImpl via ATOM opcodes,

@@ -207,6 +207,13 @@ pub struct BytecodeImpl {
     ///    correctly.
     #[cfg(feature = "inline_cache")]
     pub(crate) inline_cache: UnsafeCell<Box<[InlineCacheEntry]>>,
+
+    /// JIT state for this function (feature `jit`): the installed native-entry
+    /// slot. Interior-mutable because the interpreter reaches it through
+    /// `&Bytecode`. Deliberately **not** visited by `GcTrace`: it holds no GC
+    /// reference, and tracing it would keep a stale entry alive.
+    #[cfg(feature = "jit")]
+    pub(crate) jit: crate::jit::FunctionSlot,
 }
 
 impl GcTrace for BytecodeImpl {
@@ -299,6 +306,9 @@ impl BytecodeImpl {
 
             #[cfg(feature = "inline_cache")]
             inline_cache: UnsafeCell::new(Box::new([])),
+
+            #[cfg(feature = "jit")]
+            jit: crate::jit::FunctionSlot::default(),
         }
     }
 
@@ -328,6 +338,14 @@ impl BytecodeImpl {
     #[inline(always)]
     pub(crate) const fn gc_scope_kind(&self) -> GcScopeKind {
         self.attrs.gc_scope_kind
+    }
+
+    /// This function's native-entry slot, for the JIT to read and install
+    /// through. Stable because the GC never moves nodes.
+    #[cfg(feature = "jit")]
+    #[inline(always)]
+    pub(crate) fn jit_slot(&self) -> &crate::jit::FunctionSlot {
+        &self.jit
     }
 
     #[inline(always)]

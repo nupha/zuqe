@@ -469,6 +469,9 @@ impl Bytecode {
 
             #[cfg(feature = "inline_cache")]
             inline_cache: UnsafeCell::new(Box::new([])),
+
+            #[cfg(feature = "jit")]
+            jit: crate::jit::FunctionSlot::default(),
         };
 
         // Re-create the global lexical bindings referenced by this bytecode using

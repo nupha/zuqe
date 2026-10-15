@@ -8,28 +8,31 @@
 //! to it. This module owns the host-facing handle, the per-runtime state hung
 //! off `RuntimeImpl`, and the interpreter hook entry points.
 //!
-//! The frontend (`bytecode` + `snapshot`) is in place: a hot function is copied
-//! into a pointer-free snapshot and either verified or rejected fail-closed.
-//! Verified functions are compiled to machine code by the baseline lowering in
-//! `compiler` and installed here synchronously (the background worker is epic D).
+//! A hot function is queued by the `runtime::Coordinator`, verified, compiled
+//! by the baseline lowering in `compiler`, and published into the function's
+//! `jit` slot. Verification and codegen run inline in [`Jit::poll`]; the
+//! background worker (epic D3) is a documented deviation for now.
 
 mod abi;
 mod bytecode;
+mod code_cache;
 mod compiler;
 mod config;
 mod error;
 mod metrics;
 mod platform;
 mod policy;
+mod runtime;
 mod snapshot;
 
 use std::{
     cell::{Cell, RefCell},
-    collections::{HashMap, VecDeque},
     sync::Arc,
+    time::Instant,
 };
 
 use cranelift_codegen::isa::TargetIsa;
+use gc_lite::GcTraceCtx;
 
 use crate::{
     JSValue,
@@ -37,25 +40,17 @@ use crate::{
     runtime::{Runtime, RuntimeImpl},
 };
 
-use abi::{HELPERS, JitExecFrame, NativeEntry};
+use abi::{HELPERS, JitExecFrame};
 use bytecode::{VerifyLimits, verify};
-use platform::CodeMem;
+use code_cache::CodeCache;
+use runtime::{CompileOutcome, Coordinator};
 use snapshot::CompileSnapshot;
 
 pub use config::{JitConfig, JitConfigBuilder, JitTierPolicy};
 pub use error::JitError;
 pub use metrics::JitMetrics;
 
-pub(crate) use abi::JitExitKind;
-
-/// Per-function hotness. Replaced by the real state machine in epic D.
-#[derive(Default)]
-struct HotEntry {
-    calls: u32,
-    backedges: u32,
-    /// A compile request is already queued for this function.
-    queued: bool,
-}
+pub(crate) use abi::{FunctionSlot, JitExitKind};
 
 /// State hung off `RuntimeImpl` while a JIT is attached. Single-threaded: the
 /// runtime and its interpreter run on one thread, so `Cell`/`RefCell` suffice.
@@ -63,16 +58,11 @@ pub(crate) struct JitState {
     cfg: JitConfig,
     isa: Arc<dyn TargetIsa>,
     metrics: Cell<JitMetrics>,
-    hot: RefCell<HashMap<u64, HotEntry>>,
-    /// Snapshots captured when a function crossed a hotness threshold, waiting
-    /// to be verified by the next `poll`. Owned and pointer-free, so the worker
-    /// (epic D) can take them straight off this queue.
-    pending: RefCell<VecDeque<CompileSnapshot>>,
+    /// Hotness bookkeeping, the compile queue and per-function lifecycle.
+    coordinator: RefCell<Coordinator>,
+    /// Published code, bounded by `cfg.max_code_bytes`.
+    cache: RefCell<CodeCache>,
     limits: VerifyLimits,
-    /// Installed native entries, keyed by function id.
-    entries: RefCell<HashMap<u64, NativeEntry>>,
-    /// Owns the executable mappings so entries stay valid for the JIT's life.
-    code: RefCell<Vec<CodeMem>>,
 }
 
 impl JitState {
@@ -83,15 +73,20 @@ impl JitState {
             max_snapshot_bytes: cfg.max_code_bytes.max(cfg.max_metadata_bytes),
             ..VerifyLimits::default()
         };
+        let coordinator = Coordinator::new(
+            cfg.call_threshold,
+            cfg.loop_threshold,
+            cfg.max_queue_len,
+            cfg.max_compile_attempts,
+            cfg.compile_timeout_ms,
+        );
         Ok(Self {
+            cache: RefCell::new(CodeCache::new(cfg.max_code_bytes)),
             cfg,
             isa,
             metrics: Cell::new(JitMetrics::default()),
-            hot: RefCell::new(HashMap::new()),
-            pending: RefCell::new(VecDeque::new()),
+            coordinator: RefCell::new(coordinator),
             limits,
-            entries: RefCell::new(HashMap::new()),
-            code: RefCell::new(Vec::new()),
         })
     }
 
@@ -111,27 +106,15 @@ impl JitState {
         if self.disabled() {
             return;
         }
-        let id = bc.gc_node_ptr().as_ptr() as u64;
-        let should_queue = {
-            let mut hot = self.hot.borrow_mut();
-            let first = !hot.contains_key(&id);
-            let e = hot.entry(id).or_default();
-            e.calls = e.calls.saturating_add(1);
-            let q = !e.queued && e.calls >= self.cfg.call_threshold;
-            if q {
-                e.queued = true;
-            }
-            (first, q)
-        };
-        let m = self.metrics.get();
-        self.metrics.set(JitMetrics {
-            function_entries: m.function_entries + 1,
-            distinct_functions: m.distinct_functions + should_queue.0 as u64,
-            ..m
-        });
-        if should_queue.1 {
-            self.enqueue(id, bc);
+        let id = function_id(bc);
+        let mut m = self.metrics.get();
+        m.function_entries = m.function_entries.saturating_add(1);
+        let mut coordinator = self.coordinator.borrow_mut();
+        if coordinator.record_call(&mut m, id, bc.opcodes()) {
+            coordinator.enqueue(&mut m, id, Some(*bc));
         }
+        drop(coordinator);
+        self.metrics.set(m);
     }
 
     fn note_backedge(&self, bc: &Bytecode, pc: usize) {
@@ -139,110 +122,83 @@ impl JitState {
         if self.disabled() {
             return;
         }
-        let id = bc.gc_node_ptr().as_ptr() as u64;
-        let m = self.metrics.get();
-        self.metrics.set(JitMetrics {
-            backedges: m.backedges + 1,
-            ..m
-        });
-        let should_queue = {
-            let mut hot = self.hot.borrow_mut();
-            let e = hot.entry(id).or_default();
-            e.backedges = e.backedges.saturating_add(1);
-            let q = !e.queued && e.backedges >= self.cfg.loop_threshold;
-            if q {
-                e.queued = true;
-            }
-            q
-        };
-        if should_queue {
-            self.enqueue(id, bc);
+        let id = function_id(bc);
+        let mut m = self.metrics.get();
+        m.backedges = m.backedges.saturating_add(1);
+        let mut coordinator = self.coordinator.borrow_mut();
+        if coordinator.record_loop(&mut m, id, bc.opcodes()) {
+            coordinator.enqueue(&mut m, id, Some(*bc));
         }
+        drop(coordinator);
+        self.metrics.set(m);
     }
 
-    /// Capture a pointer-free snapshot for the verifier. The bytecode copy is
-    /// the one place the hook allocates; it happens once per function.
-    fn enqueue(&self, id: u64, bc: &Bytecode) {
-        let mut pending = self.pending.borrow_mut();
-        let m = self.metrics.get();
-        if pending.len() >= self.cfg.max_queue_len {
-            self.metrics.set(JitMetrics {
-                queue_drops: m.queue_drops + 1,
-                ..m
-            });
-            return;
-        }
-        pending.push_back(CompileSnapshot::from_bytecode(id, bc));
-        self.metrics.set(JitMetrics {
-            functions_queued: m.functions_queued + 1,
-            queue_len: pending.len() as u64,
-            ..m
-        });
-    }
-
-    /// Verify every queued snapshot, then compile and install the ones that
-    /// pass. The background worker (epic D) will take over compilation; for now
-    /// this runs on the polling thread.
+    /// Verify, compile and install every queued function. Runs on the polling
+    /// thread, outside `with_new_scope`. A failed attempt is retried in the
+    /// same poll until it installs, is rejected, or runs out of attempts, so
+    /// the queue is always drained when this returns.
     fn poll(&self) {
-        let prepared = {
-            let mut pending = self.pending.borrow_mut();
-            let mut accepted = 0u64;
-            let mut rejected = 0u64;
-            let mut compiled = 0u64;
-            let mut code_bytes = 0u64;
-            while let Some(snapshot) = pending.pop_front() {
-                match verify(snapshot, self.limits) {
-                    Ok(verified) => {
-                        accepted += 1;
-                        if let Some(entry) = self.compile_and_install(&verified) {
-                            compiled += 1;
-                            let _ = entry;
-                        }
-                    }
-                    Err(_error) => rejected += 1,
-                }
-            }
-            code_bytes += self.code_bytes();
-            (accepted, rejected, compiled, code_bytes)
-        };
-        let m = self.metrics.get();
-        self.metrics.set(JitMetrics {
-            polls: m.polls + 1,
-            functions_verified: m.functions_verified + prepared.0,
-            functions_rejected: m.functions_rejected + prepared.1,
-            functions_compiled: m.functions_compiled + prepared.2,
-            code_bytes: prepared.3,
-            queue_len: self.pending.borrow().len() as u64,
-            ..m
-        });
+        let mut m = self.metrics.get();
+        let timeout = self.coordinator.borrow().timeout();
+
+        loop {
+            let Some(request) = self.coordinator.borrow_mut().begin_next() else {
+                break;
+            };
+            let started = Instant::now();
+            let outcome = match self.run_pipeline(&request) {
+                CompileOutcome::Failed if started.elapsed() > timeout => CompileOutcome::TimedOut,
+                other => other,
+            };
+            self.coordinator
+                .borrow_mut()
+                .complete(&mut m, request.function_id, outcome);
+        }
+
+        m.polls = m.polls.saturating_add(1);
+        m.queue_len = self.coordinator.borrow().queue_len() as u64;
+        m.code_bytes = self.cache.borrow().used_bytes();
+        self.metrics.set(m);
         if let Some(observe) = &self.cfg.metrics_observer {
             observe(&self.metrics.get());
         }
     }
 
-    fn code_bytes(&self) -> u64 {
-        self.code.borrow().iter().map(|mem| mem.len() as u64).sum()
+    /// One attempt: verify → compile → publish. Never panics; any failure just
+    /// leaves the function interpreted.
+    fn run_pipeline(&self, request: &runtime::Request) -> CompileOutcome {
+        let snapshot = CompileSnapshot::from_bytecode(request.function_id, &request.bytecode);
+        let Ok(verified) = verify(snapshot, self.limits) else {
+            return CompileOutcome::Rejected;
+        };
+        // A function whose entry opcode the baseline cannot lower fails the
+        // same way every attempt; settle it fail-closed instead of retrying.
+        if !compiler::entry_is_translatable(&verified) {
+            return CompileOutcome::Rejected;
+        }
+        let Ok(bytes) = compiler::compile(&verified, self.isa.as_ref()) else {
+            return CompileOutcome::Failed;
+        };
+        let mut cache = self.cache.borrow_mut();
+        if runtime::publish(&mut cache, request.function_id, &request.bytecode, &bytes) {
+            CompileOutcome::Installed
+        } else {
+            CompileOutcome::Failed
+        }
     }
 
-    /// Lower, publish and install one verified function. Returns the entry on
-    /// success; a compilation failure simply leaves the function interpreted.
-    fn compile_and_install(&self, verified: &bytecode::VerifiedFunction) -> Option<NativeEntry> {
-        let bytes = match compiler::compile(verified, self.isa.as_ref()) {
-            Ok(bytes) => bytes,
-            Err(_) => return None,
-        };
-        let mem = CodeMem::alloc(bytes.len()).ok()?;
-        mem.write(&bytes).ok()?;
-        mem.make_executable().ok()?;
-        // SAFETY: `mem` is executable and lives in `self.code` for as long as
-        // the JIT does; `entry` is a plain function pointer.
-        let entry: NativeEntry = unsafe { std::mem::transmute(mem.entry()) };
-        self.code.borrow_mut().push(mem);
-        self.entries
-            .borrow_mut()
-            .insert(verified.snapshot().function_id, entry);
-        Some(entry)
+    /// Trace the functions held for an in-flight compile so the GC cannot free
+    /// their bytecode (and its `jit` slot) before the result is installed.
+    pub(crate) fn trace(&self, gcx: &mut GcTraceCtx) {
+        self.coordinator.borrow().trace_pinned(gcx);
     }
+}
+
+/// Stable identity of a bytecode function: the GC node address. The GC never
+/// moves nodes, so it is valid for the runtime's lifetime.
+#[inline]
+fn function_id(bc: &Bytecode) -> u64 {
+    bc.gc_node_ptr().as_ptr() as u64
 }
 
 /// Build the Cranelift target for the host machine (cached once per runtime).
@@ -270,7 +226,8 @@ impl Jit {
     }
 
     /// Drive the coordinator. Call only from outside `with_new_scope`: it may
-    /// run host callbacks and touch the runtime.
+    /// run host callbacks and touch the runtime. Verifies and compiles every
+    /// queued function.
     pub fn poll(&self) {
         if let Some(state) = self.rt.jit() {
             state.poll();
@@ -292,9 +249,7 @@ impl Jit {
 
 // ── Interpreter hooks (no-ops unless a JIT is attached) ──
 
-/// Called on entry to a bytecode function. The function id is derived from the
-/// node address, stable for the runtime's lifetime because the GC never moves
-/// nodes.
+/// Called on entry to a bytecode function.
 #[inline]
 pub(crate) fn note_enter(rt: &RuntimeImpl, bc: &Bytecode) {
     if let Some(state) = rt.jit.as_deref() {
@@ -335,8 +290,7 @@ pub(crate) fn invoke_native(
     this: JSValue,
 ) -> Option<(JitExitKind, JitExecFrame)> {
     let state = rt.jit.as_deref()?;
-    let id = bc.gc_node_ptr().as_ptr() as u64;
-    let entry = *state.entries.borrow().get(&id)?;
+    let entry = bc.jit_slot().entry()?;
     let mut frame = JitExecFrame {
         scope,
         arg_base,
@@ -354,11 +308,12 @@ pub(crate) fn invoke_native(
         out_sp: 0,
     };
     // SAFETY: `entry` was produced by `compile` for this exact bytecode layout
-    // and ABI; the frame outlives the call.
+    // and ABI, and the slot is only populated while the code cache keeps the
+    // mapping alive; the frame outlives the call.
     let raw = unsafe { entry(&mut frame) };
     let m = state.metrics.get();
     state.metrics.set(JitMetrics {
-        native_entries: m.native_entries + 1,
+        native_entries: m.native_entries.saturating_add(1),
         ..m
     });
     Some((JitExitKind::from_raw(raw), frame))
@@ -465,5 +420,123 @@ mod tests {
         );
         assert!(m.functions_verified > 0, "nothing verified");
         assert_eq!(m.queue_len, 0, "poll drained the queue");
+    }
+
+    /// A function waiting to compile must be handed to the GC root scan, or it
+    /// could be freed (and its `jit` slot with it) before `poll` installs the
+    /// result. This asserts the trace itself, deterministically.
+    #[test]
+    fn queued_functions_are_traced_as_gc_roots() {
+        use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let jit = Jit::attach(
+            &rt,
+            JitConfig::builder()
+                .call_threshold(1)
+                .loop_threshold(1)
+                .build(),
+        )
+        .unwrap();
+
+        ctx.eval(
+            b"function f(a){ return a + 1; } f(1);",
+            &EvalName::Name("jit-pin.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap();
+        assert!(jit.metrics().functions_queued > 0, "nothing queued");
+
+        let mut gcx = ctx.gc_heap().create_trace_ctx(64);
+        rt.jit().unwrap().trace(&mut gcx);
+        assert!(
+            !gcx.take_nodes().is_empty(),
+            "a queued function was not traced as a GC root"
+        );
+    }
+
+    /// End-to-end version of the same guarantee: collect *between* enqueue and
+    /// poll. Without the pin the function's bytecode (and slot) could be gone
+    /// by the time `poll` compiles; with it, poll still installs a valid entry.
+    #[test]
+    fn gc_between_enqueue_and_poll_still_installs() {
+        use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let jit = Jit::attach(
+            &rt,
+            JitConfig::builder()
+                .call_threshold(1)
+                .loop_threshold(1)
+                .build(),
+        )
+        .unwrap();
+
+        // The inner function becomes hot, then the IIFE returns and drops the
+        // only reference to it.
+        ctx.eval(
+            b"(function(){ function f(a){ return a + 1; } return f(1); })();",
+            &EvalName::Name("jit-pin-gc.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap();
+        let queued = jit.metrics().functions_queued;
+        assert!(queued > 0, "nothing queued");
+
+        ctx.with_root_scope(|mut cx| cx.rt_mut().gc_collect());
+
+        jit.poll();
+        let m = jit.metrics();
+        assert_eq!(m.queue_len, 0, "poll drained the queue");
+        assert!(
+            m.functions_compiled > 0,
+            "nothing compiled from the pinned snapshot (queued={queued})"
+        );
+    }
+
+    /// The code cache is a hard quota: when a publish does not fit, the attempt
+    /// fails, is retried, and finally settles the function in the interpreter.
+    #[test]
+    fn code_cache_quota_refuses_then_settles_after_retries() {
+        use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        // One byte of code budget: every publish is refused.
+        let jit = Jit::attach(
+            &rt,
+            JitConfig::builder()
+                .call_threshold(1)
+                .loop_threshold(1)
+                .max_code_bytes(1)
+                .build(),
+        )
+        .unwrap();
+
+        ctx.eval(
+            b"function f(a){ return a + 1; } f(1);",
+            &EvalName::Name("jit-quota.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap();
+
+        jit.poll();
+        let m = jit.metrics();
+        assert_eq!(m.queue_len, 0, "poll drained the queue");
+        assert_eq!(m.functions_compiled, 0, "nothing fits the quota");
+        assert!(m.compile_failures > 0, "the refused publish was recorded");
+        assert!(m.functions_retried > 0, "the attempt was retried first");
+        assert!(m.functions_settled > 0, "out of attempts -> settled");
     }
 }

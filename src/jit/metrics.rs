@@ -25,14 +25,21 @@ pub struct JitMetrics {
     pub functions_rejected: u64,
     /// Functions that passed frontend verification.
     pub functions_verified: u64,
-    /// Functions successfully compiled. Reserved for later epics.
+    /// Functions successfully compiled and installed.
     pub functions_compiled: u64,
     /// Times a compiled entry was invoked.
     pub native_entries: u64,
-    /// Compilation attempts that failed. Reserved for later epics.
+    /// Compilation attempts that failed (codegen or code-cache quota).
     pub compile_failures: u64,
+    /// Compilation attempts abandoned because they exceeded the time budget.
+    pub compile_timeouts: u64,
+    /// Functions requeued after a failed attempt.
+    pub functions_retried: u64,
+    /// Functions permanently parked in the interpreter: rejected, or out of
+    /// compile attempts.
+    pub functions_settled: u64,
     /// Deoptimizations back to the interpreter. Reserved for later epics.
     pub deopts: u64,
-    /// Machine code bytes published. Reserved for later epics.
+    /// Machine code bytes currently published.
     pub code_bytes: u64,
 }

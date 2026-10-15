@@ -283,6 +283,16 @@ fn safepoint(
     cont
 }
 
+/// Whether the baseline can translate `verified`'s first opcode. When false,
+/// [`compile`] refuses deterministically, so callers should settle the function
+/// fail-closed rather than retry.
+pub(crate) fn entry_is_translatable(verified: &VerifiedFunction) -> bool {
+    verified
+        .instructions()
+        .first()
+        .is_some_and(|instruction| supported(instruction.name()))
+}
+
 /// Compile one verified function. Returns code bytes for the caller to publish.
 pub(crate) fn compile(
     verified: &VerifiedFunction,
