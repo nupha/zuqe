@@ -396,6 +396,60 @@ impl Bytecode {
             }
         }
 
+        // ── JIT native entry ──
+        // Only at the function entry, with no pending exception. The native
+        // code runs the frame in place; on `Resume`/`Exception` we rewind
+        // `pc`/`sp` to the offsets it reports and fall through to the
+        // interpreter loop (or the exception handler).
+        #[cfg(feature = "jit")]
+        let mut jit_initial_action: Option<ExecAction> = None;
+        #[cfg(feature = "jit")]
+        let jit_scope_ptr = realm_scope as *mut ScopedContext as *mut u8;
+        #[cfg(feature = "jit")]
+        if !throwed && pc_offset == 0 {
+            let cur_sp_offset_ptr: *mut i32 =
+                unsafe { &mut (*arena_ptr).frame_mut(cur_frame_idx).cur_sp_offset };
+            if let Some((kind, jf)) = crate::jit::invoke_native(
+                &rt,
+                self,
+                jit_scope_ptr,
+                arg_base_ptr,
+                var_base_ptr,
+                sp_base,
+                cur_sp_offset_ptr,
+                this_obj,
+            ) {
+                match kind {
+                    crate::jit::JitExitKind::Done => {
+                        save_sp!(jf.out_sp);
+                        save_pc!(jf.out_pc as usize);
+                        return ExecAction::Return(jf.out_value, false);
+                    }
+                    crate::jit::JitExitKind::Interrupt | crate::jit::JitExitKind::Unwind => {
+                        return ExecAction::Unwind;
+                    }
+                    crate::jit::JitExitKind::Exception => {
+                        save_sp!(jf.out_sp);
+                        pc = unsafe { pc_base.add(jf.out_pc as usize) };
+                        sp = unsafe { sp_base.add(jf.out_sp as usize) };
+                        jit_initial_action = Some(ExecAction::Exception);
+                    }
+                    crate::jit::JitExitKind::Resume | crate::jit::JitExitKind::Retry => {
+                        save_sp!(jf.out_sp);
+                        pc = unsafe { pc_base.add(jf.out_pc as usize) };
+                        sp = unsafe { sp_base.add(jf.out_sp as usize) };
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // The native code (and its helpers) reborrowed the context through a
+        // raw pointer, so the original `&mut` is stale under Stacked Borrows.
+        // Re-derive it once before entering the interpreter loop.
+        #[cfg(feature = "jit")]
+        let realm_scope = unsafe { &mut *(jit_scope_ptr as *mut ScopedContext) };
+
         // ── Stack access macros ──
         // These work with raw pointers and re-derived frame-header access,
         // identical to the legacy versions but using save_sp!/save_pc!.
@@ -552,12 +606,10 @@ impl Bytecode {
     }
 
         // ── JIT hooks ──
-        // `function_id` identifies this bytecode; the GC never moves nodes, so
-        // it is stable for the runtime's lifetime.
+        // The hook derives its own function id from `self` (the node address),
+        // stable for the runtime's lifetime.
         #[cfg(feature = "jit")]
-        let jit_function_id = self.gc_node_ptr().as_ptr() as u64;
-        #[cfg(feature = "jit")]
-        crate::jit::note_enter(&rt, jit_function_id);
+        crate::jit::note_enter(&rt, self);
 
         // ── Opcode dispatch loop ──
         // The outer 'arena_loop handles exception catch re-entry.
@@ -565,6 +617,12 @@ impl Bytecode {
         // Exception tries local catch and re-enters via continue 'arena_loop.
         'arena_loop: loop {
             let action: ExecAction = loop {
+                // A native run that ended with an exception resumes here so the
+                // normal catch scan below runs for this frame.
+                #[cfg(feature = "jit")]
+                if let Some(initial) = jit_initial_action.take() {
+                    break initial;
+                }
                 let opcode = unsafe { std::mem::transmute::<u8, OpCode>(PC_FETCH!(u8)) };
 
                 match opcode {
@@ -2293,7 +2351,7 @@ impl Bytecode {
                         // Negative offset = loop back edge.
                         #[cfg(feature = "jit")]
                         if n < 0 {
-                            crate::jit::note_backedge(&rt, jit_function_id, unsafe {
+                            crate::jit::note_backedge(&rt, self, unsafe {
                                 pc.offset_from(pc_base) as usize
                             });
                         }
@@ -2326,7 +2384,7 @@ impl Bytecode {
                             // Taken backward branch = loop back edge.
                             #[cfg(feature = "jit")]
                             if off < 0 {
-                                crate::jit::note_backedge(&rt, jit_function_id, unsafe {
+                                crate::jit::note_backedge(&rt, self, unsafe {
                                     pc.offset_from(pc_base) as usize
                                 });
                             }

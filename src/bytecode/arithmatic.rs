@@ -232,7 +232,7 @@ impl TwoNumbers {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub(super) enum UnaryOp {
+pub(crate) enum UnaryOp {
     Int(i32),
     Float(f64),
     #[cfg(feature = "big_int")]
@@ -370,7 +370,7 @@ impl UnaryOp {
 }
 
 #[inline]
-pub(super) fn op_binary_logic(
+pub(crate) fn op_binary_logic(
     ctx: &mut ScopedContext,
     opcode: OpCode,
     sp: *mut JSValue,

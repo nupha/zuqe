@@ -817,6 +817,17 @@ pub fn gen_jit_policy(outfile: &Path) {
     for op in &common {
         out.push_str(&format!("    JitPolicy::{:?},\n", jit_policy_of(op.id)));
     }
+    out.push_str("];\n\n");
+
+    // The final `Opcode` metadata only carries a name under `dump_bytecode`;
+    // the frontend matches on names, so emit its own table here.
+    out.push_str(&format!(
+        "/// opcode name, indexed by the final opcode id.\n#[allow(dead_code)]\npub(crate) const JS_JIT_OPCODE_NAMES: [&str; {}] = [\n",
+        common.len()
+    ));
+    for op in &common {
+        out.push_str(&format!("    {:?},\n", op.id));
+    }
     out.push_str("];\n");
 
     std::fs::write(outfile, out).unwrap();

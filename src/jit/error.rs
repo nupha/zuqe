@@ -14,6 +14,8 @@ pub enum JitError {
     UnsupportedTarget(&'static str),
     /// Cranelift rejected the target configuration.
     Cranelift(String),
+    /// The host platform refused an operating-system call (mmap, mprotect, …).
+    Platform(String),
 }
 
 impl fmt::Display for JitError {
@@ -22,6 +24,7 @@ impl fmt::Display for JitError {
             Self::AlreadyAttached => write!(f, "runtime already has a JIT attached"),
             Self::UnsupportedTarget(e) => write!(f, "no Cranelift backend for this target: {e}"),
             Self::Cranelift(e) => write!(f, "cranelift: {e}"),
+            Self::Platform(e) => write!(f, "platform: {e}"),
         }
     }
 }

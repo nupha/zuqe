@@ -20,10 +20,15 @@ pub struct JitMetrics {
     pub queue_len: u64,
     /// Calls to `Jit::poll`.
     pub polls: u64,
-    /// Functions the compiler rejected (fail-closed). Reserved for later epics.
+    /// Functions the frontend rejected (fail-closed): they stay in the
+    /// interpreter forever.
     pub functions_rejected: u64,
+    /// Functions that passed frontend verification.
+    pub functions_verified: u64,
     /// Functions successfully compiled. Reserved for later epics.
     pub functions_compiled: u64,
+    /// Times a compiled entry was invoked.
+    pub native_entries: u64,
     /// Compilation attempts that failed. Reserved for later epics.
     pub compile_failures: u64,
     /// Deoptimizations back to the interpreter. Reserved for later epics.
