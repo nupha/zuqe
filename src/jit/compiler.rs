@@ -34,7 +34,7 @@ use cranelift_codegen::{
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 
-use crate::vm_stack::ExecMode;
+use crate::{jit::snapshot::ConstMeta, vm_stack::ExecMode};
 
 use super::{
     abi::{
@@ -282,6 +282,8 @@ struct State<'a> {
     /// Register copies of local/argument slots (epic F4: fewer loads in a
     /// block). Cleared at every block entry — see [`LocalCache`].
     locals: LocalCache,
+    /// The pool's constant tags, for the `Int`-constant guard fact.
+    const_meta: &'a [ConstMeta],
     /// Proven entry stack height per block start pc. An edge's `sp` equals it,
     /// so it addresses the frame fallback loads even when the model's own
     /// height is stale (a helper-terminated block never re-anchors).
@@ -412,10 +414,30 @@ const MAPPED_ARGUMENTS: u8 = 1;
 /// the incoming edge passes them on instead of storing them (the flush points
 /// above still apply — a carried value is flushed like any other before the
 /// frame is observable).
+/// One register-resident operand-stack slot.
+struct CachedSlot {
+    value: Value,
+    /// Statically known to be `Int` (tag 0). Only ever set for values the
+    /// compiler itself produced — a `push_i32`, an `Int` constant from the pool
+    /// — so it needs no runtime check to be sound. It dies with the entry, which
+    /// is what keeps it conservative: anything that flushes the cache (a helper
+    /// call, an exit, a branch) drops the fact with the value.
+    known_int: bool,
+}
+
+impl CachedSlot {
+    const fn unknown(value: Value) -> Self {
+        Self {
+            value,
+            known_int: false,
+        }
+    }
+}
+
 #[derive(Default)]
 struct StackCache {
     height: u32,
-    entries: HashMap<u32, Value>,
+    entries: HashMap<u32, CachedSlot>,
     /// Reused scratch for flush ordering: a flush runs before every helper
     /// call, so it must not allocate.
     scratch: Vec<u32>,
@@ -443,10 +465,32 @@ impl StackCache {
     /// Keep `v` in a register instead of storing it; the store happens at the
     /// next flush, or never if the slot dies first (DCE).
     fn push(&mut self, b: &mut FunctionBuilder, sp: Value, v: Value) -> Value {
+        self.push_slot(b, sp, CachedSlot::unknown(v))
+    }
+
+    /// [`Self::push`] for a value the compiler produced as an `Int` (a literal
+    /// or an `Int` constant), which then needs no tag check.
+    fn push_int(&mut self, b: &mut FunctionBuilder, sp: Value, v: Value) -> Value {
+        self.push_slot(
+            b,
+            sp,
+            CachedSlot {
+                value: v,
+                known_int: true,
+            },
+        )
+    }
+
+    fn push_slot(&mut self, b: &mut FunctionBuilder, sp: Value, slot: CachedSlot) -> Value {
         self.height = self.height.saturating_add(1);
         self.tracked = true;
-        self.entries.insert(self.height, v);
+        self.entries.insert(self.height, slot);
         b.ins().iadd_imm(sp, 8)
+    }
+
+    /// Is slot `k` statically an `Int`? A miss (already in memory) is unknown.
+    fn known_int(&self, k: u32) -> bool {
+        self.entries.get(&k).is_some_and(|slot| slot.known_int)
     }
 
     /// Pop the top slot: reuse the register-resident value when there is one,
@@ -457,7 +501,7 @@ impl StackCache {
         self.height = self.height.saturating_sub(1);
         self.tracked = true;
         match self.entries.remove(&k) {
-            Some(v) => (b.ins().iadd_imm(sp, -8), v),
+            Some(slot) => (b.ins().iadd_imm(sp, -8), slot.value),
             None => {
                 let sp = b.ins().iadd_imm(sp, -8);
                 let v = b.ins().load(types::I64, MemFlags::new(), sp, 0);
@@ -469,7 +513,7 @@ impl StackCache {
     /// Read slot `k` without consuming it.
     fn read(&self, b: &mut FunctionBuilder, sp: Value, k: u32) -> Value {
         match self.entries.get(&k) {
-            Some(&v) => v,
+            Some(slot) => slot.value,
             None => b.ins().load(
                 types::I64,
                 MemFlags::new(),
@@ -530,11 +574,15 @@ impl StackCache {
         self.scratch.sort_unstable();
         let height = self.height;
         for &k in &self.scratch {
-            let Some(&v) = self.entries.get(&k) else {
+            let Some(slot) = self.entries.get(&k) else {
                 continue;
             };
-            b.ins()
-                .store(MemFlags::new(), v, sp, Self::slot_offset(height, k));
+            b.ins().store(
+                MemFlags::new(),
+                slot.value,
+                sp,
+                Self::slot_offset(height, k),
+            );
             self.entries.remove(&k);
         }
         self.scratch.clear();
@@ -624,7 +672,7 @@ impl<'a> State<'a> {
             let mut args = Vec::with_capacity(self.carried_for(pc).len());
             for &k in self.carried_for(pc) {
                 let value = match self.stack.entries.get(&k) {
-                    Some(&v) => v,
+                    Some(slot) => slot.value,
                     None => b.ins().load(
                         types::I64,
                         MemFlags::new(),
@@ -1111,6 +1159,7 @@ fn lower(
         carried,
         entry_heights,
         locals: LocalCache::new(locals_cacheable, args_cacheable),
+        const_meta: &verified.snapshot().const_meta,
     };
     let entry_block = state.block_for(b, 0);
     if osr_pcs.is_empty() {
@@ -1142,7 +1191,7 @@ fn lower(
         let params = b.block_params(cranelift_block);
         debug_assert_eq!(params.len(), carried.len(), "block {start_pc} parameters");
         for (&k, &v) in carried.iter().zip(params) {
-            state.stack.entries.insert(k, v);
+            state.stack.entries.insert(k, CachedSlot::unknown(v));
         }
         let mut sp = b.use_var(sp_var);
         let mut stopped = false;
@@ -1358,15 +1407,22 @@ fn lower_insn(
     match name {
         "nop" => Step::Continue(sp),
         "push_i32" => {
+            // The literal is an `Int` by construction: no tag check needed
+            // wherever it is consumed (epic F4's guard elimination).
             let v = b.ins().iconst(types::I64, i64::from(insn.operand_u32(1)));
-            Step::Continue(state.stack.push(b, sp, v))
+            Step::Continue(state.stack.push_int(b, sp, v))
         }
         "push_const" => {
-            let idx = insn.operand_u32(1) as i32;
+            let idx = insn.operand_u32(1) as usize;
             let v = b
                 .ins()
-                .load(types::I64, MemFlags::new(), fv.cpools, idx * 8);
-            Step::Continue(state.stack.push(b, sp, v))
+                .load(types::I64, MemFlags::new(), fv.cpools, (idx * 8) as i32);
+            let is_int = state.const_meta.get(idx).is_some_and(|meta| meta.tag == 0);
+            Step::Continue(if is_int {
+                state.stack.push_int(b, sp, v)
+            } else {
+                state.stack.push(b, sp, v)
+            })
         }
         "push_atom_value" => {
             let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
@@ -1753,6 +1809,12 @@ fn box_bit_result(b: &mut FunctionBuilder, result: Value) -> Value {
     b.ins().select(nonneg, as_int, as_float)
 }
 
+/// The `tag == 0` (Int) test a binary fast path emits per unchecked operand.
+fn is_int(b: &mut FunctionBuilder, value: Value) -> Value {
+    let tag = b.ins().ushr_imm(value, 48);
+    b.ins().icmp_imm(IntCC::Equal, tag, 0)
+}
+
 /// Two-int fast path for a binary operator, with the interpreter helper as the
 /// slow path (mixed types, overflow, string `+`, …). Operands stay in the frame
 /// buffer the whole time, so the helper sees exactly what the interpreter would.
@@ -1772,13 +1834,24 @@ fn lower_fast_binary(
     // Operand slots: `(top-1)` is the left operand, `top` the right one. Both
     // may live only in registers; the slow path flushes them before the helper.
     let top = state.stack.height;
+    // Epic F4 (guard elimination): an operand the compiler itself produced — a
+    // `push_i32` literal or an `Int` constant — is statically an `Int`, so its
+    // tag check is not emitted at all. Everything else (a local, a helper
+    // result, `box_bit_result`, which may be a Float64) is still checked.
+    let a_known = state.stack.known_int(top - 1);
+    let c_known = state.stack.known_int(top);
     let a = state.stack.read(b, sp, top - 1);
     let c = state.stack.read(b, sp, top);
-    let ta = b.ins().ushr_imm(a, 48);
-    let tc = b.ins().ushr_imm(c, 48);
-    let int_a = b.ins().icmp_imm(IntCC::Equal, ta, 0);
-    let int_c = b.ins().icmp_imm(IntCC::Equal, tc, 0);
-    let both_int = b.ins().band(int_a, int_c);
+    let both_int = match (a_known, c_known) {
+        (true, true) => None,
+        (true, false) => Some(is_int(b, c)),
+        (false, true) => Some(is_int(b, a)),
+        (false, false) => {
+            let int_a = is_int(b, a);
+            let int_c = is_int(b, c);
+            Some(b.ins().band(int_a, int_c))
+        }
+    };
 
     let fast = b.create_block();
     let slow = b.create_block();
@@ -1789,7 +1862,17 @@ fn lower_fast_binary(
     // the new `sp`) and are flushed by the helper's own preamble on the slow
     // path, which is the only path that still reads them.
     state.stack.flush_except(b, sp, &[top - 1, top]);
-    b.ins().brif(both_int, fast, &[], slow, &[]);
+    match both_int {
+        Some(both_int) => {
+            b.ins().brif(both_int, fast, &[], slow, &[]);
+        }
+        // Both operands are already known: the check is gone, but the split
+        // stays so the overflow bail below still has its target.
+        None => {
+            let yes = b.ins().iconst(types::I8, 1);
+            b.ins().brif(yes, fast, &[], slow, &[]);
+        }
+    }
 
     b.switch_to_block(fast);
     let ai = b.ins().ireduce(types::I32, a);
@@ -2143,6 +2226,41 @@ mod tests {
         let verified = verify(snapshot(bytes, args, vars), VerifyLimits::default())
             .unwrap_or_else(|e| panic!("verify rejected: {e:?}"));
         compile(&verified, isa.as_ref(), &Cell::new(0)).map(|_| ())
+    }
+
+    /// Compiled code size for `bytes`, with one constant pool entry of tag
+    /// `const_tag` (0 = Int, 8 = Float64).
+    fn compile_len(bytes: Vec<u8>, vars: u16, const_tag: i16) -> usize {
+        let mut snap = snapshot(bytes, 0, vars);
+        snap.const_meta = Box::new([ConstMeta { tag: const_tag }]);
+        let isa = crate::jit::build_host_isa().unwrap();
+        let verified = verify(snap, VerifyLimits::default())
+            .unwrap_or_else(|e| panic!("verify rejected: {e:?}"));
+        compile(&verified, isa.as_ref(), &Cell::new(0))
+            .expect("compile")
+            .len()
+    }
+
+    /// Epic F4 (guard elimination), measured deterministically: the same op
+    /// sequence needs a tag check for an operand that is *not* statically known.
+    /// An `Int` constant from the pool is known, a `Float64` one is not, so the
+    /// two compilations differ exactly by the check the second one emits.
+    #[test]
+    fn guard_elimination_shrinks_the_code() {
+        let bytes = seq(&[
+            &loc(op::OP_get_loc, 0),
+            &[op::OP_push_const],
+            &u32b(0),
+            &[op::OP_mul],
+            &loc(op::OP_put_loc, 0),
+            &[op::OP_return_undef],
+        ]);
+        let known = compile_len(bytes.clone(), 1, 0);
+        let checked = compile_len(bytes, 1, 8);
+        assert!(
+            known < checked,
+            "the known-Int operand skips its check: {known} vs {checked} bytes"
+        );
     }
 
     /// Like `compile_bytes`, but with `gv` global-variable references so
@@ -2664,6 +2782,29 @@ mod tests {
             0,
             "push→pop must not touch memory:\n{ir}"
         );
+    }
+
+    /// The guard fact: only values the compiler produced as `Int` (a `push_i32`
+    /// literal, an `Int` constant) are known, and the fact dies with the entry —
+    /// a flush (helper call, exit, branch) drops both.
+    #[test]
+    fn stack_cache_tracks_known_int_operands() {
+        let ir = ir_of(|b| {
+            let sp = b.ins().iconst(types::I64, 4096);
+            let mut cache = StackCache::default();
+            cache.anchor(0);
+            let literal = b.ins().iconst(types::I64, 7);
+            let sp = cache.push_int(b, sp, literal);
+            assert!(cache.known_int(1), "a literal is a known Int");
+            let loaded = b.ins().load(types::I64, MemFlags::new(), sp, 0);
+            let sp = cache.push(b, sp, loaded);
+            assert!(!cache.known_int(2), "a loaded value is not");
+            // Storing materializes the value without changing the fact.
+            cache.flush(b, sp);
+            assert!(!cache.known_int(1), "the flush dropped the entry");
+            assert!(cache.is_empty());
+        });
+        assert_eq!(count(&ir, "load"), 1, "only the loaded operand:\n{ir}");
     }
 
     /// Epic F4: a slot read twice in one block is loaded once — the second read

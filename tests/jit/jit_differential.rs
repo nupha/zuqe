@@ -85,6 +85,14 @@ const NORMAL: &[Case] = dim_cases!("Normal", [
         "function pick(n){ var v = n > 3 ? n * 2 : n + 7; var w = n || v; var z = n && w; return (z || v) - (n ? w : v); } pick(2);",
         "pick(64)",
         "'pk:' + pick(0) + ',' + pick(5)";
+    // Epic F4 (guard elimination): every operand here is either a literal or
+    // the result of an operation whose operands were literals, so the tag checks
+    // the binary fast paths would normally emit are gone. The value must still
+    // be bit-identical (`(i << 27) >> 3` wraps through the sign bit).
+    int_guard_elimination:
+        "function gi(n){ var r = 0; for (var i = 0; i < n; i++) { r ^= (i << 27) >> 3; r = (r | 7) & 0xffff; r = r * 3 - 1; r = r + 2 + 4; } return r; } gi(1);",
+        "gi(400)",
+        "'gi:' + gi(5)";
     // `set_name` lowers: the factory and the closure it returns both run
     // native across the call boundary.
     function_expression_factory:
