@@ -12,8 +12,8 @@ use libloading::Library;
 use zuqe_zapi::ffi::{
     ZQ_ABI_BASE, ZQ_ABI_VERSION, ZQ_API_BASE, ZQ_API_VERSION, ZQ_CONST_VALUE_SLOT_EXCEPTION,
     ZQ_FIELD_BOOL, ZQ_FIELD_CLASS, ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC, ZQ_FIELD_GETSET, ZQ_FIELD_INT,
-    ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED, ZQ_FIELD_VALUE, ZqApi, ZqCallInfoS, ZqFieldDef, ZqModuleInfo,
-    ZqRawCtx, ZqRawValue,
+    ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED, ZQ_FIELD_VALUE, ZqApi, ZqBodyFn, ZqCallInfoS, ZqFieldDef,
+    ZqModuleInfo, ZqRawCtx, ZqRawValue,
 };
 
 use crate::{JSValue, ModuleDef, ScopedContext, class::ClassID, function::Callback};
@@ -184,12 +184,10 @@ pub(crate) fn zapi_trampoline_fn(
     }
 }
 
-/// 同 `register_zapi_func`，但显式指定用户 magic。
-pub(crate) fn register_zapi_func_magic(
-    ctx: &mut ScopedContext,
-    body: unsafe extern "C" fn(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue,
-    magic: i32,
-) -> (Callback, i32) {
+/// Register an extension body in the runtime's serial registry and return its
+/// token (the engine `magic`). The token is what a trampoline reads back to
+/// recover the body and its user magic.
+pub(crate) fn register_zapi_body(ctx: &mut ScopedContext, body: ZqBodyFn, magic: i32) -> i32 {
     let rt = ctx.rt_mut();
     let token = rt
         .zapi_next_serial
@@ -198,6 +196,16 @@ pub(crate) fn register_zapi_func_magic(
         .lock()
         .unwrap()
         .insert(token, (body, magic));
+    token
+}
+
+/// 同 `register_zapi_func`，但显式指定用户 magic。
+pub(crate) fn register_zapi_func_magic(
+    ctx: &mut ScopedContext,
+    body: unsafe extern "C" fn(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue,
+    magic: i32,
+) -> (Callback, i32) {
+    let token = register_zapi_body(ctx, body, magic);
     (Callback::Func(zapi_trampoline_fn), token)
 }
 

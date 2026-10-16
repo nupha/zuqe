@@ -1,6 +1,6 @@
 [package]
 name = "zuqe"
-version = "0.11.1"
+version = "0.11.2"
 edition = "2024"
 description = "Rust-native JavaScript engine for embedding: stackless interpreter, host-enforced memory and stack limits, interrupt control, and a Promise/Future bridge. For scripting, plugin runtimes, and resource-limited execution of generated code."
 build = "build.rs"

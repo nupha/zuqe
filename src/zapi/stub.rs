@@ -44,7 +44,7 @@ use crate::{
 
 use super::{
     ZapiGcTracer,
-    host::{push_class_fields, register_zapi_func_magic, zapi_trampoline_fn},
+    host::{push_class_fields, register_zapi_body, register_zapi_func_magic},
 };
 
 /// Translate FFI `ZQ_PROP_*` flags into engine `JS_PROP_*` flags bit-by-bit.
@@ -535,6 +535,74 @@ impl crate::RuntimeImpl {
     }
 }
 
+/// Constructor trampoline for a class registered by a zapi extension.
+///
+/// A `#[zq_class]` constructor is a JS-class-style constructor: it expects a
+/// fresh instance as `this` and normally returns it. The engine, however,
+/// treats every native constructor as a builtin one — it hands the constructor
+/// `new_target` as `this` and expects the callback to allocate the instance
+/// itself. So the class object is not an instance: allocate one here, from
+/// `new_target.prototype`, before invoking the extension. That is what makes
+/// `new NativeBase()` yield an instance and lets a script
+/// `class Derived extends NativeBase` get a `Derived` instance.
+///
+/// The class id rides along as the registry's user magic. The instance is
+/// created without a native payload: a payload-carrying constructor still
+/// creates its own instance through `new_instance` and returns it, and a
+/// constructor that returns an object overrides the allocated one per
+/// `[[Construct]]`. A body that returns a primitive keeps the instance.
+fn zapi_class_ctor_fn(
+    ctx: &mut ScopedContext,
+    cc: crate::function::CallContext,
+) -> crate::JSResult {
+    let serial = cc.magic();
+    let (body, class_id) = match ctx
+        .rt()
+        .zapi_body_registry
+        .lock()
+        .unwrap()
+        .get(&serial)
+        .copied()
+    {
+        Some(entry) => entry,
+        None => return Err(-1),
+    };
+
+    // A native constructor receives `new_target` as `this`; deriving the
+    // instance prototype from it gives a subclass its own prototype.
+    let new_target = cc.this();
+    let instance = match ctx.ordinary_create_from_constructor_payload(
+        new_target,
+        PayloadPtr::opaque(class_id as ClassID, std::ptr::null_mut()),
+    ) {
+        Ok(obj) => obj,
+        Err(_) => return Err(-1),
+    };
+
+    let args: Vec<ZqRawValue> = cc.arguments().iter().map(|v| v.0).collect();
+    let mut call_info = ZqCallInfoS {
+        target: 0,
+        this: JSValue::from(instance).0,
+        argv: args.as_ptr(),
+        argc: args.len(),
+        magic: 0,
+    };
+
+    let env = ctx as *mut ScopedContext as ZqRawCtx;
+    let result = unsafe { body(env, &mut call_info as *mut _) };
+    if result == ZQ_API_TABLE.const_values[ZQ_CONST_VALUE_SLOT_EXCEPTION] {
+        return Err(-1);
+    }
+
+    // `[[Construct]]` returns an object a constructor returns, otherwise `this`.
+    let value = JSValue(result, PhantomData);
+    if value.is_object() {
+        Ok(value)
+    } else {
+        Ok(JSValue::from(instance))
+    }
+}
+
 unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClassDef) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
     let def = unsafe { &*class_def };
@@ -564,8 +632,9 @@ unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClas
             return Ok(());
         };
 
-        let (_, magic) = register_zapi_func_magic(ctx, body, 0);
-
+        // Register the extension body with the class id as its user magic; the
+        // constructor trampoline reads it back to allocate the instance.
+        let magic = register_zapi_body(ctx, body, class_id as i32);
         // Instance entries (installed on the prototype) and static entries
         // (installed on the constructor), mirroring zuqe's native classes:
         // proto_entries + ClassCtorDef.entries.
@@ -588,7 +657,7 @@ unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClas
 
         ctx.init_class_constructor(
             class_id,
-            zapi_trampoline_fn,
+            zapi_class_ctor_fn,
             def.call_arity as i32,
             magic as i16,
             proto,
