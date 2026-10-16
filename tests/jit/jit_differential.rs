@@ -85,6 +85,12 @@ const NORMAL: &[Case] = dim_cases!("Normal", [
         "function pick(n){ var v = n > 3 ? n * 2 : n + 7; var w = n || v; var z = n && w; return (z || v) - (n ? w : v); } pick(2);",
         "pick(64)",
         "'pk:' + pick(0) + ',' + pick(5)";
+    // `set_name` lowers: the factory and the closure it returns both run
+    // native across the call boundary.
+    function_expression_factory:
+        "function mk(k){ var f = function(n){ return n * k + 1; }; return f; } var F = mk(3); F(1);",
+        "F(10) + mk(2)(5)",
+        "'fe:' + F(3)";
     // Epic F4 (locals in registers): one block reads the same locals several
     // times, so the `LocalCache` collapses the repeated loads. Memory stays
     // authoritative — the stores are still emitted — so the result must match

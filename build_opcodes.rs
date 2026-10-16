@@ -661,7 +661,10 @@ fn jit_policy_of(id: &str) -> JitPolicy {
         "invalid" => Reject,
         "push_i32" | "push_const" | "undefined" | "null" | "push_this" | "push_false"
         | "push_true" => Native,
-        "fclosure" | "push_atom_value" | "private_symbol" => Helper,
+        // `set_name` only names the object it peeks at (define_name); the JIT
+        // helper calls the same interpreter method, so it is a helper, not a
+        // reject. `set_name_computed` (computed method names) stays rejected.
+        "fclosure" | "push_atom_value" | "private_symbol" | "set_name" => Helper,
         "object" | "special_object" | "rest" => Helper,
         // ── stack shuffle ──
         "drop" | "nip" | "nip1" | "dup" | "dup1" | "dup2" | "dup3" | "insert2" | "insert3"
@@ -695,7 +698,6 @@ fn jit_policy_of(id: &str) -> JitPolicy {
         | "private_in" => Reject,
         // class / object-literal machinery (v1)
         "define_field"
-        | "set_name"
         | "set_name_computed"
         | "set_proto"
         | "set_home_object"

@@ -524,6 +524,33 @@ fn a_script_that_declares_a_function_compiles() {
     assert_eq!(run.main, "int:4", "g(3) == 4");
 }
 
+/// `set_name` (the inferred name of a function *expression*) lowers too, so a
+/// script that only *assigns* functions compiles as well — before this it was
+/// rejected at policy time.
+#[test]
+fn a_script_with_a_function_expression_compiles() {
+    let case = Case {
+        dim: "Opcode",
+        name: "function_expression_script",
+        setup: "var g = function(n){ return n * 2; }; g(1);",
+        warm: "g(2)",
+        main: "g(3)",
+        probe: "'fe:' + g(4)",
+    };
+    let run = run_case_polled(Mode::Automatic, &case);
+    assert_eq!(
+        run.after_definition.functions_rejected, 0,
+        "the script must verify ({:?})",
+        run.after_definition
+    );
+    assert!(
+        run.after_definition.functions_compiled > 0,
+        "the script must compile ({:?})",
+        run.after_definition
+    );
+    assert_eq!(run.main, "int:6", "g(3) == 6");
+}
+
 /// Development audit for the claims: with `dump_bytecode` the engine prints the
 /// bytecode of every function the cases define, so/// `cargo test --features jit,dump_bytecode --test jit bytecode_dump_audit -- --nocapture`
 /// lists every opcode the suite really produces (grep the output for a claimed

@@ -1079,8 +1079,28 @@ unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// `set_name`: name the function on top of the stack (`[obj, ^] -> [obj, ^]`,
+/// a peek — so an exception leaves `sp` exactly as the interpreter would).
+/// `imm` is the atom id.
+unsafe extern "C" fn h_set_name(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let atom = crate::atom::Atom::from_id(f.imm);
+        let name = (*f.sp.offset(-1))
+            .as_object()
+            .ok_or(-1)
+            .and_then(|mut o| o.define_name(scope, atom, crate::object::JS_PROP_CONFIGURABLE));
+        if name.is_err() {
+            HELPER_EXCEPTION
+        } else {
+            HELPER_OK
+        }
+    }
+}
+
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 56;
+pub(crate) const HELPER_COUNT: usize = 57;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -1167,6 +1187,8 @@ pub(crate) const HELPER_SPECIAL_OBJECT: usize = 53;
 pub(crate) const HELPER_PUSH_THIS: usize = 54;
 /// Index of [`h_fclosure`].
 pub(crate) const HELPER_FCLOSURE: usize = 55;
+/// Index of [`h_set_name`].
+pub(crate) const HELPER_SET_NAME: usize = 56;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -1231,4 +1253,5 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_special_object as *const (),
     h_push_this as *const (),
     h_fclosure as *const (),
+    h_set_name as *const (),
 ]);

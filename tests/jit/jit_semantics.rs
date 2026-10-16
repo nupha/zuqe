@@ -171,6 +171,15 @@ const CASES: &[SemCase] = sem_cases! {
         "f(10)",
         "'cm:' + f(4)";
 
+    // `set_name` also appears *inside* a function body (`var f = function(){}`),
+    // so a factory that builds a named closure stays in native code instead of
+    // resuming at the naming instruction.
+    closure_function_expression_stays_native => Compiles =
+        "var __seed = 0; function mk(n){ var __z = 0; var f = function(x){ return x * n + 1; }; return f(3); }",
+        "mk(2)",
+        "mk(7)",
+        "'fe:' + mk(4)";
+
     // ── Proxy / coercion re-entry ──
     proxy_get_trap => Compiles =
         "var __seed = 0; var H = { get: function(t, k){ return 'trap:' + k; } }; function f(o){ var __z = 0; var p = new Proxy(o, H); return p.missing; }",

@@ -104,6 +104,7 @@ fn supported(name: &str) -> bool {
                 | "rest"
                 | "special_object"
                 | "fclosure"
+                | "set_name"
                 | "push_this"
                 | "drop"
                 | "get_loc"
@@ -1295,6 +1296,20 @@ fn lower_insn(
             );
             return Step::Continue(sp);
         }
+        "set_name" => {
+            let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+            b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
+            let sp = call_stack_helper(
+                state,
+                b,
+                fv,
+                helper_sig,
+                sp,
+                super::abi::HELPER_SET_NAME,
+                pc + size,
+            );
+            return Step::Continue(sp);
+        }
         "push_this" if !strict => {
             // Sloppy `this`: the frame holds the raw value, so the helper does
             // the global-object substitution / objectification.
@@ -2458,6 +2473,13 @@ mod tests {
         cases.push((
             "special_object",
             seq(&[&[op::OP_special_object, 3], &ret]),
+            0,
+            0,
+        ));
+        // `set_name` peeks the function it names (atom operand).
+        cases.push((
+            "set_name",
+            seq(&[&push_i32(0), &[op::OP_set_name], &u32b(0), &ret]),
             0,
             0,
         ));
