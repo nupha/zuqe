@@ -111,12 +111,13 @@ impl Coordinator {
         m: &mut JitMetrics,
         id: u64,
         opcodes: &[u8],
+        measured_work: u32,
     ) -> bool {
         let first = !self.records.contains_key(&id);
         if first {
             m.distinct_functions = m.distinct_functions.saturating_add(1);
         }
-        let record = self.record_mut(id, opcodes);
+        let record = self.record_mut(id, opcodes, measured_work);
         record.hotness.record_call(&record.thresholds)
     }
 
@@ -126,16 +127,18 @@ impl Coordinator {
         _m: &mut JitMetrics,
         id: u64,
         opcodes: &[u8],
+        measured_work: u32,
     ) -> bool {
-        let record = self.record_mut(id, opcodes);
+        let record = self.record_mut(id, opcodes, measured_work);
         record.hotness.record_loop(&record.thresholds)
     }
 
-    fn record_mut(&mut self, id: u64, opcodes: &[u8]) -> &mut FunctionRecord {
+    fn record_mut(&mut self, id: u64, opcodes: &[u8], measured_work: u32) -> &mut FunctionRecord {
         let (base_calls, base_loops) = (self.base_calls, self.base_loops);
         self.records.entry(id).or_insert_with(|| {
-            let thresholds =
-                AdaptiveInputs::from_opcodes(opcodes).thresholds(base_calls, base_loops);
+            let thresholds = AdaptiveInputs::from_opcodes(opcodes)
+                .with_measured_work(measured_work)
+                .thresholds(base_calls, base_loops);
             FunctionRecord {
                 hotness: HotnessState::default(),
                 thresholds,
@@ -279,7 +282,7 @@ mod tests {
     /// Drive a function to hot and queue it (no bytecode pin in tests).
     fn make_hot(c: &mut Coordinator, m: &mut JitMetrics, id: u64) {
         let opcodes = [crate::bytecode::opcodes::OP_return_undef];
-        assert!(c.record_call(m, id, &opcodes), "should become hot");
+        assert!(c.record_call(m, id, &opcodes, 0), "should become hot");
         c.enqueue(m, id, None);
     }
 
@@ -288,14 +291,56 @@ mod tests {
         let _ = c.begin_next();
     }
 
+    /// Epic F5 wiring: the interpreter's measurement reaches the thresholds. A
+    /// helper-dominated function (every opcode a `Helper`) is expensive to
+    /// compile, so with a measurement its base doubles — but an eager base
+    /// (`1`, what the diagnostic harnesses ask for) is never adapted.
+    #[test]
+    fn measured_work_adapts_the_production_base_only() {
+        let helper_dense = [crate::bytecode::opcodes::OP_add; 4];
+        let mut m = JitMetrics::default();
+
+        // Production base (32/56) + a little measured work: helper density
+        // doubles it, so 64 calls are needed instead of 32.
+        let mut c = Coordinator::new(32, 56, 8, 4, 30_000);
+        for _ in 0..63 {
+            assert!(
+                !c.record_call(&mut m, 1, &helper_dense, 8),
+                "64 calls are needed"
+            );
+        }
+        assert!(
+            c.record_call(&mut m, 1, &helper_dense, 8),
+            "the 64th call is hot"
+        );
+
+        // Proven work (4096 observations) halves the base instead: the 16th.
+        let mut c = Coordinator::new(32, 56, 8, 4, 30_000);
+        for _ in 0..15 {
+            assert!(!c.record_call(&mut m, 4, &helper_dense, 4096));
+        }
+        assert!(c.record_call(&mut m, 4, &helper_dense, 4096), "16th call");
+
+        // Same function, no measurement (a baseline tier): the base stands.
+        let mut c = Coordinator::new(32, 56, 8, 4, 30_000);
+        for _ in 0..31 {
+            assert!(!c.record_call(&mut m, 2, &helper_dense, 0));
+        }
+        assert!(c.record_call(&mut m, 2, &helper_dense, 0), "32nd call");
+
+        // Eager base: adaptation is skipped, so the first call queues it.
+        let mut c = Coordinator::new(1, 1, 8, 4, 30_000);
+        assert!(c.record_call(&mut m, 3, &helper_dense, 4096));
+    }
+
     #[test]
     fn entry_crosses_threshold_once() {
         let mut c = Coordinator::new(2, 2, 8, 4, 30_000);
         let mut m = JitMetrics::default();
         let opcodes = [crate::bytecode::opcodes::OP_return_undef];
-        assert!(!c.record_call(&mut m, 7, &opcodes));
-        assert!(c.record_call(&mut m, 7, &opcodes));
-        assert!(!c.record_call(&mut m, 7, &opcodes), "already queued");
+        assert!(!c.record_call(&mut m, 7, &opcodes, 0));
+        assert!(c.record_call(&mut m, 7, &opcodes, 0));
+        assert!(!c.record_call(&mut m, 7, &opcodes, 0), "already queued");
         assert_eq!(m.distinct_functions, 1);
     }
 
@@ -352,6 +397,9 @@ mod tests {
         assert_eq!(m.functions_verified, 1);
         assert_eq!(m.functions_compiled, 1);
         // The B/C invariant: every queued function is verified or rejected.
-        assert_eq!(m.functions_verified + m.functions_rejected, m.functions_queued);
+        assert_eq!(
+            m.functions_verified + m.functions_rejected,
+            m.functions_queued
+        );
     }
 }

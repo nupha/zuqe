@@ -579,6 +579,14 @@ impl BytecodeImpl {
 
     /// get opcodes slice
     #[inline(always)]
+    /// Observations the feedback table has recorded (epic F5's "measured
+    /// work", read by the hotness policy on every entry/backedge). Zero when the
+    /// tier never records.
+    #[cfg(feature = "jit")]
+    pub(crate) fn feedback_samples(&self) -> u32 {
+        self.feedback.total_samples()
+    }
+
     pub(crate) fn opcodes(&self) -> &[u8] {
         &self.binary[self.opcodes_start as usize..]
     }

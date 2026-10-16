@@ -156,8 +156,9 @@ impl JitState {
         let id = function_id(bc);
         let mut m = self.metrics.get();
         m.function_entries = m.function_entries.saturating_add(1);
+        let measured = bc.feedback_samples();
         let mut coordinator = self.coordinator.borrow_mut();
-        if coordinator.record_call(&mut m, id, bc.opcodes()) {
+        if coordinator.record_call(&mut m, id, bc.opcodes(), measured) {
             coordinator.enqueue(&mut m, id, Some(*bc));
         }
         drop(coordinator);
@@ -172,8 +173,9 @@ impl JitState {
         let id = function_id(bc);
         let mut m = self.metrics.get();
         m.backedges = m.backedges.saturating_add(1);
+        let measured = bc.feedback_samples();
         let mut coordinator = self.coordinator.borrow_mut();
-        if coordinator.record_loop(&mut m, id, bc.opcodes()) {
+        if coordinator.record_loop(&mut m, id, bc.opcodes(), measured) {
             coordinator.enqueue(&mut m, id, Some(*bc));
         }
         drop(coordinator);

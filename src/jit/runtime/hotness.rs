@@ -80,13 +80,29 @@ impl AdaptiveInputs {
         }
     }
 
+    /// Attach the interpreter's measurement (epic F5): the hottest hooks pass
+    /// the feedback table's observation count. `0` means "nothing recorded"
+    /// (a baseline tier never records), which keeps the thresholds neutral
+    /// instead of pretending the function was measured as doing no work.
+    pub(crate) const fn with_measured_work(mut self, samples: u32) -> Self {
+        self.measured_work = if samples == 0 { None } else { Some(samples) };
+        self
+    }
+
     /// Larger and helper-dominated functions need more evidence before we
     /// spend compile time on them; functions already shown to do a lot of work
     /// can be compiled sooner. Without measurements the base is unchanged.
+    ///
+    /// An eager base (both thresholds 1) is left alone: the host asked for
+    /// "compile on the first event", and doubling that would silently defeat
+    /// the diagnostic/test harnesses that rely on it.
     pub(crate) fn thresholds(&self, base_calls: u32, base_loops: u32) -> HotThresholds {
         let Some(work) = self.measured_work else {
             return HotThresholds::neutral(base_calls, base_loops);
         };
+        if base_calls <= 1 && base_loops <= 1 {
+            return HotThresholds::neutral(base_calls, base_loops);
+        }
         if work >= 4096 {
             return HotThresholds {
                 calls: base_calls / 2,
@@ -197,6 +213,31 @@ mod tests {
             measured_work: Some(1),
         };
         assert_eq!(inputs.thresholds(32, 56).reason, HotReason::BytecodeScale);
+    }
+
+    #[test]
+    fn an_eager_base_is_never_adapted() {
+        let inputs = AdaptiveInputs {
+            instruction_count: 10,
+            helper_ops: 10,
+            bytecode_bytes: 8192,
+            measured_work: Some(4096),
+        };
+        let th = inputs.thresholds(1, 1);
+        assert_eq!((th.calls, th.loops), (1, 1), "the host asked for eager");
+        assert_eq!(th.reason, HotReason::NeutralBase);
+    }
+
+    #[test]
+    fn zero_samples_means_no_measurement() {
+        let inputs = AdaptiveInputs::from_opcodes(&[crate::bytecode::opcodes::OP_add]);
+        assert!(inputs.measured_work.is_none());
+        let with = inputs.with_measured_work(0);
+        assert!(
+            with.measured_work.is_none(),
+            "0 is 'nothing recorded', not 'no work'"
+        );
+        assert_eq!(with.with_measured_work(7).measured_work, Some(7));
     }
 
     #[test]

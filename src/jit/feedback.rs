@@ -82,6 +82,10 @@ const MAX_SITES: usize = 1024;
 #[derive(Debug, Default)]
 pub(crate) struct FeedbackTable {
     sites: HashMap<u32, SiteFeedback>,
+    /// Observations recorded so far, saturating. The hotness policy reads this
+    /// as "measured work" (one add per recorded opcode, no scan of the sites);
+    /// a function that already executed a lot is worth compiling sooner.
+    total_samples: u32,
 }
 
 impl FeedbackTable {
@@ -90,6 +94,7 @@ impl FeedbackTable {
     fn record(&mut self, pc: u32, lhs: u16, rhs: u16) -> bool {
         // Cheap positive hits skip the map entirely; negative hits fall
         // through to the entry API below.
+        self.total_samples = self.total_samples.saturating_add(1);
         if let Some(site) = self.sites.get_mut(&pc) {
             site.lhs |= lhs;
             site.rhs |= rhs;
@@ -130,6 +135,13 @@ impl FeedbackTable {
     fn len(&self) -> usize {
         self.sites.len()
     }
+
+    /// Observations recorded so far (see the field). Zero when nothing has been
+    /// recorded, which is how the hotness policy tells "no measurement" (a
+    /// baseline tier) from "measured, but little work".
+    pub(crate) const fn total_samples(&self) -> u32 {
+        self.total_samples
+    }
 }
 
 /// Per-function feedback storage, hung off `BytecodeImpl`. Interior-mutable
@@ -155,6 +167,17 @@ impl FeedbackSlot {
         let cell = unsafe { &mut *self.0.get() };
         cell.get_or_insert_with(|| Box::new(FeedbackTable::default()))
             .record(site, lhs, rhs)
+    }
+
+    /// Observations recorded so far — the hotness policy's "measured work".
+    /// Zero means "nothing recorded" (a baseline tier, or a function that never
+    /// reached a feedback site), not "measured as nothing".
+    pub(crate) fn total_samples(&self) -> u32 {
+        // SAFETY: single-threaded; a plain read of the count.
+        match unsafe { &*self.0.get() } {
+            Some(table) => table.total_samples(),
+            None => 0,
+        }
     }
 
     /// Copy the recorded sites (sorted by pc) for `CompileSnapshot`, keeping
