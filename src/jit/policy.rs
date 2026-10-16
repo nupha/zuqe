@@ -9,9 +9,12 @@
 use crate::bytecode::OP_COUNT_FINAL;
 
 /// What the JIT may do with one opcode.
+///
+/// Public so the coverage gate in `tests/jit_opcodes.rs` can check its
+/// manifest against the generated table instead of a copied list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub(crate) enum JitPolicy {
+pub enum JitPolicy {
     /// Translate inline into native machine code.
     Native = 0,
     /// Call the interpreter's Rust semantics from native code.
@@ -21,6 +24,16 @@ pub(crate) enum JitPolicy {
 }
 
 include!(concat!(env!("OUT_DIR"), "/jit-opcode-policy.rs"));
+
+/// Every final opcode name, in opcode-id order.
+pub const fn opcode_names() -> &'static [&'static str] {
+    &JS_JIT_OPCODE_NAMES
+}
+
+/// Strategy per final opcode, in the same order as [`opcode_names`].
+pub const fn opcode_policies() -> &'static [JitPolicy] {
+    &JS_JIT_OPCODE_POLICY
+}
 
 // The generated table must describe exactly the final opcode set. `OP_COUNT_FINAL`
 // is `common` (and `short`) opcodes; the generator emits one entry per common

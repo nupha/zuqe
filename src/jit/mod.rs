@@ -25,6 +25,23 @@ mod policy;
 mod runtime;
 mod snapshot;
 
+pub use {
+    config::{JitConfig, JitConfigBuilder, JitTierPolicy},
+    error::JitError,
+    metrics::JitMetrics,
+    policy::{JitPolicy, opcode_names, opcode_policies},
+};
+
+pub(crate) use abi::{FunctionSlot, JitExitKind};
+
+use {
+    abi::{HELPERS, JitExecFrame},
+    bytecode::{VerifyLimits, verify},
+    code_cache::CodeCache,
+    runtime::{CompileOutcome, Coordinator},
+    snapshot::CompileSnapshot,
+};
+
 use std::{
     cell::{Cell, RefCell},
     sync::Arc,
@@ -39,18 +56,6 @@ use crate::{
     function::Bytecode,
     runtime::{Runtime, RuntimeImpl},
 };
-
-use abi::{HELPERS, JitExecFrame};
-use bytecode::{VerifyLimits, verify};
-use code_cache::CodeCache;
-use runtime::{CompileOutcome, Coordinator};
-use snapshot::CompileSnapshot;
-
-pub use config::{JitConfig, JitConfigBuilder, JitTierPolicy};
-pub use error::JitError;
-pub use metrics::JitMetrics;
-
-pub(crate) use abi::{FunctionSlot, JitExitKind};
 
 /// State hung off `RuntimeImpl` while a JIT is attached. Single-threaded: the
 /// runtime and its interpreter run on one thread, so `Cell`/`RefCell` suffice.
@@ -316,12 +321,17 @@ pub(crate) fn invoke_native(
     // and ABI, and the slot is only populated while the code cache keeps the
     // mapping alive; the frame outlives the call.
     let raw = unsafe { entry(&mut frame) };
+    let kind = JitExitKind::from_raw(raw);
     let m = state.metrics.get();
     state.metrics.set(JitMetrics {
         native_entries: m.native_entries.saturating_add(1),
+        native_interrupts: m
+            .native_interrupts
+            .saturating_add(u64::from(kind == JitExitKind::Interrupt)),
         ..m
     });
-    Some((JitExitKind::from_raw(raw), frame))
+
+    Some((kind, frame))
 }
 
 #[cfg(test)]
@@ -507,8 +517,76 @@ mod tests {
         );
     }
 
-    /// The code cache is a hard quota: when a publish does not fit, the attempt
-    /// fails, is retried, and finally settles the function in the interpreter.
+    /// M2b-8: when the platform refuses executable memory the attempt must
+    /// fail, be retried once, settle the function in the interpreter — and the
+    /// observable result must not change. This is the fault-injection half of
+    /// the hardening gate (generated code cannot run under Miri).
+    #[test]
+    fn allocation_failure_falls_back_to_the_interpreter() {
+        use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
+
+        const DEFINE: &[u8] = b"function f(n){ var s = 0; for (var i = 0; i < n; i++) s = (s + i) | 0; return s; } f(1);";
+        const CALL: &[u8] = b"f(500)";
+        let name = EvalName::Name("jit-fault.js".into());
+
+        let mut base_rt = crate::Runtime::create().unwrap();
+        let mut base_ctx = base_rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        base_ctx
+            .eval(DEFINE, &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+        let expected = base_ctx
+            .eval(CALL, &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let jit = Jit::attach_to(
+            &rt,
+            JitConfig::builder()
+                .call_threshold(1)
+                .loop_threshold(1)
+                .max_compile_attempts(1)
+                .build(),
+        )
+        .unwrap();
+        ctx.eval(DEFINE, &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+
+        platform::fault::set(true);
+        jit.poll();
+        platform::fault::set(false);
+
+        let m = jit.metrics();
+        assert_eq!(
+            m.functions_compiled, 0,
+            "code was published with no executable memory"
+        );
+        assert!(
+            m.compile_failures > 0,
+            "the refused mapping was not recorded"
+        );
+        assert!(
+            m.functions_settled > 0,
+            "the function did not settle in the interpreter"
+        );
+        assert_eq!(m.code_bytes, 0, "code bytes leaked despite the fault");
+
+        let got = ctx
+            .eval(CALL, &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+        assert_eq!(
+            got.as_int(),
+            expected.as_int(),
+            "the fallback changed the result"
+        );
+    }
+
+    /// The code cache quota refuses a publish the same way; the quota test
+    /// above and this one together cover both failure entries of `publish`.
     #[test]
     fn code_cache_quota_refuses_then_settles_after_retries() {
         use crate::{EvalFlags, EvalName, EvalType, ScopedContext};

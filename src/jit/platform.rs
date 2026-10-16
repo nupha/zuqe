@@ -10,6 +10,30 @@
 
 use super::error::JitError;
 
+/// Fault injection for the platform layer: makes `CodeMem::alloc` fail as if
+/// `mmap` had refused, so the compile pipeline's fallback path can be driven
+/// from a test instead of needing a real allocation fault. Compiled only into
+/// `cargo test` builds — production code has no switch to flip.
+// Kept next to the `alloc` it guards rather than at the end of the file.
+#[allow(clippy::items_after_test_module)]
+#[cfg(test)]
+pub(crate) mod fault {
+    use std::cell::Cell;
+
+    thread_local! {
+        static ACTIVE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Arm (or disarm) the fault for the calling thread.
+    pub(crate) fn set(active: bool) {
+        ACTIVE.with(|flag| flag.set(active));
+    }
+
+    pub(super) fn active() -> bool {
+        ACTIVE.with(Cell::get)
+    }
+}
+
 pub(crate) struct CodeMem {
     ptr: *mut u8,
     len: usize,
@@ -17,6 +41,12 @@ pub(crate) struct CodeMem {
 
 impl CodeMem {
     pub(crate) fn alloc(len: usize) -> Result<Self, JitError> {
+        #[cfg(test)]
+        if fault::active() {
+            return Err(JitError::Platform(
+                "fault injection: mmap refused the mapping".into(),
+            ));
+        }
         #[cfg(unix)]
         {
             let len = len.max(1);

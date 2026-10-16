@@ -29,6 +29,9 @@ pub struct JitMetrics {
     pub functions_compiled: u64,
     /// Times a compiled entry was invoked.
     pub native_entries: u64,
+    /// Native entries that exited through `JitExitKind::Interrupt` (a safepoint
+    /// delivered an interrupt), i.e. the interrupt unwound out of generated code.
+    pub native_interrupts: u64,
     /// Compilation attempts that failed (codegen or code-cache quota).
     pub compile_failures: u64,
     /// Compilation attempts abandoned because they exceeded the time budget.

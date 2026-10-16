@@ -173,6 +173,13 @@ name = "persistent"
 path = "examples/persistent/main.rs"
 required-features = ["persistent"]
 
+# Uses JSValue::dump/restore, which only exist behind `persistent`; without
+# this the auto-discovered example breaks every plain `cargo test`.
+[[example]]
+name = "corpus"
+path = "examples/corpus/main.rs"
+required-features = ["persistent"]
+
 [[example]]
 name = "test262"
 path = "examples/test262/main.rs"
