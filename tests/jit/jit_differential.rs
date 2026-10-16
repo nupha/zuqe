@@ -70,6 +70,19 @@ const NORMAL: &[Case] = dim_cases!("Normal", [
         "function branchy(n){ var a = n + 1, b = n * 2; var t = 0; if (a > b) { t = a - b; } else { t = b - a; } for (var i = 0; i < 3; i++) { t = t + i * a; } return t; } branchy(1);",
         "branchy(300)",
         "'br:' + branchy(4)";
+    // Epic F4 step 2: values cross block edges as parameters — short-circuit
+    // operators leave a merged slot on the stack, which the join block reads
+    // in a register instead of reloading from the frame.
+    stack_cache_carries_slots_across_blocks:
+        "function carry(n){ var a = n + 1, b = n * 2, c = n - 3; var t = 0; for (var i = 0; i < n; i++) { var x = (i || a) + (i && b) + (i ? a : b) * (c || i); t = (t + x) | 0; } return t + (a || b) + (c && n); } carry(1);",
+        "carry(64)",
+        "'cc2:' + carry(7)";
+    // ... through several nested joins, with the falsy path taken too (the
+    // probe's `pick(0)` enters every join from its other edge).
+    stack_cache_carries_through_nested_joins:
+        "function pick(n){ var v = n > 3 ? n * 2 : n + 7; var w = n || v; var z = n && w; return (z || v) - (n ? w : 7); } pick(2);",
+        "pick(64)",
+        "'pk:' + pick(0) + ',' + pick(5)";
     nested_while:
         "function w(n){ var t = 0, i = 0; while (i < n) { var j = 0; while (j < 3) { t += i ^ j; j++; } i++; } return t; } w(1);",
         "w(400)",

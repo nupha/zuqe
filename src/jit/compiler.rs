@@ -6,12 +6,17 @@
 //! Values live in the frame buffer, exactly where the interpreter keeps them —
 //! with one exception (epic F4): inside a basic block a stack slot may live
 //! only in a register, and is written back before anything can observe the
-//! frame (helper calls, exits, branch terminators, end of block). The
-//! operand-stack pointer is an SSA value; it is written back to
-//! `StackFrame.cur_sp_offset` before any helper call and before any exit, the
-//! only moments a collection can observe it. Anything the baseline cannot
-//! translate terminates the native run with `Resume`, and the interpreter picks
-//! up at that bytecode offset.
+//! frame (helper calls, exits, branch terminators, end of block). Across a
+//! block edge the slots the successor reads in registers travel as block
+//! parameters instead of a store/load pair (epic F4 step 2, see
+//! [`carried_sets`]). Every observation point still flushes first, so the frame
+//! stays authoritative and an exit needs no pc-keyed deopt map — materializing
+//! *is* the flush, keyed by the verifier's proven stack heights (D-25 extended
+//! to cross-block residency). The operand-stack pointer is an SSA value; it is
+//! written back to `StackFrame.cur_sp_offset` before any helper call and before
+//! any exit, the only moments a collection can observe it. Anything the
+//! baseline cannot translate terminates the native run with `Resume`, and the
+//! interpreter picks up at that bytecode offset.
 //!
 //! There is no separate IR layer: with no optimization passes above it, the
 //! lowering reads `VerifiedFunction` directly (C1 folded into C2).
@@ -257,9 +262,17 @@ struct State<'a> {
     specialized: &'a Cell<u64>,
     /// Block-local write-back cache for operand-stack slots (epic F4).
     stack: StackCache,
+    /// Epic F4 step 2: per block start pc, the slots its code reads in
+    /// registers before it can observe the frame. Each is a block parameter
+    /// that every incoming edge supplies (see [`State::edge_args`]).
+    carried: HashMap<u32, Vec<u32>>,
+    /// Proven entry stack height per block start pc. An edge's `sp` equals it,
+    /// so it addresses the frame fallback loads even when the model's own
+    /// height is stale (a helper-terminated block never re-anchors).
+    entry_heights: HashMap<u32, u16>,
 }
 
-/// Block-local write-back cache for operand-stack slots (epic F4 step 1).
+/// Write-back cache for operand-stack slots (epic F4 steps 1 and 2).
 ///
 /// A slot index is 1-based from the stack bottom and is re-anchored from the
 /// verifier's proven height at the start of every instruction, so entries
@@ -270,6 +283,12 @@ struct State<'a> {
 /// that already store to memory (arithmetic fast paths, helpers, shuffles)
 /// insert nothing, which keeps memory authoritative for them and means a flush
 /// never has to reconcile two copies.
+///
+/// Step 2 extends the lifetime across a block edge: the successor's carried
+/// slots arrive as block parameters, which [`lower`] seeds into the model, and
+/// the incoming edge passes them on instead of storing them (the flush points
+/// above still apply — a carried value is flushed like any other before the
+/// frame is observable).
 #[derive(Default)]
 struct StackCache {
     height: u32,
@@ -414,21 +433,96 @@ impl<'a> State<'a> {
             return *block;
         }
         let block = b.create_block();
+        // Epic F4 step 2: the slots this block consumes in registers are block
+        // parameters. They are appended here, before any edge exists, so every
+        // edge to this block sees the same signature (`edge_args` supplies it).
+        for _ in 0..self.carried_for(pc).len() {
+            b.append_block_param(block, types::I64);
+        }
         self.blocks.insert(pc, block);
         self.pending.push(pc);
         block
+    }
+
+    /// Slots block `pc` reads from registers before it can observe the frame —
+    /// empty when it reads none, or for a pc the walk never saw.
+    fn carried_for(&self, pc: u32) -> &[u32] {
+        self.carried.get(&pc).map_or(&[], Vec::as_slice)
+    }
+
+    /// Sorted, deduplicated union of several successors' carried sets: the
+    /// `keep` a shared flush has to spare.
+    fn carried_union(&self, pcs: &[u32]) -> Vec<u32> {
+        let mut keep = Vec::new();
+        for &pc in pcs {
+            keep.extend_from_slice(self.carried_for(pc));
+        }
+        keep.sort_unstable();
+        keep.dedup();
+        keep
+    }
+
+    /// Leave on edges to every `(block, pc)` in `targets`: write back what none
+    /// of them carries, then read each carried slot as a block argument — the
+    /// register value when this path still holds one, the frame otherwise. The
+    /// model is delivered here (cleared); the successor re-seeds it from the
+    /// parameters (see [`lower`]), so a carried slot crosses the edge with
+    /// neither a store nor a reload.
+    ///
+    /// `flush_except` only emits stores for slots outside the union, so it must
+    /// run where those stores dominate every path this edge can be reached
+    /// from: the fallthrough and a forward `goto` are single-path, and the
+    /// conditional arms are reached after `lower_if`'s shared full flush, which
+    /// already left the model empty. Never call it once per arm of an
+    /// unflushed split — the stores would exist on one path only.
+    fn edge_args(
+        &mut self,
+        b: &mut FunctionBuilder,
+        sp: Value,
+        targets: &[(Block, u32)],
+    ) -> Vec<Vec<Value>> {
+        let pcs: Vec<u32> = targets.iter().map(|&(_, pc)| pc).collect();
+        let keep = self.carried_union(&pcs);
+        self.stack.flush_except(b, sp, &keep);
+        let model_height = self.stack.height;
+        let mut out = Vec::with_capacity(targets.len());
+        for &(_, pc) in targets {
+            debug_assert!(
+                self.entry_heights.contains_key(&pc),
+                "edge target pc {pc} was never walked"
+            );
+            let entry_h = self
+                .entry_heights
+                .get(&pc)
+                .map_or(model_height, |&h| u32::from(h));
+            // A stale model height implies a flushed (empty) model — helpers
+            // leave `height` at the anchor and clear every entry.
+            debug_assert!(self.stack.entries.is_empty() || model_height == entry_h);
+            let mut args = Vec::with_capacity(self.carried_for(pc).len());
+            for &k in self.carried_for(pc) {
+                let value = match self.stack.entries.get(&k) {
+                    Some(&v) => v,
+                    None => b.ins().load(
+                        types::I64,
+                        MemFlags::new(),
+                        sp,
+                        StackCache::slot_offset(entry_h, k),
+                    ),
+                };
+                args.push(value);
+            }
+            out.push(args);
+        }
+        // Delivered as block arguments; the successor seeds its own model.
+        self.stack.entries.clear();
+        out
     }
 
     /// Epic F2: did F1 feedback observe *only* `Int` at this site? Feedback is
     /// sorted by pc, so a binary search answers it. `both` is false for
     /// single-value sites (`inc_loc`/`dec_loc`), whose `rhs` slot stays 0.
     fn int_only(&self, pc: u32, both: bool) -> bool {
-        self.feedback
-            .binary_search_by_key(&pc, |&(site, _)| site)
-            .is_ok_and(|i| {
-                let site = self.feedback[i].1;
-                site.lhs == CLASS_INT && (!both || site.rhs == CLASS_INT)
-            })
+        int_only(self.feedback, pc, both)
     }
 
     fn note_specialized(&self) {
@@ -672,6 +766,135 @@ fn collect_osr_pcs(verified: &VerifiedFunction) -> Vec<u32> {
     pcs
 }
 
+/// Epic F2: did F1 feedback observe *only* `Int` at this site? Feedback is
+/// sorted by pc, so a binary search answers it. `both` is false for
+/// single-value sites (`inc_loc`/`dec_loc`), whose `rhs` slot stays 0.
+fn int_only(feedback: &[(u32, SiteFeedback)], pc: u32, both: bool) -> bool {
+    feedback
+        .binary_search_by_key(&pc, |&(site, _)| site)
+        .is_ok_and(|i| {
+            let site = feedback[i].1;
+            site.lhs == CLASS_INT && (!both || site.rhs == CLASS_INT)
+        })
+}
+
+/// What one instruction does to the slots below its entry height before it can
+/// observe the frame (epic F4 step 2). Mirrors `lower_insn`'s dispatch order; a
+/// misclassification only costs the carry, never correctness — every edge
+/// materializes what it does not pass (see [`State::edge_args`]).
+enum Touch {
+    /// Nothing the cache holds: pushes, `get_loc`, `drop`, `nop`, `goto`, …
+    Pass,
+    /// Reads slot `k` in a register; the block keeps being scanned.
+    Read(u32),
+    /// Reads these slots in registers, then flushes the rest: only they can
+    /// still be carried in.
+    ReadFlush(Vec<u32>),
+    /// Flushes before touching a cached value (helper call, shuffle, `Resume`
+    /// exit): nothing the block entered with survives this instruction.
+    Flush,
+}
+
+/// [`lower_insn`] in miniature: which stack slots does `name` read from
+/// registers, and does it flush before reading any? `h` is the proven height
+/// before the instruction.
+fn touch(name: &str, h: u32, strict: bool, feedback: &[(u32, SiteFeedback)], pc: u32) -> Touch {
+    if fast_op(name).is_some() {
+        // The operands are read first; `flush_except` then spares them.
+        return Touch::ReadFlush(vec![h - 1, h]);
+    }
+    if helper_for(name).is_some() || shuffle_outputs(name).is_some() {
+        return Touch::Flush;
+    }
+    match name {
+        "nop" | "push_i32" | "push_const" | "undefined" | "null" | "push_false" | "push_true"
+        | "catch" | "get_loc" | "get_arg" | "drop" | "goto" | "gosub" => Touch::Pass,
+        "push_this" if strict => Touch::Pass,
+        "put_loc" | "put_arg" | "set_loc" | "set_arg" => Touch::Read(h),
+        // Specialized `add_loc` reads the operand before `flush_except([top])`.
+        "add_loc" if int_only(feedback, pc, true) => Touch::ReadFlush(vec![h]),
+        // Both variants flush before anything reads the stack (`inc_loc`
+        // reads the local out of the frame, not out of a cache entry).
+        "add_loc" | "inc_loc" | "dec_loc" => Touch::Flush,
+        "if_true" | "if_false" | "return" | "ret" => Touch::ReadFlush(vec![h]),
+        // Not lowered (`Resume` exit) or lowered as a helper call above.
+        _ => Touch::Flush,
+    }
+}
+
+/// Epic F4 step 2: for every block, the operand-stack slots its code reads
+/// from registers *before* the first instruction that can observe the frame.
+/// Those cross each incoming edge as block parameters instead of a store/load
+/// pair; everything else is written back on the edge exactly as before.
+///
+/// The walk is straight-line and stops at the first flush — past that point
+/// the slots are memory-side, so carrying them would buy nothing (a helper
+/// flushes them again anyway) or cost a load. Slots above the entry height were
+/// pushed inside the block and cannot be incoming arguments.
+///
+/// Returns `(carried, entry_heights)` keyed by block start pc: every CFG block
+/// and every OSR resume point, the pcs [`lower`] can create a block for.
+fn carried_sets(
+    verified: &VerifiedFunction,
+    osr_pcs: &[u32],
+    strict: bool,
+) -> (HashMap<u32, Vec<u32>>, HashMap<u32, u16>) {
+    let instructions = verified.instructions();
+    let cfg = verified.control_flow_graph();
+    let heights = verified.stack_heights();
+    let feedback = &verified.snapshot().feedback;
+    let mut starts: Vec<u32> = cfg.blocks().iter().map(|block| block.start_pc()).collect();
+    starts.extend_from_slice(osr_pcs);
+    starts.sort_unstable();
+    starts.dedup();
+    let mut carried: HashMap<u32, Vec<u32>> = HashMap::new();
+    let mut entry_heights = HashMap::new();
+    for pc in starts {
+        // Unreachable blocks are never lowered (their heights would read 0).
+        if !verified.is_reachable(pc) {
+            continue;
+        }
+        // Same range `lower` will walk, including OSR points mid-block.
+        let Some((range, _, _)) = block_range(instructions, cfg, pc) else {
+            continue;
+        };
+        let entry_h = heights[range.start];
+        entry_heights.insert(pc, entry_h);
+        let mut marked = vec![false; entry_h as usize];
+        for index in range {
+            let h = heights[index] as u32;
+            let instruction = &instructions[index];
+            match touch(instruction.name(), h, strict, feedback, instruction.pc()) {
+                Touch::Pass => {}
+                Touch::Read(k) => mark(&mut marked, entry_h, k),
+                Touch::ReadFlush(slots) => {
+                    for k in slots {
+                        mark(&mut marked, entry_h, k);
+                    }
+                    break;
+                }
+                Touch::Flush => break,
+            }
+        }
+        let slots: Vec<u32> = marked
+            .iter()
+            .enumerate()
+            .filter(|&(_, &is_read)| is_read)
+            .map(|(index, _)| index as u32 + 1)
+            .collect();
+        if !slots.is_empty() {
+            carried.insert(pc, slots);
+        }
+    }
+    (carried, entry_heights)
+}
+
+fn mark(marked: &mut [bool], entry_h: u16, k: u32) {
+    if (1..=u32::from(entry_h)).contains(&k) {
+        marked[(k - 1) as usize] = true;
+    }
+}
+
 /// Entry dispatch. `frame.pc == 0` runs the function entry; an OSR pc starts at
 /// its block with `sp` taken from the frame's current stack top; an unknown pc
 /// exits `Retry` so the interpreter runs from there.
@@ -685,6 +908,8 @@ fn emit_osr_prologue(
 ) {
     let pc = b.ins().load(types::I32, MemFlags::new(), fv.frame, O_PC);
     let is_entry = b.ins().icmp_imm(IntCC::Equal, pc, 0);
+    // The entry block carries nothing: the function entry proves height 0.
+    debug_assert!(state.carried_for(0).is_empty());
     let dispatch = b.create_block();
     b.ins().brif(is_entry, entry_block, &[], dispatch, &[]);
     b.switch_to_block(dispatch);
@@ -703,7 +928,13 @@ fn emit_osr_prologue(
         let byte_off = b.ins().ishl_imm(slots64, 3);
         let sp_osr = b.ins().iadd(fv.sp_base, byte_off);
         b.def_var(sp_var, sp_osr);
-        b.ins().jump(target, &[]);
+        // Epic F4 step 2: the interpreter left every slot in the frame, so the
+        // carried parameters are frame loads at the proven entry height.
+        let args = state
+            .edge_args(b, sp_osr, &[(target, pc_val)])
+            .pop()
+            .expect("one target");
+        b.ins().jump(target, &args);
         b.switch_to_block(next);
     }
 
@@ -729,15 +960,20 @@ fn lower(
 ) {
     let instructions = verified.instructions();
     let cfg = verified.control_flow_graph();
+    let (carried, entry_heights) = carried_sets(verified, osr_pcs, strict);
     let mut state = State {
         blocks: HashMap::new(),
         pending: Vec::new(),
         feedback: &verified.snapshot().feedback,
         specialized: specialized_ops,
         stack: StackCache::default(),
+        carried,
+        entry_heights,
     };
     let entry_block = state.block_for(b, 0);
     if osr_pcs.is_empty() {
+        // The entry stack is empty, so the entry block has no parameters.
+        debug_assert!(state.carried_for(0).is_empty());
         b.ins().jump(entry_block, &[]);
     } else {
         emit_osr_prologue(b, fv, sp_var, &mut state, entry_block, osr_pcs);
@@ -753,6 +989,16 @@ fn lower(
         };
         let cranelift_block = state.blocks[&start_pc];
         b.switch_to_block(cranelift_block);
+        // Epic F4 step 2: slots carried across the incoming edges arrive as
+        // block parameters — re-seed the model from them. The model itself
+        // never crosses a block; every edge delivers it through `edge_args`.
+        state.stack.entries.clear();
+        let carried: Vec<u32> = state.carried_for(start_pc).to_vec();
+        let params = b.block_params(cranelift_block);
+        debug_assert_eq!(params.len(), carried.len(), "block {start_pc} parameters");
+        for (&k, &v) in carried.iter().zip(params) {
+            state.stack.entries.insert(k, v);
+        }
         let mut sp = b.use_var(sp_var);
         let mut stopped = false;
 
@@ -799,18 +1045,22 @@ fn lower(
         }
 
         if !stopped {
-            // Only reached for blocks ending in a non-branch instruction.
-            // Successors start with an empty cache, so materialize first.
-            state.stack.flush(b, sp);
+            // Only reached for blocks ending in a non-branch instruction: hand
+            // the carried slots to the successor as parameters and materialize
+            // the rest (the successor seeds its model from the parameters).
             let tail = &instructions[tail_index];
             let next = tail.pc() + tail.size() as u32;
             let next_block = state.block_for(b, next);
+            let args = state
+                .edge_args(b, sp, &[(next_block, next)])
+                .pop()
+                .expect("one target");
             b.def_var(sp_var, sp);
-            b.ins().jump(next_block, &[]);
+            b.ins().jump(next_block, &args);
         }
-        // Every terminator flushes on its way out (see `Step::Stop`); catch a
-        // path that forgot, otherwise a slot would silently stay in a register
-        // the successor block cannot see.
+        // Every terminator delivers its model on the way out (see `Step::Stop`);
+        // catch a path that forgot, otherwise a slot would silently stay in a
+        // register the successor block cannot see.
         debug_assert!(
             state.stack.is_empty(),
             "a block ended with register-resident stack slots"
@@ -1068,9 +1318,8 @@ fn lower_insn(
             Step::Continue(sp)
         }
         "goto" => {
-            // The successor re-reads the frame (and a back edge collects), so
-            // materialize every register-resident slot before leaving.
-            state.stack.flush(b, sp);
+            // The successor takes over what it carries and re-reads the rest
+            // (and a back edge collects first, materializing everything).
             let target = insn.branch_target().expect("goto target") as u32;
             let dest = state.block_for(b, target);
             b.def_var(sp_var, sp);
@@ -1079,7 +1328,11 @@ fn lower_insn(
                 let cont = safepoint(state, b, fv, helper_sig, sp, pc + size);
                 b.switch_to_block(cont);
             }
-            b.ins().jump(dest, &[]);
+            let args = state
+                .edge_args(b, sp, &[(dest, target)])
+                .pop()
+                .expect("one target");
+            b.ins().jump(dest, &args);
             Step::Stop
         }
         // `catch` pushes the handler sentinel; the interpreter's catch scan
@@ -1099,8 +1352,12 @@ fn lower_insn(
             // of the frame, so it cannot stay in a register across the jump.
             state.stack.flush(b, sp);
             let dest = state.block_for(b, target);
+            let args = state
+                .edge_args(b, sp, &[(dest, target)])
+                .pop()
+                .expect("one target");
             b.def_var(sp_var, sp);
-            b.ins().jump(dest, &[]);
+            b.ins().jump(dest, &args);
             Step::Stop
         }
         // `ret` returns from a `finally` body to the `gosub` site. The return
@@ -1109,18 +1366,32 @@ fn lower_insn(
         // interpreter, which validates and reports it).
         "ret" => {
             let (sp, target) = state.stack.pop(b, sp);
-            // Dispatch targets are separate blocks that reload from the frame.
+            // Dispatch targets are separate blocks; the arguments are computed
+            // here, where they dominate every hit, after a flush that leaves
+            // the frame authoritative for them.
             state.stack.flush(b, sp);
             let t = b.ins().ireduce(types::I32, target);
-            for &return_pc in ret_targets {
-                let dest = state.block_for(b, return_pc);
+            let dests: Vec<Block> = ret_targets
+                .iter()
+                .map(|&return_pc| state.block_for(b, return_pc))
+                .collect();
+            let targets: Vec<(Block, u32)> = dests
+                .iter()
+                .copied()
+                .zip(ret_targets.iter().copied())
+                .collect();
+            let all_args = state.edge_args(b, sp, &targets);
+            for index in 0..ret_targets.len() {
+                let dest = dests[index];
                 let hit = b.create_block();
                 let miss = b.create_block();
-                let matches = b.ins().icmp_imm(IntCC::Equal, t, i64::from(return_pc));
+                let matches = b
+                    .ins()
+                    .icmp_imm(IntCC::Equal, t, i64::from(ret_targets[index]));
                 b.ins().brif(matches, hit, &[], miss, &[]);
                 b.switch_to_block(hit);
                 b.def_var(sp_var, sp);
-                b.ins().jump(dest, &[]);
+                b.ins().jump(dest, &all_args[index]);
                 b.switch_to_block(miss);
             }
             exit(state, b, fv, EXIT_RESUME, pc, sp);
@@ -1554,11 +1825,18 @@ fn emit_cond_branch(
     let fallthrough = insn.pc() + insn.size() as u32;
     let target_block = state.block_for(b, target);
     let fall_block = state.block_for(b, fallthrough);
+    // The shared flush before the branch left the model empty, so the carried
+    // slots of both targets arrive as frame loads on this arm.
+    let mut args = state.edge_args(b, sp, &[(target_block, target), (fall_block, fallthrough)]);
+    let fall_args = args.pop().expect("two targets");
+    let target_args = args.pop().expect("two targets");
     b.def_var(sp_var, sp);
     if is_true {
-        b.ins().brif(cond, target_block, &[], fall_block, &[]);
+        b.ins()
+            .brif(cond, target_block, &target_args, fall_block, &fall_args);
     } else {
-        b.ins().brif(cond, fall_block, &[], target_block, &[]);
+        b.ins()
+            .brif(cond, fall_block, &fall_args, target_block, &target_args);
     }
 }
 
@@ -2190,5 +2468,106 @@ mod tests {
             assert!(!cache.tracked, "and clears the mark");
             let _ = sp;
         });
+    }
+
+    // ── Epic F4 step 2: cross-block carry (unit level) ──
+
+    /// Verify a hand-built function and run the carry walk over it.
+    fn carried_of(
+        bytes: Vec<u8>,
+        args: u16,
+        vars: u16,
+    ) -> (
+        std::collections::HashMap<u32, Vec<u32>>,
+        std::collections::HashMap<u32, u16>,
+    ) {
+        let verified = verify(snapshot(bytes, args, vars), VerifyLimits::default())
+            .unwrap_or_else(|e| panic!("verify rejected: {e:?}"));
+        let osr_pcs = collect_osr_pcs(&verified);
+        let strict = verified.snapshot().mode.contains(ExecMode::STRICT);
+        carried_sets(&verified, &osr_pcs, strict)
+    }
+
+    /// A join block whose first instruction reads the merged slot in a register
+    /// (`put_loc`) carries it: one store/load pair per edge disappears.
+    /// Bytecode: `get_loc0; dup; if_false L; drop; get_loc1; L: put_loc0;
+    /// get_loc0; get_loc1; add; put_loc0; return_undef`.
+    #[test]
+    fn carried_sets_marks_a_slot_read_before_the_first_flush() {
+        let bytes = seq(&[
+            &loc(op::OP_get_loc, 0),
+            &[op::OP_dup],
+            &branch(op::OP_if_false, 8), // pc 4 → 4+1+8 = 13
+            &[op::OP_drop],
+            &loc(op::OP_get_loc, 1),
+            &loc(op::OP_put_loc, 0), // L = 13, entry height 1
+            &loc(op::OP_get_loc, 0),
+            &loc(op::OP_get_loc, 1),
+            &[op::OP_add],
+            &loc(op::OP_put_loc, 0),
+            &[op::OP_return_undef],
+        ]);
+        let (carried, heights) = carried_of(bytes.clone(), 0, 2);
+        assert_eq!(
+            carried.get(&13).map(Vec::as_slice),
+            Some([1].as_slice()),
+            "L reads slot 1 with `put_loc` before any flush"
+        );
+        // The fallthrough block only drops and pushes — nothing to carry.
+        assert!(carried.get(&9).is_none(), "drop/push read no entry slot");
+        assert_eq!(heights.get(&13), Some(&1), "both edges merge at height 1");
+        // And the plumbing lowers: parameters on the join, args on both edges.
+        compile_bytes(bytes, 0, 2).expect("join with carried parameters compiles");
+    }
+
+    /// A block that starts with a helper call flushes before it reads anything,
+    /// so carrying into it would buy nothing (and cost a reload on the edge):
+    /// the walk stops at the first instruction.
+    #[test]
+    fn carried_sets_stops_at_the_first_flush() {
+        let bytes = seq(&[
+            &loc(op::OP_get_loc, 0),
+            &[op::OP_dup],
+            &branch(op::OP_if_false, 8), // pc 4 → 13
+            &[op::OP_drop],
+            &loc(op::OP_get_loc, 1),
+            &[op::OP_plus], // L = 13: a helper call, entry height 1
+            &loc(op::OP_put_loc, 0),
+            &[op::OP_return_undef],
+        ]);
+        let (carried, _) = carried_of(bytes, 0, 2);
+        assert!(
+            carried.get(&13).is_none(),
+            "the helper's frame flush ends the walk: {carried:?}"
+        );
+    }
+
+    /// The two-int fast path reads its operands from registers before it splits
+    /// (its `flush_except` spares exactly them), so a block entered with both
+    /// slots on the stack carries them:
+    /// `push1; push2; get_loc0; if_false L; push9; drop; goto L;
+    /// L: add; put_loc0; return_undef`.
+    #[test]
+    fn carried_sets_marks_both_fast_path_operands() {
+        let bytes = seq(&[
+            &push_i32(1),
+            &push_i32(2),
+            &loc(op::OP_get_loc, 0),
+            &branch(op::OP_if_false, 15), // pc 13 → 14+15 = 29
+            &push_i32(9),
+            &[op::OP_drop],
+            &branch(op::OP_goto, 4), // pc 24 → 25+4 = 29
+            &[op::OP_add],           // L = 29, entry height 2
+            &loc(op::OP_put_loc, 0),
+            &[op::OP_return_undef],
+        ]);
+        let (carried, heights) = carried_of(bytes, 0, 1);
+        assert_eq!(
+            carried.get(&29).map(Vec::as_slice),
+            Some([1, 2].as_slice()),
+            "the fast path reads both entry slots before flushing"
+        );
+        assert!(carried.get(&18).is_none(), "the middle block only shuffles");
+        assert_eq!(heights.get(&29), Some(&2));
     }
 }
