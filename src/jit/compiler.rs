@@ -60,6 +60,9 @@ const EXIT_RETRY: i64 = 7;
 
 const UNDEFINED_BITS: i64 = 3 << 48;
 const BOOL_TAG: i64 = 1 << 48;
+/// `JSValueTag::Null`/`Undefined`, i.e. the high 16 bits of `NULL`/`UNDEFINED`.
+const NULL_TAG: i64 = 2;
+const UNDEFINED_TAG: i64 = 3;
 /// `js_new_float64(d) == d.to_bits() - (0xFFF9 << 48)` for a non-NaN value.
 const FLOAT64_ADDEND: i64 = 0xFFF9 << 48;
 
@@ -92,6 +95,7 @@ fn supported(name: &str) -> bool {
                 | "null"
                 | "push_false"
                 | "push_true"
+                | "is_undefined_or_null"
                 | "push_this"
                 | "drop"
                 | "get_loc"
@@ -810,6 +814,8 @@ fn touch(name: &str, h: u32, strict: bool, feedback: &[(u32, SiteFeedback)], pc:
         "nop" | "push_i32" | "push_const" | "undefined" | "null" | "push_false" | "push_true"
         | "catch" | "get_loc" | "get_arg" | "drop" | "goto" | "gosub" => Touch::Pass,
         "push_this" if strict => Touch::Pass,
+        // Reads the operand in a register and rewrites the slot from it.
+        "is_undefined_or_null" => Touch::Read(h),
         "put_loc" | "put_arg" | "set_loc" | "set_arg" => Touch::Read(h),
         // Specialized `add_loc` reads the operand before `flush_except([top])`.
         "add_loc" if int_only(feedback, pc, true) => Touch::ReadFlush(vec![h]),
@@ -1174,6 +1180,19 @@ fn lower_insn(
         "null" => {
             let v = b.ins().iconst(types::I64, 2i64 << 48);
             Step::Continue(state.stack.push(b, sp, v))
+        }
+        // `??`: true when the value is exactly `null` or `undefined`. The tag
+        // sits in the top 16 bits (0 for an int, 8 for a float, negative for a
+        // pointer), so shifting it out compares without unboxing anything.
+        "is_undefined_or_null" => {
+            let (sp, v) = state.stack.pop(b, sp);
+            let tag = b.ins().ushr_imm(v, 48);
+            let is_null = b.ins().icmp_imm(IntCC::Equal, tag, NULL_TAG);
+            let is_undefined = b.ins().icmp_imm(IntCC::Equal, tag, UNDEFINED_TAG);
+            let cond = b.ins().bor(is_null, is_undefined);
+            let widened = b.ins().uextend(types::I64, cond);
+            let boxed = b.ins().bor_imm(widened, BOOL_TAG);
+            Step::Continue(state.stack.push(b, sp, boxed))
         }
         "get_var" | "get_var_undef" | "put_var" | "put_var_init" => {
             let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
@@ -2165,6 +2184,13 @@ mod tests {
         ] {
             cases.push((name, seq(&[&push_i32(1), &[code], &ret]), 0, 0));
         }
+        // `??`'s guard: lowered inline (the tag of the top slot), not resumed.
+        cases.push((
+            "is_undefined_or_null",
+            seq(&[&push_i32(1), &[op::OP_is_undefined_or_null], &ret]),
+            0,
+            0,
+        ));
         for (name, code) in [
             ("in", op::OP_in),
             ("instanceof", op::OP_instanceof),
@@ -2571,13 +2597,14 @@ mod tests {
         assert_eq!(heights.get(&29), Some(&2));
     }
 
-    /// The verifier merges operand kinds *exactly* at a join: a short-circuit
-    /// label whose arms disagree — a loop-widened `Tagged` local against an
-    /// `Int32` literal (`x || 5`) — rejects the whole function, fail-closed.
-    /// Unrelated to epic F4 itself; it is why the F4 carry cases in the test
-    /// suites cross every join with same-kind operands (locals on both sides).
+    /// A join whose arms disagree only in an operand *proof* — a `Tagged`
+    /// operand against an `Int32` literal, the shape every short-circuit and
+    /// `??` produces (`x || 5`, `x ?? 7`, `c ? x : 7`) — widens the operand to
+    /// `Tagged` and verifies; the whole function then compiles. Before the
+    /// widening it was rejected fail-closed, which is why the F4 carry cases
+    /// cross every join with same-kind operands.
     #[test]
-    fn join_of_tagged_and_int32_operand_is_rejected() {
+    fn join_of_tagged_and_int32_operands_widens_to_tagged() {
         // Layout: get_loc0(0..3) dup(3..4) if_true(4..9) drop(9..10)
         // push5(10..15) return_undef(15..16); branch offset 15-5 = 10.
         let bytes = seq(&[
@@ -2588,14 +2615,13 @@ mod tests {
             &push_i32(5),
             &[op::OP_return_undef],
         ]);
-        let err = verify(snapshot(bytes, 0, 1), VerifyLimits::default())
-            .expect_err("Tagged vs Int32 at the label must not verify");
-        assert!(
-            matches!(
-                err.kind(),
-                crate::jit::bytecode::verify::VerifyErrorKind::IncompatibleMergeKind { .. }
-            ),
-            "expected the exact-kind merge to fail, got {err:?}"
+        let verified = verify(snapshot(bytes.clone(), 0, 1), VerifyLimits::default())
+            .expect("a lost kind proof must not reject the function");
+        assert_eq!(
+            verified.stack_heights(),
+            [0, 1, 2, 1, 0, 1],
+            "a kind-only widening must not change the proven heights"
         );
+        compile_bytes(bytes, 0, 1).expect("the widened join lowers");
     }
 }

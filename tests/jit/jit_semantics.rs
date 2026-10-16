@@ -201,15 +201,26 @@ const CASES: &[SemCase] = sem_cases! {
 
     // ── cross-block operand stack residency (epic F4 step 2): short-circuit
     //    and ternary joins leave a merged slot on the operand stack, which the
-    //    join block must read exactly like the interpreter does. Operands on
-    //    both sides of every label are locals, because the verifier merges
-    //    operand kinds exactly (a literal `Int32` vs a loop-widened `Tagged`
-    //    local is a rejected join, unrelated to F4).
+    //    join block must read exactly like the interpreter does. The values
+    //    crossing each label are locals; the literal-arm shape (`x || 5`) is
+    //    the `coalesce_` case below.
     carry_join_slots => Compiles =
         "var __seed = 0; function f(n){ var __z = 0; var t = 0, m = 1; for (var i = 0; i < n; i++) { var x = (i || m) + (i && m) + (i ? m : t); t = (t + x) | 0; } return t + (n || m) + (n && m); }",
         "f(4)",
         "f(64)",
         "'cj:' + f(0) + ',' + f(9)";
+
+    // ── short-circuit / `??` joins with literal arms ──
+    // Until the verifier widened operand kinds at a join, every one of these
+    // rejected the whole function (`Tagged` local vs `Int32` literal). The
+    // values cover both falsy-but-not-nullish (`0`) and nullish (`null`,
+    // `undefined`) operands, plus a float and a string, so the inline
+    // `is_undefined_or_null` guard and the merged slot are tag-exact.
+    coalesce_literal_arms => Compiles =
+        "var __seed = 0; function f(n){ var __z = 0; var a = n ?? 7; var b = (n ?? 8) ?? 9; var c = (n || 5) + (n && 9) + (n ? 11 : 13); return a + b + c; }",
+        "f(2)",
+        "String(f(0)) + '/' + String(f(2)) + '/' + String(f(null)) + '/' + String(f(undefined)) + '/' + String(f(NaN)) + '/' + String(f(2.5)) + '/[' + f('') + ']'",
+        "'coal:' + f(3) + ',' + f(0)";
 
     // ── control flow shapes the verifier must survive ──
     switch_and_labels => Compiles =
@@ -243,6 +254,7 @@ const FEATURES: &[&str] = &[
     "generators_",
     "ic_",
     "carry_",
+    "coalesce_",
 ];
 
 #[test]

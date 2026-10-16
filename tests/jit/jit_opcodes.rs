@@ -89,10 +89,6 @@ const UNCOMPILED_TODAY: &[(&str, &str)] = &[
         "parameter defaults open the frame with a TDZ prologue (set_loc_uninitialized), which the baseline cannot lower at entry",
     ),
     (
-        "nullish_coalescing",
-        "`??` fails frontend verification (fail-closed) even though the policy table accepts it",
-    ),
-    (
         "this_arguments_newtarget",
         "`arguments` / `new.target` initialise a special object at frame entry, which the baseline cannot lower at entry",
     ),
@@ -195,8 +191,8 @@ const CASES: &[OpCase] = op_cases! {
                   "f(KO, Object)",
           "f(KO, Object)",
           "'ro:' + f(KO, Object)";
-    // `??` only survives verification in tail position today (fail-closed
-    // otherwise), hence the bare `return x ?? 7`.
+    // `??` lowers inline (its `is_undefined_or_null` guard) and its join with
+    // the literal arm verifies, so this is a fully compiling case.
     nullish_coalescing => [push_i32, fclosure, drop, dup, return, put_var, put_ref_value, get_loc, put_loc, get_arg, if_false, is_undefined_or_null, nop]
         = "var __seed = 0; function f(x){ var __z = 0; return x ?? 7; }",
                   "f(null)",

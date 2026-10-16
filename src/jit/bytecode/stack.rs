@@ -11,8 +11,11 @@
 //!
 //! Two invariants matter for safety: the operand stack never underflows or
 //! exceeds the declared `stack_size`, and every control-flow join agrees on the
-//! operand-stack height and representation. Locals may widen to `Tagged` at a
-//! join (the cell still holds a valid JSValue), but operands may not.
+//! operand-stack height and representation. `Int32`/`Float64`/`Uninitialized`
+//! only *prove* a shape of a JSValue the lowering can unpack (tag 0, the float
+//! encoding, the uninitialized sentinel), so a join may drop the proof and
+//! widen to `Tagged` — the value itself is valid either way. `CatchOffset` is
+//! structural (the unwinder truncates the stack to it) and must agree exactly.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -383,60 +386,74 @@ fn merge_state(
             VerifyErrorKind::UnsupportedExceptionRegion,
         ));
     }
-    // Operand representations must agree exactly: a merge is not an operation
-    // and cannot insert the boxing/conversion a change would need.
-    for (slot, (expected, actual)) in expected.stack.iter().zip(&actual.stack).enumerate() {
-        if expected != actual {
-            return Err(VerifyError::new(
-                pc,
-                VerifyErrorKind::IncompatibleMergeKind {
-                    slot,
-                    expected: *expected,
-                    actual: *actual,
-                },
-            ));
-        }
-    }
-
     let mut changed = false;
-    let stack_slots = expected.stack.len();
-    for (local, (expected, actual)) in expected.locals.iter_mut().zip(&actual.locals).enumerate() {
-        if expected == actual {
+    for (slot, (expected, actual)) in expected.stack.iter_mut().zip(&actual.stack).enumerate() {
+        let prior = *expected;
+        if prior == *actual {
             continue;
         }
-        let prior = *expected;
-        let joined = match (prior, *actual) {
-            // Locals stay authoritative tagged cells; losing the proof at a
-            // join does not box anything.
-            (SlotKind::Tagged, SlotKind::Int32 | SlotKind::Float64)
-            | (SlotKind::Int32 | SlotKind::Float64, SlotKind::Tagged)
-            | (SlotKind::Int32, SlotKind::Float64)
-            | (SlotKind::Float64, SlotKind::Int32) => SlotKind::Tagged,
-            // A lexical binding declared in a loop body is uninitialized on
-            // entry and initialized on the backedge; its read is a
-            // `get_loc_check` that still runs the TDZ test.
-            (SlotKind::Tagged | SlotKind::Int32 | SlotKind::Float64, SlotKind::Uninitialized)
-            | (SlotKind::Uninitialized, SlotKind::Tagged | SlotKind::Int32 | SlotKind::Float64) => {
-                SlotKind::Tagged
-            }
-            // Catch offsets are verifier-only states, not JS representations.
-            _ => {
-                return Err(VerifyError::new(
-                    pc,
-                    VerifyErrorKind::IncompatibleMergeKind {
-                        slot: stack_slots + local,
-                        expected: prior,
-                        actual: *actual,
-                    },
-                ));
-            }
+        // A merge is not an operation and cannot insert a conversion — but
+        // none is needed: the joinable pairs differ only in a proof, so the
+        // operand widens to `Tagged` (see the module docs).
+        let Some(joined) = join_kinds(prior, *actual) else {
+            return Err(incompatible_merge(pc, slot, prior, *actual));
         };
-        if joined != prior {
-            *expected = joined;
-            changed = true;
+        *expected = joined;
+        changed = true;
+    }
+
+    let stack_slots = expected.stack.len();
+    for (local, (expected, actual)) in expected.locals.iter_mut().zip(&actual.locals).enumerate() {
+        let prior = *expected;
+        if prior == *actual {
+            continue;
         }
+        let Some(joined) = join_kinds(prior, *actual) else {
+            return Err(incompatible_merge(pc, stack_slots + local, prior, *actual));
+        };
+        *expected = joined;
+        changed = true;
     }
     Ok(changed)
+}
+
+/// The join of two representations at a merge point, or `None` when they
+/// disagree structurally (a `CatchOffset` meeting a JS value), which no
+/// widening can repair.
+///
+/// Every joinable pair widens to `Tagged`: `Int32` (tag 0), `Float64` and
+/// `Uninitialized` are all valid JSValue encodings that differ only in the
+/// proof the lowering would have used, and every consumer handles the general
+/// case. A local consequently stays an authoritative tagged cell, and an
+/// operand a variable a `get_loc_check` would have narrowed. A lexical binding
+/// declared in a loop body is uninitialized on entry and initialized on the
+/// backedge; its read still runs the TDZ test.
+const fn join_kinds(expected: SlotKind, actual: SlotKind) -> Option<SlotKind> {
+    Some(match (expected, actual) {
+        (SlotKind::Tagged, SlotKind::Int32 | SlotKind::Float64 | SlotKind::Uninitialized)
+        | (SlotKind::Int32 | SlotKind::Float64 | SlotKind::Uninitialized, SlotKind::Tagged)
+        | (SlotKind::Int32, SlotKind::Float64)
+        | (SlotKind::Float64, SlotKind::Int32)
+        | (SlotKind::Uninitialized, SlotKind::Int32 | SlotKind::Float64)
+        | (SlotKind::Int32 | SlotKind::Float64, SlotKind::Uninitialized) => SlotKind::Tagged,
+        _ => return None,
+    })
+}
+
+const fn incompatible_merge(
+    pc: u32,
+    slot: usize,
+    expected: SlotKind,
+    actual: SlotKind,
+) -> VerifyError {
+    VerifyError::new(
+        pc,
+        VerifyErrorKind::IncompatibleMergeKind {
+            slot,
+            expected,
+            actual,
+        },
+    )
 }
 
 pub(crate) fn prove(
@@ -622,4 +639,47 @@ fn join_handler_locals(
         }
     }
     Ok(changed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Locked because it is the whole reason short-circuit/`??`/ternary joins
+    /// with a literal arm (`x || 5`, `x ?? 7`, `c ? x : 7`) verify at all: the
+    /// pair differs only in a proof, so the join is `Tagged` — no conversion.
+    #[test]
+    fn join_kinds_widens_proofs_and_rejects_catch_offsets() {
+        for kind in [SlotKind::Int32, SlotKind::Float64, SlotKind::Uninitialized] {
+            assert_eq!(join_kinds(SlotKind::Tagged, kind), Some(SlotKind::Tagged));
+            assert_eq!(join_kinds(kind, SlotKind::Tagged), Some(SlotKind::Tagged));
+        }
+        assert_eq!(
+            join_kinds(SlotKind::Int32, SlotKind::Float64),
+            Some(SlotKind::Tagged)
+        );
+        assert_eq!(
+            join_kinds(SlotKind::Float64, SlotKind::Int32),
+            Some(SlotKind::Tagged)
+        );
+        assert_eq!(
+            join_kinds(SlotKind::Uninitialized, SlotKind::Int32),
+            Some(SlotKind::Tagged)
+        );
+        assert_eq!(
+            join_kinds(SlotKind::Float64, SlotKind::Uninitialized),
+            Some(SlotKind::Tagged)
+        );
+        // Structural: a merge may not move a catch offset or turn one into a
+        // JS value (the unwinder truncates the stack to it).
+        for kind in [
+            SlotKind::Tagged,
+            SlotKind::Int32,
+            SlotKind::Float64,
+            SlotKind::Uninitialized,
+        ] {
+            assert_eq!(join_kinds(SlotKind::CatchOffset, kind), None);
+            assert_eq!(join_kinds(kind, SlotKind::CatchOffset), None);
+        }
+    }
 }

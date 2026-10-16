@@ -79,12 +79,19 @@ const NORMAL: &[Case] = dim_cases!("Normal", [
         "'cc2:' + carry(7)";
     // ... through several nested joins, with the falsy path taken too (the
     // probe's `pick(0)` enters every join from its other edge). Every value
-    // crossing a label is a local: the verifier merges operand kinds exactly,
-    // so a literal arm (`: 7`) would be a rejected join unrelated to F4.
+    // crossing a label is a local; the literal-arm shape (`: 7`) is covered by
+    // `coalesce_short_circuit_literals` below.
     stack_cache_carries_through_nested_joins:
         "function pick(n){ var v = n > 3 ? n * 2 : n + 7; var w = n || v; var z = n && w; return (z || v) - (n ? w : v); } pick(2);",
         "pick(64)",
         "'pk:' + pick(0) + ',' + pick(5)";
+    // A short-circuit / `??` join whose arms differ in operand kind (a
+    // `Tagged` local against an `Int32` literal): the verifier widens it, so
+    // these functions now compile instead of being rejected fail-closed.
+    coalesce_short_circuit_literals:
+        "function cx(n){ var a = n ?? 7; var b = (n ?? 8) ?? 9; return a + b + (n || 5) * 1000 + (n ? 11 : 13); } cx(1);",
+        "cx(0) + cx(2) * 3",
+        "'cx:' + cx(4) + ',' + cx(null) + ',' + cx(0)";
     nested_while:
         "function w(n){ var t = 0, i = 0; while (i < n) { var j = 0; while (j < 3) { t += i ^ j; j++; } i++; } return t; } w(1);",
         "w(400)",
