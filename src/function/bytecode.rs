@@ -46,6 +46,77 @@ pub(crate) struct InlineCacheEntry {
     pub(crate) flags: u8,
 }
 
+/// Distinct shapes one inline-cache site may hold before it starts evicting
+/// (epic F3). 4 keeps a monomorphic site a single compare on `ways[0]` while
+/// covering the small polymorphic loops real code produces; past it a site
+/// round-robin evicts, which is correct but stops being a win.
+#[cfg(feature = "inline_cache")]
+pub(crate) const IC_WAYS: usize = 4;
+
+/// One `get_field`/`get_field2`/`put_field` site: up to [`IC_WAYS`] cached
+/// shapes plus the cursor that picks the eviction victim. Both the
+/// interpreter and the JIT helpers go through [`Self::find`]/[`Self::insert`],
+/// so the two fast paths can never drift apart.
+#[cfg(feature = "inline_cache")]
+#[derive(Clone, Copy, Default)]
+pub(crate) struct InlineCacheSite {
+    ways: [InlineCacheEntry; IC_WAYS],
+    /// Round-robin victim index, advanced only when a new shape arrives at an
+    /// already-full site.
+    cursor: u8,
+}
+
+#[cfg(feature = "inline_cache")]
+impl InlineCacheSite {
+    /// The cached `(slot, flags)` for `shape`, if this site has seen it.
+    /// `shape_ptr` is only ever compared, never dereferenced (see the GC
+    /// safety note on `BytecodeImpl::inline_cache`).
+    pub(crate) fn find(
+        &self,
+        shape_ptr: *const crate::object::ShapeImpl,
+        shape_uid: u32,
+    ) -> Option<(u32, u8)> {
+        self.ways
+            .iter()
+            .find(|w| w.shape_ptr == shape_ptr && w.shape_uid == shape_uid)
+            .map(|w| (w.slot, w.flags))
+    }
+
+    /// Record `shape -> (slot, flags)`: refresh the matching way, else fill
+    /// the first empty way (a monomorphic site therefore stays on `ways[0]`
+    /// and costs exactly what the old single entry cost), else evict
+    /// round-robin.
+    pub(crate) fn insert(
+        &mut self,
+        shape_ptr: *const crate::object::ShapeImpl,
+        shape_uid: u32,
+        slot: u32,
+        flags: u8,
+    ) {
+        let way = match self
+            .ways
+            .iter()
+            .position(|w| w.shape_ptr == shape_ptr && w.shape_uid == shape_uid)
+        {
+            Some(i) => i,
+            None => match self.ways.iter().position(|w| w.shape_ptr.is_null()) {
+                Some(i) => i,
+                None => {
+                    let i = self.cursor as usize % IC_WAYS;
+                    self.cursor = self.cursor.wrapping_add(1);
+                    i
+                }
+            },
+        };
+        self.ways[way] = InlineCacheEntry {
+            shape_ptr,
+            shape_uid,
+            slot,
+            flags,
+        };
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct BytecodeDebugInfo {
     pub filename: Atom,
@@ -177,7 +248,8 @@ pub struct BytecodeImpl {
     pub(crate) debug: Option<BytecodeDebugInfo>,
 
     /// Inline-cache entries for GET_FIELD_IC / GET_FIELD2_IC instructions.
-    /// Indexed by the ic_index embedded in each IC instruction.
+    /// Indexed by the ic_index embedded in each IC instruction; each element is
+    /// one [`InlineCacheSite`] holding up to [`IC_WAYS`] shapes (epic F3).
     /// Empty / zero-initialized when the compiled function has no IC sites.
     ///
     /// Wrapped in UnsafeCell for interior mutability: the interpreter owns the
@@ -206,7 +278,7 @@ pub struct BytecodeImpl {
     ///    monotonically increasing counter) differs, so the cache misses
     ///    correctly.
     #[cfg(feature = "inline_cache")]
-    pub(crate) inline_cache: UnsafeCell<Box<[InlineCacheEntry]>>,
+    pub(crate) inline_cache: UnsafeCell<Box<[InlineCacheSite]>>,
 
     /// JIT state for this function (feature `jit`): the installed native-entry
     /// slot. Interior-mutable because the interpreter reaches it through
@@ -699,5 +771,82 @@ impl Bytecode {
             parent_frame_idx,
         )?
         .call(ctx, this_obj, &[])
+    }
+}
+
+#[cfg(all(test, feature = "inline_cache"))]
+mod inline_cache_site_tests {
+    use super::*;
+
+    /// A fabricated but distinct, non-null shape address. `find`/`insert` only
+    /// compare these, never dereference them.
+    fn shape_at(seed: usize) -> *const crate::object::ShapeImpl {
+        (std::ptr::NonNull::<crate::object::ShapeImpl>::dangling().as_ptr() as usize + seed * 16)
+            as *const crate::object::ShapeImpl
+    }
+
+    fn insert(site: &mut InlineCacheSite, seed: u32, slot: u32) {
+        site.insert(shape_at(seed as usize), seed, slot, 0);
+    }
+
+    #[test]
+    fn empty_site_never_hits() {
+        let site = InlineCacheSite::default();
+        assert_eq!(site.find(shape_at(1), 1), None);
+    }
+
+    #[test]
+    fn site_holds_every_way() {
+        let mut site = InlineCacheSite::default();
+        for seed in 0..IC_WAYS as u32 {
+            insert(&mut site, seed, seed * 10);
+        }
+        // Nothing evicted yet: all shapes stay reachable with their own slot.
+        for seed in 0..IC_WAYS as u32 {
+            assert_eq!(
+                site.find(shape_at(seed as usize), seed),
+                Some((seed * 10, 0))
+            );
+        }
+        // An unknown shape misses.
+        assert_eq!(site.find(shape_at(99), 99), None);
+    }
+
+    #[test]
+    fn known_shape_updates_in_place() {
+        let mut site = InlineCacheSite::default();
+        insert(&mut site, 1, 1);
+        insert(&mut site, 2, 2);
+        // Re-inserting a seen shape refreshes its slot instead of consuming a
+        // way or advancing the eviction cursor.
+        insert(&mut site, 1, 7);
+        assert_eq!(site.find(shape_at(1), 1), Some((7, 0)));
+        assert_eq!(site.find(shape_at(2), 2), Some((2, 0)));
+    }
+
+    #[test]
+    fn full_site_evicts_round_robin() {
+        let mut site = InlineCacheSite::default();
+        for seed in 0..IC_WAYS as u32 {
+            insert(&mut site, seed, seed);
+        }
+        insert(&mut site, 100, 100); // evicts the first-empty fill order: seed 0
+        assert_eq!(site.find(shape_at(0), 0), None);
+        for seed in 1..IC_WAYS as u32 {
+            assert_eq!(site.find(shape_at(seed as usize), seed), Some((seed, 0)));
+        }
+        assert_eq!(site.find(shape_at(100), 100), Some((100, 0)));
+
+        insert(&mut site, 101, 101); // next victim is the next way
+        assert_eq!(site.find(shape_at(1), 1), None);
+        assert_eq!(site.find(shape_at(101), 101), Some((101, 0)));
+    }
+
+    /// An ABA-shaped stale entry must never resolve: same address, new uid.
+    #[test]
+    fn uid_mismatch_defeats_address_reuse() {
+        let mut site = InlineCacheSite::default();
+        site.insert(shape_at(1), 11, 3, 0);
+        assert_eq!(site.find(shape_at(1), 22), None);
     }
 }

@@ -663,6 +663,11 @@ unsafe extern "C" fn h_put_var_init(f: *mut JitExecFrame) -> u32 {
 }
 
 /// `get_array_el`: `[array, prop, ^] -> [value, ^]`.
+///
+/// shortcut: element accesses carry no inline-cache index, so they lean on
+/// `get_property_index`'s class/bounds fast path instead of a shape IC;
+/// upgrade to a real `InlineCacheSite` when non-fast (dictionary) arrays show
+/// up hot — that needs an ic-index operand on GET_ARRAY_EL/PUT_ARRAY_EL.
 unsafe extern "C" fn h_get_array_el(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
@@ -765,10 +770,10 @@ unsafe fn field_get(f: *mut JitExecFrame, push: bool) -> u32 {
                 && let Some(o) = target.as_object()
                 && let Some(shape) = o.shape()
             {
-                let entry = &cache[ic_idx];
                 let shape_ptr = shape.gc_ref().as_ptr().as_ptr();
-                if entry.shape_ptr == shape_ptr && entry.shape_uid == shape.uid {
-                    let slot = entry.slot as usize;
+                // The site holds up to IC_WAYS shapes (epic F3).
+                if let Some((slot, _)) = cache[ic_idx].find(shape_ptr, shape.uid) {
+                    let slot = slot as usize;
                     if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
                         return match o.prop_slot(slot).value(scope, o.into()) {
                             Ok(value) => finish_field_get(f, value, push),
@@ -790,12 +795,12 @@ unsafe fn field_get(f: *mut JitExecFrame, push: bool) -> u32 {
                     {
                         let cache = &mut *(*f.bytecode).inline_cache.get();
                         if ic_idx < cache.len() {
-                            cache[ic_idx] = crate::function::InlineCacheEntry {
-                                shape_ptr: shape.gc_ref().as_ptr().as_ptr(),
-                                shape_uid: shape.uid,
-                                slot: idx as u32,
-                                flags: flags as u8,
-                            };
+                            cache[ic_idx].insert(
+                                shape.gc_ref().as_ptr().as_ptr(),
+                                shape.uid,
+                                idx as u32,
+                                flags as u8,
+                            );
                         }
                     }
                 }
@@ -831,12 +836,11 @@ unsafe extern "C" fn h_put_field(f: *mut JitExecFrame) -> u32 {
                 && let Some(o) = target.as_object()
                 && let Some(shape) = o.shape()
             {
-                let entry = &cache[ic_idx];
                 let shape_ptr = shape.gc_ref().as_ptr().as_ptr();
-                if entry.shape_ptr == shape_ptr && entry.shape_uid == shape.uid {
-                    let slot = entry.slot as usize;
+                if let Some((slot, cached_flags)) = cache[ic_idx].find(shape_ptr, shape.uid) {
+                    let slot = slot as usize;
                     if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
-                        let flags = entry.flags as u32;
+                        let flags = cached_flags as u32;
                         if flags & crate::object::JS_PROP_TMASK == crate::object::JS_PROP_NORMAL
                             && flags & crate::object::JS_PROP_WRITABLE != 0
                             && flags & crate::object::JS_PROP_LENGTH == 0
@@ -866,12 +870,12 @@ unsafe extern "C" fn h_put_field(f: *mut JitExecFrame) -> u32 {
             let ic_idx = f.imm2 as usize;
             let cache = &mut *(*f.bytecode).inline_cache.get();
             if ic_idx < cache.len() {
-                cache[ic_idx] = crate::function::InlineCacheEntry {
-                    shape_ptr: shape.gc_ref().as_ptr().as_ptr(),
-                    shape_uid: shape.uid,
-                    slot: idx as u32,
-                    flags: flags as u8,
-                };
+                cache[ic_idx].insert(
+                    shape.gc_ref().as_ptr().as_ptr(),
+                    shape.uid,
+                    idx as u32,
+                    flags as u8,
+                );
             }
         }
 

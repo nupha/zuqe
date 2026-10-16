@@ -191,6 +191,14 @@ const CASES: &[SemCase] = sem_cases! {
         "shapes(20000)",
         "'gsc:' + shapes(50)";
 
+    // ── polymorphic inline cache (epic F3): one site, five shapes, so the
+    //    helper-side IC must hold several ways and evict past `IC_WAYS` ──
+    ic_polymorphic_shapes => Compiles =
+        "var __seed = 0; var PO = [ {x: 1, y: 2}, {x: 3, y: 4, a: 1}, {x: 5, y: 6, b: 2}, {x: 7, y: 8, c: 3}, {x: 9, y: 10, d: 4} ]; function f(n){ var __z = 0; var s = 0; for (var i = 0; i < n; i++) { var o = PO[i % 5]; s = ((s + o.x) * 2 + o.y) & 0xffff; o.x = (o.x + 1) & 1023; } return s; }",
+        "f(50)",
+        "f(500)",
+        "'ic:' + f(7) + ',' + PO[0].x + ',' + PO[4].y";
+
     // ── control flow shapes the verifier must survive ──
     switch_and_labels => Compiles =
         "var __seed = 0; function f(n){ var __z = 0; var r = 0; switch (n % 4) { case 0: r = 10; break; case 1: r = 20; break; default: r = 30; } outer: for (var i = 0; i < 5; i++) { if (i === 2) continue outer; if (i === 4) break outer; r = r + i; } return r; }",
@@ -221,6 +229,7 @@ const FEATURES: &[&str] = &[
     "gc_",
     "switch_",
     "generators_",
+    "ic_",
 ];
 
 #[test]

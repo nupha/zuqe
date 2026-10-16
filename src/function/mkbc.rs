@@ -16,7 +16,7 @@ use super::{
 };
 
 #[cfg(feature = "inline_cache")]
-use super::InlineCacheEntry;
+use super::InlineCacheSite;
 
 /// Classify a function's GC scope requirements by scanning its opcodes.
 fn compute_gc_scope_kind(opcodes: &[u8]) -> GcScopeKind {
@@ -329,7 +329,7 @@ impl FunctionDef {
         {
             let ic_count = self.inline_cache_count as usize;
             if ic_count > 0 {
-                let ic = vec![InlineCacheEntry::default(); ic_count];
+                let ic = vec![InlineCacheSite::default(); ic_count];
                 *bc_impl.inline_cache.get_mut() = ic.into_boxed_slice();
             }
         }

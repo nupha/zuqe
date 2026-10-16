@@ -53,8 +53,6 @@ use crate::{
 
 #[cfg(feature = "big_int")]
 use crate::bigint::BigIntRef;
-#[cfg(feature = "inline_cache")]
-use crate::function::InlineCacheEntry;
 
 /// Action returned by the bytecode interpreter inner loop to the trampoline.
 /// The inner loop processes opcodes normally; when it encounters a call,
@@ -2207,11 +2205,12 @@ impl Bytecode {
                                 && let Some(o) = target.as_object()
                                 && let Some(shape) = o.shape()
                             {
-                                let entry = &ic_cache[ic_idx];
                                 let shape_ptr = unsafe { shape.gc_ref().as_ptr().as_ptr() };
 
-                                if entry.shape_ptr == shape_ptr && entry.shape_uid == shape.uid {
-                                    let slot = entry.slot as usize;
+                                // The site holds up to IC_WAYS shapes (epic F3).
+                                if let Some((slot, _)) = ic_cache[ic_idx].find(shape_ptr, shape.uid)
+                                {
+                                    let slot = slot as usize;
                                     // delete marks slot Deleted without changing shape
                                     if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
                                         if let Ok(val) =
@@ -2242,12 +2241,12 @@ impl Bytecode {
                                 // update inline cache
                                 let ic_cache = unsafe { &mut *self.inline_cache.get() }; // SAFETY: single-threaded.
                                 if ic_idx < ic_cache.len() {
-                                    ic_cache[ic_idx] = InlineCacheEntry {
-                                        shape_ptr: unsafe { shape.gc_ref().as_ptr().as_ptr() },
-                                        shape_uid: shape.uid,
-                                        slot: idx as u32,
-                                        flags: flags as u8,
-                                    };
+                                    ic_cache[ic_idx].insert(
+                                        unsafe { shape.gc_ref().as_ptr().as_ptr() },
+                                        shape.uid,
+                                        idx as u32,
+                                        flags as u8,
+                                    );
                                 }
                             }
 
@@ -2279,15 +2278,16 @@ impl Bytecode {
                                 && let Some(o) = target.as_object()
                                 && let Some(shape) = o.shape()
                             {
-                                let entry = &ic_cache[ic_idx];
                                 let shape_ptr = unsafe { shape.gc_ref().as_ptr().as_ptr() };
 
-                                if entry.shape_ptr == shape_ptr && entry.shape_uid == shape.uid {
-                                    let slot = entry.slot as usize;
+                                if let Some((slot, cached_flags)) =
+                                    ic_cache[ic_idx].find(shape_ptr, shape.uid)
+                                {
+                                    let slot = slot as usize;
 
                                     // delete marks slot Deleted without changing shape
                                     if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
-                                        let prs_flags = entry.flags as u32;
+                                        let prs_flags = cached_flags as u32;
                                         if prs_flags & crate::object::JS_PROP_TMASK
                                             == crate::object::JS_PROP_NORMAL
                                             && prs_flags & crate::object::JS_PROP_WRITABLE != 0
@@ -2329,12 +2329,12 @@ impl Bytecode {
                             // Update IC cache after successful slow path
                             let ic_cache = unsafe { &mut *self.inline_cache.get() };
                             if ic_idx < ic_cache.len() {
-                                ic_cache[ic_idx] = InlineCacheEntry {
-                                    shape_ptr: unsafe { shape.gc_ref().as_ptr().as_ptr() },
-                                    shape_uid: shape.uid,
-                                    slot: idx as u32,
-                                    flags: flags as u8,
-                                };
+                                ic_cache[ic_idx].insert(
+                                    unsafe { shape.gc_ref().as_ptr().as_ptr() },
+                                    shape.uid,
+                                    idx as u32,
+                                    flags as u8,
+                                );
                             }
                         }
                     }
