@@ -8,6 +8,14 @@
 //! Run with: `cargo run --release --features jit --example jit-bench -- \
 //!   --modes interpreter,tier1,tier2,automatic` (or `scripts/jit-bench-matrix.sh`).
 //!
+//! Two protocols (epic G4):
+//! * `--protocol inproc` (default): every mode runs in this process, `ROUNDS`
+//!   timed rounds each, median reported. Fast, and what CI runs.
+//! * `--protocol process`: the reference implementation's protocol — `ROUNDS`
+//!   *fresh processes* per mode, **interleaved** (round by round) so drift in
+//!   machine state hits every mode alike, plus a bootstrap confidence interval
+//!   on the speedup. Slower; use it when a number matters.
+//!
 //! Protocol: 2 warm-up rounds discarded, then 7 timed rounds; the per-round
 //! median is reported. Every mode must produce the same result per kernel,
 //! asserted bit-exactly before that row is printed. `tier2` records feedback
@@ -221,8 +229,221 @@ fn run_kernel(kernel: &Kernel, mode: Mode) -> Run {
     }
 }
 
+// ── epic G4: fresh-process, interleaved, bootstrap protocol ──
+
+/// Rounds (fresh processes per mode) used by `--protocol process`.
+const PROCESS_ROUNDS: usize = 30;
+/// Bootstrap resamples for the speedup confidence interval.
+const BOOTSTRAP: usize = 10_000;
+
+fn mode_by_name(name: &str) -> Option<Mode> {
+    match name {
+        "interpreter" => Some(Mode::Interpreter),
+        "tier1" => Some(Mode::Tier1),
+        "tier2" => Some(Mode::Tier2),
+        "automatic" => Some(Mode::Automatic),
+        _ => None,
+    }
+}
+
+/// The child half of `--protocol process`: one kernel, one mode, one process.
+/// Prints `ms=<f64> result=<f64> compiled=<u64>` on stdout.
+fn run_one(args: &[String]) -> bool {
+    if args.first().map(String::as_str) != Some("--one") {
+        return false;
+    }
+    let (Some(mode), Some(name)) = (args.get(1), args.get(2)) else {
+        eprintln!("--one needs <mode> <kernel>");
+        std::process::exit(2);
+    };
+    let Some(mode) = mode_by_name(mode) else {
+        eprintln!("unknown mode {mode:?}");
+        std::process::exit(2);
+    };
+    let kernel = KERNELS.iter().find(|k| k.name == name).unwrap_or_else(|| {
+        eprintln!("unknown kernel {name:?}");
+        std::process::exit(2);
+    });
+    let run = run_kernel(kernel, mode);
+    println!(
+        "ms={} result={} compiled={}",
+        run.median.as_secs_f64() * 1e3,
+        run.result,
+        run.compiled
+    );
+    true
+}
+
+/// Deterministic xorshift64: a bootstrap must be reproducible.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.0 = x;
+        x
+    }
+
+    fn pick(&mut self, n: usize) -> usize {
+        (self.next() % n as u64) as usize
+    }
+}
+
+fn median(values: &[f64]) -> f64 {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    sorted[sorted.len() / 2]
+}
+
+/// 95% bootstrap interval for `median(base) / median(candidate)`, resampling the
+/// two per-round samples *together* (they are paired by round: the interleaving
+/// exists precisely so a round's machine state applies to both).
+fn bootstrap_speedup(base: &[f64], candidate: &[f64], iterations: usize) -> (f64, f64) {
+    let n = base.len().min(candidate.len());
+    let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
+    let mut speedups = Vec::with_capacity(iterations);
+    for _ in 0..iterations {
+        let (mut b, mut c) = (Vec::with_capacity(n), Vec::with_capacity(n));
+        for _ in 0..n {
+            let i = rng.pick(n);
+            b.push(base[i]);
+            c.push(candidate[i]);
+        }
+        speedups.push(median(&b) / median(&c).max(f64::MIN_POSITIVE));
+    }
+    speedups.sort_by(f64::total_cmp);
+    // A 95% interval: trim 2.5% off each tail (iterations is large).
+    (
+        speedups[iterations / 40],
+        speedups[iterations - 1 - iterations / 40],
+    )
+}
+
+/// `--protocol process`: spawn one child per (mode, round), interleaved.
+fn run_process_protocol(show: &[Mode], rounds: usize) {
+    let exe = std::env::current_exe().expect("current_exe");
+    println!(
+        "jit-bench matrix (process protocol): {rounds} fresh processes per mode, interleaved; \
+         speedup vs interpreter with a {:.0}% bootstrap interval",
+        95.0
+    );
+    let mut run = show.to_vec();
+    if !run.contains(&Mode::Interpreter) {
+        run.insert(0, Mode::Interpreter);
+    }
+    let mut compiled: Vec<(Mode, u64)> = run.iter().map(|&m| (m, 0)).collect();
+
+    for kernel in KERNELS {
+        let mut samples: Vec<(Mode, Vec<f64>)> = run.iter().map(|&m| (m, Vec::new())).collect();
+        let mut result: Option<f64> = None;
+        for _ in 0..rounds {
+            for mode in &run {
+                let out = std::process::Command::new(&exe)
+                    .args(["--one", mode.label(), kernel.name])
+                    .output()
+                    .expect("spawn bench child");
+                let text = String::from_utf8_lossy(&out.stdout);
+                let fields: std::collections::HashMap<&str, &str> = text
+                    .split_whitespace()
+                    .filter_map(|kv| kv.split_once('='))
+                    .collect();
+                assert!(
+                    out.status.success() && fields.contains_key("ms"),
+                    "{}: child {} failed: {text}{}",
+                    kernel.name,
+                    mode.label(),
+                    String::from_utf8_lossy(&out.stderr)
+                );
+                let ms: f64 = fields["ms"].parse().expect("ms");
+                let value: f64 = fields["result"].parse().expect("result");
+                match result {
+                    Some(expected) => assert_eq!(
+                        value.to_bits(),
+                        expected.to_bits(),
+                        "{}: {} disagrees with the interpreter",
+                        kernel.name,
+                        mode.label()
+                    ),
+                    None => result = Some(value),
+                }
+                let slot = compiled.iter_mut().find(|(m, _)| m == mode).unwrap();
+                slot.1 += fields["compiled"].parse::<u64>().expect("compiled");
+                samples
+                    .iter_mut()
+                    .find(|(m, _)| m == mode)
+                    .unwrap()
+                    .1
+                    .push(ms);
+            }
+        }
+
+        let base = samples
+            .iter()
+            .find(|(m, _)| *m == Mode::Interpreter)
+            .expect("interpreter baseline")
+            .1
+            .clone();
+        let base_median = median(&base);
+        let row: String = samples
+            .iter()
+            .map(|(mode, values)| {
+                if !show.contains(mode) {
+                    return String::new();
+                }
+                let mid = median(values);
+                let (lo, hi) = bootstrap_speedup(&base, values, BOOTSTRAP);
+                format!(
+                    "{:>9.3}ms {:>5.2}x [{:.2},{:.2}]",
+                    mid,
+                    base_median / mid.max(f64::MIN_POSITIVE),
+                    lo,
+                    hi
+                )
+            })
+            .collect();
+        println!("{:<14}{}", kernel.name, row);
+    }
+
+    println!("results: identical across modes (asserted bit-exact per kernel)");
+    let summary: String = compiled
+        .iter()
+        .map(|(m, c)| format!("{}={c}", m.label()))
+        .collect::<Vec<_>>()
+        .join(" ");
+    println!("functions_compiled: {summary}");
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if run_one(&args) {
+        return;
+    }
+    let rounds = args
+        .iter()
+        .position(|a| a == "--rounds")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(PROCESS_ROUNDS);
+    if args.iter().any(|a| a == "--protocol") {
+        let protocol = args
+            .iter()
+            .position(|a| a == "--protocol")
+            .and_then(|i| args.get(i + 1))
+            .map(String::as_str);
+        if protocol == Some("process") {
+            run_process_protocol(&parse_modes(&args), rounds);
+            return;
+        } else if protocol != Some("inproc") && protocol.is_some() {
+            eprintln!(
+                "unknown --protocol {:?}: use inproc or process",
+                protocol.unwrap()
+            );
+            std::process::exit(2);
+        }
+    }
     let show = parse_modes(&args);
     if show.is_empty() {
         println!("no runnable mode selected; nothing to benchmark");
