@@ -4020,9 +4020,18 @@ pub(crate) fn execute_trampoline(
                 // a CatchOffset but a GOSUB/THROW pattern exists (e.g.,
                 // nested try-finally with cleanups, or try-finally without
                 // catch where the CatchOffset was already consumed).
-                if let Some((finally_pc, finally_sp)) =
+                //
+                // An interrupt is control flow, not a JS exception: it looks
+                // for no handler at all, and this GOSUB scan — which only tests
+                // "positive int < bytecode length" — would read the operand
+                // stack it leaves behind as a finally pc and resume the frame
+                // at an arbitrary opcode.
+                let found_finally = if rt_ptr.interrupt_code.is_some() {
+                    None
+                } else {
                     arena.find_finally_in_frame(cur_frame_idx, cur_bc.opcodes().len())
-                {
+                };
+                if let Some((finally_pc, finally_sp)) = found_finally {
                     // Found a finally block. Save the exception value on
                     // the stack below the GOSUB marker so the THROW after
                     // the finally block can re-throw it.
