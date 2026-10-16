@@ -72,11 +72,6 @@ const GAPS: &[(&str, &str)] = &[
         "rot5l",
         "no JS shape found for the depth-3 computed lvalue swap",
     ),
-    ("with_get_ref", "`with` + reference-read: no JS shape found"),
-    (
-        "with_put_var",
-        "`with` + reference-write: no JS shape found",
-    ),
 ];
 
 /// Cases whose function the frontend refuses today although every opcode they
@@ -290,6 +285,21 @@ const CASES: &[OpCase] = op_cases! {
                   "f(1)",
           "f(2)",
           "'ta:' + f(4)";
+    // `with` + a *call* to a name: the parser emits `scope_get_ref` (the name
+    // may be a method of the with object), which resolves to `with_get_ref`.
+    // Both are `Reject`, so the function stays in the interpreter — the point of
+    // the case is the "does not compile" assertion plus interpreter parity.
+    with_get_ref => [push_i32, fclosure, push_atom_value, undefined, null, object, drop, dup, call_method, return, return_undef, get_var, put_var, put_ref_value, define_field, set_name, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, if_false, if_true, to_object, with_get_var, with_get_ref, typeof, add, strict_eq, strict_neq, nop]
+        = "var __seed = 0; var WO = { ff: function(){ return 5; } }; function wf(o, n){ var __z = 0; with (o) { return ff() + n; } }",
+                  "wf(WO, 1)",
+          "wf(WO, 2)",
+          "'wr:' + wf(WO, 3)";
+    // `with` + a `var` written through the with object (`for (var k in o)`).
+    with_put_var => [push_i32, fclosure, push_atom_value, null, object, drop, dup, return, put_var, put_ref_value, define_field, get_loc, put_loc, get_arg, set_loc_uninitialized, if_false, if_true, goto, to_object, with_get_var, with_put_var, with_make_ref, make_loc_ref, for_in_start, for_in_next, typeof, add, strict_eq, strict_neq, nop]
+        = "var __seed = 0; var WO2 = { a: 1, b: 2 }; function ws(o, n){ var __z = 0; var r = 0; with (o) { for (var k in o) { r = r + 1; } } return r + n; }",
+                  "ws(WO2, 1)",
+          "ws(WO2, 2)",
+          "'wv:' + ws(WO2, 3)";
     rest_parameters => [push_i32, fclosure, rest, drop, dup, return, put_var, put_ref_value, get_field, get_array_el, get_loc, put_loc, get_arg, put_arg, if_true, add, nop]
         = "var __seed = 0; function f(a, ...rest){ var __z = 0; return a + rest.length + (rest[0] || 0); }",
                   "f(1, 2, 3)",
