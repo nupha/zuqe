@@ -361,6 +361,7 @@ pub(crate) fn invoke_native(
     cur_sp_offset: *mut i32,
     this: JSValue,
     pc: u32,
+    arg_real_count: u32,
 ) -> Option<(JitExitKind, JitExecFrame)> {
     let state = rt.jit.as_deref()?;
     let entry = bc.jit_slot().entry()?;
@@ -382,6 +383,7 @@ pub(crate) fn invoke_native(
         out_value: JSValue::UNDEFINED,
         out_pc: 0,
         out_sp: 0,
+        arg_real_count,
     };
     // SAFETY: `entry` was produced by `compile` for this exact bytecode layout
     // and ABI, and the slot is only populated while the code cache keeps the

@@ -80,6 +80,16 @@ const CASES: &[SemCase] = sem_cases! {
         "f(3)",
         "f(9)",
         "'tc:' + f(9)";
+    // The TDZ error itself is the interpreter's (epic F: `get_loc_check` lowers
+    // to a guard whose slow path resumes at the same pc, so the message that
+    // names the binding is raised by the interpreter verbatim). The pending
+    // `5` is cache-resident when the guard flushes and exits, so this also
+    // exercises materializing the operand stack before that exit.
+    tdz_message_and_pending_operand => Compiles =
+        "var __seed = 0; function f(n){ var __z = 0; var r = ''; { let a; try { r = (5 + a) + ('x' + a); } catch (e) { r = e.name + ':' + e.message + ':' + n; } } return r; }",
+        "f(1)",
+        "f(7)",
+        "'tdzm:' + f(5)";
     tdz_block_scope => Compiles =
         "var __seed = 0; function f(n){ var __z = 0; var out = 0; for (var i = 0; i < 3; i++) { let v = n + i; out = out + v; } return out; }",
         "f(1)",

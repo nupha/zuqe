@@ -83,20 +83,10 @@ const GAPS: &[(&str, &str)] = &[
 /// claim is policy-accepted. The JS still runs and must still agree with the
 /// interpreter; the reason is recorded so the gate stays honest about what the
 /// baseline cannot do yet.
-const UNCOMPILED_TODAY: &[(&str, &str)] = &[
-    (
-        "parameter_defaults",
-        "parameter defaults open the frame with a TDZ prologue (set_loc_uninitialized), which the baseline cannot lower at entry",
-    ),
-    (
-        "this_arguments_newtarget",
-        "`arguments` / `new.target` initialise a special object at frame entry, which the baseline cannot lower at entry",
-    ),
-    (
-        "rest_parameters",
-        "a rest parameter allocates its array at frame entry, which the baseline cannot lower at entry",
-    ),
-];
+const UNCOMPILED_TODAY: &[(&str, &str)] = &[(
+    "this_arguments_newtarget",
+    "`arguments` / `new.target` initialise a special object at frame entry, which the baseline cannot lower at entry",
+)];
 
 struct OpCase {
     name: &'static str,

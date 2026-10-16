@@ -100,6 +100,11 @@ pub(crate) struct JitExecFrame {
     pub out_pc: u32,
     /// Slot offset from `sp_base` for `Resume`/`Exception`.
     pub out_sp: i32,
+    /// Actual argument count of the current call (`StackFrame::arg_real_count`,
+    /// i.e. before the `undefined` padding up to `arg_count`). `rest` collects
+    /// `arg_base[start..arg_real_count]`, exactly like the interpreter's
+    /// `args` slice.
+    pub arg_real_count: u32,
 }
 
 /// The compiled entry. Returns a [`JitExitKind`] as a `u32`.
@@ -906,6 +911,36 @@ unsafe extern "C" fn h_nip_catch(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// `rest`: build the rest-parameter array from the *actual* arguments, exactly
+/// like the interpreter's `REST` (`args[start..]`, `f.imm` is `start`). The
+/// frame's `arg_base` is the buffer start the interpreter's own `args` slice
+/// points at, so a short call yields an empty array and never the `undefined`
+/// padding up to the declared count.
+unsafe extern "C" fn h_rest(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let start = f.imm as usize;
+        let real = f.arg_real_count as usize;
+        let values = if start < real {
+            std::slice::from_raw_parts(f.arg_base, real)[start..].to_vec()
+        } else {
+            Vec::new()
+        };
+        let value = match crate::array::Array::from_values(scope, values) {
+            Ok(arr) => JSValue::from(arr),
+            Err(_) => JSValue::EXCEPTION,
+        };
+        *f.sp = value;
+        f.sp = f.sp.add(1);
+        if value.is_exception() {
+            HELPER_EXCEPTION
+        } else {
+            HELPER_OK
+        }
+    }
+}
+
 /// Loop back edge: deliver interrupts and run a deferred collection. Mirrors
 /// the interpreter's per-opcode safepoint.
 unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
@@ -928,7 +963,7 @@ unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
 }
 
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 52;
+pub(crate) const HELPER_COUNT: usize = 53;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -1007,6 +1042,8 @@ pub(crate) const HELPER_POST_INC: usize = 49;
 pub(crate) const HELPER_POST_DEC: usize = 50;
 /// Index of [`h_nip_catch`].
 pub(crate) const HELPER_NIP_CATCH: usize = 51;
+/// Index of [`h_rest`].
+pub(crate) const HELPER_REST: usize = 52;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -1067,4 +1104,5 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_post_inc as *const (),
     h_post_dec as *const (),
     h_nip_catch as *const (),
+    h_rest as *const (),
 ]);

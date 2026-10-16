@@ -285,7 +285,7 @@ impl Bytecode {
         //
         // Split into immutable then mutable borrows: data_ptr and
         // stack_base_ptr take &self on arena, while frame_mut takes &mut.
-        let (arg_base_ptr, var_base_ptr, sp_base, mode, func_obj) = {
+        let (arg_base_ptr, var_base_ptr, sp_base, mode, func_obj, arg_real_count) = {
             let frame = arena.frame(cur_frame_idx);
             let arg_base = frame.buf.data_ptr_unchecked();
             let var_base = unsafe { arg_base.add(frame.var_base_offset as usize) };
@@ -295,7 +295,14 @@ impl Bytecode {
                     .data_ptr_unchecked()
                     .add((frame.var_base_offset + frame.var_count as u32) as usize)
             };
-            (arg_base, var_base, sp, frame.mode, frame.func_obj)
+            (
+                arg_base,
+                var_base,
+                sp,
+                frame.mode,
+                frame.func_obj,
+                frame.arg_real_count,
+            )
         };
 
         // Single raw root for the arena; everything below re-derives
@@ -418,6 +425,7 @@ impl Bytecode {
                 cur_sp_offset_ptr,
                 this_obj,
                 pc_offset as u32,
+                u32::from(arg_real_count),
             ) {
                 match kind {
                     crate::jit::JitExitKind::Done => {

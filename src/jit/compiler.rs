@@ -59,6 +59,9 @@ const EXIT_RESUME: i64 = 6;
 const EXIT_RETRY: i64 = 7;
 
 const UNDEFINED_BITS: i64 = 3 << 48;
+/// `JSValueTag::Uninitialized` (the TDZ sentinel written by
+/// `set_loc_uninitialized`).
+const UNINITIALIZED_BITS: i64 = 4 << 48;
 const BOOL_TAG: i64 = 1 << 48;
 /// `JSValueTag::Null`/`Undefined`, i.e. the high 16 bits of `NULL`/`UNDEFINED`.
 const NULL_TAG: i64 = 2;
@@ -96,6 +99,9 @@ fn supported(name: &str) -> bool {
                 | "push_false"
                 | "push_true"
                 | "is_undefined_or_null"
+                | "set_loc_uninitialized"
+                | "get_loc_check"
+                | "rest"
                 | "push_this"
                 | "drop"
                 | "get_loc"
@@ -811,8 +817,20 @@ fn touch(name: &str, h: u32, strict: bool, feedback: &[(u32, SiteFeedback)], pc:
         return Touch::Flush;
     }
     match name {
-        "nop" | "push_i32" | "push_const" | "undefined" | "null" | "push_false" | "push_true"
-        | "catch" | "get_loc" | "get_arg" | "drop" | "goto" | "gosub" => Touch::Pass,
+        "nop"
+        | "push_i32"
+        | "push_const"
+        | "undefined"
+        | "null"
+        | "push_false"
+        | "push_true"
+        | "catch"
+        | "get_loc"
+        | "get_arg"
+        | "drop"
+        | "goto"
+        | "gosub"
+        | "set_loc_uninitialized" => Touch::Pass,
         "push_this" if strict => Touch::Pass,
         // Reads the operand in a register and rewrites the slot from it.
         "is_undefined_or_null" => Touch::Read(h),
@@ -823,7 +841,9 @@ fn touch(name: &str, h: u32, strict: bool, feedback: &[(u32, SiteFeedback)], pc:
         // reads the local out of the frame, not out of a cache entry).
         "add_loc" | "inc_loc" | "dec_loc" => Touch::Flush,
         "if_true" | "if_false" | "return" | "ret" => Touch::ReadFlush(vec![h]),
-        // Not lowered (`Resume` exit) or lowered as a helper call above.
+        // `rest` calls a helper; `get_loc_check` flushes before its TDZ split.
+        // Everything else is a `Resume` exit (nothing survives it either).
+        "rest" | "get_loc_check" => Touch::Flush,
         _ => Touch::Flush,
     }
 }
@@ -1180,6 +1200,51 @@ fn lower_insn(
         "null" => {
             let v = b.ins().iconst(types::I64, 2i64 << 48);
             Step::Continue(state.stack.push(b, sp, v))
+        }
+        // Frame-entry TDZ prologue: the slot starts as the `Uninitialized`
+        // sentinel so a later `get_loc_check` sees it.
+        "set_loc_uninitialized" => {
+            let v = b.ins().iconst(types::I64, UNINITIALIZED_BITS);
+            b.ins()
+                .store(MemFlags::new(), v, fv.var_base, loc_offset_u16(insn));
+            Step::Continue(sp)
+        }
+        // TDZ read: the interpreter owns the error (its message names the
+        // binding and, per ES, belongs in the *caller's* realm), so the
+        // sentinel case exits `Resume` at this pc and lets it re-execute the
+        // op. The flush before the split keeps memory authoritative on both
+        // paths (the exit materializes the operand stack).
+        "get_loc_check" => {
+            let v = b.ins().load(
+                types::I64,
+                MemFlags::new(),
+                fv.var_base,
+                loc_offset_u16(insn),
+            );
+            let uninitialized = b.ins().icmp_imm(IntCC::Equal, v, UNINITIALIZED_BITS);
+            let slow = b.create_block();
+            let ok = b.create_block();
+            state.stack.flush(b, sp);
+            b.ins().brif(uninitialized, slow, &[], ok, &[]);
+            b.switch_to_block(slow);
+            exit(state, b, fv, EXIT_RESUME, pc, sp);
+            b.switch_to_block(ok);
+            Step::Continue(state.stack.push(b, sp, v))
+        }
+        // `rest`: the helper rebuilds the interpreter's `args[start..]` slice.
+        "rest" => {
+            let start = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
+            b.ins().store(MemFlags::new(), start, fv.frame, O_IMM);
+            let sp = call_stack_helper(
+                state,
+                b,
+                fv,
+                helper_sig,
+                sp,
+                super::abi::HELPER_REST,
+                pc + size,
+            );
+            Step::Continue(sp)
         }
         // `??`: true when the value is exactly `null` or `undefined`. The tag
         // sits in the top 16 bits (0 for an int, 8 for a float, negative for a
@@ -2016,6 +2081,22 @@ mod tests {
             0,
             1,
         ));
+        // Frame-entry TDZ prologue and its guarded read.
+        cases.push((
+            "set_loc_uninitialized",
+            seq(&[
+                &loc(op::OP_set_loc_uninitialized, 0),
+                &[op::OP_return_undef],
+            ]),
+            0,
+            1,
+        ));
+        cases.push((
+            "get_loc_check",
+            seq(&[&loc(op::OP_get_loc_check, 0), &ret]),
+            0,
+            1,
+        ));
         cases.push(("get_arg", seq(&[&loc(op::OP_get_arg, 0), &ret]), 1, 0));
         cases.push((
             "put_arg",
@@ -2184,6 +2265,8 @@ mod tests {
         ] {
             cases.push((name, seq(&[&push_i32(1), &[code], &ret]), 0, 0));
         }
+        // `rest` spends its u16 operand to index the helper's argument window.
+        cases.push(("rest", seq(&[&[op::OP_rest, 1, 0], &ret]), 2, 0));
         // `??`'s guard: lowered inline (the tag of the top slot), not resumed.
         cases.push((
             "is_undefined_or_null",
