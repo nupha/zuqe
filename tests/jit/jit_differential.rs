@@ -85,6 +85,14 @@ const NORMAL: &[Case] = dim_cases!("Normal", [
         "function pick(n){ var v = n > 3 ? n * 2 : n + 7; var w = n || v; var z = n && w; return (z || v) - (n ? w : v); } pick(2);",
         "pick(64)",
         "'pk:' + pick(0) + ',' + pick(5)";
+    // Epic F4 (locals in registers): one block reads the same locals several
+    // times, so the `LocalCache` collapses the repeated loads. Memory stays
+    // authoritative — the stores are still emitted — so the result must match
+    // the interpreter bit for bit.
+    local_cache_repeated_reads:
+        "function reuse(n){ var a = n + 1, b = n * 2; var t = a * b + a * 2 + b * 3; t = t + a + b + a * b; return t - a + b * a; } reuse(1);",
+        "reuse(500)",
+        "'lc:' + reuse(7)";
     // A short-circuit / `??` join whose arms differ in operand kind (a
     // `Tagged` local against an `Int32` literal): the verifier widens it, so
     // these functions now compile instead of being rejected fail-closed.

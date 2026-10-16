@@ -278,11 +278,121 @@ struct State<'a> {
     /// registers before it can observe the frame. Each is a block parameter
     /// that every incoming edge supplies (see [`State::edge_args`]).
     carried: HashMap<u32, Vec<u32>>,
+    /// Register copies of local/argument slots (epic F4: fewer loads in a
+    /// block). Cleared at every block entry — see [`LocalCache`].
+    locals: LocalCache,
     /// Proven entry stack height per block start pc. An edge's `sp` equals it,
     /// so it addresses the frame fallback loads even when the model's own
     /// height is stale (a helper-terminated block never re-anchors).
     entry_heights: HashMap<u32, u16>,
 }
+
+/// Block-local register copies of local/argument slots (epic F4, the read half
+/// of "locals in registers"): a `get_loc`/`get_arg` that repeats one already in
+/// a register skips its load.
+///
+/// Memory stays authoritative — stores are still emitted, nothing is deferred —
+/// so no flush point changes: a copy is simply dropped the moment its slot can
+/// change. A slot can only change through this function's own writes, *unless*
+/// a nested function or a reference object aliases it, which is why
+/// [`cacheable_slots`] turns caching off for such functions. Values never cross
+/// a block: a register only dominates its own block, so `lower` clears the
+/// cache at every block entry.
+#[derive(Default)]
+struct LocalCache {
+    entries: HashMap<(bool, u32), Value>,
+    /// Whether local slots may be cached (false when the function creates
+    /// closures or refs to them).
+    locals: bool,
+    /// Same for argument slots (also false when `arguments` is the *mapped*
+    /// object, which aliases the formals through `VarRef`s).
+    args: bool,
+}
+
+impl LocalCache {
+    fn new(locals: bool, args: bool) -> Self {
+        Self {
+            entries: HashMap::new(),
+            locals,
+            args,
+        }
+    }
+
+    /// The register copy of slot `idx`, or a fresh load (which also fills the
+    /// cache). `is_arg` selects the frame base and its cacheability.
+    fn read(
+        &mut self,
+        b: &mut FunctionBuilder,
+        base: Value,
+        is_arg: bool,
+        idx: u32,
+        offset: i32,
+    ) -> Value {
+        if let Some(&value) = self.entries.get(&(is_arg, idx)) {
+            return value;
+        }
+        let value = b.ins().load(types::I64, MemFlags::new(), base, offset);
+        if self.cacheable(is_arg) {
+            self.entries.insert((is_arg, idx), value);
+        }
+        value
+    }
+
+    /// Record `value` as the slot's register copy. Memory is written
+    /// separately, so the copy costs no flush.
+    fn fill(&mut self, is_arg: bool, idx: u32, value: Value) {
+        if self.cacheable(is_arg) {
+            self.entries.insert((is_arg, idx), value);
+        }
+    }
+
+    /// The slot changed: its copy is stale.
+    fn drop_slot(&mut self, is_arg: bool, idx: u32) {
+        self.entries.remove(&(is_arg, idx));
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+    }
+
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    const fn cacheable(&self, is_arg: bool) -> bool {
+        if is_arg { self.args } else { self.locals }
+    }
+}
+
+/// Whether [`LocalCache`] may cache local and argument slots of this function.
+/// A slot is unsafe to cache exactly when something other than a direct write
+/// in this function can change it: a nested function may capture it
+/// (`fclosure`), a reference object may point at it (`make_loc_ref` /
+/// `make_arg_ref` / `make_var_ref_ref`), or the `arguments` object may alias a
+/// formal (`special_object 1`, the mapped variant).
+fn cacheable_slots(verified: &VerifiedFunction) -> (bool, bool) {
+    let mut creates_refs = false;
+    let mut mapped_arguments = false;
+    for instruction in verified.instructions() {
+        match instruction.name() {
+            "fclosure" | "make_loc_ref" | "make_arg_ref" | "make_var_ref_ref" => {
+                creates_refs = true
+            }
+            "special_object" if instruction.operand_u8(1) == MAPPED_ARGUMENTS => {
+                mapped_arguments = true;
+            }
+            _ => {}
+        }
+    }
+    if creates_refs {
+        return (false, false);
+    }
+    (true, !mapped_arguments)
+}
+
+/// `SpecialObject::MappedArguments`, whose `VarRef` properties alias the
+/// formals (see `src/function/argument.rs`).
+const MAPPED_ARGUMENTS: u8 = 1;
 
 /// Write-back cache for operand-stack slots (epic F4 steps 1 and 2).
 ///
@@ -990,6 +1100,7 @@ fn lower(
     let instructions = verified.instructions();
     let cfg = verified.control_flow_graph();
     let (carried, entry_heights) = carried_sets(verified, osr_pcs, strict);
+    let (locals_cacheable, args_cacheable) = cacheable_slots(verified);
     let mut state = State {
         blocks: HashMap::new(),
         pending: Vec::new(),
@@ -998,6 +1109,7 @@ fn lower(
         stack: StackCache::default(),
         carried,
         entry_heights,
+        locals: LocalCache::new(locals_cacheable, args_cacheable),
     };
     let entry_block = state.block_for(b, 0);
     if osr_pcs.is_empty() {
@@ -1022,6 +1134,9 @@ fn lower(
         // block parameters — re-seed the model from them. The model itself
         // never crosses a block; every edge delivers it through `edge_args`.
         state.stack.entries.clear();
+        // Local copies are block-scoped for the same reason: the register only
+        // dominates this block, and the interpreter owns the frame for the rest.
+        state.locals.clear();
         let carried: Vec<u32> = state.carried_for(start_pc).to_vec();
         let params = b.block_params(cranelift_block);
         debug_assert_eq!(params.len(), carried.len(), "block {start_pc} parameters");
@@ -1093,6 +1208,13 @@ fn lower(
         debug_assert!(
             state.stack.is_empty(),
             "a block ended with register-resident stack slots"
+        );
+        // Local copies are not carried either: they are block-scoped, so drop
+        // them here (the next block starts empty anyway).
+        state.locals.clear();
+        debug_assert!(
+            state.locals.is_empty(),
+            "a block ended with register-resident local slots"
         );
     }
 }
@@ -1259,6 +1381,7 @@ fn lower_insn(
             let v = b.ins().iconst(types::I64, UNINITIALIZED_BITS);
             b.ins()
                 .store(MemFlags::new(), v, fv.var_base, loc_offset_u16(insn));
+            state.locals.fill(false, u32::from(insn.operand_u16(1)), v);
             Step::Continue(sp)
         }
         // TDZ read: the interpreter owns the error (its message names the
@@ -1267,12 +1390,10 @@ fn lower_insn(
         // op. The flush before the split keeps memory authoritative on both
         // paths (the exit materializes the operand stack).
         "get_loc_check" => {
-            let v = b.ins().load(
-                types::I64,
-                MemFlags::new(),
-                fv.var_base,
-                loc_offset_u16(insn),
-            );
+            let idx = u32::from(insn.operand_u16(1));
+            let v = state
+                .locals
+                .read(b, fv.var_base, false, idx, loc_offset_u16(insn));
             let uninitialized = b.ins().icmp_imm(IntCC::Equal, v, UNINITIALIZED_BITS);
             let slow = b.create_block();
             let ok = b.create_block();
@@ -1347,6 +1468,8 @@ fn lower_insn(
             Step::Continue(sp)
         }
         "add_loc" => {
+            // Both paths (specialized and helper) write the local slot.
+            state.locals.drop_slot(false, u32::from(insn.operand_u8(1)));
             // Epic F2: F1 proved this site int-monomorphic, so speculate an
             // inline int add. A non-int operand or overflow hands the op back
             // to the helper (still in native code).
@@ -1381,51 +1504,56 @@ fn lower_insn(
             state.stack.drop_top();
             Step::Continue(b.ins().iadd_imm(sp, -8))
         }
+        // Local/argument reads and writes keep a register copy (epic F4's
+        // `LocalCache`): a repeated read in the same block skips its load, and
+        // the store still happens, so memory stays authoritative.
         "get_loc" => {
-            let v = b.ins().load(
-                types::I64,
-                MemFlags::new(),
-                fv.var_base,
-                loc_offset_u16(insn),
-            );
+            let idx = u32::from(insn.operand_u16(1));
+            let v = state
+                .locals
+                .read(b, fv.var_base, false, idx, loc_offset_u16(insn));
             Step::Continue(state.stack.push(b, sp, v))
         }
         "get_arg" => {
-            let v = b.ins().load(
-                types::I64,
-                MemFlags::new(),
-                fv.arg_base,
-                loc_offset_u16(insn),
-            );
+            let idx = u32::from(insn.operand_u16(1));
+            let v = state
+                .locals
+                .read(b, fv.arg_base, true, idx, loc_offset_u16(insn));
             Step::Continue(state.stack.push(b, sp, v))
         }
         "put_loc" => {
             let (sp, v) = state.stack.pop(b, sp);
             b.ins()
                 .store(MemFlags::new(), v, fv.var_base, loc_offset_u16(insn));
+            state.locals.fill(false, u32::from(insn.operand_u16(1)), v);
             Step::Continue(sp)
         }
         "put_arg" => {
             let (sp, v) = state.stack.pop(b, sp);
             b.ins()
                 .store(MemFlags::new(), v, fv.arg_base, loc_offset_u16(insn));
+            state.locals.fill(true, u32::from(insn.operand_u16(1)), v);
             Step::Continue(sp)
         }
         "set_loc" => {
             let v = state.stack.read_top(b, sp);
             b.ins()
                 .store(MemFlags::new(), v, fv.var_base, loc_offset_u16(insn));
+            state.locals.fill(false, u32::from(insn.operand_u16(1)), v);
             Step::Continue(sp)
         }
         "set_arg" => {
             let v = state.stack.read_top(b, sp);
             b.ins()
                 .store(MemFlags::new(), v, fv.arg_base, loc_offset_u16(insn));
+            state.locals.fill(true, u32::from(insn.operand_u16(1)), v);
             Step::Continue(sp)
         }
         // Local `++`/`--`: the helper updates the slot in place, so an exception
         // exit leaves `sp` untouched (matching the interpreter).
         "inc_loc" | "dec_loc" => {
+            // Both paths write the slot; the copy is stale either way.
+            state.locals.drop_slot(false, u32::from(insn.operand_u8(1)));
             let id = if name == "inc_loc" {
                 super::abi::HELPER_INC_LOCAL
             } else {
@@ -2514,6 +2642,95 @@ mod tests {
             0,
             "push→pop must not touch memory:\n{ir}"
         );
+    }
+
+    /// Epic F4: a slot read twice in one block is loaded once — the second read
+    /// reuses the register the first one filled (`LocalCache`).
+    #[test]
+    fn local_cache_reads_a_slot_once_per_block() {
+        let ir = ir_of(|b| {
+            let base = b.ins().iconst(types::I64, 4096);
+            let mut cache = LocalCache::new(true, true);
+            let first = cache.read(b, base, false, 2, 16);
+            let second = cache.read(b, base, false, 2, 16);
+            assert_eq!(first, second, "the same register value comes back");
+            assert!(!cache.is_empty());
+        });
+        assert_eq!(count(&ir, "load"), 1, "one load for two reads:\n{ir}");
+    }
+
+    /// The counter-case: as soon as the slot can change, the copy is dropped and
+    /// the next read loads again.
+    #[test]
+    fn local_cache_drops_the_copy_when_the_slot_changes() {
+        let ir = ir_of(|b| {
+            let base = b.ins().iconst(types::I64, 4096);
+            let mut cache = LocalCache::new(true, true);
+            let _ = cache.read(b, base, false, 1, 8);
+            cache.drop_slot(false, 1);
+            let _ = cache.read(b, base, false, 1, 8);
+            // The argument space is keyed separately from the local space, so
+            // argument 1 keeps its own copy.
+            let _ = cache.read(b, base, true, 1, 8);
+            assert_eq!(cache.entries.len(), 2, "one copy per (space, index)");
+        });
+        assert_eq!(count(&ir, "load"), 3, "an invalidated slot reloads:\n{ir}");
+    }
+
+    /// Aliased slots (`fclosure`/refs) and mapped `arguments` formals are never
+    /// cached: every read is a load.
+    #[test]
+    fn local_cache_is_off_for_aliased_slots() {
+        let ir = ir_of(|b| {
+            let base = b.ins().iconst(types::I64, 4096);
+            let mut cache = LocalCache::new(false, false);
+            let _ = cache.read(b, base, false, 0, 0);
+            let _ = cache.read(b, base, false, 0, 0);
+            let _ = cache.read(b, base, true, 0, 0);
+            cache.fill(false, 0, base);
+            assert!(cache.is_empty(), "nothing may be cached");
+        });
+        assert_eq!(count(&ir, "load"), 3, "every read loads:\n{ir}");
+    }
+
+    /// The analysis that decides the two flags above.
+    #[test]
+    fn cacheable_slots_tracks_aliasing() {
+        let verify_bytes = |bytes: Vec<u8>, vars: u16, consts: usize| {
+            let mut snap = snapshot(bytes, 0, vars);
+            snap.const_meta = vec![ConstMeta { tag: 0 }; consts].into_boxed_slice();
+            verify(snap, VerifyLimits::default()).unwrap_or_else(|e| panic!("verify: {e:?}"))
+        };
+
+        // Plain locals and arguments: both cacheable.
+        let plain = seq(&[
+            &loc(op::OP_get_loc, 0),
+            &loc(op::OP_put_loc, 0),
+            &[op::OP_return_undef],
+        ]);
+        assert_eq!(cacheable_slots(&verify_bytes(plain, 1, 0)), (true, true));
+
+        // A nested function may capture either space.
+        let closure = seq(&[&[op::OP_fclosure], &u32b(0), &[op::OP_return]]);
+        assert_eq!(
+            cacheable_slots(&verify_bytes(closure, 0, 1)),
+            (false, false)
+        );
+
+        // A reference object pointing at a local.
+        let loc_ref = seq(&[&[op::OP_make_loc_ref, 0, 0, 0, 0, 0, 0], &[op::OP_return]]);
+        assert_eq!(
+            cacheable_slots(&verify_bytes(loc_ref, 1, 0)),
+            (false, false)
+        );
+
+        // Mapped `arguments` aliases the formals only.
+        let mapped = seq(&[&[op::OP_special_object, 1], &[op::OP_return]]);
+        assert_eq!(cacheable_slots(&verify_bytes(mapped, 0, 0)), (true, false));
+
+        // The strict (copying) `arguments` object does not.
+        let strict = seq(&[&[op::OP_special_object, 0], &[op::OP_return]]);
+        assert_eq!(cacheable_slots(&verify_bytes(strict, 0, 0)), (true, true));
     }
 
     /// A pop with no cached value falls back to a load — the counter-case to

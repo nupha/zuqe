@@ -162,6 +162,15 @@ const CASES: &[SemCase] = sem_cases! {
         "f(3)",
         "'clb:' + f(3)";
 
+    // A local captured by a closure: reads after the closure ran must come from
+    // the frame (the `LocalCache` is off for a function that creates closures),
+    // including after the native→interpreter→native re-entry the call forces.
+    closure_mutation_is_visible => Compiles =
+        "var __seed = 0; function apply(g){ var __z = 0; return g(); } function f(n){ var __z = 0; var m = n; var r = apply(function(){ var __u = 0; m = m + 2; return m; }); var a = m; var r2 = apply(function(){ var __u = 0; m = m + 3; return m; }); var b = m; return r + ':' + a + ':' + b + ':' + r2; }",
+        "f(1)",
+        "f(10)",
+        "'cm:' + f(4)";
+
     // ── Proxy / coercion re-entry ──
     proxy_get_trap => Compiles =
         "var __seed = 0; var H = { get: function(t, k){ return 'trap:' + k; } }; function f(o){ var __z = 0; var p = new Proxy(o, H); return p.missing; }",
