@@ -40,6 +40,8 @@ cargo run --example test262 --features intl402 -- --preset ES2025
 | `[TEST_FILES]...` | Test files or globs, relative to `<base_path>/test/`. Replaces the config's `tests:` and bypasses `--suite` shaping. |
 | `--error-file <FILE>` | Re-run only the failures listed in this JSONL file, then rewrite it in place (previous copy saved as `<FILE>-last.jsonl`). All other filtering is ignored. Default when absent: `test262-errors.jsonl` receives current failures. |
 | `--log-file <FILE>` | Writes each script path (flushed) before it runs; after a crash the last line is the culprit. Required for release runs (`panic = "abort"` — the panic hook never fires there); in debug/unwind builds the hook covers Rust panics, but a hard crash (SEGV) still bypasses it. |
+| `--jit` | Attach a JIT to every per-test runtime with eager thresholds (call/loop = 1) and poll it between evals so queued functions compile. Verdicts must stay identical to a run without the flag. Place it **before** any test glob (the positional arg is trailing). Requires the `jit` cargo feature (on by default). |
+| `--verdict-file <FILE>` | Writes one JSONL line per test (`{"script":…,"status":"pass\|fail\|skip"}`) in run order, for diffing two runs (e.g. ± `--jit`). |
 
 ### Filtering semantics (exact)
 
@@ -144,6 +146,13 @@ cargo run --release --example test262 --features intl402 -- --error-file test262
 
 # Release run with crash triage (last line of the log = crashing script)
 cargo run --release --example test262 --features intl402 -- --log-file run.log
+
+# JIT-vs-interpreter check: same sample twice, then diff the verdicts
+cargo run --release --example test262 --features intl402 -- \
+  --preset ES2017 --verdict-file verdict-base.jsonl 'language/statements/try/**'
+cargo run --release --example test262 --features intl402 -- \
+  --jit --preset ES2017 --verdict-file verdict-jit.jsonl 'language/statements/try/**'
+diff verdict-base.jsonl verdict-jit.jsonl   # expected: no output (0 differences)
 ```
 
 Note: the runner's own `--features` flag (test262 feature whitelist) is

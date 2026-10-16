@@ -160,6 +160,15 @@ pub struct Args {
     /// Record each script path before it runs; pinpoints the culprit on crash
     #[arg(long = "log-file", value_name = "FILE")]
     pub log_file: Option<String>,
+
+    /// Attach a JIT (eager thresholds) to every test runtime; verdicts unchanged
+    #[arg(long)]
+    pub jit: bool,
+
+    /// Write one JSONL verdict (script + pass/fail/skip) per test, so two runs
+    /// (e.g. with and without `--jit`) can be diffed line by line
+    #[arg(long = "verdict-file", value_name = "FILE")]
+    pub verdict_file: Option<String>,
 }
 
 /// Merge CLI flags onto the config loaded from the file. A CLI flag takes
@@ -260,6 +269,18 @@ pub fn validate_config(cfg: &AppConfig, presets: &[PresetDef], require_preset: b
 async fn main_impl() {
     let args = Args::parse();
 
+    // `--jit`: attach a JIT to each per-test runtime (see runner). Without the
+    // jit cargo feature the flag is still accepted but must fail loudly.
+    if args.jit {
+        #[cfg(feature = "jit")]
+        runner::enable_jit();
+        #[cfg(not(feature = "jit"))]
+        {
+            eprintln!("error: --jit requires a build with the `jit` cargo feature");
+            std::process::exit(1);
+        }
+    }
+
     // Install a panic hook that prints the script currently being run. This is
     // the zero-cost crash reporter in `panic = "unwind"` builds (debug and
     // release-with-debug): on a panic it runs before the process aborts, so we
@@ -359,6 +380,25 @@ async fn main_impl() {
         }
     } else {
         None
+    };
+
+    // `--verdict-file`: one JSONL line per test with its final verdict. Two
+    // runs of the same command (± `--jit`) yield files that `diff` line by
+    // line; the JIT-vs-interpreter difference count is the diff's line count.
+    let mut verdictf: Option<std::fs::File> = match args.verdict_file.as_deref() {
+        Some(p) => match std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(p)
+        {
+            Ok(f) => Some(f),
+            Err(e) => {
+                eprintln!("error: cannot open --verdict-file {p}: {e}");
+                std::process::exit(1);
+            }
+        },
+        None => None,
     };
 
     // Merge CLI flags over the file config, then validate everything up front.
@@ -567,6 +607,17 @@ async fn main_impl() {
                 }
             }
         }
+        // Per-test verdict for `--verdict-file` (deterministic order = glob
+        // order, so equal runs produce byte-identical files).
+        if let Some(f) = verdictf.as_mut() {
+            let v = match status {
+                TestStatus::Skip => "skip",
+                TestStatus::Pass => "pass",
+                TestStatus::Fail => "fail",
+            };
+            let entry = serde_json::json!({ "script": rel.as_str(), "status": v });
+            let _ = writeln!(f, "{entry}");
+        }
         done += 1;
         eprint!("\rTest {} / {}, Fail {}", done, total, failed_count);
 
@@ -575,6 +626,27 @@ async fn main_impl() {
 
     eprintln!();
     eprintln!("Done: {} tests, {} failed", total, failed_count);
+
+    // End-of-run JIT metrics (summed over every per-test runtime).
+    #[cfg(feature = "jit")]
+    if args.jit {
+        match runner::jit_metrics_total() {
+            Some(m) => eprintln!(
+                "JIT metrics: functions_queued={} functions_verified={} functions_rejected={} \
+                 functions_compiled={} native_entries={} function_entries={} \
+                 compile_failures={} polls={}",
+                m.functions_queued,
+                m.functions_verified,
+                m.functions_rejected,
+                m.functions_compiled,
+                m.native_entries,
+                m.function_entries,
+                m.compile_failures,
+                m.polls,
+            ),
+            None => eprintln!("JIT metrics: none recorded (no tests ran)"),
+        }
+    }
 
     // Generate the Markdown run report.
     let is_error_update = forced.is_some();
@@ -621,11 +693,7 @@ fn main() {
         .stack_size(64 * 1024 * 1024);
     #[cfg(not(debug_assertions))]
     let builder = std::thread::Builder::new().name("test262".into());
-    builder
-        .spawn(run_harness)
-        .unwrap()
-        .join()
-        .unwrap();
+    builder.spawn(run_harness).unwrap().join().unwrap();
 }
 
 fn run_harness() {

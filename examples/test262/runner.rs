@@ -52,6 +52,63 @@ fn val_to_string(ctx: &mut ScopedContext, v: JSValue) -> String {
 /// counter of "Test262:AsyncTestComplete" messages
 pub static ASYNC_DONE: AtomicI32 = AtomicI32::new(0);
 
+/// Whether `--jit` was requested: set once from `main` before any test runs.
+#[cfg(feature = "jit")]
+static JIT_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Summed JIT counters across every per-test runtime of this run. Gauges
+/// (`queue_len`, `code_bytes`) are per-runtime snapshots and are not summed.
+#[cfg(feature = "jit")]
+static JIT_TOTAL: std::sync::Mutex<Option<zuqe::JitMetrics>> = std::sync::Mutex::new(None);
+
+#[cfg(feature = "jit")]
+pub fn enable_jit() {
+    JIT_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Eager thresholds so a function compiles on its first entry / back edge —
+/// maximizes the share of native code exercised within a short sample run.
+#[cfg(feature = "jit")]
+fn eager_jit_config() -> zuqe::JitConfig {
+    zuqe::JitConfig::builder()
+        .call_threshold(1)
+        .loop_threshold(1)
+        .build()
+}
+
+/// Fold one runtime's final metrics into the run total. Only counters are
+/// summed; `queue_len` / `code_bytes` describe a single live runtime.
+#[cfg(feature = "jit")]
+fn record_jit_metrics(m: &zuqe::JitMetrics) {
+    let Ok(mut tot) = JIT_TOTAL.lock() else {
+        return;
+    };
+    let t = tot.get_or_insert_with(Default::default);
+    t.function_entries += m.function_entries;
+    t.distinct_functions += m.distinct_functions;
+    t.backedges += m.backedges;
+    t.functions_queued += m.functions_queued;
+    t.queue_drops += m.queue_drops;
+    t.polls += m.polls;
+    t.functions_rejected += m.functions_rejected;
+    t.functions_verified += m.functions_verified;
+    t.functions_compiled += m.functions_compiled;
+    t.native_entries += m.native_entries;
+    t.native_interrupts += m.native_interrupts;
+    t.compile_failures += m.compile_failures;
+    t.compile_timeouts += m.compile_timeouts;
+    t.functions_retried += m.functions_retried;
+    t.functions_settled += m.functions_settled;
+    t.deopts += m.deopts;
+}
+
+/// The summed metrics of every JIT-attached runtime, `None` when `--jit` was
+/// off or no test ran.
+#[cfg(feature = "jit")]
+pub fn jit_metrics_total() -> Option<zuqe::JitMetrics> {
+    JIT_TOTAL.lock().ok().and_then(|tot| *tot)
+}
+
 /// Outcome of a single test file: it may be skipped (by preset filtering, or
 /// because it carries no test front matter), pass, or fail.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -282,6 +339,24 @@ pub fn js_module_loader(
     }
 }
 
+/// Side-effect-free warm-up, evaluated once right after the harness is loaded
+/// and before the test script runs — in **every** mode, so a `--jit` run and a
+/// baseline run execute byte-identical JS. It invokes the harness' pure
+/// helpers so they are already queued when the first `jit.poll()` runs; the
+/// test script then enters their native code (without this, everything would
+/// compile only after the test's last statement, and no native code would run
+/// during a test). Every statement is guarded and no global is mutated.
+const HARNESS_WARMUP: &str = r#"
+try { assert(true); } catch (e) {}
+try { assert.sameValue(1, 1); } catch (e) {}
+try { assert.notSameValue(1, 2); } catch (e) {}
+try { assert.compareArray([1], [1]); } catch (e) {}
+try { compareArray([1], [1]); } catch (e) {}
+try { assert.throws(Test262Error, function () { throw new Test262Error('warmup'); }); } catch (e) {}
+try { formatSimpleValue(-0); isPrimitive(1); isNegativeZero(-0); } catch (e) {}
+try { assert(false); } catch (e) {}
+"#;
+
 fn run_harness(mut ctx: Context, harness_files: &[PathBuf]) -> Result<(), ExceptionText> {
     for file in harness_files {
         let script = std::fs::read_to_string(file)
@@ -453,7 +528,7 @@ pub async fn run_test_file(
     rt.set_module_loader(js_module_loader);
 
     // SAFETY: ctx is used within this function and dropped before rt.
-    let ctx = rt
+    let mut ctx = rt
         .create_context(|cx| {
             ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
             setup_ctx_test262_helpers(cx)?;
@@ -465,6 +540,13 @@ pub async fn run_test_file(
             Ok(())
         })
         .unwrap();
+
+    // `--jit`: one runtime per test, so attach here (exactly once per runtime)
+    // before any JS runs. Without the flag this stays inert: no attach, no polls.
+    #[cfg(feature = "jit")]
+    let jit = JIT_ENABLED
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .then(|| zuqe::Jit::attach_to(&rt, eager_jit_config()).expect("JIT attach failed"));
 
     let mut has_err = false;
     let mut failed = false;
@@ -486,6 +568,23 @@ pub async fn run_test_file(
 
         #[cfg(debug_assertions)]
         debug_assert_eq!(ctx.gc_heap().scope_max_depth(ctx.scope_stack_id()), 1);
+
+        // Warm up the harness' helpers before the first poll so that (with
+        // `--jit`) they compile before the test script calls them. Guarded
+        // per statement; a failure here cannot fail the test.
+        let _ = ctx.eval(
+            HARNESS_WARMUP.as_bytes(),
+            &EvalName::Name("harness-warmup.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        );
+
+        // Drain what the harness queued so harness helpers can run natively
+        // while the test script executes (poll only runs at scope depth 1).
+        #[cfg(feature = "jit")]
+        if let Some(jit) = &jit {
+            jit.poll();
+        }
     }
 
     if !has_err {
@@ -546,6 +645,13 @@ pub async fn run_test_file(
             #[cfg(debug_assertions)]
             debug_assert_eq!(ctx.gc_heap().scope_max_depth(ctx.scope_stack_id()), 1);
 
+            // Poll between variants: everything queued during the previous
+            // eval compiles now, so the next eval enters native code.
+            #[cfg(feature = "jit")]
+            if let Some(jit) = &jit {
+                jit.poll();
+            }
+
             let scenario = if strict { "strict" } else { "default" };
 
             if let Err(exc) = res {
@@ -591,6 +697,14 @@ pub async fn run_test_file(
     // Tear down any agent threads spawned by this test so they don't leak into
     // the next test (which would corrupt broadcast/hub state across tests).
     crate::agent::teardown_agents();
+
+    // Final drain: settle everything this test queued before its runtime goes
+    // away, and fold the counters into the run total for the end-of-run report.
+    #[cfg(feature = "jit")]
+    if let Some(jit) = jit {
+        jit.poll();
+        record_jit_metrics(&jit.metrics());
+    }
 
     (
         if failed {
