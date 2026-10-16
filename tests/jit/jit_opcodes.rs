@@ -429,7 +429,7 @@ fn every_case_matches_policy_and_interpreter() {
             op_case.name
         );
 
-        for mode in [Mode::Tier1, Mode::Automatic] {
+        for mode in [Mode::Tier1, Mode::Tier2, Mode::Automatic] {
             let run = run_case_polled(mode, &op_case.case);
             assert_eq!(
                 run.main,

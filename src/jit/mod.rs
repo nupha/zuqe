@@ -193,7 +193,7 @@ impl JitState {
                 break;
             };
             let started = Instant::now();
-            let outcome = match self.run_pipeline(&request) {
+            let outcome = match self.run_pipeline(&request, &mut m) {
                 CompileOutcome::Failed if started.elapsed() > timeout => CompileOutcome::TimedOut,
                 other => other,
             };
@@ -212,8 +212,8 @@ impl JitState {
     }
 
     /// One attempt: verify → compile → publish. Never panics; any failure just
-    /// leaves the function interpreted.
-    fn run_pipeline(&self, request: &runtime::Request) -> CompileOutcome {
+    /// leaves the function interpreted. `m` accumulates tier-2 counters.
+    fn run_pipeline(&self, request: &runtime::Request, m: &mut JitMetrics) -> CompileOutcome {
         let snapshot = CompileSnapshot::from_bytecode(request.function_id, &request.bytecode);
         let Ok(verified) = verify(snapshot, self.limits) else {
             return CompileOutcome::Rejected;
@@ -223,9 +223,11 @@ impl JitState {
         if !compiler::entry_is_translatable(&verified) {
             return CompileOutcome::Rejected;
         }
-        let Ok(bytes) = compiler::compile(&verified, self.isa.as_ref()) else {
+        let specialized = Cell::new(0);
+        let Ok(bytes) = compiler::compile(&verified, self.isa.as_ref(), &specialized) else {
             return CompileOutcome::Failed;
         };
+        m.specialized_ops = m.specialized_ops.saturating_add(specialized.get());
         let mut cache = self.cache.borrow_mut();
         if runtime::publish(&mut cache, request.function_id, &request.bytecode, &bytes) {
             CompileOutcome::Installed

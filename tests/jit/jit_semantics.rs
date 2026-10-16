@@ -254,7 +254,7 @@ fn every_case_agrees_with_the_interpreter() {
             sem_case.name
         );
 
-        for mode in [Mode::Tier1, Mode::Automatic] {
+        for mode in [Mode::Tier1, Mode::Tier2, Mode::Automatic] {
             let run = run_case_polled(mode, &sem_case.case);
             assert_eq!(
                 run.main,

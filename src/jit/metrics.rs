@@ -48,4 +48,8 @@ pub struct JitMetrics {
     /// Distinct tier-2 feedback sites recorded (epic F1). Zero under
     /// `Interpreter`/`Tier1` policies, which never record.
     pub feedback_sites: u64,
+    /// Binary ops whose feedback was int-monomorphic and that therefore got a
+    /// speculative inline int fast path instead of a helper call (epic F2).
+    /// Zero under `Interpreter`/`Tier1` policies.
+    pub specialized_ops: u64,
 }

@@ -3,8 +3,8 @@
 
 //! M2b-1: multi-mode differential suite. The same script runs under every tier
 //! policy and must produce the same value (tag-exact), the same exception text
-//! and the same global side effects. `tier2` is missing until epic F, so the
-//! matrix is `interpreter / tier1 / automatic`.
+//! and the same global side effects. `tier2` exercises the feedback-driven
+//! specialization of epic F1/F2.
 
 #![cfg(feature = "jit")]
 

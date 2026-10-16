@@ -18,17 +18,25 @@ pub enum Mode {
     Interpreter,
     /// Forced baseline tier.
     Tier1,
+    /// Forced optimizing tier: feedback-driven specialization (epic F1/F2).
+    Tier2,
     /// Production default: pick the tier from hotness.
     Automatic,
 }
 
-pub const MODES: [Mode; 3] = [Mode::Interpreter, Mode::Tier1, Mode::Automatic];
+pub const MODES: [Mode; 4] = [
+    Mode::Interpreter,
+    Mode::Tier1,
+    Mode::Tier2,
+    Mode::Automatic,
+];
 
 impl Mode {
     pub const fn label(self) -> &'static str {
         match self {
             Mode::Interpreter => "interpreter",
             Mode::Tier1 => "tier1",
+            Mode::Tier2 => "tier2",
             Mode::Automatic => "automatic",
         }
     }
@@ -37,6 +45,7 @@ impl Mode {
         match self {
             Mode::Interpreter => JitTierPolicy::Interpreter,
             Mode::Tier1 => JitTierPolicy::Tier1,
+            Mode::Tier2 => JitTierPolicy::Tier2,
             Mode::Automatic => JitTierPolicy::Automatic,
         }
     }

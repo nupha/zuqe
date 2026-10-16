@@ -5,9 +5,6 @@ use std::{cmp, mem::ManuallyDrop, ptr::NonNull};
 
 use fallible_collections::TryCollect;
 
-#[cfg(feature = "inline_cache")]
-use crate::function::InlineCacheEntry;
-
 use crate::{
     Array, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_OBJECT, ScopeResult,
     array::alloc_fast_array_slots,
@@ -56,6 +53,8 @@ use crate::{
 
 #[cfg(feature = "big_int")]
 use crate::bigint::BigIntRef;
+#[cfg(feature = "inline_cache")]
+use crate::function::InlineCacheEntry;
 
 /// Action returned by the bytecode interpreter inner loop to the trampoline.
 /// The inner loop processes opcodes normally; when it encounters a call,

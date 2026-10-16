@@ -1,16 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! Multi-mode benchmark matrix (M2b-6): interpreter / tier1 / automatic over a
-//! small set of numeric, property and array kernels (kernels ported from
-//! quickjs-jit `benchmarks/scripts/*.js`).
+//! Multi-mode benchmark matrix (M2b-6): interpreter / tier1 / tier2 /
+//! automatic over a small set of numeric, property and array kernels (kernels
+//! ported from quickjs-jit `benchmarks/scripts/*.js`).
 //!
 //! Run with: `cargo run --release --features jit --example jit-bench -- \
-//!   --modes interpreter,tier1,automatic` (or `scripts/jit-bench-matrix.sh`).
+//!   --modes interpreter,tier1,tier2,automatic` (or `scripts/jit-bench-matrix.sh`).
 //!
 //! Protocol: 2 warm-up rounds discarded, then 7 timed rounds; the per-round
 //! median is reported. Every mode must produce the same result per kernel,
-//! asserted bit-exactly before that row is printed. `tier2` needs epic F.
+//! asserted bit-exactly before that row is printed. `tier2` records feedback
+//! and applies the speculative int specialization of epic F1/F2.
 
 use std::time::{Duration, Instant};
 
@@ -28,6 +29,8 @@ enum Mode {
     Interpreter,
     /// Forced baseline tier.
     Tier1,
+    /// Forced optimizing tier: feedback-driven specialization (epic F1/F2).
+    Tier2,
     /// Production default: pick the tier from hotness.
     Automatic,
 }
@@ -37,6 +40,7 @@ impl Mode {
         match self {
             Mode::Interpreter => "interpreter",
             Mode::Tier1 => "tier1",
+            Mode::Tier2 => "tier2",
             Mode::Automatic => "automatic",
         }
     }
@@ -45,6 +49,7 @@ impl Mode {
         match self {
             Mode::Interpreter => JitTierPolicy::Interpreter,
             Mode::Tier1 => JitTierPolicy::Tier1,
+            Mode::Tier2 => JitTierPolicy::Tier2,
             Mode::Automatic => JitTierPolicy::Automatic,
         }
     }
@@ -109,15 +114,15 @@ const KERNELS: &[Kernel] = &[
     },
 ];
 
-/// Parse `--modes interpreter,tier1,automatic`; default is all three runnable
-/// modes. `tier2` prints a note and is skipped; unknown modes exit non-zero.
+/// Parse `--modes interpreter,tier1,tier2,automatic`; default is every
+/// runnable mode. Unknown modes exit non-zero.
 fn parse_modes(args: &[String]) -> Vec<Mode> {
-    let mut selected = vec![Mode::Interpreter, Mode::Tier1, Mode::Automatic];
+    let mut selected = vec![Mode::Interpreter, Mode::Tier1, Mode::Tier2, Mode::Automatic];
     let Some(i) = args.iter().position(|a| a == "--modes") else {
         return selected;
     };
     let Some(list) = args.get(i + 1) else {
-        eprintln!("--modes needs a comma list, e.g. --modes interpreter,tier1,automatic");
+        eprintln!("--modes needs a comma list, e.g. --modes interpreter,tier1,tier2,automatic");
         std::process::exit(2);
     };
     selected.clear();
@@ -126,14 +131,11 @@ fn parse_modes(args: &[String]) -> Vec<Mode> {
             "" => continue,
             "interpreter" => Mode::Interpreter,
             "tier1" => Mode::Tier1,
+            "tier2" => Mode::Tier2,
             "automatic" => Mode::Automatic,
-            "tier2" => {
-                println!("tier2: not implemented (epic F), skipping");
-                continue;
-            }
             other => {
                 eprintln!(
-                    "unknown mode {other:?}: valid modes are interpreter, tier1, automatic (tier2 not implemented)"
+                    "unknown mode {other:?}: valid modes are interpreter, tier1, tier2, automatic"
                 );
                 std::process::exit(2);
             }

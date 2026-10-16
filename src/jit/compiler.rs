@@ -13,7 +13,7 @@
 //! There is no separate IR layer: with no optimization passes above it, the
 //! lowering reads `VerifiedFunction` directly (C1 folded into C2).
 
-use std::{collections::HashMap, mem::offset_of};
+use std::{cell::Cell, collections::HashMap, mem::offset_of};
 
 use cranelift_codegen::{
     Context,
@@ -42,6 +42,7 @@ use super::{
     },
     bytecode::{cfg::ControlFlowGraph, decode::Instruction, verify::VerifiedFunction},
     error::JitError,
+    feedback::{CLASS_INT, SiteFeedback},
 };
 
 /// Exit codes as written by generated code (keep in sync with `JitExitKind`).
@@ -246,12 +247,14 @@ struct FrameVals {
     this: Value,
 }
 
-struct State {
+struct State<'a> {
     blocks: HashMap<u32, Block>,
     pending: Vec<u32>,
+    feedback: &'a [(u32, SiteFeedback)],
+    specialized: &'a Cell<u64>,
 }
 
-impl State {
+impl<'a> State<'a> {
     fn block_for(&mut self, b: &mut FunctionBuilder, pc: u32) -> Block {
         if let Some(block) = self.blocks.get(&pc) {
             return *block;
@@ -260,6 +263,22 @@ impl State {
         self.blocks.insert(pc, block);
         self.pending.push(pc);
         block
+    }
+
+    /// Epic F2: did F1 feedback observe *only* `Int` at this site? Feedback is
+    /// sorted by pc, so a binary search answers it. `both` is false for
+    /// single-value sites (`inc_loc`/`dec_loc`), whose `rhs` slot stays 0.
+    fn int_only(&self, pc: u32, both: bool) -> bool {
+        self.feedback
+            .binary_search_by_key(&pc, |&(site, _)| site)
+            .is_ok_and(|i| {
+                let site = self.feedback[i].1;
+                site.lhs == CLASS_INT && (!both || site.rhs == CLASS_INT)
+            })
+    }
+
+    fn note_specialized(&self) {
+        self.specialized.set(self.specialized.get() + 1);
     }
 }
 
@@ -377,9 +396,13 @@ pub(crate) fn entry_is_translatable(verified: &VerifiedFunction) -> bool {
 }
 
 /// Compile one verified function. Returns code bytes for the caller to publish.
+///
+/// `specialized_ops` accumulates how many sites got a tier-2 speculative fast
+/// path (epic F2), so the caller can report it in metrics.
 pub(crate) fn compile(
     verified: &VerifiedFunction,
     isa: &dyn TargetIsa,
+    specialized_ops: &Cell<u64>,
 ) -> Result<Box<[u8]>, JitError> {
     let instructions = verified.instructions();
     let Some(first) = instructions.first() else {
@@ -439,7 +462,15 @@ pub(crate) fn compile(
     let strict = verified.snapshot().mode.contains(ExecMode::STRICT);
     let osr_pcs = collect_osr_pcs(verified);
     lower(
-        &mut b, &fv, sp_var, helper_sig, truthy_sig, verified, strict, &osr_pcs,
+        &mut b,
+        &fv,
+        sp_var,
+        helper_sig,
+        truthy_sig,
+        verified,
+        strict,
+        &osr_pcs,
+        specialized_ops,
     );
 
     b.seal_all_blocks();
@@ -535,12 +566,15 @@ fn lower(
     verified: &VerifiedFunction,
     strict: bool,
     osr_pcs: &[u32],
+    specialized_ops: &Cell<u64>,
 ) {
     let instructions = verified.instructions();
     let cfg = verified.control_flow_graph();
     let mut state = State {
         blocks: HashMap::new(),
         pending: Vec::new(),
+        feedback: &verified.snapshot().feedback,
+        specialized: specialized_ops,
     };
     let entry_block = state.block_for(b, 0);
     if osr_pcs.is_empty() {
@@ -719,6 +753,13 @@ fn lower_insn(
             Step::Continue(sp)
         }
         "add_loc" => {
+            // Epic F2: F1 proved this site int-monomorphic, so speculate an
+            // inline int add. A non-int operand or overflow hands the op back
+            // to the helper (still in native code).
+            if state.int_only(pc, true) {
+                state.note_specialized();
+                return lower_add_loc_int(b, fv, sp_var, helper_sig, sp, insn);
+            }
             let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u8(1)));
             b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM);
             let sp = call_stack_helper(b, fv, helper_sig, sp, HELPER_ADD_LOC, pc + size);
@@ -788,13 +829,29 @@ fn lower_insn(
         // Local `++`/`--`: the helper updates the slot in place, so an exception
         // exit leaves `sp` untouched (matching the interpreter).
         "inc_loc" | "dec_loc" => {
-            let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u8(1)));
-            b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM);
             let id = if name == "inc_loc" {
                 super::abi::HELPER_INC_LOCAL
             } else {
                 super::abi::HELPER_DEC_LOCAL
             };
+            // Epic F2: F1 proved this site int-monomorphic, so speculate an
+            // inline int increment. A non-int local or overflow hands the op
+            // back to the helper (still in native code).
+            if state.int_only(pc, false) {
+                state.note_specialized();
+                return lower_incdec_loc_int(
+                    b,
+                    fv,
+                    sp_var,
+                    helper_sig,
+                    sp,
+                    insn,
+                    name == "inc_loc",
+                    id,
+                );
+            }
+            let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u8(1)));
+            b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM);
             let sp = call_stack_helper(b, fv, helper_sig, sp, id, pc + size);
             Step::Continue(sp)
         }
@@ -1045,6 +1102,128 @@ fn lower_fast_binary(
     Step::Continue(b.use_var(sp_var))
 }
 
+/// Epic F2: speculative inline `int` fast path for `local += operand`, emitted
+/// only when F1 feedback proved the site int-monomorphic.
+///
+/// A non-int operand or an `i32` overflow falls back to the `add_loc` helper —
+/// which is the interpreter's own `arith_add` operating on the same frame — so
+/// the result stays bit-identical **without leaving native code**. That is the
+/// architectural difference from quickjs-jit, whose optimized tier must exit to
+/// the interpreter on a guard miss because its helpers cannot read the frame;
+/// zhuque's helpers *are* the interpreter, so the "deopt" here is a helper call.
+fn lower_add_loc_int(
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    sp_var: Variable,
+    helper_sig: cranelift_codegen::ir::SigRef,
+    sp: Value,
+    insn: &Instruction,
+) -> Step {
+    let pc_after = insn.pc() + insn.size() as u32;
+    let idx = insn.operand_u8(1) as i32;
+    let byte_off = idx * 8;
+
+    let local = b
+        .ins()
+        .load(types::I64, MemFlags::new(), fv.var_base, byte_off);
+    let operand = b.ins().load(types::I64, MemFlags::new(), sp, -8);
+    let tag_local = b.ins().ushr_imm(local, 48);
+    let tag_operand = b.ins().ushr_imm(operand, 48);
+    let int_local = b.ins().icmp_imm(IntCC::Equal, tag_local, 0);
+    let int_operand = b.ins().icmp_imm(IntCC::Equal, tag_operand, 0);
+    let both_int = b.ins().band(int_local, int_operand);
+
+    let fast = b.create_block();
+    let slow = b.create_block();
+    let cont = b.create_block();
+    b.ins().brif(both_int, fast, &[], slow, &[]);
+
+    b.switch_to_block(fast);
+    let li = b.ins().ireduce(types::I32, local);
+    let oi = b.ins().ireduce(types::I32, operand);
+    let (sum, overflow) = b.ins().sadd_overflow(li, oi);
+    // Overflow escapes the i32 domain; the helper boxes it as a Float64.
+    let ok = b.create_block();
+    b.ins().brif(overflow, slow, &[], ok, &[]);
+    b.switch_to_block(ok);
+    let boxed = b.ins().uextend(types::I64, sum);
+    b.ins().store(MemFlags::new(), boxed, fv.var_base, byte_off);
+    let sp_next = b.ins().iadd_imm(sp, -8);
+    b.def_var(sp_var, sp_next);
+    b.ins().jump(cont, &[]);
+
+    b.switch_to_block(slow);
+    // Leave the operand on the stack and set `imm`; the helper pops it and
+    // re-derives the full `arith_add` semantics (string concat, ToPrimitive, …).
+    let imm = b.ins().iconst(types::I32, i64::from(idx));
+    b.ins().store(MemFlags::new(), imm, fv.frame, O_IMM);
+    let sp_slow = call_stack_helper(b, fv, helper_sig, sp, HELPER_ADD_LOC, pc_after);
+    b.def_var(sp_var, sp_slow);
+    b.ins().jump(cont, &[]);
+
+    b.switch_to_block(cont);
+    Step::Continue(b.use_var(sp_var))
+}
+
+/// Epic F2: speculative inline `int` fast path for `local++`/`local--`, emitted
+/// only when F1 feedback proved the site int-monomorphic. The stack is
+/// untouched; a non-int local or an `i32` overflow falls back to the
+/// `inc_loc`/`dec_loc` helper (see [`lower_add_loc_int`] for why that is a
+/// helper call rather than an interpreter exit).
+fn lower_incdec_loc_int(
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    sp_var: Variable,
+    helper_sig: cranelift_codegen::ir::SigRef,
+    sp: Value,
+    insn: &Instruction,
+    is_inc: bool,
+    helper_id: usize,
+) -> Step {
+    let pc_after = insn.pc() + insn.size() as u32;
+    let idx = insn.operand_u8(1) as i32;
+    let byte_off = idx * 8;
+
+    let local = b
+        .ins()
+        .load(types::I64, MemFlags::new(), fv.var_base, byte_off);
+    let tag = b.ins().ushr_imm(local, 48);
+    let is_int = b.ins().icmp_imm(IntCC::Equal, tag, 0);
+
+    let fast = b.create_block();
+    let slow = b.create_block();
+    let cont = b.create_block();
+    b.ins().brif(is_int, fast, &[], slow, &[]);
+
+    b.switch_to_block(fast);
+    let li = b.ins().ireduce(types::I32, local);
+    let one = b.ins().iconst(types::I32, 1);
+    let (res, overflow) = if is_inc {
+        b.ins().sadd_overflow(li, one)
+    } else {
+        b.ins().ssub_overflow(li, one)
+    };
+    // `i32::MAX`/`MIN` promote to a Float64 in the interpreter; the helper
+    // owns that boundary, so hand the op back rather than duplicating it.
+    let ok = b.create_block();
+    b.ins().brif(overflow, slow, &[], ok, &[]);
+    b.switch_to_block(ok);
+    let boxed = b.ins().uextend(types::I64, res);
+    b.ins().store(MemFlags::new(), boxed, fv.var_base, byte_off);
+    b.def_var(sp_var, sp);
+    b.ins().jump(cont, &[]);
+
+    b.switch_to_block(slow);
+    let imm = b.ins().iconst(types::I32, i64::from(idx));
+    b.ins().store(MemFlags::new(), imm, fv.frame, O_IMM);
+    let sp_slow = call_stack_helper(b, fv, helper_sig, sp, helper_id, pc_after);
+    b.def_var(sp_var, sp_slow);
+    b.ins().jump(cont, &[]);
+
+    b.switch_to_block(cont);
+    Step::Continue(b.use_var(sp_var))
+}
+
 /// Pop the condition, test it (inline fast paths; helper for the rest), then
 /// branch. Both the fast and slow paths duplicate the branch, avoiding a phi.
 #[allow(clippy::too_many_arguments)]
@@ -1154,7 +1333,7 @@ mod tests {
         let isa = crate::jit::build_host_isa().unwrap();
         let verified = verify(snapshot(bytes, args, vars), VerifyLimits::default())
             .unwrap_or_else(|e| panic!("verify rejected: {e:?}"));
-        compile(&verified, isa.as_ref()).map(|_| ())
+        compile(&verified, isa.as_ref(), &Cell::new(0)).map(|_| ())
     }
 
     /// Like `compile_bytes`, but with `gv` global-variable references so
@@ -1164,7 +1343,7 @@ mod tests {
         let snap = CompileSnapshot::from_raw(bytes, args, vars, gv, 16);
         let verified = verify(snap, VerifyLimits::default())
             .unwrap_or_else(|e| panic!("verify rejected: {e:?}"));
-        compile(&verified, isa.as_ref()).map(|_| ())
+        compile(&verified, isa.as_ref(), &Cell::new(0)).map(|_| ())
     }
 
     fn seq(parts: &[&[u8]]) -> Vec<u8> {
@@ -1547,7 +1726,7 @@ mod tests {
         snap.const_meta = Box::new([ConstMeta { tag: 0 }]);
         let isa = crate::jit::build_host_isa().unwrap();
         let verified = verify(snap, VerifyLimits::default()).unwrap();
-        assert!(compile(&verified, isa.as_ref()).is_ok());
+        assert!(compile(&verified, isa.as_ref(), &Cell::new(0)).is_ok());
     }
 
     #[test]
