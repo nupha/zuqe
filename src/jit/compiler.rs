@@ -904,7 +904,6 @@ fn loc_offset_u16(insn: &Instruction) -> i32 {
 fn ic_index(insn: &Instruction) -> u32 {
     u32::from(insn.operand_u16(5))
 }
-
 #[cfg(not(feature = "inline_cache"))]
 fn ic_index(_insn: &Instruction) -> u32 {
     0
@@ -961,9 +960,26 @@ fn lower_fast_binary(
                 FastOp::Sub => b.ins().ssub_overflow(ai, ci),
                 _ => b.ins().smul_overflow(ai, ci),
             };
+            // `0 * -1` / `-1 * 0` are -0, which an Int box cannot hold: bail to
+            // the helper, which owns the Int-vs-Float64 sign rules.
+            let bail = match op {
+                FastOp::Mul => {
+                    let a_zero = b.ins().icmp_imm(IntCC::Equal, ai, 0);
+                    let c_zero = b.ins().icmp_imm(IntCC::Equal, ci, 0);
+                    let a_neg = b.ins().icmp_imm(IntCC::SignedLessThan, ai, 0);
+                    let c_neg = b.ins().icmp_imm(IntCC::SignedLessThan, ci, 0);
+                    let neg_zero = {
+                        let ac = b.ins().band(a_zero, c_neg);
+                        let ca = b.ins().band(c_zero, a_neg);
+                        b.ins().bor(ac, ca)
+                    };
+                    b.ins().bor(overflow, neg_zero)
+                }
+                _ => overflow,
+            };
             // Overflow escapes the i32 domain: the helper produces a Float64.
             let ok = b.create_block();
-            b.ins().brif(overflow, slow, &[], ok, &[]);
+            b.ins().brif(bail, slow, &[], ok, &[]);
             b.switch_to_block(ok);
             let boxed = b.ins().uextend(types::I64, result);
             b.ins().store(MemFlags::new(), boxed, sp, -16);
