@@ -2,15 +2,17 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
-    JS_CLASS_ARGUMENTS, JS_CLASS_OBJECT,
+    JS_CLASS_ARGUMENTS, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_OBJECT,
     array::{ArrayPayload, alloc_fast_array_slots},
     atom::Atom,
+    bytecode::exec_stackless::get_var_ref,
     context::ScopedContext,
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_WRITABLE, JSProperty,
-        PayloadPtr,
+        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_VARREF,
+        JS_PROP_WRITABLE, JSProperty, Object, PayloadPtr,
     },
     value::JSValue,
+    vm_stack::{FrameIndex, VmStack},
 };
 
 use super::JS_MAX_LOCAL_VARS;
@@ -68,6 +70,84 @@ pub(crate) fn js_build_arguments(ctx: &mut ScopedContext, values: &[JSValue]) ->
     .unwrap();
 
     obj.into()
+}
+
+/// Build the **mapped** `arguments` object — the aliasing variant a sloppy
+/// function with simple parameters gets: index `i` is a `VarRef` into the
+/// caller's `i`-th argument slot, so `arguments[0] = x` and `a = x` see each
+/// other. Arguments past the declared formals are plain values.
+///
+/// Shared by the interpreter's `SPECIAL_OBJECT` and the JIT helper, so the two
+/// cannot drift. `None` means the exception path: the caller must unwind with
+/// the operand stack untouched (the failing step either threw already or left
+/// the frame as the interpreter would).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn js_build_mapped_arguments(
+    ctx: &mut ScopedContext,
+    values: &[JSValue],
+    arg_base: *mut JSValue,
+    var_base: *mut JSValue,
+    arena: &mut VmStack,
+    frame_idx: FrameIndex,
+    arg_count: u16,
+    var_count: u16,
+    func_obj: Object,
+) -> Option<Object> {
+    let object_proto = ctx.class_proto(JS_CLASS_OBJECT);
+    let Ok(mut obj) =
+        ctx.create_instance_with_proto(object_proto, PayloadPtr::none(JS_CLASS_MAPPED_ARGUMENTS))
+    else {
+        return None;
+    };
+
+    obj.add_own_property(
+        ctx,
+        Atom::CONST_length,
+        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+        JSProperty::Normal(JSValue::from(values.len() as i32)),
+    )
+    .ok()?;
+
+    for i in 0..std::cmp::min(values.len() as i32, arg_count as i32) {
+        let var_ref = get_var_ref(
+            ctx, i as u16, true, arg_base, var_base, arena, frame_idx, arg_count, var_count,
+        )
+        .ok()?;
+        obj.add_own_property(
+            ctx,
+            Atom::new_small_int(i as u32),
+            JS_PROP_C_W_E | JS_PROP_VARREF,
+            JSProperty::VarRef(var_ref),
+        )
+        .ok()?;
+    }
+
+    for (i, value) in values
+        .iter()
+        .enumerate()
+        .skip(std::cmp::min(values.len(), arg_count as usize))
+    {
+        obj.define_property_value_u32(ctx, i as _, *value, JS_PROP_C_W_E)
+            .ok()?;
+    }
+
+    obj.define_property_value(
+        ctx,
+        Atom::CONST_Symbol_iterator,
+        ctx.array_proto_values,
+        JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+    )
+    .ok()?;
+
+    obj.define_property_value(
+        ctx,
+        Atom::CONST_callee,
+        JSValue::from(func_obj),
+        JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
+    )
+    .ok()?;
+
+    Some(obj)
 }
 
 pub(crate) fn build_arg_list(

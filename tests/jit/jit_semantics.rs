@@ -232,6 +232,29 @@ const CASES: &[SemCase] = sem_cases! {
         "String(f(0)) + '/' + String(f(2)) + '/' + String(f(null)) + '/' + String(f(undefined)) + '/' + String(f(NaN)) + '/' + String(f(2.5)) + '/[' + f('') + ']'",
         "'coal:' + f(3) + ',' + f(0)";
 
+    // ── frame-entry special objects (epic F §6.12) ──
+    // Sloppy and strict `arguments`: the mapped object aliases the formals in
+    // both directions, the strict one is a plain copy. Its `VarRef`s point at
+    // the frame's argument slots (the verifier's `MappedArguments` rejection is
+    // gone because the JIT helper calls the interpreter's own builder).
+    arguments_mapped_and_strict => Compiles =
+        "var __seed = 0; function m(a){ var __z = 0; arguments[0] = 9; var r = a; a = 7; return r + ':' + arguments[0]; } function s(a){ \"use strict\"; var __z = 0; arguments[0] = 9; var r = a; a = 7; return r + ':' + arguments[0]; }",
+        "m(1)",
+        "m(1) + ',' + s(1)",
+        "'args:' + m(2) + ',' + s(2)";
+    // `push_this` inline for strict, the substitution helper for sloppy.
+    this_is_raw_when_strict => Compiles =
+        "var __seed = 0; function s(){ \"use strict\"; var __z = 0; return typeof this; } function l(){ var __z = 0; return typeof this; }",
+        "l()",
+        "s() + ',' + l()",
+        "'this:' + s() + ',' + l()";
+    // `new.target` inside a constructor — undefined on a plain call.
+    newtarget_in_constructor => Compiles =
+        "var __seed = 0; function Ctor(){ var __z = 0; var nt = new.target; return nt === undefined ? 'plain' : 'new'; } function f(k){ var __z = 0; return k ? new Ctor() : Ctor(); }",
+        "f(1)",
+        "f(1) + ',' + f(0)",
+        "'nt:' + f(1) + ',' + f(0)";
+
     // ── control flow shapes the verifier must survive ──
     switch_and_labels => Compiles =
         "var __seed = 0; function f(n){ var __z = 0; var r = 0; switch (n % 4) { case 0: r = 10; break; case 1: r = 20; break; default: r = 30; } outer: for (var i = 0; i < 5; i++) { if (i === 2) continue outer; if (i === 4) break outer; r = r + i; } return r; }",
@@ -265,6 +288,9 @@ const FEATURES: &[&str] = &[
     "ic_",
     "carry_",
     "coalesce_",
+    "arguments_",
+    "this_",
+    "newtarget_",
 ];
 
 #[test]

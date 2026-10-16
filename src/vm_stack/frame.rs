@@ -45,6 +45,14 @@ impl FrameIndex {
         debug_assert!(!self.is_null());
         self.0 as usize
     }
+
+    /// Rebuild an index from the `u32` a JIT frame carries (`JitExecFrame`
+    /// cannot name the newtype). Only the interpreter creates frames, so the
+    /// value always comes from a live `FrameIndex`.
+    #[inline(always)]
+    pub(crate) const fn from_u32(idx: u32) -> Self {
+        Self(idx)
+    }
 }
 
 /// Frame lifecycle state within the arena.

@@ -80,13 +80,11 @@ const GAPS: &[(&str, &str)] = &[
 ];
 
 /// Cases whose function the frontend refuses today although every opcode they
-/// claim is policy-accepted. The JS still runs and must still agree with the
-/// interpreter; the reason is recorded so the gate stays honest about what the
-/// baseline cannot do yet.
-const UNCOMPILED_TODAY: &[(&str, &str)] = &[(
-    "this_arguments_newtarget",
-    "`arguments` / `new.target` initialise a special object at frame entry, which the baseline cannot lower at entry",
-)];
+/// claim is policy-accepted. **Empty since 2026-10-17** (`this_arguments_newtarget`
+/// was the last one: `special_object` now lowers and the verifier no longer
+/// rejects mapped `arguments`). The machinery stays so a future frontend gap can
+/// be recorded here instead of silently shrinking the accepted set.
+const UNCOMPILED_TODAY: &[(&str, &str)] = &[];
 
 struct OpCase {
     name: &'static str,
@@ -136,7 +134,10 @@ const CASES: &[OpCase] = op_cases! {
                   "f(1)",
           "f(5)",
           "'tdz:' + f(5)";
-    closure_var_refs => [push_i32, fclosure, drop, insert3, call, return, get_var, put_var, put_ref_value, set_name, get_loc, put_loc, set_loc, get_arg, get_var_ref, set_var_ref, add, nop]
+    // `set_name` is not claimed: the anonymous inner function expression only
+    // carries it in the pre-optimization (pass 1) stream, where the audit still
+    // sees it, but the optimizer drops it — the final bytecode has none.
+    closure_var_refs => [push_i32, fclosure, drop, insert3, call, return, get_var, put_var, put_ref_value, get_loc, put_loc, set_loc, get_arg, get_var_ref, set_var_ref, add, nop]
         = "var __seed = 0; function apply(g){ var __z = 0; return g(); } function f(n){ var __z = 0; var m = n; var r = apply(function(){ var __u = 0; m = m + 1; return m; }); return r + n; }",
                   "f(1)",
           "f(5)",
@@ -146,7 +147,7 @@ const CASES: &[OpCase] = op_cases! {
                   "f(2)",
           "f(3)",
           "'cr:' + f(3)";
-    captured_loop_ref => [push_i32, fclosure, drop, insert3, perm4, call, return, get_var, put_var, get_ref_value, put_ref_value, set_name, get_loc, put_loc, set_loc, get_arg, get_var_ref, if_false, goto, post_inc, inc_loc, add, lt, nop]
+    captured_loop_ref => [push_i32, fclosure, drop, insert3, perm4, call, return, get_var, put_var, get_ref_value, put_ref_value, get_loc, put_loc, set_loc, get_arg, get_var_ref, if_false, goto, post_inc, inc_loc, add, lt, nop]
         = "var __seed = 0; function apply(g){ var __z = 0; return g(); } function f(n){ var __z = 0; var out = 0; for (var i = 0; i < 3; i++) { out = apply(function(){ var __u = 0; return i; }); } return out + n; }",
                   "f(1)",
           "f(2)",
@@ -494,9 +495,37 @@ fn every_case_matches_policy_and_interpreter() {
     println!("opcode cases: {accept} accepted-mode runs, {reject} rejected-mode runs");
 }
 
+/// Epic F §6.12: `fclosure` — the entry opcode of *every* script that declares a
+/// function — now lowers, so a definition script is verified and compiled
+/// instead of being refused at its frame entry. (The script body runs once per
+/// eval, so this is coverage rather than speed; `fclosure` *inside* a function
+/// body, a factory, is the speed case.)
+#[test]
+fn a_script_that_declares_a_function_compiles() {
+    let case = Case {
+        dim: "Opcode",
+        name: "definition_script",
+        setup: "function g(n){ return n + 1; } g(1);",
+        warm: "g(2)",
+        main: "g(3)",
+        probe: "'ds:' + g(4)",
+    };
+    let run = run_case_polled(Mode::Automatic, &case);
+    assert_eq!(
+        run.after_definition.functions_rejected, 0,
+        "the declaring script must verify ({:?})",
+        run.after_definition
+    );
+    assert!(
+        run.after_definition.functions_compiled > 0,
+        "the declaring script must compile ({:?})",
+        run.after_definition
+    );
+    assert_eq!(run.main, "int:4", "g(3) == 4");
+}
+
 /// Development audit for the claims: with `dump_bytecode` the engine prints the
-/// bytecode of every function the cases define, so
-/// `cargo test --features jit,dump_bytecode --test jit bytecode_dump_audit -- --nocapture`
+/// bytecode of every function the cases define, so/// `cargo test --features jit,dump_bytecode --test jit bytecode_dump_audit -- --nocapture`
 /// lists every opcode the suite really produces (grep the output for a claimed
 /// name to check a claim).
 #[cfg(feature = "dump_bytecode")]

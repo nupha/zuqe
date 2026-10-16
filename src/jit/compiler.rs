@@ -102,6 +102,8 @@ fn supported(name: &str) -> bool {
                 | "set_loc_uninitialized"
                 | "get_loc_check"
                 | "rest"
+                | "special_object"
+                | "fclosure"
                 | "push_this"
                 | "drop"
                 | "get_loc"
@@ -841,9 +843,10 @@ fn touch(name: &str, h: u32, strict: bool, feedback: &[(u32, SiteFeedback)], pc:
         // reads the local out of the frame, not out of a cache entry).
         "add_loc" | "inc_loc" | "dec_loc" => Touch::Flush,
         "if_true" | "if_false" | "return" | "ret" => Touch::ReadFlush(vec![h]),
-        // `rest` calls a helper; `get_loc_check` flushes before its TDZ split.
-        // Everything else is a `Resume` exit (nothing survives it either).
-        "rest" | "get_loc_check" => Touch::Flush,
+        // `rest`/`special_object`/`fclosure` call helpers; `get_loc_check`
+        // flushes before its TDZ split. Everything else is a `Resume` exit
+        // (nothing survives it either).
+        "rest" | "special_object" | "fclosure" | "get_loc_check" => Touch::Flush,
         _ => Touch::Flush,
     }
 }
@@ -1137,6 +1140,55 @@ fn lower_insn(
     // Verified entry height of *this* instruction: push/pop below track it
     // incrementally and the next instruction re-anchors it.
     state.stack.anchor(start_height);
+
+    // Frame-entry ops that need the current interpreter activation
+    // (`special_object`, `fclosure`) and sloppy `this` go through helpers that
+    // read the JIT frame's `arena`/`cur_frame_idx`/`new_target`/`home_obj`.
+    match name {
+        "special_object" => {
+            let id = b.ins().iconst(types::I32, i64::from(insn.operand_u8(1)));
+            b.ins().store(MemFlags::new(), id, fv.frame, O_IMM);
+            let sp = call_stack_helper(
+                state,
+                b,
+                fv,
+                helper_sig,
+                sp,
+                super::abi::HELPER_SPECIAL_OBJECT,
+                pc + size,
+            );
+            return Step::Continue(sp);
+        }
+        "fclosure" => {
+            let id = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+            b.ins().store(MemFlags::new(), id, fv.frame, O_IMM);
+            let sp = call_stack_helper(
+                state,
+                b,
+                fv,
+                helper_sig,
+                sp,
+                super::abi::HELPER_FCLOSURE,
+                pc + size,
+            );
+            return Step::Continue(sp);
+        }
+        "push_this" if !strict => {
+            // Sloppy `this`: the frame holds the raw value, so the helper does
+            // the global-object substitution / objectification.
+            let sp = call_stack_helper(
+                state,
+                b,
+                fv,
+                helper_sig,
+                sp,
+                super::abi::HELPER_PUSH_THIS,
+                pc + size,
+            );
+            return Step::Continue(sp);
+        }
+        _ => {}
+    }
 
     if let Some((op, helper_id)) = fast_op(name) {
         return lower_fast_binary(state, b, fv, sp_var, helper_sig, sp, insn, op, helper_id);
@@ -2274,6 +2326,13 @@ mod tests {
             0,
             0,
         ));
+        // Frame-entry special objects (kind 3 = `new.target`) and sloppy `this`.
+        cases.push((
+            "special_object",
+            seq(&[&[op::OP_special_object, 3], &ret]),
+            0,
+            0,
+        ));
         for (name, code) in [
             ("in", op::OP_in),
             ("instanceof", op::OP_instanceof),
@@ -2362,6 +2421,17 @@ mod tests {
             0,
             0,
         );
+        snap.const_meta = Box::new([ConstMeta { tag: 0 }]);
+        let isa = crate::jit::build_host_isa().unwrap();
+        let verified = verify(snap, VerifyLimits::default()).unwrap();
+        assert!(compile(&verified, isa.as_ref(), &Cell::new(0)).is_ok());
+    }
+
+    /// `fclosure` (epic F §6.12) reads a nested bytecode out of the constant
+    /// pool, so it needs the same non-empty pool `push_const` does.
+    #[test]
+    fn fclosure_lowers_against_the_constant_pool() {
+        let mut snap = snapshot(seq(&[&[op::OP_fclosure], &u32b(0), &[op::OP_return]]), 0, 0);
         snap.const_meta = Box::new([ConstMeta { tag: 0 }]);
         let isa = crate::jit::build_host_isa().unwrap();
         let verified = verify(snap, VerifyLimits::default()).unwrap();

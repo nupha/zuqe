@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cmp, mem::ManuallyDrop, ptr::NonNull};
+use std::{mem::ManuallyDrop, ptr::NonNull};
 
 use fallible_collections::TryCollect;
 
 use crate::{
-    Array, JS_CLASS_MAPPED_ARGUMENTS, JS_CLASS_OBJECT, ScopeResult,
+    Array, JS_CLASS_OBJECT, ScopeResult,
     array::alloc_fast_array_slots,
     atom::{Atom, AtomKind},
     builtins::{
@@ -37,7 +37,7 @@ use crate::{
     eval::{EvalFlags, EvalType},
     function::{
         BCWrapper, Bytecode, CallContext, FunctionKind, GcScopeKind, JS_CALL_FLAG_CONSTRUCTOR,
-        VarRef, build_arg_list, js_build_arguments, js_function_apply,
+        VarRef, build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
     },
     module::{js_dynamic_import, js_import_meta},
     object::{
@@ -185,7 +185,11 @@ impl std::ops::DerefMut for TrampolineScope {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn get_var_ref(
+/// Create (or reuse) a `VarRef` onto local/argument slot `var_idx` of the
+/// current frame. `pub(crate)` because the JIT's `special_object` helper shares
+/// [`crate::function::argument::js_build_mapped_arguments`] with the
+/// interpreter and reaches it through here.
+pub(crate) fn get_var_ref(
     ctx: &mut ScopedContext,
     var_idx: u16,
     is_arg: bool,
@@ -426,6 +430,10 @@ impl Bytecode {
                 this_obj,
                 pc_offset as u32,
                 u32::from(arg_real_count),
+                arena_ptr,
+                cur_frame_idx.as_usize() as u32,
+                new_target,
+                func_home_obj,
             ) {
                 match kind {
                     crate::jit::JitExitKind::Done => {
@@ -724,116 +732,23 @@ impl Bytecode {
                                 }
                             }
                             SpecialObject::MappedArguments => {
-                                let object_proto = realm_scope.class_proto(JS_CLASS_OBJECT);
-                                let mut obj = match realm_scope.create_instance_with_proto(
-                                    object_proto,
-                                    PayloadPtr::none(JS_CLASS_MAPPED_ARGUMENTS),
+                                // Shared with the JIT helper (epic F §6.12).
+                                match js_build_mapped_arguments(
+                                    realm_scope,
+                                    args,
+                                    arg_base_ptr,
+                                    var_base_ptr,
+                                    arena_mut!(),
+                                    cur_frame_idx,
+                                    self.arg_count,
+                                    self.var_count,
+                                    func_obj,
                                 ) {
-                                    Ok(o) => o,
-                                    Err(_) => {
-                                        break ExecAction::Exception;
+                                    Some(obj) => {
+                                        SP_PUT!(0, JSValue::from(obj));
+                                        SP_GO!(1);
                                     }
-                                };
-
-                                if obj
-                                    .add_own_property(
-                                        realm_scope,
-                                        Atom::CONST_length,
-                                        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                                        JSProperty::Normal(JSValue::from(args.len() as i32)),
-                                    )
-                                    .is_err()
-                                {
-                                    break ExecAction::Exception;
-                                }
-
-                                let mut abort = false;
-                                for i in 0..cmp::min(args.len() as i32, self.arg_count as i32) {
-                                    let content = match get_var_ref(
-                                        realm_scope,
-                                        i as u16,
-                                        true,
-                                        arg_base_ptr,
-                                        var_base_ptr,
-                                        arena_mut!(),
-                                        cur_frame_idx,
-                                        self.arg_count,
-                                        self.var_count,
-                                    ) {
-                                        Ok(vr) => JSProperty::VarRef(vr),
-                                        Err(_) => {
-                                            abort = true;
-                                            break;
-                                        }
-                                    };
-                                    if obj
-                                        .add_own_property(
-                                            realm_scope,
-                                            Atom::new_small_int(i as u32),
-                                            JS_PROP_C_W_E | JS_PROP_VARREF,
-                                            content,
-                                        )
-                                        .is_err()
-                                    {
-                                        abort = true;
-                                        break;
-                                    }
-                                }
-                                if abort {
-                                    break ExecAction::Exception;
-                                }
-
-                                for (i, a) in args
-                                    .iter()
-                                    .enumerate()
-                                    .skip(cmp::min(args.len(), self.arg_count as usize))
-                                {
-                                    if obj
-                                        .define_property_value_u32(
-                                            realm_scope,
-                                            i as _,
-                                            *a,
-                                            JS_PROP_C_W_E,
-                                        )
-                                        .is_err()
-                                    {
-                                        abort = true;
-                                        break;
-                                    }
-                                }
-                                if abort {
-                                    break ExecAction::Exception;
-                                }
-
-                                if obj
-                                    .define_property_value(
-                                        realm_scope,
-                                        Atom::CONST_Symbol_iterator,
-                                        realm_scope.array_proto_values,
-                                        JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-                                    )
-                                    .is_err()
-                                {
-                                    break ExecAction::Exception;
-                                }
-
-                                if obj
-                                    .define_property_value(
-                                        realm_scope,
-                                        Atom::CONST_callee,
-                                        JSValue::from(func_obj),
-                                        JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE,
-                                    )
-                                    .is_err()
-                                {
-                                    break ExecAction::Exception;
-                                }
-
-                                let ma = JSValue::from(obj);
-                                SP_PUT!(0, ma);
-                                SP_GO!(1);
-                                if unlikely(SP_REF!(-1).is_exception()) {
-                                    break ExecAction::Exception;
+                                    None => break ExecAction::Exception,
                                 }
                             }
                             SpecialObject::ThisFunc => {

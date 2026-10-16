@@ -12,12 +12,14 @@
 use crate::{
     JSValue, ScopedContext,
     bytecode::{
-        OpCode,
+        OpCode, SpecialObject,
         arithmatic::{UnaryOp, op_binary_logic},
         operators::{js_operator_delete, js_operator_in, js_operator_instanceof},
     },
     context::GlobalVarSetMode,
-    object::{JSProperty, ThrowPolicy},
+    function::{BCWrapper, VarRef, js_build_arguments, js_build_mapped_arguments},
+    object::{JSProperty, Object, ThrowPolicy},
+    vm_stack::{FrameIndex, VmStack},
 };
 
 /// Status returned by every helper. Non-zero exits the native frame.
@@ -105,6 +107,16 @@ pub(crate) struct JitExecFrame {
     /// `arg_base[start..arg_real_count]`, exactly like the interpreter's
     /// `args` slice.
     pub arg_real_count: u32,
+    /// `*mut VmStack`: the running interpreter's arena. Frame-entry helpers
+    /// (`special_object`, `fclosure`) reach the current `StackFrame` through
+    /// `arena` + `cur_frame_idx`, the same way the interpreter does.
+    pub arena: *mut VmStack,
+    /// Index of the running frame inside `arena` (`FrameIndex::as_usize`).
+    pub cur_frame_idx: u32,
+    /// The activation's `new.target` (the interpreter's per-call value).
+    pub new_target: JSValue,
+    /// The activation's `[[HomeObject]]`, when the callee is a method.
+    pub home_obj: Option<Object>,
 }
 
 /// The compiled entry. Returns a [`JitExitKind`] as a `u32`.
@@ -941,6 +953,111 @@ unsafe extern "C" fn h_rest(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// `special_object`: the frame-entry special objects the parser emits. Mirrors
+/// the interpreter's arm for every kind except `ImportMeta` (module state,
+/// which the verifier keeps rejecting). `imm` is the `SpecialObject` id.
+unsafe extern "C" fn h_special_object(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let args = std::slice::from_raw_parts(f.arg_base, f.arg_real_count as usize);
+        let frame_idx = FrameIndex::from_u32(f.cur_frame_idx);
+        let func_obj = (*f.arena).frame(frame_idx).func_obj;
+        let value = match std::mem::transmute::<u8, SpecialObject>(f.imm as u8) {
+            SpecialObject::Arguments => js_build_arguments(scope, args),
+            SpecialObject::MappedArguments => {
+                match js_build_mapped_arguments(
+                    scope,
+                    args,
+                    f.arg_base,
+                    f.var_base,
+                    &mut *f.arena,
+                    frame_idx,
+                    (*f.bytecode).arg_count,
+                    (*f.bytecode).var_count,
+                    func_obj,
+                ) {
+                    Some(obj) => JSValue::from(obj),
+                    // Like the interpreter's arm: the failure pushes nothing.
+                    None => return HELPER_EXCEPTION,
+                }
+            }
+            SpecialObject::ThisFunc => JSValue::from(func_obj),
+            SpecialObject::NewTarget => f.new_target,
+            SpecialObject::HomeObject => f.home_obj.map_or(JSValue::UNDEFINED, JSValue::from),
+            SpecialObject::VarObject => scope
+                .create_base_object_with_proto(None)
+                .map_or(JSValue::EXCEPTION, JSValue::from),
+            SpecialObject::ImportMeta => {
+                let _ = scope.throw_internal_error("special_object");
+                JSValue::EXCEPTION
+            }
+        };
+        *f.sp = value;
+        f.sp = f.sp.add(1);
+        if value.is_exception() {
+            HELPER_EXCEPTION
+        } else {
+            HELPER_OK
+        }
+    }
+}
+
+/// `push_this` for a sloppy function: `undefined`/`null` becomes the global
+/// object and any other primitive is objectified (the interpreter's arm).
+/// Strict functions never reach this — their `this` is the frame's raw value,
+/// which the compiler pushes inline.
+unsafe extern "C" fn h_push_this(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let this_obj = f.this;
+        let value = if this_obj.is_undefined_or_null() {
+            JSValue::from(scope.global_obj())
+        } else if this_obj.is_object() {
+            this_obj
+        } else {
+            let Ok(objectified) = this_obj.objectify(scope) else {
+                // The interpreter breaks before `SP_PUT!` on this path too.
+                return HELPER_EXCEPTION;
+            };
+            objectified.into()
+        };
+        *f.sp = value;
+        f.sp = f.sp.add(1);
+        HELPER_OK
+    }
+}
+
+/// `fclosure`: close over the constant pool's nested bytecode. The captured
+/// var refs come from the *current* frame's function object, exactly as the
+/// interpreter resolves them (the nested bytecode's own free variables bind to
+/// the enclosing activation). `imm` is the constant index.
+unsafe extern "C" fn h_fclosure(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let nested = (*f.cpools.add(f.imm as usize)).as_bytecode_unchecked();
+        let frame_idx = FrameIndex::from_u32(f.cur_frame_idx);
+        let func_obj = (*f.arena).frame(frame_idx).func_obj;
+        let mut bfun = BCWrapper::try_from(JSValue::from(func_obj)).ok();
+        let captured: &mut [VarRef] = match bfun.as_mut() {
+            Some(bfun) => &mut *bfun.payload_mut().captured_vars_mut(),
+            None => &mut [],
+        };
+        let value = nested
+            .make_closure_for_arena(scope, None, captured, &mut *f.arena, frame_idx)
+            .map_or(JSValue::EXCEPTION, Into::into);
+        *f.sp = value;
+        f.sp = f.sp.add(1);
+        if value.is_exception() {
+            HELPER_EXCEPTION
+        } else {
+            HELPER_OK
+        }
+    }
+}
+
 /// Loop back edge: deliver interrupts and run a deferred collection. Mirrors
 /// the interpreter's per-opcode safepoint.
 unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
@@ -963,7 +1080,7 @@ unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
 }
 
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 53;
+pub(crate) const HELPER_COUNT: usize = 56;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -1044,6 +1161,12 @@ pub(crate) const HELPER_POST_DEC: usize = 50;
 pub(crate) const HELPER_NIP_CATCH: usize = 51;
 /// Index of [`h_rest`].
 pub(crate) const HELPER_REST: usize = 52;
+/// Index of [`h_special_object`].
+pub(crate) const HELPER_SPECIAL_OBJECT: usize = 53;
+/// Index of [`h_push_this`].
+pub(crate) const HELPER_PUSH_THIS: usize = 54;
+/// Index of [`h_fclosure`].
+pub(crate) const HELPER_FCLOSURE: usize = 55;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -1105,4 +1228,7 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_post_dec as *const (),
     h_nip_catch as *const (),
     h_rest as *const (),
+    h_special_object as *const (),
+    h_push_this as *const (),
+    h_fclosure as *const (),
 ]);

@@ -206,17 +206,17 @@ impl VerifiedFunction {
 }
 
 /// `special_object` kinds whose frame semantics the baseline tier cannot model.
-/// `MappedArguments` aliases argument slots through variable references, and
-/// `ImportMeta` is module state.
-pub(crate) const SPECIAL_OBJECT_MAPPED_ARGUMENTS: u8 = 1;
+/// `ImportMeta` is module state (`import.meta` needs the module record, not the
+/// frame). `MappedArguments` used to be rejected here too; the JIT helper now
+/// calls the interpreter's own builder
+/// ([`crate::function::argument::js_build_mapped_arguments`]), so the aliasing
+/// `VarRef`s into the frame's argument slots are created exactly as the
+/// interpreter creates them.
 pub(crate) const SPECIAL_OBJECT_IMPORT_META: u8 = 6;
 
 fn special_object_rejection(instruction: &Instruction) -> bool {
     instruction.name() == "special_object"
-        && matches!(
-            instruction.operand_u8(1),
-            SPECIAL_OBJECT_MAPPED_ARGUMENTS | SPECIAL_OBJECT_IMPORT_META
-        )
+        && instruction.operand_u8(1) == SPECIAL_OBJECT_IMPORT_META
 }
 
 fn decode_error_pc(error: &DecodeError) -> u32 {
