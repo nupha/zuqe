@@ -24,6 +24,7 @@
 mod common;
 
 mod jit_differential;
+mod jit_feedback;
 mod jit_interrupt;
 mod jit_opcodes;
 mod jit_semantics;

@@ -472,6 +472,9 @@ impl Bytecode {
 
             #[cfg(feature = "jit")]
             jit: crate::jit::FunctionSlot::default(),
+
+            #[cfg(feature = "jit")]
+            feedback: crate::jit::FeedbackSlot::default(),
         };
 
         // Re-create the global lexical bindings referenced by this bytecode using

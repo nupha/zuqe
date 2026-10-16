@@ -45,4 +45,7 @@ pub struct JitMetrics {
     pub deopts: u64,
     /// Machine code bytes currently published.
     pub code_bytes: u64,
+    /// Distinct tier-2 feedback sites recorded (epic F1). Zero under
+    /// `Interpreter`/`Tier1` policies, which never record.
+    pub feedback_sites: u64,
 }

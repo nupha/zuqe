@@ -1537,8 +1537,12 @@ impl Bytecode {
                         }
                     }
                     OpCode::INC_LOC | OpCode::DEC_LOC => {
+                        #[cfg(feature = "jit")]
+                        let site = (unsafe { pc.offset_from(pc_base) } as u32) - 1;
                         let idx = PC_FETCH!(u8) as i32;
                         let op1 = VAR_REF![idx];
+                        #[cfg(feature = "jit")]
+                        crate::jit::note_value(&rt, self, site, *op1);
                         if let Ok(res) =
                             UnaryOp::new(realm_scope, *op1, true).and_then(|unary| match opcode {
                                 OpCode::INC_LOC => unary.inc(realm_scope),
@@ -1552,10 +1556,15 @@ impl Bytecode {
                         }
                     }
                     OpCode::ADD_LOC => {
+                        #[cfg(feature = "jit")]
+                        let site = (unsafe { pc.offset_from(pc_base) } as u32) - 1;
                         let idx = PC_FETCH!(u8) as i32;
                         let op1 = SP_VAL!(-1);
                         SP_GO!(-1);
                         let pv = VAR_REF![idx];
+                        // Tier-2 feedback: the local is the first operand.
+                        #[cfg(feature = "jit")]
+                        crate::jit::note_binary(&rt, self, site, *pv, op1);
                         if let Ok(val) = JSValue::arith_add(realm_scope, *pv, op1) {
                             *pv = val;
                         } else {
@@ -1578,6 +1587,14 @@ impl Bytecode {
                     | OpCode::AND
                     | OpCode::OR
                     | OpCode::XOR => {
+                        #[cfg(feature = "jit")]
+                        crate::jit::note_binary(
+                            &rt,
+                            self,
+                            (unsafe { pc.offset_from(pc_base) } as u32) - 1,
+                            SP_VAL!(-2),
+                            SP_VAL!(-1),
+                        );
                         if let Ok(new_sp) = op_binary_logic(realm_scope, opcode, sp) {
                             sp = new_sp;
                         } else {
@@ -1587,6 +1604,14 @@ impl Bytecode {
                     OpCode::LT | OpCode::LTE | OpCode::GT | OpCode::GTE => {
                         let op1 = SP_VAL!(-2);
                         let op2 = SP_VAL!(-1);
+                        #[cfg(feature = "jit")]
+                        crate::jit::note_binary(
+                            &rt,
+                            self,
+                            (unsafe { pc.offset_from(pc_base) } as u32) - 1,
+                            op1,
+                            op2,
+                        );
                         if let Ok(rel) = op1.arith_cmp(realm_scope, op2) {
                             let b = matches!(
                                 (rel, opcode),
@@ -2326,6 +2351,15 @@ impl Bytecode {
                     | OpCode::POW => {
                         let op1 = SP_VAL!(-2);
                         let op2 = SP_VAL!(-1);
+                        // Tier-2 feedback (F1): site = the opcode's own offset.
+                        #[cfg(feature = "jit")]
+                        crate::jit::note_binary(
+                            &rt,
+                            self,
+                            (unsafe { pc.offset_from(pc_base) } as u32) - 1,
+                            op1,
+                            op2,
+                        );
                         let res = match opcode {
                             OpCode::ADD => JSValue::arith_add(realm_scope, op1, op2),
                             OpCode::SUB => JSValue::arith_sub(realm_scope, op1, op2),
@@ -2367,6 +2401,16 @@ impl Bytecode {
                         let b = opcode == OpCode::IF_TRUE;
                         let val = SP_VAL!(-1);
                         SP_GO!(-1);
+
+                        // Tier-2 feedback: the condition's type drives the
+                        // branch fast path selection.
+                        #[cfg(feature = "jit")]
+                        crate::jit::note_value(
+                            &rt,
+                            self,
+                            (unsafe { pc.offset_from(pc_base) } as u32) - 1,
+                            val,
+                        );
 
                         // skip jump offset
                         PC_GO!(4);

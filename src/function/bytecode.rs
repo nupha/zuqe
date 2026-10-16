@@ -214,6 +214,12 @@ pub struct BytecodeImpl {
     /// reference, and tracing it would keep a stale entry alive.
     #[cfg(feature = "jit")]
     pub(crate) jit: crate::jit::FunctionSlot,
+
+    /// Tier-2 type feedback for this function (feature `jit`, epic F1): the
+    /// types the interpreter observed at each feedback site (bytecode pc).
+    /// Like `jit` it holds no GC reference and is not traced.
+    #[cfg(feature = "jit")]
+    pub(crate) feedback: crate::jit::FeedbackSlot,
 }
 
 impl GcTrace for BytecodeImpl {
@@ -309,6 +315,9 @@ impl BytecodeImpl {
 
             #[cfg(feature = "jit")]
             jit: crate::jit::FunctionSlot::default(),
+
+            #[cfg(feature = "jit")]
+            feedback: crate::jit::FeedbackSlot::default(),
         }
     }
 

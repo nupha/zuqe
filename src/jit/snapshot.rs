@@ -15,6 +15,7 @@
 
 use crate::{
     function::{BytecodeImpl, GcScopeKind},
+    jit::feedback::SiteFeedback,
     vm_stack::ExecMode,
 };
 
@@ -45,6 +46,10 @@ pub(crate) struct CompileSnapshot {
     pub(crate) gc_scope_kind: GcScopeKind,
     pub(crate) const_meta: Box<[ConstMeta]>,
     pub(crate) ic_count: u32,
+    /// Tier-2 type feedback (epic F1): `(pc, observations)` sorted by pc,
+    /// copied out of the bytecode's feedback table at snapshot time. Empty
+    /// under `Interpreter`/`Tier1` policies, which never record.
+    pub(crate) feedback: Box<[(u32, SiteFeedback)]>,
 }
 
 impl CompileSnapshot {
@@ -79,6 +84,7 @@ impl CompileSnapshot {
                 })
                 .collect(),
             ic_count,
+            feedback: bc.feedback.snapshot().into_boxed_slice(),
         }
     }
 }
@@ -113,6 +119,7 @@ impl CompileSnapshot {
             gc_scope_kind: GcScopeKind::Full,
             const_meta: Box::new([]),
             ic_count: 0,
+            feedback: Box::new([]),
         }
     }
 }

@@ -19,6 +19,7 @@ mod code_cache;
 mod compiler;
 mod config;
 mod error;
+mod feedback;
 mod metrics;
 mod platform;
 mod policy;
@@ -33,6 +34,7 @@ pub use {
 };
 
 pub(crate) use abi::{FunctionSlot, JitExitKind};
+pub(crate) use feedback::FeedbackSlot;
 
 use {
     abi::{HELPERS, JitExecFrame},
@@ -105,6 +107,46 @@ impl JitState {
 
     fn target_isa(&self) -> &dyn TargetIsa {
         self.isa.as_ref()
+    }
+
+    /// Whether this policy can still reach tier 2 (plan D-5): only then is
+    /// feedback worth its per-site recording cost.
+    const fn records_feedback(&self) -> bool {
+        matches!(
+            self.cfg.tier_policy,
+            JitTierPolicy::Tier2 | JitTierPolicy::Automatic
+        )
+    }
+
+    /// Record the operand types seen at a binary site (epic F1).
+    fn note_binary(&self, bc: &Bytecode, site: u32, lhs: JSValue, rhs: JSValue) {
+        if !self.records_feedback() {
+            return;
+        }
+        if bc
+            .feedback
+            .record(site, feedback::type_class(lhs), feedback::type_class(rhs))
+        {
+            self.count_feedback_site();
+        }
+    }
+
+    /// Record the type seen at a single-value site: a branch condition or a
+    /// local update (epic F1).
+    fn note_value(&self, bc: &Bytecode, site: u32, value: JSValue) {
+        if !self.records_feedback() {
+            return;
+        }
+        let class = feedback::type_class(value);
+        if bc.feedback.record(site, class, 0) {
+            self.count_feedback_site();
+        }
+    }
+
+    fn count_feedback_site(&self) {
+        let mut m = self.metrics.get();
+        m.feedback_sites = m.feedback_sites.saturating_add(1);
+        self.metrics.set(m);
     }
 
     fn note_enter(&self, bc: &Bytecode) {
@@ -271,10 +313,23 @@ pub(crate) fn note_backedge(rt: &RuntimeImpl, bc: &Bytecode, pc: usize) {
     }
 }
 
-/// Tier-2 feedback hook. Wired at arithmetic/branch/call sites in epic F.
-#[allow(dead_code)]
+/// Tier-2 feedback hook: record the operand types of a binary site (epic F1).
+/// A no-op unless a JIT is attached under a tier-2-capable policy.
 #[inline]
-pub(crate) const fn note_feedback(_rt: &RuntimeImpl, _function_id: u64, _site: usize) {}
+pub(crate) fn note_binary(rt: &RuntimeImpl, bc: &Bytecode, site: u32, lhs: JSValue, rhs: JSValue) {
+    if let Some(state) = rt.jit.as_deref() {
+        state.note_binary(bc, site, lhs, rhs);
+    }
+}
+
+/// Tier-2 feedback hook: record the type of a single-value site — a branch
+/// condition or a local update (epic F1).
+#[inline]
+pub(crate) fn note_value(rt: &RuntimeImpl, bc: &Bytecode, site: u32, value: JSValue) {
+    if let Some(state) = rt.jit.as_deref() {
+        state.note_value(bc, site, value);
+    }
+}
 
 /// Run the compiled entry for `bc`, if one is installed. Returns the exit kind
 /// and the frame the code wrote its results into; `None` means "no native code,
