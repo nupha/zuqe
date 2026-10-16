@@ -199,6 +199,18 @@ const CASES: &[SemCase] = sem_cases! {
         "f(500)",
         "'ic:' + f(7) + ',' + PO[0].x + ',' + PO[4].y";
 
+    // ── cross-block operand stack residency (epic F4 step 2): short-circuit
+    //    and ternary joins leave a merged slot on the operand stack, which the
+    //    join block must read exactly like the interpreter does. Operands on
+    //    both sides of every label are locals, because the verifier merges
+    //    operand kinds exactly (a literal `Int32` vs a loop-widened `Tagged`
+    //    local is a rejected join, unrelated to F4).
+    carry_join_slots => Compiles =
+        "var __seed = 0; function f(n){ var __z = 0; var t = 0, m = 1; for (var i = 0; i < n; i++) { var x = (i || m) + (i && m) + (i ? m : t); t = (t + x) | 0; } return t + (n || m) + (n && m); }",
+        "f(4)",
+        "f(64)",
+        "'cj:' + f(0) + ',' + f(9)";
+
     // ── control flow shapes the verifier must survive ──
     switch_and_labels => Compiles =
         "var __seed = 0; function f(n){ var __z = 0; var r = 0; switch (n % 4) { case 0: r = 10; break; case 1: r = 20; break; default: r = 30; } outer: for (var i = 0; i < 5; i++) { if (i === 2) continue outer; if (i === 4) break outer; r = r + i; } return r; }",
@@ -230,6 +242,7 @@ const FEATURES: &[&str] = &[
     "switch_",
     "generators_",
     "ic_",
+    "carry_",
 ];
 
 #[test]

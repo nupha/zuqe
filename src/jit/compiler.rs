@@ -2570,4 +2570,32 @@ mod tests {
         assert!(carried.get(&18).is_none(), "the middle block only shuffles");
         assert_eq!(heights.get(&29), Some(&2));
     }
+
+    /// The verifier merges operand kinds *exactly* at a join: a short-circuit
+    /// label whose arms disagree — a loop-widened `Tagged` local against an
+    /// `Int32` literal (`x || 5`) — rejects the whole function, fail-closed.
+    /// Unrelated to epic F4 itself; it is why the F4 carry cases in the test
+    /// suites cross every join with same-kind operands (locals on both sides).
+    #[test]
+    fn join_of_tagged_and_int32_operand_is_rejected() {
+        // Layout: get_loc0(0..3) dup(3..4) if_true(4..9) drop(9..10)
+        // push5(10..15) return_undef(15..16); branch offset 15-5 = 10.
+        let bytes = seq(&[
+            &loc(op::OP_get_loc, 0),
+            &[op::OP_dup],
+            &branch(op::OP_if_true, 10),
+            &[op::OP_drop],
+            &push_i32(5),
+            &[op::OP_return_undef],
+        ]);
+        let err = verify(snapshot(bytes, 0, 1), VerifyLimits::default())
+            .expect_err("Tagged vs Int32 at the label must not verify");
+        assert!(
+            matches!(
+                err.kind(),
+                crate::jit::bytecode::verify::VerifyErrorKind::IncompatibleMergeKind { .. }
+            ),
+            "expected the exact-kind merge to fail, got {err:?}"
+        );
+    }
 }

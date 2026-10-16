@@ -78,9 +78,11 @@ const NORMAL: &[Case] = dim_cases!("Normal", [
         "carry(64)",
         "'cc2:' + carry(7)";
     // ... through several nested joins, with the falsy path taken too (the
-    // probe's `pick(0)` enters every join from its other edge).
+    // probe's `pick(0)` enters every join from its other edge). Every value
+    // crossing a label is a local: the verifier merges operand kinds exactly,
+    // so a literal arm (`: 7`) would be a rejected join unrelated to F4.
     stack_cache_carries_through_nested_joins:
-        "function pick(n){ var v = n > 3 ? n * 2 : n + 7; var w = n || v; var z = n && w; return (z || v) - (n ? w : 7); } pick(2);",
+        "function pick(n){ var v = n > 3 ? n * 2 : n + 7; var w = n || v; var z = n && w; return (z || v) - (n ? w : v); } pick(2);",
         "pick(64)",
         "'pk:' + pick(0) + ',' + pick(5)";
     nested_while:
