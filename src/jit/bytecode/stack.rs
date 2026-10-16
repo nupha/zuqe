@@ -104,6 +104,11 @@ pub(crate) struct StateProof {
     pub(crate) before: BTreeMap<u32, AbstractState>,
     pub(crate) visited: BTreeSet<u32>,
     pub(crate) handlers: BTreeMap<u32, ExceptionHandler>,
+    /// Operand-stack height *before* each instruction, indexed by instruction
+    /// index (epic F4). Unvisited (unreachable) instructions stay 0 and are
+    /// never lowered. Bounded by the u16 `stack_size`, which `check_stack_size`
+    /// enforces after every transfer.
+    pub(crate) heights: Vec<u16>,
 }
 
 struct WorkBudget {
@@ -445,6 +450,7 @@ pub(crate) fn prove(
             before: BTreeMap::new(),
             visited: BTreeSet::new(),
             handlers: BTreeMap::new(),
+            heights: Vec::new(),
         });
     }
     let before_points: BTreeSet<u32> = cfg
@@ -471,14 +477,18 @@ pub(crate) fn prove(
     let mut before = BTreeMap::new();
     let mut visited = BTreeSet::new();
     let mut handlers = BTreeMap::new();
+    let mut heights = vec![0u16; instructions.len()];
 
     while let Some(block_pc) = queue.pop_front() {
         let block = cfg.block(block_pc).expect("CFG successor names a block");
         let entry = &block_entries[&block_pc];
         budget.charge(block_pc, entry.cell_count())?;
         let mut state = entry.clone();
-        for instruction in &instructions[block.instruction_range()] {
+        let range = block.instruction_range();
+        for (offset, instruction) in instructions[range.clone()].iter().enumerate() {
             budget.charge(instruction.pc(), 1usize.saturating_add(state.cell_count()))?;
+            // Epic F4: the lowering keys its stack cache by this height.
+            heights[range.start + offset] = state.stack.len() as u16;
             if before_points.contains(&instruction.pc()) {
                 budget.charge(instruction.pc(), state.cell_count())?;
                 before.insert(instruction.pc(), state.clone());
@@ -577,6 +587,7 @@ pub(crate) fn prove(
         before,
         visited,
         handlers,
+        heights,
     })
 }
 

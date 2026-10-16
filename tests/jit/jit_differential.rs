@@ -58,6 +58,18 @@ const NORMAL: &[Case] = dim_cases!("Normal", [
         "function a(n){ return n <= 0 ? 0 : b(n - 1) + 1; } function b(n){ return n <= 0 ? 0 : a(n - 1) + 2; } a(1);",
         "a(60)",
         "'re:' + a(5)";
+    // Epic F4: pushes stay in registers until something observes the frame —
+    // here the string-concat helper, which reads the operand stack.
+    stack_cache_flushes_for_helpers:
+        "function mix(n){ var a = n + 1, b = n * 2, c = n - 3; var s = '' + a + ':' + b; return s + '|' + (a * b + c); } mix(1);",
+        "mix(50)",
+        "'cc:' + mix(3)";
+    // ... and the other flush point: a branch terminator, whose successor
+    // block starts with an empty cache and reloads from the frame.
+    stack_cache_flushes_at_branches:
+        "function branchy(n){ var a = n + 1, b = n * 2; var t = 0; if (a > b) { t = a - b; } else { t = b - a; } for (var i = 0; i < 3; i++) { t = t + i * a; } return t; } branchy(1);",
+        "branchy(300)",
+        "'br:' + branchy(4)";
     nested_while:
         "function w(n){ var t = 0, i = 0; while (i < n) { var j = 0; while (j < 3) { t += i ^ j; j++; } i++; } return t; } w(1);",
         "w(400)",

@@ -160,6 +160,11 @@ pub(crate) struct VerifiedFunction {
     handlers: BTreeMap<u32, ExceptionHandler>,
     unreachable: BTreeSet<u32>,
     exception_regions: bool,
+    /// Operand-stack height *before* each instruction, indexed like
+    /// `instructions` (epic F4): the lowering keys its block-local stack
+    /// cache by these static heights. Unreachable instructions carry 0 and
+    /// are never lowered.
+    stack_heights: Box<[u16]>,
 }
 
 impl VerifiedFunction {
@@ -169,6 +174,12 @@ impl VerifiedFunction {
 
     pub(crate) fn instructions(&self) -> &[Instruction] {
         &self.instructions
+    }
+
+    /// Stack height before each instruction (see the field docs). Indexed by
+    /// instruction index, same order as [`Self::instructions`].
+    pub(crate) fn stack_heights(&self) -> &[u16] {
+        &self.stack_heights
     }
 
     pub(crate) const fn control_flow_graph(&self) -> &ControlFlowGraph {
@@ -410,6 +421,10 @@ pub(crate) fn verify(
             )
         });
 
+    // Epic F4: keep the proven entry height of every instruction — the
+    // lowering keys its block-local stack cache by them.
+    let stack_heights = proof.heights;
+
     Ok(VerifiedFunction {
         snapshot,
         instructions,
@@ -418,5 +433,6 @@ pub(crate) fn verify(
         handlers: proof.handlers,
         unreachable,
         exception_regions,
+        stack_heights: stack_heights.into_boxed_slice(),
     })
 }

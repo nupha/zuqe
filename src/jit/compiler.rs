@@ -3,8 +3,11 @@
 
 //! Baseline (Tier1) lowering: verified bytecode straight to Cranelift IR.
 //!
-//! Values live in the frame buffer, exactly where the interpreter keeps them.
-//! The operand-stack pointer is an SSA value; it is written back to
+//! Values live in the frame buffer, exactly where the interpreter keeps them —
+//! with one exception (epic F4): inside a basic block a stack slot may live
+//! only in a register, and is written back before anything can observe the
+//! frame (helper calls, exits, branch terminators, end of block). The
+//! operand-stack pointer is an SSA value; it is written back to
 //! `StackFrame.cur_sp_offset` before any helper call and before any exit, the
 //! only moments a collection can observe it. Anything the baseline cannot
 //! translate terminates the native run with `Resume`, and the interpreter picks
@@ -252,6 +255,157 @@ struct State<'a> {
     pending: Vec<u32>,
     feedback: &'a [(u32, SiteFeedback)],
     specialized: &'a Cell<u64>,
+    /// Block-local write-back cache for operand-stack slots (epic F4).
+    stack: StackCache,
+}
+
+/// Block-local write-back cache for operand-stack slots (epic F4 step 1).
+///
+/// A slot index is 1-based from the stack bottom and is re-anchored from the
+/// verifier's proven height at the start of every instruction, so entries
+/// cannot drift across a helper call — whose net stack effect is only known at
+/// run time. Entries hold values that exist **only in registers**: they must be
+/// written back before anything can observe the frame, so the flush points are
+/// helper calls, exits, branch terminators and the end of the block. Producers
+/// that already store to memory (arithmetic fast paths, helpers, shuffles)
+/// insert nothing, which keeps memory authoritative for them and means a flush
+/// never has to reconcile two copies.
+#[derive(Default)]
+struct StackCache {
+    height: u32,
+    entries: HashMap<u32, Value>,
+    /// Reused scratch for flush ordering: a flush runs before every helper
+    /// call, so it must not allocate.
+    scratch: Vec<u32>,
+    /// Whether the current instruction changed `height` through *this* cache
+    /// (push/pop/drop/adjust). Helper arms leave `height` stale — the next
+    /// instruction re-anchors it — so only tracked effects are worth the
+    /// per-instruction cross-check against the verifier.
+    tracked: bool,
+}
+
+impl StackCache {
+    /// Re-anchor to the verified height at the start of an instruction.
+    const fn anchor(&mut self, height: u32) {
+        self.height = height;
+        self.tracked = false;
+    }
+
+    /// Byte offset of slot `k` from the current `sp`. At every point this
+    /// cache is consulted, `sp == sp_base + height * 8`; the offset goes
+    /// straight into the memory instruction, so a flush costs no address math.
+    const fn slot_offset(height: u32, k: u32) -> i32 {
+        ((k as i64 - 1 - height as i64) * 8) as i32
+    }
+
+    /// Keep `v` in a register instead of storing it; the store happens at the
+    /// next flush, or never if the slot dies first (DCE).
+    fn push(&mut self, b: &mut FunctionBuilder, sp: Value, v: Value) -> Value {
+        self.height = self.height.saturating_add(1);
+        self.tracked = true;
+        self.entries.insert(self.height, v);
+        b.ins().iadd_imm(sp, 8)
+    }
+
+    /// Pop the top slot: reuse the register-resident value when there is one,
+    /// otherwise load it from the frame.
+    fn pop(&mut self, b: &mut FunctionBuilder, sp: Value) -> (Value, Value) {
+        debug_assert!(self.height > 0, "verified code cannot underflow");
+        let k = self.height;
+        self.height = self.height.saturating_sub(1);
+        self.tracked = true;
+        match self.entries.remove(&k) {
+            Some(v) => (b.ins().iadd_imm(sp, -8), v),
+            None => {
+                let sp = b.ins().iadd_imm(sp, -8);
+                let v = b.ins().load(types::I64, MemFlags::new(), sp, 0);
+                (sp, v)
+            }
+        }
+    }
+
+    /// Read slot `k` without consuming it.
+    fn read(&self, b: &mut FunctionBuilder, sp: Value, k: u32) -> Value {
+        match self.entries.get(&k) {
+            Some(&v) => v,
+            None => b.ins().load(
+                types::I64,
+                MemFlags::new(),
+                sp,
+                Self::slot_offset(self.height, k),
+            ),
+        }
+    }
+
+    /// Read the top slot without consuming it.
+    fn read_top(&self, b: &mut FunctionBuilder, sp: Value) -> Value {
+        self.read(b, sp, self.height)
+    }
+
+    /// Forget the top slot without materializing it: the value is dead.
+    fn drop_top(&mut self) {
+        let k = self.height;
+        self.height = self.height.saturating_sub(1);
+        self.tracked = true;
+        self.entries.remove(&k);
+    }
+
+    /// A binary op popped two operands and pushed one result. Both operand
+    /// entries die here and the result is *not* cached: the fast path and the
+    /// helper each store it, so memory stays authoritative for slot `height`.
+    fn consumed_binary(&mut self) {
+        let top = self.height;
+        self.height = self.height.saturating_sub(1);
+        self.tracked = true;
+        self.entries.remove(&top);
+        self.entries.remove(&(top - 1));
+    }
+
+    /// Apply a raw stack effect the lowering computes itself — shuffles are
+    /// the only ops that pop `n` and push `k` without touching cached values.
+    fn adjust(&mut self, delta: i32) {
+        let height = i64::from(self.height) + i64::from(delta);
+        debug_assert!(height >= 0, "verified code cannot underflow");
+        self.height = height.max(0) as u32;
+        self.tracked = true;
+    }
+
+    /// Write register-resident slots back to the frame, except `keep` — the
+    /// slots a *sibling* branch still needs in registers (they die on the path
+    /// that skips this flush). Keys are sorted so the emitted store order
+    /// (and with it the generated code) is stable.
+    ///
+    /// A flush must be emitted in a block that dominates every path whose
+    /// model it changes: clearing the model at compile time is only correct if
+    /// the stores really execute on all those paths.
+    fn flush_except(&mut self, b: &mut FunctionBuilder, sp: Value, keep: &[u32]) {
+        if self.entries.is_empty() {
+            return;
+        }
+        self.scratch.clear();
+        self.scratch
+            .extend(self.entries.keys().copied().filter(|k| !keep.contains(k)));
+        self.scratch.sort_unstable();
+        let height = self.height;
+        for &k in &self.scratch {
+            let Some(&v) = self.entries.get(&k) else {
+                continue;
+            };
+            b.ins()
+                .store(MemFlags::new(), v, sp, Self::slot_offset(height, k));
+            self.entries.remove(&k);
+        }
+        self.scratch.clear();
+    }
+
+    /// Write every register-resident slot back to the frame.
+    fn flush(&mut self, b: &mut FunctionBuilder, sp: Value) {
+        self.flush_except(b, sp, &[]);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
 }
 
 impl<'a> State<'a> {
@@ -299,19 +453,10 @@ fn write_cur_sp(b: &mut FunctionBuilder, fv: &FrameVals, sp: Value) {
     b.ins().store(MemFlags::new(), slots, fv.cur_sp, 0);
 }
 
-fn push(b: &mut FunctionBuilder, sp: Value, v: Value) -> Value {
-    b.ins().store(MemFlags::new(), v, sp, 0);
-    b.ins().iadd_imm(sp, 8)
-}
-
-fn pop(b: &mut FunctionBuilder, sp: Value) -> (Value, Value) {
-    let sp = b.ins().iadd_imm(sp, -8);
-    let v = b.ins().load(types::I64, MemFlags::new(), sp, 0);
-    (sp, v)
-}
-
-/// Write `out_pc`/`out_sp` and return `kind`.
-fn exit(b: &mut FunctionBuilder, fv: &FrameVals, kind: i64, pc: u32, sp: Value) {
+/// Write `out_pc`/`out_sp` and return `kind`. Register-resident stack slots
+/// are materialized first: the interpreter resumes by reading them.
+fn exit(state: &mut State, b: &mut FunctionBuilder, fv: &FrameVals, kind: i64, pc: u32, sp: Value) {
+    state.stack.flush(b, sp);
     let pcv = b.ins().iconst(types::I32, i64::from(pc));
     b.ins().store(MemFlags::new(), pcv, fv.frame, O_OUT_PC);
     let slots = slots_of(b, fv, sp);
@@ -322,6 +467,10 @@ fn exit(b: &mut FunctionBuilder, fv: &FrameVals, kind: i64, pc: u32, sp: Value) 
 
 /// Exit with a status produced at runtime (helper status 1/2 is exactly
 /// `JitExitKind::Exception`/`Interrupt`).
+///
+/// Only called from `call_stack_helper`/`safepoint` failure blocks, i.e. after
+/// the cache was flushed and dropped — so the frame already holds every slot
+/// this exit exposes to the interpreter.
 fn exit_status(b: &mut FunctionBuilder, fv: &FrameVals, status: Value, pc: u32, sp: Value) {
     let pcv = b.ins().iconst(types::I32, i64::from(pc));
     b.ins().store(MemFlags::new(), pcv, fv.frame, O_OUT_PC);
@@ -332,7 +481,12 @@ fn exit_status(b: &mut FunctionBuilder, fv: &FrameVals, status: Value, pc: u32, 
 
 /// Publish `sp` (for GC) and call stack helper `id`; returns the reloaded sp.
 /// On helper failure the calling block is terminated with the exit.
+///
+/// The frame is the helper's window into the operand stack, so every
+/// register-resident slot is written back before the call and the cache is
+/// dropped — the helper may rewrite the stack (and runs JS, which can throw).
 fn call_stack_helper(
+    state: &mut State,
     b: &mut FunctionBuilder,
     fv: &FrameVals,
     helper_sig: cranelift_codegen::ir::SigRef,
@@ -340,6 +494,7 @@ fn call_stack_helper(
     id: usize,
     pc_after: u32,
 ) -> Value {
+    state.stack.flush(b, sp);
     b.ins().store(MemFlags::new(), sp, fv.frame, O_SP);
     write_cur_sp(b, fv, sp);
     let callee = b
@@ -360,12 +515,16 @@ fn call_stack_helper(
 /// Emit a loop back edge safepoint. Returns the continuation block (not yet
 /// switched to); on failure the exit is emitted in a side block.
 fn safepoint(
+    state: &mut State,
     b: &mut FunctionBuilder,
     fv: &FrameVals,
     helper_sig: cranelift_codegen::ir::SigRef,
     sp: Value,
     pc_after: u32,
 ) -> Block {
+    // The safepoint can collect: GC scans the frame up to `cur_sp`, so the
+    // register-resident slots must be visible in memory first.
+    state.stack.flush(b, sp);
     b.ins().store(MemFlags::new(), sp, fv.frame, O_SP);
     write_cur_sp(b, fv, sp);
     let callee = b.ins().load(
@@ -575,6 +734,7 @@ fn lower(
         pending: Vec::new(),
         feedback: &verified.snapshot().feedback,
         specialized: specialized_ops,
+        stack: StackCache::default(),
     };
     let entry_block = state.block_for(b, 0);
     if osr_pcs.is_empty() {
@@ -596,11 +756,41 @@ fn lower(
         let mut sp = b.use_var(sp_var);
         let mut stopped = false;
 
-        for insn in &instructions[range] {
+        let base = range.start;
+        let total = range.end - base;
+        for (offset, insn) in instructions[range].iter().enumerate() {
+            // Anchor the stack cache to the verified entry height of this
+            // instruction: pushes/pops inside it are tracked incrementally.
+            let index = base + offset;
+            let start_height = u32::from(verified.stack_heights()[index]);
             match lower_insn(
-                b, fv, sp_var, helper_sig, truthy_sig, strict, &mut state, insn, sp, successors,
+                b,
+                fv,
+                sp_var,
+                helper_sig,
+                truthy_sig,
+                strict,
+                &mut state,
+                insn,
+                start_height,
+                sp,
+                successors,
             ) {
-                Step::Continue(new_sp) => sp = new_sp,
+                Step::Continue(new_sp) => {
+                    sp = new_sp;
+                    // The lowering's per-instruction stack effect must agree
+                    // with the verifier's proven heights: every cache address
+                    // is derived from them. Catches a divergence at the opcode
+                    // that introduced it instead of at a later load.
+                    if offset + 1 < total && state.stack.tracked {
+                        debug_assert_eq!(
+                            state.stack.height,
+                            u32::from(verified.stack_heights()[base + offset + 1]),
+                            "stack effect diverged from the verifier at pc {}",
+                            insn.pc()
+                        );
+                    }
+                }
                 Step::Stop => {
                     stopped = true;
                     break;
@@ -610,12 +800,21 @@ fn lower(
 
         if !stopped {
             // Only reached for blocks ending in a non-branch instruction.
+            // Successors start with an empty cache, so materialize first.
+            state.stack.flush(b, sp);
             let tail = &instructions[tail_index];
             let next = tail.pc() + tail.size() as u32;
             let next_block = state.block_for(b, next);
             b.def_var(sp_var, sp);
             b.ins().jump(next_block, &[]);
         }
+        // Every terminator flushes on its way out (see `Step::Stop`); catch a
+        // path that forgot, otherwise a slot would silently stay in a register
+        // the successor block cannot see.
+        debug_assert!(
+            state.stack.is_empty(),
+            "a block ended with register-resident stack slots"
+        );
     }
 }
 
@@ -652,21 +851,28 @@ fn lower_insn(
     strict: bool,
     state: &mut State,
     insn: &Instruction,
+    start_height: u32,
     sp: Value,
     ret_targets: &[u32],
 ) -> Step {
     let name = insn.name();
     let pc = insn.pc();
     let size = insn.size() as u32;
+    // Verified entry height of *this* instruction: push/pop below track it
+    // incrementally and the next instruction re-anchors it.
+    state.stack.anchor(start_height);
 
     if let Some((op, helper_id)) = fast_op(name) {
-        return lower_fast_binary(b, fv, sp_var, helper_sig, sp, insn, op, helper_id);
+        return lower_fast_binary(state, b, fv, sp_var, helper_sig, sp, insn, op, helper_id);
     }
     if let Some(id) = helper_for(name) {
-        let sp = call_stack_helper(b, fv, helper_sig, sp, id, pc + size);
+        let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
         return Step::Continue(sp);
     }
     if let Some((pop, outputs)) = shuffle_outputs(name) {
+        // Shuffles read *and* rewrite slots: materialize first, then work on
+        // memory and leave the cache empty (memory stays authoritative).
+        state.stack.flush(b, sp);
         let base = b.ins().iadd_imm(sp, -((pop * 8) as i64));
         let mut vals = Vec::with_capacity(pop);
         for i in 0..pop {
@@ -679,6 +885,7 @@ fn lower_insn(
             b.ins()
                 .store(MemFlags::new(), vals[*src], base, (j * 8) as i32);
         }
+        state.stack.adjust(outputs.len() as i32 - pop as i32);
         let sp = b.ins().iadd_imm(base, (outputs.len() * 8) as i64);
         return Step::Continue(sp);
     }
@@ -687,19 +894,20 @@ fn lower_insn(
         "nop" => Step::Continue(sp),
         "push_i32" => {
             let v = b.ins().iconst(types::I64, i64::from(insn.operand_u32(1)));
-            Step::Continue(push(b, sp, v))
+            Step::Continue(state.stack.push(b, sp, v))
         }
         "push_const" => {
             let idx = insn.operand_u32(1) as i32;
             let v = b
                 .ins()
                 .load(types::I64, MemFlags::new(), fv.cpools, idx * 8);
-            Step::Continue(push(b, sp, v))
+            Step::Continue(state.stack.push(b, sp, v))
         }
         "push_atom_value" => {
             let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
             b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
             let sp = call_stack_helper(
+                state,
                 b,
                 fv,
                 helper_sig,
@@ -711,11 +919,11 @@ fn lower_insn(
         }
         "undefined" => {
             let v = b.ins().iconst(types::I64, UNDEFINED_BITS);
-            Step::Continue(push(b, sp, v))
+            Step::Continue(state.stack.push(b, sp, v))
         }
         "null" => {
             let v = b.ins().iconst(types::I64, 2i64 << 48);
-            Step::Continue(push(b, sp, v))
+            Step::Continue(state.stack.push(b, sp, v))
         }
         "get_var" | "get_var_undef" | "put_var" | "put_var_init" => {
             let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
@@ -726,7 +934,7 @@ fn lower_insn(
                 "put_var" => HELPER_PUT_VAR,
                 _ => HELPER_PUT_VAR_INIT,
             };
-            let sp = call_stack_helper(b, fv, helper_sig, sp, id, pc + size);
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
             Step::Continue(sp)
         }
         "get_array_el" | "get_array_el2" | "get_array_el3" | "put_array_el" => {
@@ -736,7 +944,7 @@ fn lower_insn(
                 "get_array_el3" => HELPER_GET_ARRAY_EL3,
                 _ => HELPER_PUT_ARRAY_EL,
             };
-            let sp = call_stack_helper(b, fv, helper_sig, sp, id, pc + size);
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
             Step::Continue(sp)
         }
         "get_field" | "get_field2" | "put_field" => {
@@ -749,7 +957,7 @@ fn lower_insn(
                 "get_field2" => HELPER_GET_FIELD2,
                 _ => HELPER_PUT_FIELD,
             };
-            let sp = call_stack_helper(b, fv, helper_sig, sp, id, pc + size);
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
             Step::Continue(sp)
         }
         "add_loc" => {
@@ -758,11 +966,11 @@ fn lower_insn(
             // to the helper (still in native code).
             if state.int_only(pc, true) {
                 state.note_specialized();
-                return lower_add_loc_int(b, fv, sp_var, helper_sig, sp, insn);
+                return lower_add_loc_int(state, b, fv, sp_var, helper_sig, sp, insn);
             }
             let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u8(1)));
             b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM);
-            let sp = call_stack_helper(b, fv, helper_sig, sp, HELPER_ADD_LOC, pc + size);
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_ADD_LOC, pc + size);
             Step::Continue(sp)
         }
         "post_inc" | "post_dec" => {
@@ -771,19 +979,22 @@ fn lower_insn(
             } else {
                 HELPER_POST_DEC
             };
-            let sp = call_stack_helper(b, fv, helper_sig, sp, id, pc + size);
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
             Step::Continue(sp)
         }
         "push_false" => {
             let v = b.ins().iconst(types::I64, 1i64 << 48);
-            Step::Continue(push(b, sp, v))
+            Step::Continue(state.stack.push(b, sp, v))
         }
         "push_true" => {
             let v = b.ins().iconst(types::I64, (1i64 << 48) | 1);
-            Step::Continue(push(b, sp, v))
+            Step::Continue(state.stack.push(b, sp, v))
         }
-        "push_this" if strict => Step::Continue(push(b, sp, fv.this)),
-        "drop" => Step::Continue(b.ins().iadd_imm(sp, -8)),
+        "push_this" if strict => Step::Continue(state.stack.push(b, sp, fv.this)),
+        "drop" => {
+            state.stack.drop_top();
+            Step::Continue(b.ins().iadd_imm(sp, -8))
+        }
         "get_loc" => {
             let v = b.ins().load(
                 types::I64,
@@ -791,7 +1002,7 @@ fn lower_insn(
                 fv.var_base,
                 loc_offset_u16(insn),
             );
-            Step::Continue(push(b, sp, v))
+            Step::Continue(state.stack.push(b, sp, v))
         }
         "get_arg" => {
             let v = b.ins().load(
@@ -800,28 +1011,28 @@ fn lower_insn(
                 fv.arg_base,
                 loc_offset_u16(insn),
             );
-            Step::Continue(push(b, sp, v))
+            Step::Continue(state.stack.push(b, sp, v))
         }
         "put_loc" => {
-            let (sp, v) = pop(b, sp);
+            let (sp, v) = state.stack.pop(b, sp);
             b.ins()
                 .store(MemFlags::new(), v, fv.var_base, loc_offset_u16(insn));
             Step::Continue(sp)
         }
         "put_arg" => {
-            let (sp, v) = pop(b, sp);
+            let (sp, v) = state.stack.pop(b, sp);
             b.ins()
                 .store(MemFlags::new(), v, fv.arg_base, loc_offset_u16(insn));
             Step::Continue(sp)
         }
         "set_loc" => {
-            let v = b.ins().load(types::I64, MemFlags::new(), sp, -8);
+            let v = state.stack.read_top(b, sp);
             b.ins()
                 .store(MemFlags::new(), v, fv.var_base, loc_offset_u16(insn));
             Step::Continue(sp)
         }
         "set_arg" => {
-            let v = b.ins().load(types::I64, MemFlags::new(), sp, -8);
+            let v = state.stack.read_top(b, sp);
             b.ins()
                 .store(MemFlags::new(), v, fv.arg_base, loc_offset_u16(insn));
             Step::Continue(sp)
@@ -840,6 +1051,7 @@ fn lower_insn(
             if state.int_only(pc, false) {
                 state.note_specialized();
                 return lower_incdec_loc_int(
+                    state,
                     b,
                     fv,
                     sp_var,
@@ -852,16 +1064,19 @@ fn lower_insn(
             }
             let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u8(1)));
             b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM);
-            let sp = call_stack_helper(b, fv, helper_sig, sp, id, pc + size);
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
             Step::Continue(sp)
         }
         "goto" => {
+            // The successor re-reads the frame (and a back edge collects), so
+            // materialize every register-resident slot before leaving.
+            state.stack.flush(b, sp);
             let target = insn.branch_target().expect("goto target") as u32;
             let dest = state.block_for(b, target);
             b.def_var(sp_var, sp);
             if target <= pc {
                 // Back edge: deliver interrupts / run a deferred collection.
-                let cont = safepoint(b, fv, helper_sig, sp, pc + size);
+                let cont = safepoint(state, b, fv, helper_sig, sp, pc + size);
                 b.switch_to_block(cont);
             }
             b.ins().jump(dest, &[]);
@@ -873,13 +1088,16 @@ fn lower_insn(
             let handler = insn.branch_target().expect("catch target") as u32;
             let sentinel = (5i64 << 48) | i64::from(handler);
             let v = b.ins().iconst(types::I64, sentinel);
-            Step::Continue(push(b, sp, v))
+            Step::Continue(state.stack.push(b, sp, v))
         }
         // `gosub` pushes the return address and jumps to the `finally` body.
         "gosub" => {
             let target = insn.branch_target().expect("gosub target") as u32;
             let ret = b.ins().iconst(types::I64, i64::from(pc + size));
-            let sp = push(b, sp, ret);
+            let sp = state.stack.push(b, sp, ret);
+            // The finally body (and its unwinder) reads the return address out
+            // of the frame, so it cannot stay in a register across the jump.
+            state.stack.flush(b, sp);
             let dest = state.block_for(b, target);
             b.def_var(sp_var, sp);
             b.ins().jump(dest, &[]);
@@ -890,7 +1108,9 @@ fn lower_insn(
         // through a small dispatch (an unmatched address resumes to the
         // interpreter, which validates and reports it).
         "ret" => {
-            let (sp, target) = pop(b, sp);
+            let (sp, target) = state.stack.pop(b, sp);
+            // Dispatch targets are separate blocks that reload from the frame.
+            state.stack.flush(b, sp);
             let t = b.ins().ireduce(types::I32, target);
             for &return_pc in ret_targets {
                 let dest = state.block_for(b, return_pc);
@@ -903,7 +1123,7 @@ fn lower_insn(
                 b.ins().jump(dest, &[]);
                 b.switch_to_block(miss);
             }
-            exit(b, fv, EXIT_RESUME, pc, sp);
+            exit(state, b, fv, EXIT_RESUME, pc, sp);
             Step::Stop
         }
         "if_true" | "if_false" => {
@@ -921,7 +1141,10 @@ fn lower_insn(
             Step::Stop
         }
         "return" => {
-            let (sp, v) = pop(b, sp);
+            let (sp, v) = state.stack.pop(b, sp);
+            // The frame is torn down after this exit; materialize anyway so no
+            // register-resident slot can be observed half-written.
+            state.stack.flush(b, sp);
             let pcv = b.ins().iconst(types::I32, i64::from(pc + size));
             b.ins().store(MemFlags::new(), pcv, fv.frame, O_OUT_PC);
             let slots = slots_of(b, fv, sp);
@@ -932,6 +1155,7 @@ fn lower_insn(
             Step::Stop
         }
         "return_undef" => {
+            state.stack.flush(b, sp);
             let pcv = b.ins().iconst(types::I32, i64::from(pc + size));
             b.ins().store(MemFlags::new(), pcv, fv.frame, O_OUT_PC);
             let slots = slots_of(b, fv, sp);
@@ -944,7 +1168,7 @@ fn lower_insn(
         }
         // Unsupported: hand this instruction to the interpreter.
         _ => {
-            exit(b, fv, EXIT_RESUME, pc, sp);
+            exit(state, b, fv, EXIT_RESUME, pc, sp);
             Step::Stop
         }
     }
@@ -984,6 +1208,7 @@ fn box_bit_result(b: &mut FunctionBuilder, result: Value) -> Value {
 /// buffer the whole time, so the helper sees exactly what the interpreter would.
 #[allow(clippy::too_many_arguments)]
 fn lower_fast_binary(
+    state: &mut State,
     b: &mut FunctionBuilder,
     fv: &FrameVals,
     sp_var: Variable,
@@ -994,8 +1219,11 @@ fn lower_fast_binary(
     helper_id: usize,
 ) -> Step {
     let pc_after = insn.pc() + insn.size() as u32;
-    let a = b.ins().load(types::I64, MemFlags::new(), sp, -16);
-    let c = b.ins().load(types::I64, MemFlags::new(), sp, -8);
+    // Operand slots: `(top-1)` is the left operand, `top` the right one. Both
+    // may live only in registers; the slow path flushes them before the helper.
+    let top = state.stack.height;
+    let a = state.stack.read(b, sp, top - 1);
+    let c = state.stack.read(b, sp, top);
     let ta = b.ins().ushr_imm(a, 48);
     let tc = b.ins().ushr_imm(c, 48);
     let int_a = b.ins().icmp_imm(IntCC::Equal, ta, 0);
@@ -1005,6 +1233,12 @@ fn lower_fast_binary(
     let fast = b.create_block();
     let slow = b.create_block();
     let cont = b.create_block();
+    // Both paths must agree about memory. Everything except the two operands
+    // materializes here, where the flush dominates the split; the operands are
+    // dead on the fast path (the result overwrites one, the other lies above
+    // the new `sp`) and are flushed by the helper's own preamble on the slow
+    // path, which is the only path that still reads them.
+    state.stack.flush_except(b, sp, &[top - 1, top]);
     b.ins().brif(both_int, fast, &[], slow, &[]);
 
     b.switch_to_block(fast);
@@ -1094,11 +1328,14 @@ fn lower_fast_binary(
     }
 
     b.switch_to_block(slow);
-    let sp_slow = call_stack_helper(b, fv, helper_sig, sp, helper_id, pc_after);
+    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, helper_id, pc_after);
     b.def_var(sp_var, sp_slow);
     b.ins().jump(cont, &[]);
 
     b.switch_to_block(cont);
+    // Both paths store the result into slot `top-1`; the operand entries are
+    // now stale (a flush would overwrite that result), so drop them.
+    state.stack.consumed_binary();
     Step::Continue(b.use_var(sp_var))
 }
 
@@ -1112,6 +1349,7 @@ fn lower_fast_binary(
 /// the interpreter on a guard miss because its helpers cannot read the frame;
 /// zhuque's helpers *are* the interpreter, so the "deopt" here is a helper call.
 fn lower_add_loc_int(
+    state: &mut State,
     b: &mut FunctionBuilder,
     fv: &FrameVals,
     sp_var: Variable,
@@ -1126,7 +1364,8 @@ fn lower_add_loc_int(
     let local = b
         .ins()
         .load(types::I64, MemFlags::new(), fv.var_base, byte_off);
-    let operand = b.ins().load(types::I64, MemFlags::new(), sp, -8);
+    let top = state.stack.height;
+    let operand = state.stack.read_top(b, sp);
     let tag_local = b.ins().ushr_imm(local, 48);
     let tag_operand = b.ins().ushr_imm(operand, 48);
     let int_local = b.ins().icmp_imm(IntCC::Equal, tag_local, 0);
@@ -1136,6 +1375,9 @@ fn lower_add_loc_int(
     let fast = b.create_block();
     let slow = b.create_block();
     let cont = b.create_block();
+    // Like `lower_fast_binary`: materialize everything but the operand, which
+    // only the slow path's helper still needs in memory.
+    state.stack.flush_except(b, sp, &[top]);
     b.ins().brif(both_int, fast, &[], slow, &[]);
 
     b.switch_to_block(fast);
@@ -1157,11 +1399,14 @@ fn lower_add_loc_int(
     // re-derives the full `arith_add` semantics (string concat, ToPrimitive, …).
     let imm = b.ins().iconst(types::I32, i64::from(idx));
     b.ins().store(MemFlags::new(), imm, fv.frame, O_IMM);
-    let sp_slow = call_stack_helper(b, fv, helper_sig, sp, HELPER_ADD_LOC, pc_after);
+    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_ADD_LOC, pc_after);
     b.def_var(sp_var, sp_slow);
     b.ins().jump(cont, &[]);
 
     b.switch_to_block(cont);
+    // Pop2/push1 would be wrong here: this op only pops the operand — the
+    // result went into the *local* (fast path stores it, helper writes it).
+    state.stack.drop_top();
     Step::Continue(b.use_var(sp_var))
 }
 
@@ -1171,6 +1416,7 @@ fn lower_add_loc_int(
 /// `inc_loc`/`dec_loc` helper (see [`lower_add_loc_int`] for why that is a
 /// helper call rather than an interpreter exit).
 fn lower_incdec_loc_int(
+    state: &mut State,
     b: &mut FunctionBuilder,
     fv: &FrameVals,
     sp_var: Variable,
@@ -1193,6 +1439,9 @@ fn lower_incdec_loc_int(
     let fast = b.create_block();
     let slow = b.create_block();
     let cont = b.create_block();
+    // No stack operand here, but the model still has to match both paths:
+    // materialize before the split, where the stores dominate it.
+    state.stack.flush(b, sp);
     b.ins().brif(is_int, fast, &[], slow, &[]);
 
     b.switch_to_block(fast);
@@ -1216,7 +1465,7 @@ fn lower_incdec_loc_int(
     b.switch_to_block(slow);
     let imm = b.ins().iconst(types::I32, i64::from(idx));
     b.ins().store(MemFlags::new(), imm, fv.frame, O_IMM);
-    let sp_slow = call_stack_helper(b, fv, helper_sig, sp, helper_id, pc_after);
+    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, helper_id, pc_after);
     b.def_var(sp_var, sp_slow);
     b.ins().jump(cont, &[]);
 
@@ -1238,7 +1487,10 @@ fn lower_if(
     sp: Value,
     is_true: bool,
 ) {
-    let (sp, value) = pop(b, sp);
+    let (sp, value) = state.stack.pop(b, sp);
+    // The condition is in a register now; everything else must be in memory
+    // before any of the branches below (they collect, call helpers or exit).
+    state.stack.flush(b, sp);
     let pc_after = insn.pc() + insn.size() as u32;
     if insn
         .branch_target()
@@ -1246,7 +1498,7 @@ fn lower_if(
     {
         // Back edge: deliver interrupts / run a deferred collection first.
         b.def_var(sp_var, sp);
-        let cont = safepoint(b, fv, helper_sig, sp, pc_after);
+        let cont = safepoint(state, b, fv, helper_sig, sp, pc_after);
         b.switch_to_block(cont);
     }
     let tag = b.ins().ushr_imm(value, 48);
@@ -1281,7 +1533,7 @@ fn lower_if(
     let ok = b.create_block();
     b.ins().brif(failed, fail, &[], ok, &[]);
     b.switch_to_block(fail);
-    exit(b, fv, 1, pc_after, sp);
+    exit(state, b, fv, 1, pc_after, sp);
     b.switch_to_block(ok);
     let result = b.ins().ireduce(types::I32, result);
     let test_slow = b.ins().icmp_imm(IntCC::NotEqual, result, 0);
@@ -1747,5 +1999,196 @@ mod tests {
             0,
         );
         assert!(result.is_ok());
+    }
+
+    // ── Epic F4: the block-local operand-stack cache (unit level) ──
+
+    /// Emit one block through `f` and hand back the printed IR, so a test can
+    /// assert on what the cache emitted — or deliberately did not emit.
+    fn ir_of(f: impl FnOnce(&mut FunctionBuilder)) -> String {
+        let mut ctx = Context::new();
+        let mut fbctx = FunctionBuilderContext::new();
+        let mut b = FunctionBuilder::new(&mut ctx.func, &mut fbctx);
+        let entry = b.create_block();
+        b.switch_to_block(entry);
+        f(&mut b);
+        // Terminate the block so `finalize` accepts it; the terminator is
+        // irrelevant to what these tests count.
+        b.ins().return_(&[]);
+        b.seal_all_blocks();
+        b.finalize(); // consumes the builder, ending its borrow of `ctx.func`
+        format!("{}", ctx.func.display())
+    }
+
+    fn count(haystack: &str, needle: &str) -> usize {
+        haystack.matches(needle).count()
+    }
+
+    /// The `store` lines of printed IR, in emission order.
+    fn stores(ir: &str) -> Vec<&str> {
+        ir.lines()
+            .map(str::trim_start)
+            .filter(|line| line.starts_with("store"))
+            .collect()
+    }
+
+    /// A value pushed and popped again never reaches memory: both sides hold
+    /// the same SSA value, so the store/load pair is never emitted (DCE), and
+    /// a later flush has nothing left to write.
+    #[test]
+    fn stack_cache_pop_dces_the_push_store() {
+        let ir = ir_of(|b| {
+            let sp = b.ins().iconst(types::I64, 4096);
+            let v = b.ins().iconst(types::I64, 42);
+            let mut cache = StackCache::default();
+            cache.anchor(0);
+            let sp = cache.push(b, sp, v);
+            let (sp, popped) = cache.pop(b, sp);
+            assert_eq!(
+                popped, v,
+                "the register-resident value comes back unchanged"
+            );
+            assert_eq!(cache.height, 0, "pop accounts for the slot");
+            assert!(cache.is_empty(), "the popped slot died with its value");
+            cache.flush(b, sp);
+        });
+        assert_eq!(
+            stores(&ir).len(),
+            0,
+            "push→pop must not touch memory:\n{ir}"
+        );
+    }
+
+    /// A pop with no cached value falls back to a load — the counter-case to
+    /// the DCE above (this is what happens after a flush cleared the cache).
+    #[test]
+    fn stack_cache_pop_loads_when_the_slot_is_in_memory() {
+        let ir = ir_of(|b| {
+            let sp = b.ins().iconst(types::I64, 4096);
+            let mut cache = StackCache::default();
+            cache.anchor(1); // one slot already on the stack, never cached
+            let (sp, loaded) = cache.pop(b, sp);
+            assert_ne!(loaded, sp, "a fresh Value, not the stack pointer");
+            assert!(cache.is_empty());
+            let _ = sp;
+        });
+        assert_eq!(
+            count(&ir, "load"),
+            1,
+            "the missing slot must be loaded:\n{ir}"
+        );
+    }
+
+    /// Flush materializes every register-resident slot at the offset its
+    /// verified height implies: slot k sits at `sp + (k - 1 - height) * 8`,
+    /// so at height 2 that is `sp-16` and `sp-8`.
+    #[test]
+    fn stack_cache_flush_writes_each_dirty_slot_at_its_offset() {
+        let ir = ir_of(|b| {
+            let sp = b.ins().iconst(types::I64, 4096);
+            let mut cache = StackCache::default();
+            cache.anchor(0);
+            let a = b.ins().iconst(types::I64, 1);
+            let sp = cache.push(b, sp, a);
+            let c = b.ins().iconst(types::I64, 2);
+            let sp = cache.push(b, sp, c);
+            cache.flush(b, sp);
+            assert!(cache.is_empty(), "flush forgets what it wrote");
+        });
+        let emitted = stores(&ir);
+        assert_eq!(emitted.len(), 2, "one store per dirty slot:\n{ir}");
+        assert!(
+            emitted[0].contains("-16"),
+            "slot 1 at height 2 sits at sp-16:\n{ir}"
+        );
+        assert!(emitted[1].contains("-8"), "slot 2 sits at sp-8:\n{ir}");
+        // The offsets ride on the memory instruction itself: no address math.
+        assert_eq!(
+            count(&ir, "iadd_imm"),
+            2,
+            "only the two pushes adjust sp:\n{ir}"
+        );
+    }
+
+    /// `flush_except` writes everything *except* the slots a sibling branch
+    /// still needs in registers; those survive for a later flush, and the
+    /// stack itself never moves.
+    #[test]
+    fn stack_cache_flush_except_keeps_the_named_slots_dirty() {
+        let ir = ir_of(|b| {
+            let sp = b.ins().iconst(types::I64, 4096);
+            let mut cache = StackCache::default();
+            cache.anchor(0);
+            let a = b.ins().iconst(types::I64, 1);
+            let sp = cache.push(b, sp, a);
+            let c = b.ins().iconst(types::I64, 2);
+            let sp = cache.push(b, sp, c);
+
+            cache.flush_except(b, sp, &[2]);
+            let mid = format!("{}", b.func.display());
+            assert_eq!(
+                stores(&mid).len(),
+                1,
+                "only the unkept slot is written:\n{mid}"
+            );
+            assert_eq!(cache.height, 2, "a flush never moves the stack");
+            assert!(!cache.is_empty(), "the kept slot stays register-resident");
+
+            cache.flush(b, sp);
+            assert!(cache.is_empty());
+        });
+        assert_eq!(
+            stores(&ir).len(),
+            2,
+            "the kept slot is written by the second flush:\n{ir}"
+        );
+    }
+
+    /// Height bookkeeping is what makes every slot address correct: each
+    /// instruction re-anchors to the verifier's height, and only the effects
+    /// the lowering itself models (`tracked`) are worth the cross-check.
+    #[test]
+    fn stack_cache_height_follows_the_verifier_contract() {
+        ir_of(|b| {
+            let sp = b.ins().iconst(types::I64, 4096);
+            let mut cache = StackCache::default();
+
+            cache.anchor(3);
+            assert_eq!(cache.height, 3);
+            assert!(!cache.tracked, "an anchored instruction starts untracked");
+
+            let v = b.ins().iconst(types::I64, 7);
+            let sp = cache.push(b, sp, v);
+            assert_eq!(cache.height, 4);
+            assert!(cache.tracked, "push is a tracked effect");
+
+            let sp = cache.pop(b, sp).0;
+            assert_eq!(cache.height, 3);
+            cache.drop_top();
+            assert_eq!(cache.height, 2, "drop discards a slot without reading it");
+
+            // A binary op pops two and pushes one, and caches neither operand:
+            // two base slots + two pushes − one net = three slots left.
+            cache.anchor(2);
+            let x = b.ins().iconst(types::I64, 1);
+            let sp = cache.push(b, sp, x);
+            let y = b.ins().iconst(types::I64, 2);
+            let sp = cache.push(b, sp, y);
+            cache.consumed_binary();
+            assert_eq!(cache.height, 3, "pop two, push one");
+            assert!(
+                cache.is_empty(),
+                "both operands are dead, result is in memory"
+            );
+
+            cache.anchor(2);
+            cache.adjust(-1);
+            assert_eq!(cache.height, 1, "a shuffle's raw effect is applied");
+
+            cache.anchor(9);
+            assert_eq!(cache.height, 9, "the next instruction re-anchors");
+            assert!(!cache.tracked, "and clears the mark");
+            let _ = sp;
+        });
     }
 }
