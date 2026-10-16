@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! Epic F1/F2: tier-2 type feedback and numeric specialization.
+//! Epic F1/F2/F5: tier-2 type feedback, numeric specialization and the
+//! profitability gate.
 //!
 //! F1: the interpreter records the operand types it observes at arithmetic,
 //! comparison, bitwise, branch and local-update sites. Recording must be
@@ -15,17 +16,24 @@
 //! call. A guard miss or an `i32` overflow hands the op back to the helper —
 //! which is the interpreter's own `arith_add`/`UnaryOp`, so it stays in native
 //! code and the result is bit-identical.
+//!
+//! F5: specialization is not free, so `Automatic` only takes it where the
+//! interpreter measured enough samples at the site
+//! (`JitConfig::specialization_min_samples`); forced `Tier2` is a fixed policy
+//! and takes every recorded site. The two policies must therefore disagree on
+//! thin evidence — that divergence is what the F5 tests below pin down.
 
 #![cfg(feature = "jit")]
 
 use zuqe::{
-    Context, EvalFlags, EvalName, EvalType, Jit, JitConfig, JitMetrics, JitTierPolicy, JSResult,
-    Runtime, ScopedContext,
+    Context, EvalFlags, EvalName, EvalType, JSResult, Jit, JitConfig, JitConfigBuilder, JitMetrics,
+    JitTierPolicy, Runtime, ScopedContext,
 };
 
 /// A numeric kernel exercising every feedback site kind: binary arithmetic
 /// (`add`/`mul`), `add_loc`, comparisons (`lt`), bitwise (`and`), and a branch
-/// on the loop condition. `warm` forces it hot so the JIT attaches.
+/// on the loop condition. `warm` runs the loop twenty times so the sites carry
+/// enough samples to clear the epic F5 profitability gate under `Automatic`.
 const DEFINE: &str = "\
 function kernel(n){ \
     var s = 0; \
@@ -33,7 +41,7 @@ function kernel(n){ \
     if (s > 0) { s = s & 0xffff; } \
     return s; \
 } \
-kernel(1);";
+kernel(20);";
 
 /// The observed run; must produce the same value under every policy.
 const RUN: &str = "kernel(500)";
@@ -63,20 +71,22 @@ fn describe(ctx: &mut Context, res: JSResult) -> String {
     }
 }
 
+/// Eager thresholds so a single warm-up call queues the function and `poll`
+/// installs it before the observed run. F5 tests tweak the returned builder
+/// (e.g. `specialization_min_samples`) before `build()`.
+fn config(policy: JitTierPolicy) -> JitConfigBuilder {
+    JitConfig::builder()
+        .call_threshold(1)
+        .loop_threshold(1)
+        .tier_policy(policy)
+}
+
 fn run(policy: JitTierPolicy) -> FeedbackRun {
     let mut rt = Runtime::create().expect("runtime");
     let mut ctx = rt
         .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
         .expect("context");
-    let jit = Jit::attach_to(
-        &rt,
-        JitConfig::builder()
-            .call_threshold(1)
-            .loop_threshold(1)
-            .tier_policy(policy)
-            .build(),
-    )
-    .expect("attach");
+    let jit = Jit::attach_to(&rt, config(policy).build()).expect("attach");
     let name = EvalName::Name("jit-feedback.js".into());
 
     eval(&mut ctx, &name, DEFINE).expect("setup");
@@ -147,15 +157,7 @@ fn site_count_is_stable_across_repeated_runs() {
     let mut ctx = rt
         .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
         .expect("context");
-    let jit = Jit::attach_to(
-        &rt,
-        JitConfig::builder()
-            .call_threshold(1)
-            .loop_threshold(1)
-            .tier_policy(JitTierPolicy::Automatic)
-            .build(),
-    )
-    .expect("attach");
+    let jit = Jit::attach_to(&rt, config(JitTierPolicy::Automatic).build()).expect("attach");
     let name = EvalName::Name("jit-feedback-stable.js".into());
 
     eval(&mut ctx, &name, DEFINE).expect("setup");
@@ -201,21 +203,13 @@ fn tag_exact(res: JSResult) -> String {
     }
 }
 
-/// Define `define`, warm it once, then observe `run` under `policy`.
-fn run_script(policy: JitTierPolicy, define: &str, run: &str) -> (String, JitMetrics) {
+/// Define `define`, warm it once, then observe `run` under `cfg`.
+fn run_with(cfg: JitConfig, define: &str, run: &str) -> (String, JitMetrics) {
     let mut rt = Runtime::create().expect("runtime");
     let mut ctx = rt
         .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
         .expect("context");
-    let jit = Jit::attach_to(
-        &rt,
-        JitConfig::builder()
-            .call_threshold(1)
-            .loop_threshold(1)
-            .tier_policy(policy)
-            .build(),
-    )
-    .expect("attach");
+    let jit = Jit::attach_to(&rt, cfg).expect("attach");
     let name = EvalName::Name("jit-f2.js".into());
 
     eval(&mut ctx, &name, define).expect("setup");
@@ -224,6 +218,11 @@ fn run_script(policy: JitTierPolicy, define: &str, run: &str) -> (String, JitMet
     let res = eval(&mut ctx, &name, run);
     let out = tag_exact(res);
     (out, jit.metrics())
+}
+
+/// [`run_with`] under the stock eager config for `policy`.
+fn run_script(policy: JitTierPolicy, define: &str, run: &str) -> (String, JitMetrics) {
+    run_with(config(policy).build(), define, run)
 }
 
 /// A for-loop's `i++` compiles to `inc_loc`, which the baseline always routed
@@ -242,7 +241,7 @@ fn f2_specializes_a_hot_int_loop() {
 #[test]
 fn f2_specializes_the_accumulator_pattern() {
     const ACC: &str =
-        "function acc(n){ var s = 0; for (var i = 0; i < n; i++) s += i; return s; } acc(1);";
+        "function acc(n){ var s = 0; for (var i = 0; i < n; i++) s += i; return s; } acc(20);";
     let reference = run_script(JitTierPolicy::Interpreter, ACC, "acc(500)").0;
     let (out, m) = run_script(JitTierPolicy::Automatic, ACC, "acc(500)");
     assert!(m.specialized_ops > 0, "Automatic specialized no site");
@@ -298,15 +297,94 @@ const EDGE_CASES: &[(&str, &str)] = &[
 
 /// Guard miss, type change and overflow must all deoptimize to the helper and
 /// reproduce the interpreter's answer exactly — tag included.
+///
+/// The JIT leg runs forced `Tier2`: these bodies warm for a single call, which
+/// the epic F5 gate would refuse under `Automatic`, and the point here is that
+/// the *specialized* path deoptimizes correctly, not that it was chosen.
 #[test]
 fn f2_guard_miss_and_overflow_stay_correct() {
+    let mut specialized = 0u64;
     for (define, run) in EDGE_CASES {
         let reference = run_script(JitTierPolicy::Interpreter, define, run).0;
-        let (out, m) = run_script(JitTierPolicy::Automatic, define, run);
+        let (out, m) = run_script(JitTierPolicy::Tier2, define, run);
         assert_eq!(
             out, reference,
             "script {define:?} diverged under specialization (specialized_ops={})",
             m.specialized_ops
         );
+        specialized += m.specialized_ops;
     }
+    // Anti-vacuity: if nothing specialized, the guard paths above were never
+    // exercised and the assertions only proved the baseline stays correct.
+    assert!(
+        specialized > 0,
+        "no edge case reached the specialized path at all"
+    );
+}
+
+// ── Epic F5: profitability gate and tier selection ──
+
+/// One `f(3)` warm-up: every local-update site holds three samples when the
+/// eager thresholds queue the function — below the default gate of 8.
+const THIN: &str =
+    "function f(n){ var s = 0; for (var i = 0; i < n; i++) s += i; return s; } f(3);";
+/// Same body, warmed fifty times: above the default gate.
+const THICK: &str =
+    "function f(n){ var s = 0; for (var i = 0; i < n; i++) s += i; return s; } f(50);";
+
+/// F5: `Automatic` will not spend a speculative path on three observations —
+/// but the function still compiles (baseline), and the answer is unchanged.
+#[test]
+fn f5_automatic_gates_thin_evidence() {
+    let reference = run_script(JitTierPolicy::Interpreter, THIN, "f(10)").0;
+    let (out, m) = run_script(JitTierPolicy::Automatic, THIN, "f(10)");
+    assert!(
+        m.functions_compiled > 0,
+        "the function must still be compiled (metrics: {m:?})"
+    );
+    assert_eq!(
+        m.specialized_ops, 0,
+        "Automatic specialized a three-sample site (metrics: {m:?})"
+    );
+    assert_eq!(out, reference, "the gate must not change the result");
+}
+
+/// F5: forced `Tier2` is a fixed policy — the same three samples are enough,
+/// so the two policies now demonstrably disagree.
+#[test]
+fn f5_forced_tier2_skips_the_gate() {
+    let reference = run_script(JitTierPolicy::Interpreter, THIN, "f(10)").0;
+    let (out, m) = run_script(JitTierPolicy::Tier2, THIN, "f(10)");
+    assert!(
+        m.specialized_ops > 0,
+        "Tier2 refused to specialize thin evidence (metrics: {m:?})"
+    );
+    assert_eq!(out, reference, "specialization changed the result");
+}
+
+/// F5: enough evidence and `Automatic` reaches tier 2 exactly as before — the
+/// gate must not freeze production out of specialization.
+#[test]
+fn f5_automatic_specializes_once_the_gate_clears() {
+    let reference = run_script(JitTierPolicy::Interpreter, THICK, "f(10)").0;
+    let (out, m) = run_script(JitTierPolicy::Automatic, THICK, "f(10)");
+    assert!(
+        m.specialized_ops > 0,
+        "a fifty-sample site must clear the default gate (metrics: {m:?})"
+    );
+    assert_eq!(out, reference, "specialization changed the result");
+}
+
+/// F5: the gate is a host-tunable knob, not a hidden constant — lowering it
+/// lets the three-sample site through under the same `Automatic` policy.
+#[test]
+fn f5_gate_is_host_tunable() {
+    let cfg = config(JitTierPolicy::Automatic)
+        .specialization_min_samples(2)
+        .build();
+    let (_, m) = run_with(cfg, THIN, "f(10)");
+    assert!(
+        m.specialized_ops > 0,
+        "specialization_min_samples(2) should accept three samples (metrics: {m:?})"
+    );
 }

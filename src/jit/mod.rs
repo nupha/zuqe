@@ -214,7 +214,16 @@ impl JitState {
     /// One attempt: verify → compile → publish. Never panics; any failure just
     /// leaves the function interpreted. `m` accumulates tier-2 counters.
     fn run_pipeline(&self, request: &runtime::Request, m: &mut JitMetrics) -> CompileOutcome {
-        let snapshot = CompileSnapshot::from_bytecode(request.function_id, &request.bytecode);
+        // Epic F5 tier selection: forced `Tier2` is a fixed policy and feeds
+        // the compiler every recorded site (gate = 1 sample). `Automatic` is
+        // the production default, so it applies the profitability gate — a
+        // site needs measured evidence before it earns a speculative path.
+        let min_samples = match self.cfg.tier_policy {
+            JitTierPolicy::Tier2 => 1,
+            _ => self.cfg.specialization_min_samples,
+        };
+        let snapshot =
+            CompileSnapshot::from_bytecode(request.function_id, &request.bytecode, min_samples);
         let Ok(verified) = verify(snapshot, self.limits) else {
             return CompileOutcome::Rejected;
         };

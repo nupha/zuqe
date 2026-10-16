@@ -50,6 +50,8 @@ pub struct JitMetrics {
     pub feedback_sites: u64,
     /// Binary ops whose feedback was int-monomorphic and that therefore got a
     /// speculative inline int fast path instead of a helper call (epic F2).
-    /// Zero under `Interpreter`/`Tier1` policies.
+    /// Zero under `Interpreter`/`Tier1` policies, and under `Automatic` until a
+    /// site clears the profitability gate (epic F5,
+    /// `JitConfig::specialization_min_samples`).
     pub specialized_ops: u64,
 }

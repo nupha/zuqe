@@ -12,6 +12,12 @@ pub(crate) type MetricsSink = Box<dyn Fn(&JitMetrics)>;
 
 const DEFAULT_CALL_THRESHOLD: u32 = 32;
 const DEFAULT_LOOP_THRESHOLD: u32 = 56;
+/// Evidence a site must show before `Automatic` pays for a speculative fast
+/// path (epic F5). Default 8 matches the reference's "at least 8 executions
+/// before a trial": with the stock thresholds (32 calls / 56 backedges) a
+/// genuinely hot site clears it for free, while a one-off observation in a
+/// cold branch no longer earns a guard-miss path.
+const DEFAULT_SPECIALIZATION_MIN_SAMPLES: u32 = 8;
 const DEFAULT_MAX_CODE_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_MAX_METADATA_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_MAX_QUEUE_LEN: usize = 256;
@@ -26,9 +32,12 @@ pub enum JitTierPolicy {
     Interpreter,
     /// Baseline translation only.
     Tier1,
-    /// Optimizing tier only (not yet implemented).
+    /// Optimizing tier only. Fixed policy: every int-monomorphic site F1
+    /// recorded is specialized, regardless of the profitability gate.
     Tier2,
-    /// Pick the tier automatically from the hotness feedback.
+    /// Pick the tier automatically from the hotness feedback, and apply the
+    /// profitability gate (`JitConfig::specialization_min_samples`): a site is
+    /// only specialized once the interpreter measured enough samples there.
     #[default]
     Automatic,
 }
@@ -39,6 +48,9 @@ pub struct JitConfig {
     pub(crate) call_threshold: u32,
     pub(crate) loop_threshold: u32,
     pub(crate) tier_policy: JitTierPolicy,
+    /// Minimum feedback samples a site needs before `Automatic` specializes
+    /// it (epic F5). Forced `Tier2` ignores it.
+    pub(crate) specialization_min_samples: u32,
     pub(crate) max_code_bytes: usize,
     pub(crate) max_metadata_bytes: usize,
     pub(crate) max_queue_len: usize,
@@ -57,6 +69,10 @@ impl std::fmt::Debug for JitConfig {
             .field("call_threshold", &self.call_threshold)
             .field("loop_threshold", &self.loop_threshold)
             .field("tier_policy", &self.tier_policy)
+            .field(
+                "specialization_min_samples",
+                &self.specialization_min_samples,
+            )
             .field("max_code_bytes", &self.max_code_bytes)
             .field("max_metadata_bytes", &self.max_metadata_bytes)
             .field("max_queue_len", &self.max_queue_len)
@@ -73,6 +89,7 @@ impl Default for JitConfig {
             call_threshold: DEFAULT_CALL_THRESHOLD,
             loop_threshold: DEFAULT_LOOP_THRESHOLD,
             tier_policy: JitTierPolicy::default(),
+            specialization_min_samples: DEFAULT_SPECIALIZATION_MIN_SAMPLES,
             max_code_bytes: DEFAULT_MAX_CODE_BYTES,
             max_metadata_bytes: DEFAULT_MAX_METADATA_BYTES,
             max_queue_len: DEFAULT_MAX_QUEUE_LEN,
@@ -100,6 +117,12 @@ impl JitConfig {
 
     pub const fn tier_policy(&self) -> JitTierPolicy {
         self.tier_policy
+    }
+
+    /// Profitability gate for `Automatic` (epic F5): the samples a feedback
+    /// site must have before it earns a speculative fast path.
+    pub const fn specialization_min_samples(&self) -> u32 {
+        self.specialization_min_samples
     }
 
     pub const fn max_code_bytes(&self) -> usize {
@@ -145,6 +168,13 @@ impl JitConfigBuilder {
 
     pub const fn tier_policy(mut self, p: JitTierPolicy) -> Self {
         self.0.tier_policy = p;
+        self
+    }
+
+    /// Samples a feedback site needs before `Automatic` specializes it
+    /// (epic F5). Clamped to `>= 1`; `Tier2` ignores this entirely.
+    pub fn specialization_min_samples(mut self, n: u32) -> Self {
+        self.0.specialization_min_samples = n.max(1);
         self
     }
 

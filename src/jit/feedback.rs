@@ -13,9 +13,15 @@
 //! Recording is observation-only — it can never change a result. Per plan D-5
 //! it runs only when the `jit` feature is on and the tier policy can still
 //! reach tier 2 (`Tier2`/`Automatic`); `Interpreter` and `Tier1` record nothing.
+//! Copying the table into a snapshot applies the epic F5 profitability gate:
+//! under `Automatic` only sites with enough samples reach the compiler, while
+//! forced `Tier2` keeps every recorded site.
 //!
-//! Shape/array feedback is deliberately absent here: it lands with the
-//! polymorphic inline caches of epic F3, which is the first consumer for it.
+//! Shape/array feedback stays absent on purpose. Epic F3 made the inline
+//! cache itself polymorphic (up to `IC_WAYS` shapes per site, in the shared
+//! interpreter/JIT helper), and D-21 keeps guards out of generated code — so
+//! the compiler has no consumer for observed shapes, and the runtime cache
+//! already is the shape feedback.
 
 use std::{cell::UnsafeCell, collections::HashMap};
 
@@ -105,11 +111,15 @@ impl FeedbackTable {
     }
 
     /// Sites sorted by pc, for `CompileSnapshot` (the compiler looks sites up
-    /// by instruction pc).
-    fn snapshot(&self) -> Vec<(u32, SiteFeedback)> {
+    /// by instruction pc). `min_samples` is the epic F5 profitability gate:
+    /// sites the interpreter observed fewer than that many times are dropped,
+    /// so a one-off observation can never buy a speculative fast path. Forced
+    /// `Tier2` passes 1 and keeps everything.
+    fn snapshot(&self, min_samples: u32) -> Vec<(u32, SiteFeedback)> {
         let mut sites: Vec<(u32, SiteFeedback)> = self
             .sites
             .iter()
+            .filter(|(_, site)| site.samples as u32 >= min_samples)
             .map(|(&pc, site)| (pc, *site))
             .collect();
         sites.sort_unstable_by_key(|&(pc, _)| pc);
@@ -147,11 +157,12 @@ impl FeedbackSlot {
             .record(site, lhs, rhs)
     }
 
-    /// Copy the recorded sites (sorted by pc) for `CompileSnapshot`.
-    pub(crate) fn snapshot(&self) -> Vec<(u32, SiteFeedback)> {
+    /// Copy the recorded sites (sorted by pc) for `CompileSnapshot`, keeping
+    /// only sites with at least `min_samples` observations (epic F5 gate).
+    pub(crate) fn snapshot(&self, min_samples: u32) -> Vec<(u32, SiteFeedback)> {
         // SAFETY: single-threaded; called from `Jit::poll`, never mid-opcode.
         match unsafe { &*self.0.get() } {
-            Some(table) => table.snapshot(),
+            Some(table) => table.snapshot(min_samples),
             None => Vec::new(),
         }
     }
@@ -174,7 +185,10 @@ mod tests {
 
     #[test]
     fn float_and_int_never_share_a_class() {
-        assert_ne!(type_class(JSValue::from(0)), type_class(JSValue::from(-0.0)));
+        assert_ne!(
+            type_class(JSValue::from(0)),
+            type_class(JSValue::from(-0.0))
+        );
         let both = type_class(JSValue::from(1)) | type_class(JSValue::from(1.5));
         assert_eq!(both, CLASS_INT | CLASS_FLOAT);
     }
@@ -187,7 +201,7 @@ mod tests {
         // A widened observation merges instead of replacing: the site is now
         // known to be polymorphic, which is exactly what tier 2 must see.
         assert!(!table.record(10, CLASS_INT, CLASS_FLOAT));
-        let snapshot = table.snapshot();
+        let snapshot = table.snapshot(1);
         assert_eq!(snapshot.len(), 1);
         assert_eq!(snapshot[0].0, 10);
         assert_eq!(snapshot[0].1.lhs, CLASS_INT);
@@ -206,7 +220,7 @@ mod tests {
         // The cap must not freeze observations for sites already tracked; the
         // new class merges into the mask rather than replacing it.
         assert!(!table.record(7, CLASS_FLOAT, CLASS_FLOAT));
-        assert_eq!(table.snapshot()[7].1.lhs, CLASS_INT | CLASS_FLOAT);
+        assert_eq!(table.snapshot(1)[7].1.lhs, CLASS_INT | CLASS_FLOAT);
     }
 
     #[test]
@@ -215,16 +229,36 @@ mod tests {
         table.record(64, CLASS_INT, 0);
         table.record(3, CLASS_INT, 0);
         table.record(32, CLASS_INT, 0);
-        let pcs: Vec<u32> = table.snapshot().iter().map(|&(pc, _)| pc).collect();
+        let pcs: Vec<u32> = table.snapshot(1).iter().map(|&(pc, _)| pc).collect();
         assert_eq!(pcs, vec![3, 32, 64]);
+    }
+
+    /// Epic F5: the profitability gate drops thin evidence, while `min_samples`
+    /// of 1 (what forced `Tier2` passes) keeps every site.
+    #[test]
+    fn snapshot_applies_the_profitability_gate() {
+        let mut table = FeedbackTable::default();
+        table.record(10, CLASS_INT, CLASS_INT); // samples == 1
+        table.record(20, CLASS_INT, CLASS_INT);
+        table.record(20, CLASS_INT, CLASS_INT);
+        table.record(20, CLASS_INT, CLASS_INT); // samples == 3
+
+        assert_eq!(table.snapshot(1).len(), 2, "Tier2 must keep every site");
+        let gated = table.snapshot(3);
+        assert_eq!(gated.len(), 1, "the thin site must be gated out");
+        assert_eq!(gated[0].0, 20);
+        assert!(
+            table.snapshot(4).is_empty(),
+            "nothing clears a gate above every sample count"
+        );
     }
 
     #[test]
     fn empty_slot_snapshots_empty_without_allocating() {
         let slot = FeedbackSlot::default();
-        assert!(slot.snapshot().is_empty());
+        assert!(slot.snapshot(1).is_empty());
         assert!(slot.record(4, CLASS_INT, CLASS_INT));
-        assert_eq!(slot.snapshot().len(), 1);
+        assert_eq!(slot.snapshot(1).len(), 1);
     }
 
     #[test]
@@ -234,6 +268,6 @@ mod tests {
         for _ in 0..u16::MAX as usize + 4 {
             table.record(0, CLASS_INT, CLASS_INT);
         }
-        assert_eq!(table.snapshot()[0].1.samples, u16::MAX);
+        assert_eq!(table.snapshot(1)[0].1.samples, u16::MAX);
     }
 }

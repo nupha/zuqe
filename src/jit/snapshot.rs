@@ -47,8 +47,9 @@ pub(crate) struct CompileSnapshot {
     pub(crate) const_meta: Box<[ConstMeta]>,
     pub(crate) ic_count: u32,
     /// Tier-2 type feedback (epic F1): `(pc, observations)` sorted by pc,
-    /// copied out of the bytecode's feedback table at snapshot time. Empty
-    /// under `Interpreter`/`Tier1` policies, which never record.
+    /// copied out of the bytecode's feedback table at snapshot time, already
+    /// filtered by the epic F5 profitability gate. Empty under
+    /// `Interpreter`/`Tier1` policies, which never record.
     pub(crate) feedback: Box<[(u32, SiteFeedback)]>,
 }
 
@@ -56,7 +57,9 @@ impl CompileSnapshot {
     /// Copy pointer-free details out of a live bytecode function. `function_id`
     /// is the identity the interpreter's hotness hooks use (the node address,
     /// stable for the runtime's lifetime because the GC never moves nodes).
-    pub(crate) fn from_bytecode(function_id: u64, bc: &BytecodeImpl) -> Self {
+    /// `min_samples` is the epic F5 profitability gate applied to the feedback
+    /// copied in: sites observed fewer times never reach the compiler.
+    pub(crate) fn from_bytecode(function_id: u64, bc: &BytecodeImpl, min_samples: u32) -> Self {
         #[cfg(feature = "inline_cache")]
         let ic_count = {
             let cache = unsafe { &*bc.inline_cache.get() };
@@ -84,7 +87,7 @@ impl CompileSnapshot {
                 })
                 .collect(),
             ic_count,
-            feedback: bc.feedback.snapshot().into_boxed_slice(),
+            feedback: bc.feedback.snapshot(min_samples).into_boxed_slice(),
         }
     }
 }
