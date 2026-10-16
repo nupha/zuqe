@@ -532,12 +532,19 @@ async fn main_impl() {
             .collect()
     } else {
         let mut list = Vec::new();
-        for item in test_globs {
-            for path in
-                glob::glob(base_path.join(format!("test/{item}")).to_str().unwrap()).unwrap()
-            {
-                let file_name = path.unwrap();
-                if exclude_tests.contains(&file_name) {
+        for item in &test_globs {
+            let pattern = base_path.join(format!("test/{item}"));
+            for path in glob::glob(pattern.to_str().unwrap()).unwrap() {
+                let file_name = match path {
+                    Ok(path) => path,
+                    Err(error) => {
+                        eprintln!("glob {}: {error}", pattern.display());
+                        continue;
+                    }
+                };
+                // A `dir/**` pattern also matches the directories themselves
+                // (and any non-script file under them); only run regular files.
+                if !file_name.is_file() || exclude_tests.contains(&file_name) {
                     continue;
                 }
                 let rel = file_name
@@ -555,6 +562,14 @@ async fn main_impl() {
     };
 
     let total = run_list.len();
+    if total == 0 {
+        eprintln!(
+            "warning: no test scripts matched {:?} under {} — a bare `dir/**` pattern \
+             matches only the directory itself; name the scripts (`dir/**/*.js`)",
+            test_globs,
+            base_path.join("test").display()
+        );
+    }
     let mut done: usize = 0;
     let mut failed_count: usize = 0;
     // Failed scripts, each paired with its error message and the `@features`
@@ -584,7 +599,9 @@ async fn main_impl() {
                 failed_count += 1;
                 failed_scripts.push((
                     rel.clone(),
-                    err_msg.unwrap_or_else(|| "(no error message)".to_string()),
+                    err_msg
+                        .clone()
+                        .unwrap_or_else(|| "(no error message)".to_string()),
                     feats.clone(),
                 ));
             }
@@ -615,8 +632,21 @@ async fn main_impl() {
                 TestStatus::Pass => "pass",
                 TestStatus::Fail => "fail",
             };
-            let entry = serde_json::json!({ "script": rel.as_str(), "status": v });
-            let _ = writeln!(f, "{entry}");
+            // A failing test also records *why*, so two runs compare the error
+            // as well as the verdict. The message is normalized to one line (a
+            // diff must not depend on embedded newlines).
+            let mut entry = serde_json::Map::new();
+            entry.insert("script".into(), rel.as_str().into());
+            entry.insert("status".into(), v.into());
+            if matches!(status, TestStatus::Fail) {
+                let text = err_msg.as_deref().unwrap_or("(no error message)");
+                let first = text.lines().next().unwrap_or_default();
+                entry.insert(
+                    "error".into(),
+                    first.chars().take(240).collect::<String>().into(),
+                );
+            }
+            let _ = writeln!(f, "{}", serde_json::Value::Object(entry));
         }
         done += 1;
         eprint!("\rTest {} / {}, Fail {}", done, total, failed_count);

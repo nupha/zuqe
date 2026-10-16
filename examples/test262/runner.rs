@@ -489,7 +489,16 @@ pub async fn run_test_file(
     // are still winding down) do not interfere.
     crate::agent::agents_hub().replace();
 
-    let content = std::fs::read_to_string(filename).unwrap();
+    let content = match std::fs::read_to_string(filename) {
+        Ok(content) => content,
+        Err(error) => {
+            return (
+                TestStatus::Fail,
+                vec![format!("read {}: {error}", filename.display())],
+                None,
+            );
+        }
+    };
 
     let start = content.find("/*---").unwrap_or(0);
     let end = content.find("---*/").unwrap_or(0);
