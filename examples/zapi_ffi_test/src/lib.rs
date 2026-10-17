@@ -19,7 +19,7 @@ use std::{cell::Cell, ffi::c_void};
 
 use zuqe_zapi::{
     AsyncIterResult, Class, ZqAsyncIterable, ZqCallInfo, ZqCtx, ZqError, ZqErrorType, ZqGcTraceCtx,
-    ZqPropertyDescriptor, ZqRawCtx, ZqRawValue, ZqValue,
+    ZqMember, ZqPropertyDescriptor, ZqRawCtx, ZqRawValue, ZqValue,
     ffi::{
         ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE, ZQ_CONST_VALUE_SLOT_INFINITY,
         ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN, ZQ_CONST_VALUE_SLOT_NULL,
@@ -686,9 +686,15 @@ fn register_runtime_members<'a>(
     _cc: ZqCallInfo<'a>,
 ) -> Result<ZqValue<'a>, ZqError> {
     let class_id = RuntimeMembers::register_id(cx)?;
-    // The convenience form: names in, magic assigned by index.
-    cx.class_install_prototype_methods(class_id, &["aaa", "bbb"], late_dispatch::trampoline())?;
-    // The slice form, for when kinds have to differ.
+    // Magic is the index into the name list, so the dispatcher and the table
+    // cannot drift: same construction the const-table path does at compile time.
+    let methods: Vec<ZqMember> = ["aaa", "bbb"]
+        .iter()
+        .enumerate()
+        .map(|(index, name)| ZqMember::method(name, late_dispatch::trampoline(), index as i32))
+        .collect();
+    cx.class_install_prototype_members(class_id, &methods)?;
+    // A constant needs a different kind, so the list is not all methods.
     cx.class_install_prototype_members(class_id, &[ZqMember::const_int("LIMIT", 7)])?;
     RuntimeMembers::new_instance(cx)
 }
