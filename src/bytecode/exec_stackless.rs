@@ -1461,8 +1461,6 @@ impl Bytecode {
                         let site = (unsafe { pc.offset_from(pc_base) } as u32) - 1;
                         let idx = PC_FETCH!(u8) as i32;
                         let op1 = VAR_REF![idx];
-                        #[cfg(feature = "jit")]
-                        crate::jit::note_value(&rt, self, site, *op1);
                         if let Ok(res) =
                             UnaryOp::new(realm_scope, *op1, true).and_then(|unary| match opcode {
                                 OpCode::INC_LOC => unary.inc(realm_scope),
@@ -1470,6 +1468,10 @@ impl Bytecode {
                                 _ => unreachable!(),
                             })
                         {
+                            // Tier-2 feedback: the updated local before and after
+                            // (P7-7.1 — the result class exposes overflow).
+                            #[cfg(feature = "jit")]
+                            crate::jit::note_local_update(&rt, self, site, *op1, res);
                             *op1 = res;
                         } else {
                             break ExecAction::Exception;
@@ -1482,10 +1484,10 @@ impl Bytecode {
                         let op1 = SP_VAL!(-1);
                         SP_GO!(-1);
                         let pv = VAR_REF![idx];
-                        // Tier-2 feedback: the local is the first operand.
-                        #[cfg(feature = "jit")]
-                        crate::jit::note_binary(&rt, self, site, *pv, op1);
                         if let Ok(val) = JSValue::arith_add(realm_scope, *pv, op1) {
+                            // Tier-2 feedback: local (lhs), operand (rhs), result.
+                            #[cfg(feature = "jit")]
+                            crate::jit::note_binary(&rt, self, site, *pv, op1, val);
                             *pv = val;
                         } else {
                             break ExecAction::Exception;
@@ -1507,16 +1509,21 @@ impl Bytecode {
                     | OpCode::AND
                     | OpCode::OR
                     | OpCode::XOR => {
-                        #[cfg(feature = "jit")]
-                        crate::jit::note_binary(
-                            &rt,
-                            self,
-                            (unsafe { pc.offset_from(pc_base) } as u32) - 1,
-                            SP_VAL!(-2),
-                            SP_VAL!(-1),
-                        );
+                        let op1 = SP_VAL!(-2);
+                        let op2 = SP_VAL!(-1);
                         if let Ok(new_sp) = op_binary_logic(realm_scope, opcode, sp) {
                             sp = new_sp;
+                            // Tier-2 feedback: operands and the result, which
+                            // may be a Float64 once the sign bit is set.
+                            #[cfg(feature = "jit")]
+                            crate::jit::note_binary(
+                                &rt,
+                                self,
+                                (unsafe { pc.offset_from(pc_base) } as u32) - 1,
+                                op1,
+                                op2,
+                                SP_VAL!(-1),
+                            );
                         } else {
                             break ExecAction::Exception;
                         }
@@ -1531,6 +1538,8 @@ impl Bytecode {
                             (unsafe { pc.offset_from(pc_base) } as u32) - 1,
                             op1,
                             op2,
+                            // A comparison always yields a Bool.
+                            JSValue::from(false),
                         );
                         if let Ok(rel) = op1.arith_cmp(realm_scope, op2) {
                             let b = matches!(
@@ -2273,15 +2282,6 @@ impl Bytecode {
                     | OpCode::POW => {
                         let op1 = SP_VAL!(-2);
                         let op2 = SP_VAL!(-1);
-                        // Tier-2 feedback (F1): site = the opcode's own offset.
-                        #[cfg(feature = "jit")]
-                        crate::jit::note_binary(
-                            &rt,
-                            self,
-                            (unsafe { pc.offset_from(pc_base) } as u32) - 1,
-                            op1,
-                            op2,
-                        );
                         let res = match opcode {
                             OpCode::ADD => JSValue::arith_add(realm_scope, op1, op2),
                             OpCode::SUB => JSValue::arith_sub(realm_scope, op1, op2),
@@ -2291,6 +2291,19 @@ impl Bytecode {
                             OpCode::POW => JSValue::arith_pow(realm_scope, op1, op2),
                             _ => unreachable!(),
                         };
+                        // Tier-2 feedback (F1 + P7-7.1): operands and the result
+                        // (the result class exposes int overflow to the gate).
+                        #[cfg(feature = "jit")]
+                        if let Ok(val) = res {
+                            crate::jit::note_binary(
+                                &rt,
+                                self,
+                                (unsafe { pc.offset_from(pc_base) } as u32) - 1,
+                                op1,
+                                op2,
+                                val,
+                            );
+                        }
 
                         if let Ok(val) = res {
                             SP_PUT!(-2, val);

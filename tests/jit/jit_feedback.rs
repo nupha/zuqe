@@ -258,6 +258,38 @@ fn f2_baseline_policies_never_specialize() {
     }
 }
 
+/// Epic P7 (task 7.1): an `inc_loc` whose *result* overflows to `Float64` is
+/// recorded as non-int, so the compiler refuses to specialize it — its inline
+/// fast path would bail to the helper on every trip. The sibling `k++` site in
+/// the same function (result stays `Int`) still specializes, so the two sites
+/// are demonstrably judged apart. Forced `Tier2` keeps the gate at one sample.
+#[test]
+fn an_overflowing_result_is_not_specialized() {
+    const CLEAN: &str =
+        "function f(){ var i = 0; for (var k = 0; k < 30; k++){} i++; return i + k; } f();";
+    const OVERFLOW: &str =
+        "function f(){ var i = 2147483647; for (var k = 0; k < 30; k++){} i++; return i + k; } f();";
+
+    let (clean_out, clean) = run_script(JitTierPolicy::Tier2, CLEAN, "f()");
+    let (over_out, over) = run_script(JitTierPolicy::Tier2, OVERFLOW, "f()");
+    assert_eq!(
+        run_script(JitTierPolicy::Interpreter, OVERFLOW, "f()").0,
+        over_out,
+        "the gate must not change the result"
+    );
+    assert_eq!(
+        run_script(JitTierPolicy::Interpreter, CLEAN, "f()").0,
+        clean_out
+    );
+    assert!(
+        clean.specialized_ops > over.specialized_ops,
+        "the clean `i++` site must specialize while the overflowing one does not \
+         (clean={}, overflow={})",
+        clean.specialized_ops,
+        over.specialized_ops
+    );
+}
+
 /// Scripts that drive a specialized int local *out* of the int domain. The F2
 /// guard must hand each one back to the helper, and every result must be
 /// bit-identical to the interpreter's.

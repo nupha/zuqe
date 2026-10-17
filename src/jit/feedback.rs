@@ -64,10 +64,17 @@ pub(crate) fn type_class(v: JSValue) -> u16 {
 /// What was observed at one feedback site: a type-class mask per operand
 /// position plus a saturating sample count. Branch and conversion sites record
 /// a single operand (`lhs` only, `rhs == 0`).
+///
+/// `result` is the class of the *computed value* (epic P7 / task 7.1). It lets
+/// the tier-2 gate tell "this `add_loc`/`inc_loc` site only ever produces
+/// `Int`" from "it overflows to `Float64` every iteration" — the second keeps
+/// speculating and pays its overflow bail on every trip (see
+/// `jit_todo.md` 7.1). Sites with no result (branch conditions) keep it 0.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SiteFeedback {
     pub(crate) lhs: u16,
     pub(crate) rhs: u16,
+    pub(crate) result: u16,
     pub(crate) samples: u16,
 }
 
@@ -91,13 +98,14 @@ pub(crate) struct FeedbackTable {
 impl FeedbackTable {
     /// Merge one observation into `pc`; returns true when `pc` was a new site
     /// (used by the caller to count distinct sites into metrics).
-    fn record(&mut self, pc: u32, lhs: u16, rhs: u16) -> bool {
+    fn record(&mut self, pc: u32, lhs: u16, rhs: u16, result: u16) -> bool {
         // Cheap positive hits skip the map entirely; negative hits fall
         // through to the entry API below.
         self.total_samples = self.total_samples.saturating_add(1);
         if let Some(site) = self.sites.get_mut(&pc) {
             site.lhs |= lhs;
             site.rhs |= rhs;
+            site.result |= result;
             site.samples = site.samples.saturating_add(1);
             return false;
         }
@@ -109,6 +117,7 @@ impl FeedbackTable {
             SiteFeedback {
                 lhs,
                 rhs,
+                result,
                 samples: 1,
             },
         );
@@ -160,13 +169,13 @@ impl FeedbackSlot {
     /// Record one observation at `site` (bytecode pc). The table is allocated
     /// on the first record, so functions that never execute a feedback site
     /// pay only the `None` check. Returns true when `site` was new.
-    pub(crate) fn record(&self, site: u32, lhs: u16, rhs: u16) -> bool {
+    pub(crate) fn record(&self, site: u32, lhs: u16, rhs: u16, result: u16) -> bool {
         // SAFETY: single-threaded interpreter; same discipline as
         // `BytecodeImpl::inline_cache` — each observation is a short,
         // non-reentrant update with no aliasing `&mut` held across a call.
         let cell = unsafe { &mut *self.0.get() };
         cell.get_or_insert_with(|| Box::new(FeedbackTable::default()))
-            .record(site, lhs, rhs)
+            .record(site, lhs, rhs, result)
     }
 
     /// Observations recorded so far — the hotness policy's "measured work".
@@ -219,11 +228,11 @@ mod tests {
     #[test]
     fn record_reports_new_sites_then_merges() {
         let mut table = FeedbackTable::default();
-        assert!(table.record(10, CLASS_INT, CLASS_INT));
-        assert!(!table.record(10, CLASS_INT, CLASS_INT));
+        assert!(table.record(10, CLASS_INT, CLASS_INT, CLASS_INT));
+        assert!(!table.record(10, CLASS_INT, CLASS_INT, CLASS_INT));
         // A widened observation merges instead of replacing: the site is now
         // known to be polymorphic, which is exactly what tier 2 must see.
-        assert!(!table.record(10, CLASS_INT, CLASS_FLOAT));
+        assert!(!table.record(10, CLASS_INT, CLASS_FLOAT, CLASS_INT));
         let snapshot = table.snapshot(1);
         assert_eq!(snapshot.len(), 1);
         assert_eq!(snapshot[0].0, 10);
@@ -232,26 +241,39 @@ mod tests {
         assert_eq!(snapshot[0].1.samples, 3);
     }
 
+    /// Epic P7 (task 7.1): the result class merges like the operand masks, so a
+    /// site that ever overflowed to `Float64` stays visibly non-int-only and the
+    /// compiler's speculation gate can refuse it.
+    #[test]
+    fn result_class_merges_and_marks_overflow() {
+        let mut table = FeedbackTable::default();
+        table.record(10, CLASS_INT, CLASS_INT, CLASS_INT);
+        table.record(10, CLASS_INT, CLASS_INT, CLASS_FLOAT);
+        let site = table.snapshot(1)[0].1;
+        assert_eq!(site.result, CLASS_INT | CLASS_FLOAT);
+        assert_ne!(site.result, CLASS_INT, "an overflow site is not int-only");
+    }
+
     #[test]
     fn site_count_is_capped_but_existing_sites_keep_updating() {
         let mut table = FeedbackTable::default();
         for pc in 0..MAX_SITES as u32 {
-            assert!(table.record(pc, CLASS_INT, CLASS_INT));
+            assert!(table.record(pc, CLASS_INT, CLASS_INT, CLASS_INT));
         }
-        assert!(!table.record(MAX_SITES as u32, CLASS_INT, CLASS_INT));
+        assert!(!table.record(MAX_SITES as u32, CLASS_INT, CLASS_INT, CLASS_INT));
         assert_eq!(table.len(), MAX_SITES);
         // The cap must not freeze observations for sites already tracked; the
         // new class merges into the mask rather than replacing it.
-        assert!(!table.record(7, CLASS_FLOAT, CLASS_FLOAT));
+        assert!(!table.record(7, CLASS_FLOAT, CLASS_FLOAT, CLASS_INT));
         assert_eq!(table.snapshot(1)[7].1.lhs, CLASS_INT | CLASS_FLOAT);
     }
 
     #[test]
     fn snapshot_is_sorted_by_pc() {
         let mut table = FeedbackTable::default();
-        table.record(64, CLASS_INT, 0);
-        table.record(3, CLASS_INT, 0);
-        table.record(32, CLASS_INT, 0);
+        table.record(64, CLASS_INT, 0, CLASS_INT);
+        table.record(3, CLASS_INT, 0, CLASS_INT);
+        table.record(32, CLASS_INT, 0, CLASS_INT);
         let pcs: Vec<u32> = table.snapshot(1).iter().map(|&(pc, _)| pc).collect();
         assert_eq!(pcs, vec![3, 32, 64]);
     }
@@ -261,10 +283,10 @@ mod tests {
     #[test]
     fn snapshot_applies_the_profitability_gate() {
         let mut table = FeedbackTable::default();
-        table.record(10, CLASS_INT, CLASS_INT); // samples == 1
-        table.record(20, CLASS_INT, CLASS_INT);
-        table.record(20, CLASS_INT, CLASS_INT);
-        table.record(20, CLASS_INT, CLASS_INT); // samples == 3
+        table.record(10, CLASS_INT, CLASS_INT, CLASS_INT); // samples == 1
+        table.record(20, CLASS_INT, CLASS_INT, CLASS_INT);
+        table.record(20, CLASS_INT, CLASS_INT, CLASS_INT);
+        table.record(20, CLASS_INT, CLASS_INT, CLASS_INT); // samples == 3
 
         assert_eq!(table.snapshot(1).len(), 2, "Tier2 must keep every site");
         let gated = table.snapshot(3);
@@ -280,16 +302,16 @@ mod tests {
     fn empty_slot_snapshots_empty_without_allocating() {
         let slot = FeedbackSlot::default();
         assert!(slot.snapshot(1).is_empty());
-        assert!(slot.record(4, CLASS_INT, CLASS_INT));
+        assert!(slot.record(4, CLASS_INT, CLASS_INT, CLASS_INT));
         assert_eq!(slot.snapshot(1).len(), 1);
     }
 
     #[test]
     fn sample_count_saturates_without_wrapping() {
         let mut table = FeedbackTable::default();
-        table.record(0, CLASS_INT, CLASS_INT);
+        table.record(0, CLASS_INT, CLASS_INT, CLASS_INT);
         for _ in 0..u16::MAX as usize + 4 {
-            table.record(0, CLASS_INT, CLASS_INT);
+            table.record(0, CLASS_INT, CLASS_INT, CLASS_INT);
         }
         assert_eq!(table.snapshot(1)[0].1.samples, u16::MAX);
     }

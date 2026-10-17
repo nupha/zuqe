@@ -120,26 +120,46 @@ impl JitState {
     }
 
     /// Record the operand types seen at a binary site (epic F1).
-    fn note_binary(&self, bc: &Bytecode, site: u32, lhs: JSValue, rhs: JSValue) {
+    fn note_binary(&self, bc: &Bytecode, site: u32, lhs: JSValue, rhs: JSValue, result: JSValue) {
         if !self.records_feedback() {
             return;
         }
-        if bc
-            .feedback
-            .record(site, feedback::type_class(lhs), feedback::type_class(rhs))
-        {
+        if bc.feedback.record(
+            site,
+            feedback::type_class(lhs),
+            feedback::type_class(rhs),
+            feedback::type_class(result),
+        ) {
             self.count_feedback_site();
         }
     }
 
     /// Record the type seen at a single-value site: a branch condition or a
-    /// local update (epic F1).
+    /// local update (epic F1). Branch conditions have no result, so the result
+    /// class stays 0.
     fn note_value(&self, bc: &Bytecode, site: u32, value: JSValue) {
         if !self.records_feedback() {
             return;
         }
         let class = feedback::type_class(value);
-        if bc.feedback.record(site, class, 0) {
+        if bc.feedback.record(site, class, 0, 0) {
+            self.count_feedback_site();
+        }
+    }
+
+    /// Record a `inc_loc`/`dec_loc` site: the slot's value before the update and
+    /// the value it holds after (epic P7 / task 7.1 — the result class tells
+    /// overflow from a clean int update).
+    fn note_local_update(&self, bc: &Bytecode, site: u32, before: JSValue, after: JSValue) {
+        if !self.records_feedback() {
+            return;
+        }
+        if bc.feedback.record(
+            site,
+            feedback::type_class(before),
+            0,
+            feedback::type_class(after),
+        ) {
             self.count_feedback_site();
         }
     }
@@ -327,12 +347,20 @@ pub(crate) fn note_backedge(rt: &RuntimeImpl, bc: &Bytecode, pc: usize) {
     }
 }
 
-/// Tier-2 feedback hook: record the operand types of a binary site (epic F1).
-/// A no-op unless a JIT is attached under a tier-2-capable policy.
+/// Tier-2 feedback hook: record the operand types and the result type of a
+/// binary site (epic F1 / P7-7.1). A no-op unless a JIT is attached under a
+/// tier-2-capable policy.
 #[inline]
-pub(crate) fn note_binary(rt: &RuntimeImpl, bc: &Bytecode, site: u32, lhs: JSValue, rhs: JSValue) {
+pub(crate) fn note_binary(
+    rt: &RuntimeImpl,
+    bc: &Bytecode,
+    site: u32,
+    lhs: JSValue,
+    rhs: JSValue,
+    result: JSValue,
+) {
     if let Some(state) = rt.jit.as_deref() {
-        state.note_binary(bc, site, lhs, rhs);
+        state.note_binary(bc, site, lhs, rhs, result);
     }
 }
 
@@ -342,6 +370,21 @@ pub(crate) fn note_binary(rt: &RuntimeImpl, bc: &Bytecode, site: u32, lhs: JSVal
 pub(crate) fn note_value(rt: &RuntimeImpl, bc: &Bytecode, site: u32, value: JSValue) {
     if let Some(state) = rt.jit.as_deref() {
         state.note_value(bc, site, value);
+    }
+}
+
+/// Tier-2 feedback hook: record an `inc_loc`/`dec_loc` site — the value before
+/// the update and the value after it (P7-7.1).
+#[inline]
+pub(crate) fn note_local_update(
+    rt: &RuntimeImpl,
+    bc: &Bytecode,
+    site: u32,
+    before: JSValue,
+    after: JSValue,
+) {
+    if let Some(state) = rt.jit.as_deref() {
+        state.note_local_update(bc, site, before, after);
     }
 }
 

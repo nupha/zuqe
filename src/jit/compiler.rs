@@ -58,7 +58,7 @@ use super::{
         cfg::ControlFlowGraph, decode::Instruction, stack::SlotKind, verify::VerifiedFunction,
     },
     error::JitError,
-    feedback::{CLASS_INT, SiteFeedback},
+    feedback::{CLASS_FLOAT, CLASS_INT, SiteFeedback},
     ir::{Ir, LocalRef},
 };
 
@@ -1010,12 +1010,18 @@ fn collect_osr_pcs(verified: &VerifiedFunction) -> Vec<u32> {
 /// Epic F2: did F1 feedback observe *only* `Int` at this site? Feedback is
 /// sorted by pc, so a binary search answers it. `both` is false for
 /// single-value sites (`inc_loc`/`dec_loc`), whose `rhs` slot stays 0.
+///
+/// Epic P7 (task 7.1): the *result* class must be `Int` too. F2's inline int
+/// path bails to the helper on `i32` overflow, so a site whose result is always
+/// a `Float64` (an accumulator that overflows every trip) would pay that bail
+/// every iteration — speculation would lose to the plain helper. The result
+/// class lets the gate refuse exactly those sites.
 fn int_only(feedback: &[(u32, SiteFeedback)], pc: u32, both: bool) -> bool {
     feedback
         .binary_search_by_key(&pc, |&(site, _)| site)
         .is_ok_and(|i| {
             let site = feedback[i].1;
-            site.lhs == CLASS_INT && (!both || site.rhs == CLASS_INT)
+            site.lhs == CLASS_INT && (!both || site.rhs == CLASS_INT) && site.result == CLASS_INT
         })
 }
 
@@ -3145,6 +3151,27 @@ mod tests {
         let ir = Ir::build(&verified, true);
         let hints = dead_local_stores(&ir, verified.instructions(), true);
         assert!(!hints.contains(&5), "put_loc 0 at pc 5 is read back");
+    }
+
+    /// Epic P7 (task 7.1): a site whose *result* was observed as `Float64` (an
+    /// always-overflowing accumulator) is not `int_only`, so F2 never pays its
+    /// overflow bail every trip.
+    #[test]
+    fn an_overflowing_site_is_not_int_only() {
+        let site = |result: u16| {
+            (
+                0u32,
+                SiteFeedback {
+                    lhs: CLASS_INT,
+                    rhs: CLASS_INT,
+                    result,
+                    samples: 8,
+                },
+            )
+        };
+        assert!(int_only(&[site(CLASS_INT)], 0, true));
+        assert!(!int_only(&[site(CLASS_INT | CLASS_FLOAT)], 0, true));
+        assert!(!int_only(&[site(CLASS_FLOAT)], 0, true));
     }
 
     /// Epic S2 (1.2): a read in a *later block* keeps the store alive through
