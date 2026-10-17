@@ -75,6 +75,7 @@ impl<'c> ScopedContext<'c> {
         magic: i16,
         proto: Object,
         entries: &[FieldDef],
+        parent_ctor: Option<Object>,
     ) -> Result<Object, i32> {
         debug_assert!(self.class_slots.len() > class_id as usize);
         debug_assert!(
@@ -88,13 +89,20 @@ impl<'c> ScopedContext<'c> {
             .map(|cd| cd.name_atom)
             .unwrap_or(Atom::NULL);
 
+        // A derived class chains its constructor onto the parent's, so static
+        // members are inherited the way `class B extends A` specifies.
+        let ctor_proto = match parent_ctor {
+            Some(p) => p,
+            None => self.function_proto(),
+        };
+
         let mut ctor: Object = NativeFunction::create(
             self,
             handler,
             class_name,
             length as _,
             magic,
-            self.function_proto(),
+            ctor_proto,
             None,
         )?
         .into();
@@ -108,6 +116,7 @@ impl<'c> ScopedContext<'c> {
         Ok(ctor)
     }
 
+    #[inline(always)]
     pub fn init_class_constructor(
         &mut self,
         class_id: ClassID,
@@ -117,6 +126,24 @@ impl<'c> ScopedContext<'c> {
         proto: Object,
         entries: &[FieldDef],
     ) -> Result<Object, i32> {
+        self.init_class_constructor_with_parent(
+            class_id, callback, length, magic, proto, entries, None,
+        )
+    }
+
+    /// `parent_ctor` chains the new constructor onto an existing one, giving
+    /// the class static-side inheritance (`Child.__proto__ === Base`). Pass
+    /// `None` for a root class.
+    pub fn init_class_constructor_with_parent(
+        &mut self,
+        class_id: ClassID,
+        callback: CallbackFn,
+        length: i32,
+        magic: i16,
+        proto: Object,
+        entries: &[FieldDef],
+        parent_ctor: Option<Object>,
+    ) -> Result<Object, i32> {
         self.init_class_ctor_internal(
             class_id,
             Callback::Constructor(callback),
@@ -124,6 +151,7 @@ impl<'c> ScopedContext<'c> {
             magic,
             proto,
             entries,
+            parent_ctor,
         )
     }
 
@@ -143,6 +171,7 @@ impl<'c> ScopedContext<'c> {
             magic,
             proto,
             entries,
+            None,
         )
     }
 

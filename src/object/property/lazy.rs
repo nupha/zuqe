@@ -127,7 +127,17 @@ impl JSProperty {
 }
 
 impl ObjectImpl {
-    /// define an lazy init property on object
+    /// Define a lazy-init property on an object.
+    ///
+    /// Lazy slots are appended, never merged: `add_own_property` grows the
+    /// shape and writes at the new end. Defining a name the object already owns
+    /// would therefore leave the shape and `prop_values` disagreeing about how
+    /// many slots there are, so it is refused here rather than asserted. The
+    /// object being freshly built is the only correct caller.
+    ///
+    /// Redefining an existing property is a different question and belongs to
+    /// `define_property`, which consults `check_define_prop_flags`: a
+    /// configurable property is replaced, a non-configurable one is refused.
     pub(crate) fn define_lazy_property(
         &mut self,
         ctx: &mut ScopedContext,
@@ -135,12 +145,12 @@ impl ObjectImpl {
         lazy_val: LazyInit,
         flags: u32,
     ) -> Result<&mut Self, i32> {
-        debug_assert!(
-            !self.has_shape_property(prop),
-            "auto init property already exists: {} {:?}",
-            prop.id(),
-            prop.to_utf8(ctx.rt())
-        );
+        if self.has_shape_property(prop) {
+            return Err(ctx.throw_type_error(&format!(
+                "cannot define lazy property '{}': already exists",
+                prop.to_utf8(ctx.rt())
+            )));
+        }
 
         let realm = ContextPtr::from(ctx.gc_ref());
 

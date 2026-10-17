@@ -329,9 +329,26 @@ impl ClassDef {
                     // Extends inheritance: set up prototype chain. Resolve the
                     // parent id lazily so registration order does not matter.
                     let parent_id = parent_resolver();
+                    if parent_id == class_id {
+                        return Err(ctx.throw_internal_error(&format!(
+                            "class ({class_id}) declares itself as its own parent"
+                        )));
+                    }
+                    // Building the parent here is what makes the lazy resolution
+                    // sound. Built-in classes are all registered before
+                    // `use_classes` initializes them in one batch, so the parent
+                    // happens to be ready; a caller that initializes classes
+                    // incrementally (zapi registers and builds one at a time)
+                    // can reach the child first, and the lookups below would
+                    // then run against an unbuilt class.
+                    ctx.use_class(parent_id)?;
 
                     if ctx.class_slots[class_id as usize].proto.is_none() {
-                        let parent_proto = ctx.class_proto(parent_id).unwrap();
+                        let Some(parent_proto) = ctx.class_proto(parent_id) else {
+                            return Err(ctx.throw_internal_error(&format!(
+                                "class ({class_id}): parent class ({parent_id}) has no prototype"
+                            )));
+                        };
                         let proto = ctx.create_base_object_with_proto(Some(parent_proto))?;
                         ctx.init_class_proto_internal(class_id, proto, proto_entries)?;
                     }
@@ -340,7 +357,11 @@ impl ClassDef {
                         && ctx.class_slots[class_id as usize].ctor.is_none()
                     {
                         let class_name = ctx.rt().class_def(class_id).unwrap().name_atom;
-                        let parent_ctor = ctx.class_constructor(parent_id).unwrap();
+                        let Some(parent_ctor) = ctx.class_constructor(parent_id) else {
+                            return Err(ctx.throw_internal_error(&format!(
+                                "class ({class_id}): parent class ({parent_id}) has no constructor"
+                            )));
+                        };
 
                         let proto = ctx.class_proto(class_id).unwrap();
                         let mut ctor: Object = NativeFunction::create(
@@ -383,7 +404,7 @@ impl ClassDef {
                     {
                         let proto = ctx.class_proto(class_id).unwrap();
                         let ctor = ctx.init_class_ctor_internal(
-                            class_id, c.callback, c.length, c.magic, proto, c.entries,
+                            class_id, c.callback, c.length, c.magic, proto, c.entries, None,
                         )?;
                         if c.export_to_global {
                             ctx.global_obj().define_property_value(

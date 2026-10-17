@@ -10,15 +10,14 @@ use std::{
 
 use libloading::Library;
 use zuqe_zapi::ffi::{
-    ZQ_ABI_BASE, ZQ_ABI_VERSION, ZQ_API_BASE, ZQ_API_VERSION, ZQ_CONST_VALUE_SLOT_EXCEPTION,
-    ZQ_FIELD_BOOL, ZQ_FIELD_CLASS, ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC, ZQ_FIELD_GETSET, ZQ_FIELD_INT,
-    ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED, ZQ_FIELD_VALUE, ZqApi, ZqBodyFn, ZqCallInfoS, ZqFieldDef,
-    ZqModuleInfo, ZqRawCtx, ZqRawValue,
+    ZQ_ABI_VERSION, ZQ_API_VERSION, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_FIELD_BOOL, ZQ_FIELD_CLASS,
+    ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC, ZQ_FIELD_GETSET, ZQ_FIELD_INT, ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED,
+    ZQ_FIELD_VALUE, ZqApi, ZqBodyFn, ZqCallInfoS, ZqFieldDef, ZqModuleInfo, ZqRawCtx, ZqRawValue,
 };
 
 use crate::{JSValue, ModuleDef, ScopedContext, class::ClassID, function::Callback};
 
-use super::stub::{ZQ_API_TABLE, zq_to_js_prop_flags};
+use super::stub::{ZQ_ABI_MIN, ZQ_API_MIN, ZQ_API_TABLE, zq_to_js_prop_flags};
 
 /// A zapi extension dylib, loaded at most once per process and kept mapped for
 /// the whole process lifetime.
@@ -326,17 +325,17 @@ impl<'a> ScopedContext<'a> {
 
         // Validate ABI compatibility
         let ext_abi = md_info.abi_version();
-        if !(ZQ_ABI_BASE..=ZQ_ABI_VERSION).contains(&ext_abi) {
+        if !(ZQ_ABI_MIN..=ZQ_ABI_VERSION).contains(&ext_abi) {
             return Err(self.throw_reference_error(&format!(
-                "module '{file_url}': zapi ABI version {ext_abi} mismatch (expect {ZQ_ABI_BASE} - {ZQ_ABI_VERSION})"
+                "module '{file_url}': zapi ABI version {ext_abi} mismatch (expect {ZQ_ABI_MIN} - {ZQ_ABI_VERSION})"
             )));
         }
 
         // Validate API capability
         let ext_api = md_info.api_version();
-        if !(ZQ_API_BASE..=ZQ_API_VERSION).contains(&ext_api) {
+        if !(ZQ_API_MIN..=ZQ_API_VERSION).contains(&ext_api) {
             return Err(self.throw_reference_error(&format!(
-                "module '{file_url}': zapi API version {ext_api} mismatch (expect {ZQ_API_BASE} - {ZQ_API_VERSION})"
+                "module '{file_url}': zapi API version {ext_api} mismatch (expect {ZQ_API_MIN} - {ZQ_API_VERSION})"
             )));
         }
 

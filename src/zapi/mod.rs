@@ -8,7 +8,9 @@ use std::ffi::c_void;
 /// Re-exported so embedders (e.g. aike) can report the numbers they must agree
 /// on without taking a direct `zuqe_zapi` dependency — `zuqe` stays the single
 /// source of truth for the contract.
-pub use zuqe_zapi::ffi::{ZQ_ABI_BASE, ZQ_ABI_VERSION, ZQ_API_BASE, ZQ_API_VERSION};
+pub use zuqe_zapi::ffi::{ZQ_ABI_VERSION, ZQ_API_VERSION};
+
+pub use stub::{ZQ_ABI_MIN, ZQ_API_MIN};
 
 use zuqe_zapi::ffi::{ZqClassDef, ZqGcTraceFn};
 
