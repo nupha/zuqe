@@ -40,15 +40,19 @@ use super::{
     abi::{
         HELPER_ADD, HELPER_ADD_LOC, HELPER_AND, HELPER_DEC, HELPER_DELETE, HELPER_DIV, HELPER_EQ,
         HELPER_GET_ARRAY_EL, HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3, HELPER_GET_FIELD,
-        HELPER_GET_FIELD2, HELPER_GET_VAR, HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE, HELPER_IN,
-        HELPER_INC, HELPER_INSTANCEOF, HELPER_LNOT, HELPER_LT, HELPER_LTE, HELPER_MOD, HELPER_MUL,
-        HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH, HELPER_NOT, HELPER_OR, HELPER_PLUS,
-        HELPER_POST_DEC, HELPER_POST_INC, HELPER_POW, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD,
-        HELPER_PUT_VAR, HELPER_PUT_VAR_INIT, HELPER_SAFEPOINT, HELPER_SAR, HELPER_SHL, HELPER_SHR,
-        HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT,
-        HELPER_TO_PROPKEY, HELPER_TYPEOF, HELPER_XOR, JitExecFrame,
+        HELPER_GET_FIELD2, HELPER_GET_VAR, HELPER_GET_VAR_REF, HELPER_GET_VAR_REF_CHECK,
+        HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE, HELPER_IN, HELPER_INC, HELPER_INSTANCEOF,
+        HELPER_LNOT, HELPER_LT, HELPER_LTE, HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ,
+        HELPER_NIP_CATCH, HELPER_NOT, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC,
+        HELPER_POW, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD, HELPER_PUT_VAR, HELPER_PUT_VAR_INIT,
+        HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK, HELPER_PUT_VAR_REF_CHECK_INIT,
+        HELPER_SAFEPOINT, HELPER_SAR, HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ,
+        HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY,
+        HELPER_TYPEOF, HELPER_XOR, JitExecFrame,
     },
-    bytecode::{cfg::ControlFlowGraph, decode::Instruction, verify::VerifiedFunction},
+    bytecode::{
+        cfg::ControlFlowGraph, decode::Instruction, stack::SlotKind, verify::VerifiedFunction,
+    },
     error::JitError,
     feedback::{CLASS_INT, SiteFeedback},
 };
@@ -125,6 +129,16 @@ fn supported(name: &str) -> bool {
                 | "get_var_undef"
                 | "put_var"
                 | "put_var_init"
+                | "get_var_ref"
+                | "put_var_ref"
+                | "set_var_ref"
+                | "get_var_ref_check"
+                | "put_var_ref_check"
+                | "put_var_ref_check_init"
+                | "get_loc_checkthis"
+                | "put_loc_check"
+                | "put_loc_check_init"
+                | "set_loc_check"
                 | "get_array_el"
                 | "get_array_el2"
                 | "get_array_el3"
@@ -545,6 +559,20 @@ impl StackCache {
         self.tracked = true;
         self.entries.remove(&top);
         self.entries.remove(&(top - 1));
+    }
+
+    /// Record that the current top slot (key `height`) is a known `Int`,
+    /// without changing the height or `sp`. Only sound when *every* path that
+    /// reaches the slot boxes an `Int` (epic 1.4 item 1: `shl`/`sar`).
+    fn result_int(&mut self, sp: Value, value: Value) -> Value {
+        self.entries.insert(
+            self.height,
+            CachedSlot {
+                value,
+                known_int: true,
+            },
+        );
+        sp
     }
 
     /// Apply a raw stack effect the lowering computes itself — shuffles are
@@ -1210,6 +1238,7 @@ fn lower(
                 helper_sig,
                 truthy_sig,
                 strict,
+                verified,
                 &mut state,
                 insn,
                 start_height,
@@ -1300,6 +1329,7 @@ fn lower_insn(
     helper_sig: cranelift_codegen::ir::SigRef,
     truthy_sig: cranelift_codegen::ir::SigRef,
     strict: bool,
+    verified: &VerifiedFunction,
     state: &mut State,
     insn: &Instruction,
     start_height: u32,
@@ -1459,8 +1489,10 @@ fn lower_insn(
         // binding and, per ES, belongs in the *caller's* realm), so the
         // sentinel case exits `Resume` at this pc and lets it re-execute the
         // op. The flush before the split keeps memory authoritative on both
-        // paths (the exit materializes the operand stack).
-        "get_loc_check" => {
+        // paths (the exit materializes the operand stack). `get_loc_checkthis`
+        // shares the lowering: only the error realm differs, and that path is
+        // the interpreter's.
+        "get_loc_check" | "get_loc_checkthis" => {
             let idx = u32::from(insn.operand_u16(1));
             let v = state
                 .locals
@@ -1474,6 +1506,39 @@ fn lower_insn(
             exit(state, b, fv, EXIT_RESUME, pc, sp);
             b.switch_to_block(ok);
             Step::Continue(state.stack.push(b, sp, v))
+        }
+        // TDZ-checked local writes: the guard exits `Resume` at this pc and
+        // lets the interpreter raise the error (same delegation as the read
+        // above). `put_loc_check`/`set_loc_check` require an initialized slot,
+        // `put_loc_check_init` requires the opposite.
+        "put_loc_check" | "put_loc_check_init" | "set_loc_check" => {
+            let idx = u32::from(insn.operand_u16(1));
+            let cur = state
+                .locals
+                .read(b, fv.var_base, false, idx, loc_offset_u16(insn));
+            let uninitialized = b.ins().icmp_imm(IntCC::Equal, cur, UNINITIALIZED_BITS);
+            let bad = if name == "put_loc_check_init" {
+                b.ins().icmp_imm(IntCC::NotEqual, cur, UNINITIALIZED_BITS)
+            } else {
+                uninitialized
+            };
+            let (sp, v) = if name == "set_loc_check" {
+                let v = state.stack.read_top(b, sp);
+                (sp, v)
+            } else {
+                state.stack.pop(b, sp)
+            };
+            let slow = b.create_block();
+            let ok = b.create_block();
+            state.stack.flush(b, sp);
+            b.ins().brif(bad, slow, &[], ok, &[]);
+            b.switch_to_block(slow);
+            exit(state, b, fv, EXIT_RESUME, pc, sp);
+            b.switch_to_block(ok);
+            b.ins()
+                .store(MemFlags::new(), v, fv.var_base, loc_offset_u16(insn));
+            state.locals.fill(false, idx, v);
+            Step::Continue(sp)
         }
         // `rest`: the helper rebuilds the interpreter's `args[start..]` slice.
         "rest" => {
@@ -1511,6 +1576,27 @@ fn lower_insn(
                 "get_var_undef" => HELPER_GET_VAR_UNDEF,
                 "put_var" => HELPER_PUT_VAR,
                 _ => HELPER_PUT_VAR_INIT,
+            };
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
+            Step::Continue(sp)
+        }
+        // Closure captures live behind the GC, so the helper owns the read and
+        // write (and, for the `_check` variants, the TDZ error).
+        "get_var_ref"
+        | "put_var_ref"
+        | "set_var_ref"
+        | "get_var_ref_check"
+        | "put_var_ref_check"
+        | "put_var_ref_check_init" => {
+            let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
+            b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM);
+            let id = match name {
+                "get_var_ref" => HELPER_GET_VAR_REF,
+                "put_var_ref" => HELPER_PUT_VAR_REF,
+                "set_var_ref" => HELPER_SET_VAR_REF,
+                "get_var_ref_check" => HELPER_GET_VAR_REF_CHECK,
+                "put_var_ref_check" => HELPER_PUT_VAR_REF_CHECK,
+                _ => HELPER_PUT_VAR_REF_CHECK_INIT,
             };
             let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
             Step::Continue(sp)
@@ -1583,7 +1669,20 @@ fn lower_insn(
             let v = state
                 .locals
                 .read(b, fv.var_base, false, idx, loc_offset_u16(insn));
-            Step::Continue(state.stack.push(b, sp, v))
+            // Epic 1.4 item 3: a slot the verifier proves `Int32` is a known
+            // `Int`. Only trusted when no reference can alias a local (the same
+            // condition the local cache uses), because a `VarRef` write out of
+            // sight would invalidate the proof.
+            let proven_int = state.locals.locals
+                && verified
+                    .local_kinds_at(pc)
+                    .and_then(|kinds| kinds.get(idx as usize))
+                    == Some(&SlotKind::Int32);
+            Step::Continue(if proven_int {
+                state.stack.push_int(b, sp, v)
+            } else {
+                state.stack.push(b, sp, v)
+            })
         }
         "get_arg" => {
             let idx = u32::from(insn.operand_u16(1));
@@ -1969,6 +2068,13 @@ fn lower_fast_binary(
     // Both paths store the result into slot `top-1`; the operand entries are
     // now stale (a flush would overwrite that result), so drop them.
     state.stack.consumed_binary();
+    // Epic 1.4 item 1: `shl`/`sar` box `From<i32>`, so *both* paths deliver an
+    // `Int` — the merged slot is a known-Int fact with no phi needed.
+    if matches!(op, FastOp::Shl | FastOp::Sar) {
+        let sp_next = b.use_var(sp_var);
+        let v = b.ins().load(types::I64, MemFlags::new(), sp_next, -8);
+        return Step::Continue(state.stack.result_int(sp_next, v));
+    }
     Step::Continue(b.use_var(sp_var))
 }
 
@@ -2008,6 +2114,9 @@ fn lower_add_loc_int(
     let fast = b.create_block();
     let slow = b.create_block();
     let cont = b.create_block();
+    // The new local value travels to `cont` so a later read in the block reuses
+    // it (epic 1.4 item 2). Both paths write the same slot, so a phi is exact.
+    b.append_block_param(cont, types::I64);
     // Like `lower_fast_binary`: materialize everything but the operand, which
     // only the slow path's helper still needs in memory.
     state.stack.flush_except(b, sp, &[top]);
@@ -2025,7 +2134,7 @@ fn lower_add_loc_int(
     b.ins().store(MemFlags::new(), boxed, fv.var_base, byte_off);
     let sp_next = b.ins().iadd_imm(sp, -8);
     b.def_var(sp_var, sp_next);
-    b.ins().jump(cont, &[]);
+    b.ins().jump(cont, &[boxed.into()]);
 
     b.switch_to_block(slow);
     // Leave the operand on the stack and set `imm`; the helper pops it and
@@ -2034,12 +2143,18 @@ fn lower_add_loc_int(
     b.ins().store(MemFlags::new(), imm, fv.frame, O_IMM);
     let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_ADD_LOC, pc_after);
     b.def_var(sp_var, sp_slow);
-    b.ins().jump(cont, &[]);
+    let slow_local = b
+        .ins()
+        .load(types::I64, MemFlags::new(), fv.var_base, byte_off);
+    b.ins().jump(cont, &[slow_local.into()]);
 
     b.switch_to_block(cont);
     // Pop2/push1 would be wrong here: this op only pops the operand — the
     // result went into the *local* (fast path stores it, helper writes it).
     state.stack.drop_top();
+    state
+        .locals
+        .fill(false, idx as u32, b.block_params(cont)[0]);
     Step::Continue(b.use_var(sp_var))
 }
 
@@ -2072,6 +2187,9 @@ fn lower_incdec_loc_int(
     let fast = b.create_block();
     let slow = b.create_block();
     let cont = b.create_block();
+    // Carry the new local value across the merge for a later read (epic 1.4
+    // item 2).
+    b.append_block_param(cont, types::I64);
     // No stack operand here, but the model still has to match both paths:
     // materialize before the split, where the stores dominate it.
     state.stack.flush(b, sp);
@@ -2093,16 +2211,22 @@ fn lower_incdec_loc_int(
     let boxed = b.ins().uextend(types::I64, res);
     b.ins().store(MemFlags::new(), boxed, fv.var_base, byte_off);
     b.def_var(sp_var, sp);
-    b.ins().jump(cont, &[]);
+    b.ins().jump(cont, &[boxed.into()]);
 
     b.switch_to_block(slow);
     let imm = b.ins().iconst(types::I32, i64::from(idx));
     b.ins().store(MemFlags::new(), imm, fv.frame, O_IMM);
     let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, helper_id, pc_after);
     b.def_var(sp_var, sp_slow);
-    b.ins().jump(cont, &[]);
+    let slow_local = b
+        .ins()
+        .load(types::I64, MemFlags::new(), fv.var_base, byte_off);
+    b.ins().jump(cont, &[slow_local.into()]);
 
     b.switch_to_block(cont);
+    state
+        .locals
+        .fill(false, idx as u32, b.block_params(cont)[0]);
     Step::Continue(b.use_var(sp_var))
 }
 
@@ -2260,6 +2384,63 @@ mod tests {
         assert!(
             known < checked,
             "the known-Int operand skips its check: {known} vs {checked} bytes"
+        );
+    }
+
+    /// Epic 1.4 item 1: `shl`/`sar` box `From<i32>` on *both* paths, so their
+    /// merged result is a known `Int` and the consumer skips its tag check.
+    /// `shr` boxes `From<u32>` (possibly a Float64), so the identical shape is
+    /// bigger by exactly that check.
+    #[test]
+    fn shift_results_are_known_int() {
+        let shape = |op: u8| {
+            seq(&[
+                &push_i32(3),
+                &push_i32(1),
+                &[op],
+                &[op::OP_push_const],
+                &u32b(0),
+                &[op::OP_add],
+                &loc(op::OP_put_loc, 0),
+                &[op::OP_return_undef],
+            ])
+        };
+        let shl = compile_len(shape(op::OP_shl), 1, 0);
+        let shr = compile_len(shape(op::OP_shr), 1, 0);
+        assert!(
+            shl < shr,
+            "a shift result skips the consumer's check: {shl} vs {shr} bytes"
+        );
+    }
+
+    /// Epic 1.4 item 3: a local the verifier proves `Int32` carries the fact
+    /// through `get_loc`, so its consumer skips a check. The two shapes are the
+    /// same bytecode; only the initializing producer differs, so the byte-size
+    /// gap is the checks the `Int32` proof removes.
+    #[test]
+    fn proven_int_local_skips_the_check() {
+        let tail = seq(&[
+            &loc(op::OP_get_loc, 0),
+            &[op::OP_push_const],
+            &u32b(0),
+            &[op::OP_mul],
+            &loc(op::OP_put_loc, 1),
+            &[op::OP_return_undef],
+        ]);
+        // `push_i32` proves the local `Int32`; a non-numeric `push_const` (tag
+        // 2) leaves it `Tagged` and its constant operand unknown too.
+        let int_local = seq(&[&push_i32(5), &loc(op::OP_put_loc, 0), &tail]);
+        let tagged_local = seq(&[
+            &[op::OP_push_const],
+            &u32b(0),
+            &loc(op::OP_put_loc, 0),
+            &tail,
+        ]);
+        let proven = compile_len(int_local, 2, 0);
+        let unproven = compile_len(tagged_local, 2, 2);
+        assert!(
+            proven < unproven,
+            "a proven-Int local feeds the guard fact: {proven} vs {unproven} bytes"
         );
     }
 
@@ -2680,6 +2861,87 @@ mod tests {
             )
             .unwrap_or_else(|e| panic!("opcode {name} failed to lower: {e:?}"));
         }
+
+        // Closure var refs (epic 2.1) need a non-zero closure-var count.
+        for (name, code) in [
+            ("get_var_ref", op::OP_get_var_ref),
+            ("get_var_ref_check", op::OP_get_var_ref_check),
+        ] {
+            compile_bytes_gv(seq(&[&loc(code, 0), &ret]), 0, 0, 1)
+                .unwrap_or_else(|e| panic!("opcode {name} failed to lower: {e:?}"));
+        }
+        for (name, code) in [
+            ("put_var_ref", op::OP_put_var_ref),
+            ("put_var_ref_check", op::OP_put_var_ref_check),
+            ("put_var_ref_check_init", op::OP_put_var_ref_check_init),
+        ] {
+            compile_bytes_gv(
+                seq(&[&push_i32(0), &loc(code, 0), &[op::OP_return_undef]]),
+                0,
+                0,
+                1,
+            )
+            .unwrap_or_else(|e| panic!("opcode {name} failed to lower: {e:?}"));
+        }
+        compile_bytes_gv(
+            seq(&[&push_i32(0), &loc(op::OP_set_var_ref, 0), &ret]),
+            0,
+            0,
+            1,
+        )
+        .unwrap_or_else(|e| panic!("opcode set_var_ref failed to lower: {e:?}"));
+
+        // TDZ-checked local ops (epic 2.3).
+        for (name, code) in [
+            ("put_loc_check", op::OP_put_loc_check),
+            ("put_loc_check_init", op::OP_put_loc_check_init),
+        ] {
+            compile_bytes(
+                seq(&[
+                    &loc(op::OP_set_loc_uninitialized, 0),
+                    &push_i32(0),
+                    &loc(code, 0),
+                    &[op::OP_return_undef],
+                ]),
+                0,
+                1,
+            )
+            .unwrap_or_else(|e| panic!("opcode {name} failed to lower: {e:?}"));
+        }
+        compile_bytes(
+            seq(&[
+                &loc(op::OP_set_loc_uninitialized, 0),
+                &push_i32(0),
+                &loc(op::OP_set_loc_check, 0),
+                &ret,
+            ]),
+            0,
+            1,
+        )
+        .unwrap_or_else(|e| panic!("opcode set_loc_check failed to lower: {e:?}"));
+        compile_bytes(seq(&[&loc(op::OP_get_loc_checkthis, 0), &ret]), 0, 1)
+            .unwrap_or_else(|e| panic!("opcode get_loc_checkthis failed to lower: {e:?}"));
+    }
+
+    /// Epic 2.3: policy promises `Native` must mean "the baseline lowers it".
+    /// Every opcode the generated table calls `Native` must pass [`supported`];
+    /// otherwise it silently degrades to an instruction-level `Resume` (the
+    /// function compiles, but re-enters the interpreter at that op). This is
+    /// the guard that stops a new `Native` opcode from being added without a
+    /// lowering.
+    #[test]
+    fn every_native_policy_opcode_is_lowered() {
+        use crate::jit::{JitPolicy, opcode_names, opcode_policies};
+        let missing: Vec<&str> = opcode_names()
+            .iter()
+            .zip(opcode_policies())
+            .filter(|(name, policy)| **policy == JitPolicy::Native && !supported(name))
+            .map(|(name, _)| *name)
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "Native opcodes with no lowering: {missing:?}"
+        );
     }
 
     #[test]

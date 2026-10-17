@@ -165,6 +165,9 @@ pub(crate) struct VerifiedFunction {
     /// cache by these static heights. Unreachable instructions carry 0 and
     /// are never lowered.
     stack_heights: Box<[u16]>,
+    /// Proven local kinds before each `get_loc`-family instruction, keyed by
+    /// pc (epic 1.4 item 3).
+    local_kinds: BTreeMap<u32, Box<[SlotKind]>>,
 }
 
 impl VerifiedFunction {
@@ -176,10 +179,16 @@ impl VerifiedFunction {
         &self.instructions
     }
 
-    /// Stack height before each instruction (see the field docs). Indexed by
+    /// Operand-stack height before each instruction (see the field docs). Indexed by
     /// instruction index, same order as [`Self::instructions`].
     pub(crate) fn stack_heights(&self) -> &[u16] {
         &self.stack_heights
+    }
+
+    /// The proven local kinds before the `get_loc`-family instruction at `pc`,
+    /// if it is reachable (epic 1.4 item 3).
+    pub(crate) fn local_kinds_at(&self, pc: u32) -> Option<&[SlotKind]> {
+        self.local_kinds.get(&pc).map(|kinds| &**kinds)
     }
 
     pub(crate) const fn control_flow_graph(&self) -> &ControlFlowGraph {
@@ -424,6 +433,7 @@ pub(crate) fn verify(
     // Epic F4: keep the proven entry height of every instruction — the
     // lowering keys its block-local stack cache by them.
     let stack_heights = proof.heights;
+    let local_kinds = proof.local_kinds;
 
     Ok(VerifiedFunction {
         snapshot,
@@ -434,5 +444,6 @@ pub(crate) fn verify(
         unreachable,
         exception_regions,
         stack_heights: stack_heights.into_boxed_slice(),
+        local_kinds,
     })
 }

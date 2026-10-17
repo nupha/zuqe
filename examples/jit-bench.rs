@@ -120,6 +120,47 @@ const KERNELS: &[Kernel] = &[
                    return s; } workload(0, values);",
         work: "workload(7, values);",
     },
+    // scalar-control-flow.js: both branch exits establish numeric values whose
+    // join feeds the same multiply.
+    Kernel {
+        name: "scalar-control-flow",
+        define: "function workload(iterations, seed){ var sum = seed; for (var i = seed; i < iterations; i++){ var x, y; \
+                 if (i & 1) { x = i + seed; y = i - seed; } else { x = i - seed; y = i + seed; } \
+                 sum = (sum + ((x * y) & 1023)) | 0; } return sum; } workload(10, 1);",
+        work: "workload(3000000, 1);",
+    },
+    // scalar-expressions.js: repeated nested numeric expressions.
+    Kernel {
+        name: "scalar-expressions",
+        define: "function workload(iterations, seed){ var sum = seed; for (var i = seed; i < iterations; i++){ var x = i & 7; \
+                 sum += ((x + 1) * (x + 3)) + ((x + 1) * (x + 3)); } return sum; } workload(10, 1);",
+        work: "workload(4000000, 1);",
+    },
+    // quickjs-fibonacci.js: integer induction with int32 wrap.
+    Kernel {
+        name: "fib-iter-i32",
+        define: "function workload(n, seed){ var a = seed | 0, b = 1; for (var i = 0; i < n; i++){ var next = (a + b) | 0; a = b; b = next; } return a; } workload(10, 1);",
+        work: "workload(3000000, 12345);",
+    },
+    // float64-dense.js: dense Float64 arithmetic, no property lookups.
+    Kernel {
+        name: "float64-dense",
+        define: "function float64Kernel(iterations, seed){ var two = 2; var p3 = two * two * two; var p6 = p3 * p3; \
+                 var p10 = p6 * p3 * two; var p13 = p10 * p3; var p20 = p10 * p10; \
+                 var x = seed / p10 + 1 / p3; var y = 1 + 1 / p20; var sum = 0; \
+                 for (var i = 0; i < iterations; i++){ x = x * (1 + 1 / p13) + 1 / p10; y = (y + x / p20) / (1 + 1 / p20); sum = sum + x * y + x / (i + 1); } \
+                 return sum; } function workload(iterations, seed){ return float64Kernel(iterations - 0.000001, seed + 0.000001); } workload(10, 1);",
+        work: "workload(400000, 1);",
+    },
+    // property-polymorphic.js: the `x`/`y` sites each see three shapes.
+    Kernel {
+        name: "property-polymorphic",
+        define: "var SHAPES = { a: { x: 1, y: 10 }, b: { y: 20, x: 2, z: 5 }, c: { tag: 7, x: 3, y: 30 } }; \
+                 function workload(n, seed, shapes){ var sum = seed; var p = shapes.a; for (var i = 0; i < n; i++){ var k = i % 3; \
+                 if (k === 0) p = shapes.a; else if (k === 1) p = shapes.b; else p = shapes.c; \
+                 sum = sum + p.x + p.y; } return sum; } workload(10, 1, SHAPES);",
+        work: "workload(500000, 1, SHAPES);",
+    },
 ];
 
 /// Parse `--modes interpreter,tier1,tier2,automatic`; default is every

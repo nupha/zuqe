@@ -1058,6 +1058,128 @@ unsafe extern "C" fn h_fclosure(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// The current frame's captured var refs, resolved from its func_obj exactly
+/// as the interpreter does (each function in the call chain owns its own
+/// `captured_vars`).
+unsafe fn captured_vars_of<'a>(f: &'a JitExecFrame) -> &'a mut [VarRef] {
+    unsafe {
+        let frame_idx = FrameIndex::from_u32(f.cur_frame_idx);
+        let func_obj = (*f.arena).frame(frame_idx).func_obj;
+        match BCWrapper::try_from(JSValue::from(func_obj)) {
+            // `bfun` is a Copy `GcRef`, so the payload borrows GC memory that
+            // outlives this call; launder it to reuse the caller's lifetime.
+            Ok(mut bfun) => {
+                let cv: *mut [VarRef] = bfun.payload_mut().captured_vars_mut();
+                &mut *cv
+            }
+            Err(_) => &mut [],
+        }
+    }
+}
+
+/// The running function's bytecode, for the rare helper that must name a
+/// binding (the uninitialized-var_ref error message).
+unsafe fn current_bytecode(f: &JitExecFrame) -> Option<crate::function::Bytecode> {
+    let frame_idx = FrameIndex::from_u32(f.cur_frame_idx);
+    let func_obj = unsafe { (*f.arena).frame(frame_idx).func_obj };
+    BCWrapper::try_from(JSValue::from(func_obj))
+        .ok()
+        .map(|bfun| bfun.payload().bytecode())
+}
+
+/// `get_var_ref`: push a captured binding. `imm` is the var_ref index.
+unsafe extern "C" fn h_get_var_ref(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let value = captured_vars_of(f)[f.imm as usize].value();
+        *f.sp = value;
+        f.sp = f.sp.add(1);
+        HELPER_OK
+    }
+}
+
+/// `put_var_ref`: write the top of stack back and pop it.
+unsafe extern "C" fn h_put_var_ref(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let value = *f.sp.offset(-1);
+        let mut rt = scope_of(f).rt_ptr();
+        captured_vars_of(f)[f.imm as usize].set_value(&mut rt, value);
+        f.sp = f.sp.offset(-1);
+        HELPER_OK
+    }
+}
+
+/// `set_var_ref`: write the top of stack back, keeping it (assignment result).
+unsafe extern "C" fn h_set_var_ref(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let value = *f.sp.offset(-1);
+        let mut rt = scope_of(f).rt_ptr();
+        captured_vars_of(f)[f.imm as usize].set_value(&mut rt, value);
+        HELPER_OK
+    }
+}
+
+/// `get_var_ref_check`: push a captured binding unless it is still in the TDZ.
+/// The error is raised here so the message names the binding, exactly like the
+/// interpreter's `throw_reference_error_uninitialized2(_, _, true)`.
+unsafe extern "C" fn h_get_var_ref_check(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let idx = f.imm as u16;
+        let value = captured_vars_of(f)[idx as usize].value();
+        if value.is_uninitialized() {
+            if let Some(b) = current_bytecode(f) {
+                let _ = scope_of(f).throw_reference_error_uninitialized2(&b, idx, true);
+            }
+            return HELPER_EXCEPTION;
+        }
+        *f.sp = value;
+        f.sp = f.sp.add(1);
+        HELPER_OK
+    }
+}
+
+/// `put_var_ref_check`: TDZ-checked `put_var_ref`.
+unsafe extern "C" fn h_put_var_ref_check(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let idx = f.imm as u16;
+        if captured_vars_of(f)[idx as usize].value().is_uninitialized() {
+            if let Some(b) = current_bytecode(f) {
+                let _ = scope_of(f).throw_reference_error_uninitialized2(&b, idx, true);
+            }
+            return HELPER_EXCEPTION;
+        }
+        let value = *f.sp.offset(-1);
+        let mut rt = scope_of(f).rt_ptr();
+        captured_vars_of(f)[idx as usize].set_value(&mut rt, value);
+        f.sp = f.sp.offset(-1);
+        HELPER_OK
+    }
+}
+
+/// `put_var_ref_check_init`: initialize a captured `this` binding, which must
+/// still be in the TDZ (re-initialization is a ReferenceError).
+unsafe extern "C" fn h_put_var_ref_check_init(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let idx = f.imm as u16;
+        if !captured_vars_of(f)[idx as usize].value().is_uninitialized() {
+            if let Some(b) = current_bytecode(f) {
+                let _ = scope_of(f).throw_reference_error_uninitialized2(&b, idx, true);
+            }
+            return HELPER_EXCEPTION;
+        }
+        let value = *f.sp.offset(-1);
+        let mut rt = scope_of(f).rt_ptr();
+        captured_vars_of(f)[idx as usize].set_value(&mut rt, value);
+        f.sp = f.sp.offset(-1);
+        HELPER_OK
+    }
+}
+
 /// Loop back edge: deliver interrupts and run a deferred collection. Mirrors
 /// the interpreter's per-opcode safepoint.
 unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
@@ -1100,7 +1222,7 @@ unsafe extern "C" fn h_set_name(f: *mut JitExecFrame) -> u32 {
 }
 
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 57;
+pub(crate) const HELPER_COUNT: usize = 63;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -1189,6 +1311,18 @@ pub(crate) const HELPER_PUSH_THIS: usize = 54;
 pub(crate) const HELPER_FCLOSURE: usize = 55;
 /// Index of [`h_set_name`].
 pub(crate) const HELPER_SET_NAME: usize = 56;
+/// Index of [`h_get_var_ref`].
+pub(crate) const HELPER_GET_VAR_REF: usize = 57;
+/// Index of [`h_put_var_ref`].
+pub(crate) const HELPER_PUT_VAR_REF: usize = 58;
+/// Index of [`h_set_var_ref`].
+pub(crate) const HELPER_SET_VAR_REF: usize = 59;
+/// Index of [`h_get_var_ref_check`].
+pub(crate) const HELPER_GET_VAR_REF_CHECK: usize = 60;
+/// Index of [`h_put_var_ref_check`].
+pub(crate) const HELPER_PUT_VAR_REF_CHECK: usize = 61;
+/// Index of [`h_put_var_ref_check_init`].
+pub(crate) const HELPER_PUT_VAR_REF_CHECK_INIT: usize = 62;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -1254,4 +1388,10 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_push_this as *const (),
     h_fclosure as *const (),
     h_set_name as *const (),
+    h_get_var_ref as *const (),
+    h_put_var_ref as *const (),
+    h_set_var_ref as *const (),
+    h_get_var_ref_check as *const (),
+    h_put_var_ref_check as *const (),
+    h_put_var_ref_check_init as *const (),
 ]);

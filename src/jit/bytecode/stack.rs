@@ -112,6 +112,10 @@ pub(crate) struct StateProof {
     /// never lowered. Bounded by the u16 `stack_size`, which `check_stack_size`
     /// enforces after every transfer.
     pub(crate) heights: Vec<u16>,
+    /// Verifier-proven local kinds *before* each `get_loc`-family instruction,
+    /// keyed by pc (epic 1.4 item 3). Only reads record here, so the map stays
+    /// small; the lowering feeds `Int32` slots into its guard-elimination fact.
+    pub(crate) local_kinds: BTreeMap<u32, Box<[SlotKind]>>,
 }
 
 struct WorkBudget {
@@ -468,6 +472,7 @@ pub(crate) fn prove(
             visited: BTreeSet::new(),
             handlers: BTreeMap::new(),
             heights: Vec::new(),
+            local_kinds: BTreeMap::new(),
         });
     }
     let before_points: BTreeSet<u32> = cfg
@@ -495,6 +500,7 @@ pub(crate) fn prove(
     let mut visited = BTreeSet::new();
     let mut handlers = BTreeMap::new();
     let mut heights = vec![0u16; instructions.len()];
+    let mut local_kinds = BTreeMap::new();
 
     while let Some(block_pc) = queue.pop_front() {
         let block = cfg.block(block_pc).expect("CFG successor names a block");
@@ -506,6 +512,10 @@ pub(crate) fn prove(
             budget.charge(instruction.pc(), 1usize.saturating_add(state.cell_count()))?;
             // Epic F4: the lowering keys its stack cache by this height.
             heights[range.start + offset] = state.stack.len() as u16;
+            // Epic 1.4 item 3: record the proven local kinds for reads only.
+            if instruction.name().starts_with("get_loc") {
+                local_kinds.insert(instruction.pc(), state.locals.clone().into_boxed_slice());
+            }
             if before_points.contains(&instruction.pc()) {
                 budget.charge(instruction.pc(), state.cell_count())?;
                 before.insert(instruction.pc(), state.clone());
@@ -605,6 +615,7 @@ pub(crate) fn prove(
         visited,
         handlers,
         heights,
+        local_kinds,
     })
 }
 
