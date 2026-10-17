@@ -13,15 +13,19 @@ use std::collections::HashMap;
 
 use zuqe::jit::{JitPolicy, opcode_names, opcode_policies};
 
-use crate::common::{Case, Mode, run_case_polled};
+use crate::common::{Case, Mode, run_case, run_case_polled};
 
-/// Opcodes no JS program (and no compile pass) can emit today, so no JS case
-/// can ever claim them. Verified against every emit site in `src/`:
-/// `invalid` is the dispatcher's sentinel; `dup2` and `make_arg_ref` exist only
-/// as interpreter dispatch; `nip1` survives only in commented-out emitter code.
-/// Lowering for the first three is covered by
-/// `jit::compiler::every_supported_opcode_lowers`, which builds bytecode by
-/// hand. Keep this list justified line by line.
+/// Opcodes no *final* bytecode can contain, so no JS case can ever claim them.
+/// The JIT only ever sees the final stream (`JitPolicy` is indexed by
+/// `OP_COUNT_FINAL`), so a temp opcode the resolver folds away is out of scope.
+/// Verified against every emit site in `src/`: `invalid` is the dispatcher's
+/// sentinel; `dup2` and `make_arg_ref` exist only as interpreter dispatch;
+/// `nip1` survives only in commented-out emitter code; `add_loc`'s single emit
+/// site (`optimize::optimize_get_loc`) matches `get_loc(n) … dup put_loc(n)
+/// drop`, but `resolve_scoped_vars` rewrites every KEEP_TOP local write to
+/// `set_loc` in the earlier pass, so the pattern can never appear. Lowering for
+/// all of them is still covered by `jit::compiler::every_supported_opcode_lowers`,
+/// which builds bytecode by hand. Keep this list justified line by line.
 const UNREACHABLE: &[(&str, &str)] = &[
     ("invalid", "dispatcher sentinel, never emitted"),
     (
@@ -36,25 +40,23 @@ const UNREACHABLE: &[(&str, &str)] = &[
         "nip1",
         "the only emitter sites are commented out (parse/array.rs)",
     ),
+    (
+        "add_loc",
+        "reachable only if `optimize_get_loc`'s `get_loc(n) … dup put_loc(n) drop` \
+         pattern survived to pass 3, but `resolve_scoped_vars` rewrites the KEEP_TOP \
+         local write to `set_loc` in pass 2",
+    ),
 ];
 
 /// Opcodes `Native`/`Helper` (lowering covered by
 /// `jit::compiler::every_supported_opcode_lowers`) that no case in this suite
-/// produces. This is the honest e2e gap of M2b-2 — it must only shrink.
-///
-/// Seven of the eight original entries found shapes (2026-10-17): the
-/// depth-3 `super.x` lvalues (`super.p++` → `dup3`/`perm5`, `({k: super.p} = o)`
-/// → `rot4l`, `({[k]: super.p} = o)` → `rot5l`), a TDZ-checked `for` update
-/// (`put_loc_check`), a closure variable's `for` update (`put_var_ref`) and
-/// `super()` inside an arrow (`put_var_ref_check_init`).
-const GAPS: &[(&str, &str)] = &[(
-    "add_loc",
-    "the only emit site (`optimize::optimize_get_loc`) matches \
-     `get_loc(n) … dup put_loc(n) drop`, but `resolve_scoped_vars` rewrites \
-     every KEEP_TOP local write to `set_loc` before that pass, so no bytecode \
-     ever reaches the pattern; exposing it needs an optimizer reorder \
-     (interpreter bytecode change)",
-)];
+/// produces. **Empty since 2026-10-17**: the last eight entries all found
+/// shapes (the depth-3 `super.x` lvalues → `dup3`/`perm5`/`rot4l`/`rot5l`, a
+/// TDZ-checked `for` update → `put_loc_check`, a closure variable's `for`
+/// update → `put_var_ref`, `super()` inside an arrow →
+/// `put_var_ref_check_init`, and `add_loc` → moved to [`UNREACHABLE`]). The
+/// list stays so a future shape-less opcode has somewhere honest to go.
+const GAPS: &[(&str, &str)] = &[];
 
 /// Cases whose function the frontend refuses today although every opcode they
 /// claim is policy-accepted. **Empty since 2026-10-17** (`this_arguments_newtarget`
@@ -272,6 +274,13 @@ const CASES: &[OpCase] = op_cases! {
                   "f(1)",
           "f(4)",
           "'cvfu:' + f(3)";
+    // `a[i]++` is the depth-2 keep-second lvalue path (`perm4`): the old value
+    // is kept for the expression while the new one is stored.
+    array_element_postfix => [perm4]
+        = "var __seed = 0; function f(a, i){ var r = 0; for (var k = 0; k < 3; k++) { r = r + a[i]++; } return r + a[i]; }",
+                  "f([1], 0)",
+          "f([5], 0)",
+          "'ap:' + f([9], 0)";
     // `super()` inside an arrow captures the constructor's `this` as a lexical
     // closure variable, whose initialization is `put_var_ref_check_init`.
     captured_this_super_init => [put_var_ref_check_init]
@@ -546,6 +555,38 @@ fn a_script_that_declares_a_function_compiles() {
         run.after_definition
     );
     assert_eq!(run.main, "int:4", "g(3) == 4");
+}
+
+/// Absolute oracle for the `perm`/`rot` shuffles and the TDZ/closure writes
+/// beside them. The differential suites only compare native against the
+/// interpreter, so two wrong-but-equal implementations would pass; here the
+/// audited `CASES` snippets are executed on the interpreter and checked against
+/// the *language's* answer, hard-coded. This is the check that pins the
+/// interpreter's `PERM3`/`PERM4`/`PERM5` arms (and `ROT4L`/`ROT5L`) —
+/// `perm4`/`perm5` must be `a obj prop b` / `a this obj prop b` as in QuickJS.
+#[test]
+fn lvalue_shuffle_semantics_match_the_language() {
+    let expectations: &[(&str, &str)] = &[
+        // dup3 + perm5: `super.p++` keeps the old value and stores the new one.
+        ("super_lvalue_shuffles", "int:6"),
+        // perm4: `a[i]++` keeps the old element and stores the new one.
+        ("array_element_postfix", "int:26"),
+        // put_loc_check / put_var_ref: a `for` update writes through the TDZ
+        // check / the closure cell.
+        ("tdz_for_update", "int:4"),
+        ("closure_var_for_update", "int:4"),
+        // put_var_ref_check_init: `super(x)` inside the arrow initializes the
+        // captured `this` exactly once.
+        ("captured_this_super_init", "int:9"),
+    ];
+    for (name, expected) in expectations {
+        let case = CASES
+            .iter()
+            .find(|case| case.name == *name)
+            .unwrap_or_else(|| panic!("{name} is not in CASES"));
+        let (main, _, _) = run_case(Mode::Interpreter, &case.case);
+        assert_eq!(main, *expected, "{name}: the interpreter disagrees with JS");
+    }
 }
 
 /// `set_name` (the inferred name of a function *expression*) lowers too, so a

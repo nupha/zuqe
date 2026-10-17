@@ -314,10 +314,13 @@ fn shuffle_outputs(name: &str) -> Option<(usize, &'static [usize])> {
         "insert2" => (2, &[1, 0, 1]),
         "insert3" => (3, &[2, 0, 1, 2]),
         "insert4" => (4, &[3, 0, 1, 2, 3]),
-        // Keep in step with `jit/bytecode/stack.rs::copied_stack_values`: the
-        // `perm` family moves the *deepest* operand to the top (`perm4` of
-        // `[object, property, a, b]` is `[a, object, property, b]`), it is not
-        // a top-two swap.
+        // The `perm` family rotates the *deepest* operand up to the top; it is
+        // not a top-two swap. Must match QuickJS (`quickjs-opcode.h`:
+        // `perm4: obj prop a b -> a obj prop b`, `perm5: this obj prop a b ->
+        // a this obj prop b`, whose C arms rotate `sp[-4..-2]`/`sp[-5..-2]`),
+        // this repo's interpreter arms and `stack.rs::copied_stack_values`
+        // (the guard test `shuffle_table_matches_the_verifier` keeps the last
+        // two in step).
         "perm3" => (3, &[1, 0, 2]),
         "perm4" => (4, &[2, 0, 1, 3]),
         "perm5" => (5, &[3, 0, 1, 2, 4]),
@@ -3440,6 +3443,42 @@ mod tests {
             missing.is_empty(),
             "Native opcodes with no lowering: {missing:?}"
         );
+    }
+
+    /// Every shuffle's JIT permutation must equal the frontend's model in
+    /// `jit/bytecode/stack.rs::copied_stack_values`, which is written against
+    /// the QuickJS interpreter arms (`quickjs-opcode.h`: `perm4: obj prop a b
+    /// -> a obj prop b`). `perm4`/`perm5` silently drifted here once: no JS
+    /// case reached them, so the wrong table survived until the opcodes got
+    /// end-to-end coverage (2026-10-17).
+    #[test]
+    fn shuffle_table_matches_the_verifier() {
+        // Five distinct kinds stand in for the slots, so a permutation that
+        // reorders them is visible.
+        let kinds = [
+            SlotKind::Tagged,
+            SlotKind::Int32,
+            SlotKind::Float64,
+            SlotKind::CatchOffset,
+            SlotKind::Uninitialized,
+        ];
+        const SHUFFLES: &[&str] = &[
+            "nip", "nip1", "dup", "dup1", "dup2", "dup3", "insert2", "insert3", "insert4", "perm3",
+            "perm4", "perm5", "swap", "swap2", "rot3l", "rot3r", "rot4l", "rot5l",
+        ];
+        for name in SHUFFLES {
+            let (pop, outputs) = shuffle_outputs(name).expect("known shuffle");
+            let popped = &kinds[..pop];
+            let modeled = crate::jit::bytecode::stack::copied_stack_values(name, popped)
+                .unwrap_or_else(|| panic!("{name} has no verifier model"));
+            assert_eq!(outputs.len(), modeled.len(), "{name}: output count");
+            for (slot, &source) in outputs.iter().enumerate() {
+                assert_eq!(
+                    modeled[slot], popped[source],
+                    "{name}: output {slot} takes the wrong operand"
+                );
+            }
+        }
     }
 
     /// A small pre-tested/loop/body/exit function: `i = 0`; `while (i < 3) i++`.

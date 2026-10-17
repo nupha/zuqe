@@ -183,7 +183,7 @@ fn pushed_kind(snapshot: &CompileSnapshot, instruction: &Instruction) -> SlotKin
     }
 }
 
-fn copied_stack_values(name: &str, popped: &[SlotKind]) -> Option<Vec<SlotKind>> {
+pub(crate) fn copied_stack_values(name: &str, popped: &[SlotKind]) -> Option<Vec<SlotKind>> {
     let values = match (name, popped) {
         ("nip", &[_, b]) => vec![b],
         ("nip1", &[_, b, c]) => vec![b, c],
