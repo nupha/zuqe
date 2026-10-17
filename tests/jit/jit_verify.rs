@@ -482,6 +482,24 @@ fn with_opcodes_run_in_native_code() {
     }
 }
 
+/// Epic S2 (1.5): the reused-value registers are block-scoped, so the block a
+/// call re-enters (the trampoline resumes at the post-call pc, which the lowering
+/// emits as its own block) must recompute the repeated expression instead of
+/// copying a register it never saw. Both paths have to agree with the
+/// interpreter.
+#[test]
+fn cse_after_a_call_matches_interpreter() {
+    let define = b"\
+        var CSE_HELP = 3; \
+        function h(){ return CSE_HELP; } \
+        function f(n){ var s = 0; for (var i = 0; i < n; i++){ var x = i & 7; var r = h(); \
+            s = s + r + (((x + 1) * (x + 3)) + ((x + 1) * (x + 3))); } return s; } \
+        f(1);";
+    for call in ["f(2000)", "f(1)"] {
+        native_vs_interpreter(define, call);
+    }
+}
+
 /// S3 (2.4): a `with` body inside a `try` — the resolver helper raising (the
 /// object's getter throws) must exit so the interpreter's catch scan finds the
 /// frame's handler, and the `with` name resolution itself may run user code

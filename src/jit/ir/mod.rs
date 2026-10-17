@@ -37,6 +37,10 @@ use super::bytecode::{
     cfg::ControlFlowGraph, decode::Instruction, stack::local_index, verify::VerifiedFunction,
 };
 
+mod values;
+
+pub(crate) use values::RedundantExpressions;
+
 /// A frame slot the IR reasons about: a local (excluding arguments) or an
 /// argument.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]

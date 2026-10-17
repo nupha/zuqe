@@ -342,6 +342,17 @@ const CASES: &[SemCase] = sem_cases! {
         "wf(WF_MISS, 2)",
         "'with:' + wf(WF_HIT, 1) + ',' + wf(WF_MISS, 2) + ',' + wf(WF_HIDDEN, 3)";
 
+    // ── cross-block value reuse (S2 1.5) ──
+    // The same numeric expression twice in one block is computed once; an
+    // operand that is *not* provably numeric must still be evaluated every time
+    // (`valueOf` counts calls), and a Float64 pair reuses the helper's result.
+    // `VNC` is the observable: the interpreter's call count must survive.
+    cse_repeated_expressions => Compiles =
+        "var __seed = 0; var VNC = 0; var VNO = { valueOf: function(){ VNC = VNC + 1; return 1; } }; function f(n, o){ var __z = 0; var s = 0; for (var i = 0; i < n; i++){ var x = i & 7; s = s + (((x + 1) * (x + 3)) + ((x + 1) * (x + 3))); s = s + ((x * 1.5) + (x * 1.5) | 0); s = s + ((o + 1) + (o + 1) | 0); } return s + VNC; }",
+        "f(1, VNO)",
+        "f(5, VNO)",
+        "'cse:' + f(3, VNO)";
+
     // ── control flow shapes the verifier must survive ──
     switch_and_labels => Compiles =
         "var __seed = 0; function f(n){ var __z = 0; var r = 0; switch (n % 4) { case 0: r = 10; break; case 1: r = 20; break; default: r = 30; } outer: for (var i = 0; i < 5; i++) { if (i === 2) continue outer; if (i === 4) break outer; r = r + i; } return r; }",
@@ -381,8 +392,8 @@ const FEATURES: &[&str] = &[
     "iter_",
     "ref_",
     "with_",
+    "cse_",
 ];
-
 #[test]
 fn every_semantic_feature_has_a_case() {
     for feature in FEATURES {

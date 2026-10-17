@@ -72,7 +72,7 @@ use super::{
     },
     error::JitError,
     feedback::{CLASS_FLOAT, CLASS_INT, SiteFeedback},
-    ir::{Ir, LocalRef},
+    ir::{Ir, LocalRef, RedundantExpressions},
 };
 
 /// Exit codes as written by generated code (keep in sync with `JitExitKind`).
@@ -327,6 +327,13 @@ fn fast_op(name: &str) -> Option<(FastOp, usize)> {
     })
 }
 
+/// Whether an opcode is one of the pure binaries the CSE pass numbers (epic S2
+/// 1.5). It is exactly the set [`fast_op`] lowers, so the pass can neither plan
+/// a reuse the lowering would not honor nor miss a site it does.
+pub(crate) fn is_cse_expression(name: &str) -> bool {
+    fast_op(name).is_some()
+}
+
 /// Output arrangement for the stack shuffles: each output copies the popped
 /// operand at that index. Order matches the interpreter's writes.
 /// Every opcode the baseline lowers as a pure stack shuffle. Exported like
@@ -404,6 +411,12 @@ struct State<'a> {
     /// on any path), so the lowering skips the memory write. Empty unless the
     /// IR's liveness is exact.
     dead_stores: HashSet<u32>,
+    /// Epic S2 (1.5): the value numbering's CSE plan (which expressions are
+    /// repeats of an earlier one) and, per block, the registers those earlier
+    /// computations published. Both are block-scoped like [`LocalCache`]: a
+    /// value does not cross an edge as a register.
+    cse: RedundantExpressions,
+    cse_regs: HashMap<u32, Value>,
     /// Register copies of local/argument slots (epic F4: fewer loads in a
     /// block). Cleared at every block entry — see [`LocalCache`].
     locals: LocalCache,
@@ -866,6 +879,22 @@ impl<'a> State<'a> {
 
     fn note_specialized(&self) {
         self.specialized.set(self.specialized.get() + 1);
+    }
+
+    /// Epic S2 (1.5): the register holding the value this instruction is a
+    /// repeat of, if the pass planned a reuse and the definition actually ran on
+    /// the path taken to here (an OSR entry in the middle of the block skips
+    /// it, and then the instruction computes normally).
+    fn cse_reuse(&self, pc: u32) -> Option<Value> {
+        self.cse
+            .reuse(pc)
+            .and_then(|id| self.cse_regs.get(&id).copied())
+    }
+
+    /// Whether a later instruction reuses this one's result, which then has to
+    /// stay in a register.
+    fn cse_keep(&self, pc: u32) -> Option<u32> {
+        self.cse.keep(pc)
     }
 }
 
@@ -1390,6 +1419,11 @@ fn lower(
         carried_locals,
         entry_heights,
         dead_stores,
+        cse: RedundantExpressions::build(
+            verified,
+            locals_cacheable && args_cacheable && !verified.has_exception_regions(),
+        ),
+        cse_regs: HashMap::new(),
         locals: LocalCache::new(locals_cacheable, args_cacheable),
         const_meta: &verified.snapshot().const_meta,
     };
@@ -1420,6 +1454,9 @@ fn lower(
         // Local copies are block-scoped for the same reason: the register only
         // dominates this block, and the interpreter owns the frame for the rest.
         state.locals.clear();
+        // Reused-value registers are block-scoped too (the pass plans them per
+        // block).
+        state.cse_regs.clear();
         let carried: Vec<u32> = state.carried_for(start_pc).to_vec();
         let carried_locals: Vec<LocalRef> = state.carried_locals_for(start_pc).to_vec();
         let params = b.block_params(cranelift_block);
@@ -1506,6 +1543,7 @@ fn lower(
         // Local copies are not carried either: they are block-scoped, so drop
         // them here (the next block starts empty anyway).
         state.locals.clear();
+        state.cse_regs.clear();
         debug_assert!(
             state.locals.is_empty(),
             "a block ended with register-resident local slots"
@@ -1789,6 +1827,13 @@ fn lower_insn(
     }
 
     if let Some((op, helper_id)) = fast_op(name) {
+        // Epic S2 (1.5): a repeat of an expression the same block already
+        // computed over the same proven-numeric values. The result is still in
+        // a register, and the copy *is* the instruction — no tag checks, no
+        // arithmetic, no helper fallback.
+        if let Some(reg) = state.cse_reuse(insn.pc()) {
+            return lower_cse_reuse(state, b, sp, reg);
+        }
         return lower_fast_binary(state, b, fv, sp_var, helper_sig, sp, insn, op, helper_id);
     }
     if let Some(id) = helper_for(name) {
@@ -2318,6 +2363,18 @@ fn is_int(b: &mut FunctionBuilder, value: Value) -> Value {
     b.ins().icmp_imm(IntCC::Equal, tag, 0)
 }
 
+/// Epic S2 (1.5): this instruction is a repeat — the same block computed the
+/// same expression over the same proven-numeric values, and its result is still
+/// in `reg`. Copying it into the result slot is the whole instruction: the tag
+/// checks, the arithmetic and the helper fallback are all skipped, which makes
+/// the reuse both smaller and cheaper than recomputing.
+fn lower_cse_reuse(state: &mut State, b: &mut FunctionBuilder, sp: Value, reg: Value) -> Step {
+    state.stack.flush(b, sp);
+    b.ins().store(MemFlags::new(), reg, sp, -16);
+    state.stack.consumed_binary();
+    Step::Continue(b.ins().iadd_imm(sp, -8))
+}
+
 /// Two-int fast path for a binary operator, with the interpreter helper as the
 /// slow path (mixed types, overflow, string `+`, …). Operands stay in the frame
 /// buffer the whole time, so the helper sees exactly what the interpreter would.
@@ -2337,6 +2394,9 @@ fn lower_fast_binary(
     // Operand slots: `(top-1)` is the left operand, `top` the right one. Both
     // may live only in registers; the slow path flushes them before the helper.
     let top = state.stack.height;
+    // Epic S2 (1.5): a later instruction reuses this one's result, so it must
+    // leave that value in a register (`cont` carries it as a parameter).
+    let keep_id = state.cse_keep(insn.pc());
     // Epic F4 (guard elimination): an operand the compiler itself produced — a
     // `push_i32` literal or an `Int` constant — is statically an `Int`, so its
     // tag check is not emitted at all. Everything else (a local, a helper
@@ -2359,6 +2419,12 @@ fn lower_fast_binary(
     let fast = b.create_block();
     let slow = b.create_block();
     let cont = b.create_block();
+    // A reused value has to leave this instruction in a register, so the
+    // continuation carries it as a parameter (both paths deliver it).
+    let kept = keep_id.is_some();
+    if kept {
+        b.append_block_param(cont, types::I64);
+    }
     // Both paths must agree about memory. Everything except the two operands
     // materializes here, where the flush dominates the split; the operands are
     // dead on the fast path (the result overwrites one, the other lies above
@@ -2412,7 +2478,8 @@ fn lower_fast_binary(
             b.ins().store(MemFlags::new(), boxed, sp, -16);
             let sp_next = b.ins().iadd_imm(sp, -8);
             b.def_var(sp_var, sp_next);
-            b.ins().jump(cont, &[]);
+            let keep = [boxed];
+            b.ins().jump(cont, if kept { &keep } else { &[] });
         }
         FastOp::Lt
         | FastOp::Lte
@@ -2435,7 +2502,8 @@ fn lower_fast_binary(
             b.ins().store(MemFlags::new(), boxed, sp, -16);
             let sp_next = b.ins().iadd_imm(sp, -8);
             b.def_var(sp_var, sp_next);
-            b.ins().jump(cont, &[]);
+            let keep = [boxed];
+            b.ins().jump(cont, if kept { &keep } else { &[] });
         }
         _ => {
             // ToInt32 of an int is itself; shifts use the low 5 bits of the
@@ -2459,19 +2527,30 @@ fn lower_fast_binary(
             b.ins().store(MemFlags::new(), boxed, sp, -16);
             let sp_next = b.ins().iadd_imm(sp, -8);
             b.def_var(sp_var, sp_next);
-            b.ins().jump(cont, &[]);
+            let keep = [boxed];
+            b.ins().jump(cont, if kept { &keep } else { &[] });
         }
     }
 
     b.switch_to_block(slow);
     let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, helper_id, pc_after);
     b.def_var(sp_var, sp_slow);
-    b.ins().jump(cont, &[]);
+    // The helper left the result in slot `top-1` (relative to `sp_slow`). The
+    // placeholder is never read when nothing reuses this value (the jump passes
+    // no argument then).
+    let mut slow_result = [sp_slow];
+    if kept {
+        slow_result[0] = b.ins().load(types::I64, MemFlags::new(), sp_slow, -8);
+    }
+    b.ins().jump(cont, if kept { &slow_result } else { &[] });
 
     b.switch_to_block(cont);
     // Both paths store the result into slot `top-1`; the operand entries are
     // now stale (a flush would overwrite that result), so drop them.
     state.stack.consumed_binary();
+    if let (Some(keep_id), Some(&value)) = (keep_id, b.block_params(cont).first()) {
+        state.cse_regs.insert(keep_id, value);
+    }
     // Epic 1.4 item 1: `shl`/`sar` box `From<i32>`, so *both* paths deliver an
     // `Int` — the merged slot is a known-Int fact with no phi needed.
     if matches!(op, FastOp::Shl | FastOp::Sar) {
@@ -2824,6 +2903,39 @@ mod tests {
         compile(&verified, isa.as_ref(), &Cell::new(0))
             .expect("compile")
             .len()
+    }
+
+    /// Epic S2 (1.5): a repeated numeric expression is computed once — the
+    /// second occurrence copies the register the first one left, so its tag
+    /// checks, arithmetic and helper fallback disappear. The same shape over a
+    /// *different* local cannot reuse anything and keeps all of that.
+    #[test]
+    fn cse_shrinks_the_code() {
+        // The store gives the local a numeric fact (`push_i32`), which is what
+        // the pass needs before it may claim an operand pair is pure.
+        let literal = |idx: u16, value: i32| seq(&[&push_i32(value), &loc(op::OP_put_loc, idx)]);
+        let shape = |second: u16| {
+            seq(&[
+                &literal(0, 1),
+                &literal(1, 2),
+                &loc(op::OP_get_loc, 0),
+                &loc(op::OP_get_loc, 0),
+                &[op::OP_add],
+                &loc(op::OP_get_loc, second),
+                &loc(op::OP_get_loc, second),
+                &[op::OP_add],
+                &[op::OP_add],
+                &loc(op::OP_put_loc, 2),
+                &[op::OP_return_undef],
+            ])
+        };
+        // `(x+x) + (x+x)` reuses; `(x+x) + (y+y)` cannot.
+        let reused = compile_len(shape(0), 3, 0);
+        let distinct = compile_len(shape(1), 3, 0);
+        assert!(
+            reused < distinct,
+            "the reused expression should be a copy: {reused} vs {distinct} bytes"
+        );
     }
 
     /// Epic F4 (guard elimination), measured deterministically: the same op
