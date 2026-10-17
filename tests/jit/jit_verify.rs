@@ -373,6 +373,55 @@ fn a_native_call_reenters_the_callers_native_code() {
     );
 }
 
+/// S3 (2.5): the ref-cell family (`make_loc_ref`, `get_ref_value`,
+/// `put_ref_value`, …) lowers to helpers, so a destructuring loop runs entirely
+/// in native code. Before this the assignment targets hit an instruction-level
+/// `Resume`, which stranded the loop in the interpreter — measured here as
+/// interpreter loop back edges, the same signal as epic 1.7.
+#[test]
+fn ref_cells_run_in_native_code() {
+    let mut rt = Runtime::create().unwrap();
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .unwrap();
+    let jit = Jit::attach_to(&rt, eager_config()).unwrap();
+    let name = EvalName::Name("jit-refcell.js".into());
+    // `[a, b] = p` builds a ref object per local target (make_loc_ref) and
+    // writes the element back through it (put_ref_value); `s += a + b` reads
+    // the locals. `for (v of p)` is the same machinery for the loop target.
+    let define = b"function f(n, p){ var s = 0; var a = 0, b = 0; \
+                   for (var i = 0; i < n; i++){ [a, b] = p; s += a + b; } return s; } \
+                   function g(n, p){ var s = 0; \
+                   for (var i = 0; i < n; i++){ for (var v of p) s += v; } return s; } \
+                   f(1, [1, 2]); g(1, [1, 2]);";
+    ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
+        .unwrap();
+    jit.poll();
+    assert!(
+        jit.metrics().functions_compiled >= 2,
+        "the ref-cell functions were not compiled ({:?})",
+        jit.metrics()
+    );
+
+    for (call, expected) in [("f(100000, [3, 4])", 700000), ("g(50000, [3, 4])", 350000)] {
+        let before = jit.metrics();
+        let result = ctx
+            .eval(call.as_bytes(), &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+        let after = jit.metrics();
+        assert_eq!(
+            observe(Ok(result)),
+            format!("int:{expected}"),
+            "{call} returned the wrong value"
+        );
+        assert_eq!(
+            after.backedges - before.backedges,
+            0,
+            "{call}: the ref-cell loop ran in the interpreter"
+        );
+    }
+}
+
 /// A call re-enters the caller's native code; the caller must still see its own
 /// `this` afterwards (the callee may have had a different one).
 #[test]

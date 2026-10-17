@@ -51,14 +51,16 @@ use super::{
         HELPER_FOR_OF_START, HELPER_GET_ARRAY_EL, HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3,
         HELPER_GET_FIELD, HELPER_GET_FIELD2, HELPER_GET_PRIVATE_FIELD, HELPER_GET_SUPER,
         HELPER_GET_SUPER_VALUE, HELPER_GET_VAR, HELPER_GET_VAR_REF, HELPER_GET_VAR_REF_CHECK,
-        HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE, HELPER_IN, HELPER_INC, HELPER_INIT_CTOR,
+        HELPER_GET_VAR_UNDEF, HELPER_GET_REF_VALUE, HELPER_GT, HELPER_GTE, HELPER_IN, HELPER_INC,
+        HELPER_INIT_CTOR,
         HELPER_INSTANCEOF, HELPER_ITERATOR_CALL, HELPER_ITERATOR_CHECK_OBJECT,
         HELPER_ITERATOR_CLOSE, HELPER_ITERATOR_GET_VALUE_DONE, HELPER_ITERATOR_NEXT, HELPER_LNOT,
-        HELPER_LT, HELPER_LTE, HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH,
+        HELPER_LT, HELPER_LTE, HELPER_MAKE_ARG_REF, HELPER_MAKE_LOC_REF, HELPER_MAKE_VAR_REF,
+        HELPER_MAKE_VAR_REF_REF, HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH,
         HELPER_NOT, HELPER_OBJECT, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC,
         HELPER_POW, HELPER_PRIVATE_IN, HELPER_PRIVATE_SYMBOL, HELPER_PUT_ARRAY_EL,
-        HELPER_PUT_FIELD, HELPER_PUT_PRIVATE_FIELD, HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR,
-        HELPER_PUT_VAR_INIT, HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK,
+        HELPER_PUT_FIELD, HELPER_PUT_PRIVATE_FIELD, HELPER_PUT_REF_VALUE, HELPER_PUT_SUPER_VALUE,
+        HELPER_PUT_VAR, HELPER_PUT_VAR_INIT, HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK,
         HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_SAFEPOINT, HELPER_SAR, HELPER_SET_HOME_OBJECT,
         HELPER_SET_NAME_COMPUTED, HELPER_SET_PROTO, HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR,
         HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT,
@@ -252,6 +254,16 @@ fn helper_for(name: &str) -> Option<usize> {
         // have explicit arms in `lower_insn`.
         "object" => HELPER_OBJECT,
         "array_from" => HELPER_ARRAY_FROM,
+        // Ref-cell family (`make_*_ref` build the ref object; both engines share
+        // `bytecode::ref_ops`). The `make_*` ops need an atom/slot immediate, so
+        // they have explicit arms in `lower_insn`; `get`/`put_ref_value` are
+        // plain helper calls.
+        "make_loc_ref" => HELPER_MAKE_LOC_REF,
+        "make_arg_ref" => HELPER_MAKE_ARG_REF,
+        "make_var_ref_ref" => HELPER_MAKE_VAR_REF_REF,
+        "make_var_ref" => HELPER_MAKE_VAR_REF,
+        "get_ref_value" => HELPER_GET_REF_VALUE,
+        "put_ref_value" => HELPER_PUT_REF_VALUE,
         _ => return None,
     })
 }
@@ -1724,6 +1736,28 @@ fn lower_insn(
             let count = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
             b.ins().store(MemFlags::new(), count, fv.frame, O_IMM);
             let sp = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_ARRAY_FROM, pc + size);
+            return Step::Continue(sp);
+        }
+        // Ref cells: `make_loc_ref`/`make_arg_ref`/`make_var_ref_ref` carry the
+        // atom in `imm` and the slot index in `imm2`; `make_var_ref` carries only
+        // the atom.
+        "make_loc_ref" | "make_arg_ref" | "make_var_ref_ref" => {
+            let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+            b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
+            let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u16(5)));
+            b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM2);
+            let id = match name {
+                "make_arg_ref" => HELPER_MAKE_ARG_REF,
+                "make_var_ref_ref" => HELPER_MAKE_VAR_REF_REF,
+                _ => HELPER_MAKE_LOC_REF,
+            };
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
+            return Step::Continue(sp);
+        }
+        "make_var_ref" => {
+            let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+            b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_MAKE_VAR_REF, pc + size);
             return Step::Continue(sp);
         }
         _ => {}
@@ -3358,6 +3392,68 @@ mod tests {
             cases.push((name, bytes, 0, 1));
         }
 
+        // Ref-cell family (S3 2.5): `make_*_ref` push the ref object and its
+        // property name; `get`/`put_ref_value` read/write through them. The
+        // indices must fit their space (local/argument/closure).
+        cases.push((
+            "make_loc_ref",
+            seq(&[
+                &[op::OP_make_loc_ref],
+                &u32b(0),
+                &u16b(0),
+                &[op::OP_drop, op::OP_drop, op::OP_return_undef],
+            ]),
+            0,
+            1,
+        ));
+        cases.push((
+            "make_arg_ref",
+            seq(&[
+                &[op::OP_make_arg_ref],
+                &u32b(0),
+                &u16b(0),
+                &[op::OP_drop, op::OP_drop, op::OP_return_undef],
+            ]),
+            1,
+            0,
+        ));
+        cases.push((
+            "make_var_ref",
+            seq(&[
+                &[op::OP_make_var_ref],
+                &u32b(0),
+                &[op::OP_drop, op::OP_drop, op::OP_return_undef],
+            ]),
+            0,
+            0,
+        ));
+        cases.push((
+            "get_ref_value",
+            seq(&[
+                &push_i32(0),
+                &push_i32(0),
+                &[
+                    op::OP_get_ref_value,
+                    op::OP_drop,
+                    op::OP_drop,
+                    op::OP_return_undef,
+                ],
+            ]),
+            0,
+            0,
+        ));
+        cases.push((
+            "put_ref_value",
+            seq(&[
+                &push_i32(0),
+                &push_i32(0),
+                &push_i32(0),
+                &[op::OP_put_ref_value, op::OP_return_undef],
+            ]),
+            0,
+            0,
+        ));
+
         // Epic E5: exception regions. `catch` pushes the handler sentinel;
         // `gosub`/`ret` are the `finally` subroutine.
         let gosub_ret = seq(&[
@@ -3429,6 +3525,20 @@ mod tests {
             1,
         )
         .unwrap_or_else(|e| panic!("opcode set_var_ref failed to lower: {e:?}"));
+
+        // `make_var_ref_ref` (S3 2.5) needs the closure-var space to be non-empty.
+        compile_bytes_gv(
+            seq(&[
+                &[op::OP_make_var_ref_ref],
+                &u32b(0),
+                &u16b(0),
+                &[op::OP_drop, op::OP_drop, op::OP_return_undef],
+            ]),
+            0,
+            0,
+            1,
+        )
+        .unwrap_or_else(|e| panic!("opcode make_var_ref_ref failed to lower: {e:?}"));
 
         // TDZ-checked local ops (epic 2.3).
         for (name, code) in [

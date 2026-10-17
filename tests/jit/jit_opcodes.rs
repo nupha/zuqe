@@ -639,14 +639,13 @@ fn a_script_that_declares_a_function_compiles() {
 /// `[1,0,2,3]`/`[1,0,2,3,4]` instead of QuickJS's `[2,0,1,3]`/`[3,0,1,2,4]`,
 /// and no case reached them. `dup2`/`nip1` have no shape (see `UNREACHABLE`).
 ///
-/// Known limits, measured by mutating each table entry and re-running this test
-/// (2026-10-17): 14 of the 16 reachable shuffles fail when their entry is
-/// permuted, so those cases are genuinely order-observable. `dup` cannot be —
-/// it duplicates one slot, so any same-height variant is identity. `rot3l` and
-/// `swap2` are exercised and assert the right value, but their snippets Resume
-/// to the interpreter at `make_loc_ref`/`put_ref_value` (still unlowered), so
-/// the shuffle itself is not isolated; the table guard
-/// (`shuffle_table_matches_the_verifier`) is what covers their order today.
+/// Measured by mutating each table entry and re-running this test (2026-10-17,
+/// after S3 2.5 lowered the ref-cell family): **15 of the 16 reachable shuffles
+/// fail when their entry is permuted**. The remaining one, `dup`, cannot be —
+/// it duplicates one slot, so every valid same-height variant is identical.
+/// `rot3l`/`swap2` became observable only once `make_loc_ref`/`put_ref_value`
+/// lowered: before that their snippets exited to the interpreter before
+/// reaching the shuffle.
 const SHUFFLE_ORACLES: &[(&str, &str, &str)] = &[
     // (shuffle, audited case, expected `main`)
     ("nip", "logical_assign_nip", "int:33"),

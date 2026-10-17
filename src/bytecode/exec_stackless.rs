@@ -22,6 +22,7 @@ use crate::{
             js_has_unscopable, js_iterator_get_value_done, js_op_define_class_for_arena,
             js_operator_delete, js_operator_in, js_operator_instanceof,
         },
+        ref_ops,
     },
     context::{ContextPtr, GlobalVarSetMode, ScopedContext},
     error::{
@@ -37,8 +38,7 @@ use crate::{
     },
     module::{js_dynamic_import, js_import_meta},
     object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, Object, PayloadPtr,
-        ThrowPolicy,
+        JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSProperty, Object, PayloadPtr, ThrowPolicy,
     },
     utils::{read_from_ptr, unlikely},
     value::JSValue,
@@ -991,55 +991,30 @@ impl Bytecode {
                     OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
                         let idx = PC_FETCH!(u16);
-                        SP_PUT!(
-                            0,
-                            realm_scope
-                                .create_base_object_with_proto(None)
-                                .map_or(JSValue::EXCEPTION, JSValue::from)
-                        );
-                        SP_GO!(1);
-                        if unlikely(SP_REF!(-1).is_exception()) {
-                            break ExecAction::Exception;
-                        }
-
-                        let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
-                            Ok(captured_vars[idx as usize])
-                        } else {
-                            get_var_ref(
-                                realm_scope,
-                                idx,
-                                opcode == OpCode::MAKE_ARG_REF,
-                                arg_base_ptr,
-                                var_base_ptr,
-                                arena_mut!(),
-                                cur_frame_idx,
-                                self.arg_count,
-                                self.var_count,
-                            )
+                        let kind = match opcode {
+                            OpCode::MAKE_ARG_REF => ref_ops::RefKind::Arg,
+                            OpCode::MAKE_VAR_REF_REF => ref_ops::RefKind::VarRefRef,
+                            _ => ref_ops::RefKind::Loc,
                         };
-                        match var_ref {
-                            Ok(vr) => {
-                                if unsafe { SP_MUT!(-1).as_object_unchecked() }
-                                    .add_own_property(
-                                        realm_scope,
-                                        atom,
-                                        JS_PROP_WRITABLE | JS_PROP_VARREF,
-                                        JSProperty::VarRef(vr),
-                                    )
-                                    .is_err()
-                                {
-                                    break ExecAction::Exception;
-                                } else {
-                                    SP_PUT!(
-                                        0,
-                                        atom.to_value(realm_scope).unwrap_or(JSValue::EXCEPTION)
-                                    );
-                                    SP_GO!(1);
-                                }
+                        match ref_ops::make_ref(
+                            realm_scope,
+                            kind,
+                            atom,
+                            idx,
+                            arg_base_ptr,
+                            var_base_ptr,
+                            arena_mut!(),
+                            cur_frame_idx,
+                            self.arg_count,
+                            self.var_count,
+                            captured_vars,
+                        ) {
+                            Ok((obj, prop)) => {
+                                SP_PUT!(0, obj);
+                                SP_PUT!(1, prop);
+                                SP_GO!(2);
                             }
-                            Err(_) => {
-                                break ExecAction::Exception;
-                            }
+                            Err(_) => break ExecAction::Exception,
                         }
                     }
 
@@ -2873,47 +2848,24 @@ impl Bytecode {
                     // ═══════════════════════════════════════════════════
                     OpCode::MAKE_VAR_REF => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
-                        if let Ok(vs) = realm_scope.build_global_varref(atom) {
-                            if let Some((v0, v1)) = vs {
+                        match ref_ops::make_global_ref(realm_scope, atom) {
+                            Ok((v0, v1)) => {
                                 SP_PUT!(0, v0);
                                 SP_PUT!(1, v1);
+                                SP_GO!(2);
                             }
-                            SP_GO!(2);
-                        } else {
-                            break ExecAction::Exception;
+                            Err(_) => break ExecAction::Exception,
                         }
                     }
                     OpCode::GET_REF_VALUE => {
                         // [obj, prop, ^] -> [obj, value, ^]
-                        if unlikely(SP_REF!(-2).is_undefined()) {
-                            if let Ok(atom) = SP_REF!(-1).to_atom(realm_scope) {
-                                let _ = JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
+                        match ref_ops::get_ref_value(realm_scope, SP_VAL!(-2), SP_VAL!(-1)) {
+                            Ok(val) => {
+                                SP_PUT!(0, val);
+                                SP_GO!(1);
                             }
-                            break ExecAction::Exception;
+                            Err(_) => break ExecAction::Exception,
                         }
-                        // For WITH-scope references, ECMA-262 9.1.1.2.6 GetBindingValue
-                        // step 2 requires HasProperty before Get. This also ensures the
-                        // correct Proxy trap sequence for with-object proxies.
-                        let obj_has_prop = SP_REF!(-1)
-                            .to_atom(realm_scope)
-                            .and_then(|atom| SP_REF!(-2).has_property(realm_scope, atom));
-                        if let Ok(false) = obj_has_prop {
-                            if rt.is_strict_mode() {
-                                if let Ok(atom) = SP_REF!(-1).to_atom(realm_scope) {
-                                    let _ = JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
-                                }
-                                break ExecAction::Exception;
-                            }
-                            SP_PUT!(0, JSValue::UNDEFINED);
-                        } else if obj_has_prop.is_ok()
-                            && let Ok(val) =
-                                SP_REF!(-2).get_property_value(realm_scope, SP_VAL!(-1))
-                        {
-                            SP_PUT!(0, val);
-                        } else {
-                            break ExecAction::Exception;
-                        }
-                        SP_GO!(1);
                     }
                     OpCode::GET_SUPER_VALUE => {
                         match class_ops::get_super_value(
@@ -2931,40 +2883,14 @@ impl Bytecode {
                     }
                     OpCode::PUT_REF_VALUE => {
                         // [obj, prop, val, ^] -> [^]
-                        let mut obj = SP_VAL!(-3);
-                        let prop = SP_VAL!(-2);
-                        let val = SP_VAL!(-1);
-                        SP_GO!(-3);
-                        let mut no_add = false;
-                        if unlikely(obj.is_undefined()) {
-                            if rt.is_strict_mode() {
-                                if let Ok(atom) = prop.to_atom(realm_scope) {
-                                    let _ = JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
-                                }
-                                break ExecAction::Exception;
-                            }
-                            obj = JSValue::from(realm_scope.global_obj());
-                        } else if rt.is_strict_mode() {
-                            no_add = true;
-                        }
-                        // SetMutableBinding step 2: HasProperty (ECMA-262 9.1.1.2.5)
-                        if let Ok(atom) = prop.to_atom(realm_scope) {
-                            match obj.has_property(realm_scope, atom) {
-                                Ok(false) | Err(_) if rt.is_strict_mode() => {
-                                    let _ = JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
-                                    break ExecAction::Exception;
-                                }
-                                _ => {}
-                            }
-                        }
-                        let ret = obj.set_property_value(
+                        let r = ref_ops::put_ref_value(
                             realm_scope,
-                            prop,
-                            val,
-                            ThrowPolicy::StrictOnly,
-                            no_add,
+                            SP_VAL!(-3),
+                            SP_VAL!(-2),
+                            SP_VAL!(-1),
                         );
-                        if ret.is_err() {
+                        SP_GO!(-3);
+                        if r.is_err() {
                             break ExecAction::Exception;
                         }
                     }

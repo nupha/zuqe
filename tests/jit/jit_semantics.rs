@@ -318,6 +318,17 @@ const CASES: &[SemCase] = sem_cases! {
         "f(2)",
         "'bi:' + f(3)";
 
+    // ── ref cells (S3 2.5) ──
+    // Destructuring assignment and a `for-of` target both go through a ref
+    // object: `make_loc_ref` builds it, `put_ref_value` writes the element back
+    // and `get_ref_value` reads a reference. `RO` lives in `setup` so the
+    // warm-up's own script contains no object literal.
+    ref_cells => Compiles =
+        "var __seed = 0; var RO = [1, 2]; function f(n){ var __z = 0; var a = 0, b = 0; var s = 0; for (var i = 0; i < n; i++) { [a, b] = RO; s = s + a + b; } for (var v of RO) s = s + v; return s + n; }",
+        "f(1)",
+        "f(5)",
+        "'ref:' + f(3)";
+
     // ── control flow shapes the verifier must survive ──
     switch_and_labels => Compiles =
         "var __seed = 0; function f(n){ var __z = 0; var r = 0; switch (n % 4) { case 0: r = 10; break; case 1: r = 20; break; default: r = 30; } outer: for (var i = 0; i < 5; i++) { if (i === 2) continue outer; if (i === 4) break outer; r = r + i; } return r; }",
@@ -355,6 +366,7 @@ const FEATURES: &[&str] = &[
     "this_",
     "newtarget_",
     "iter_",
+    "ref_",
 ];
 
 #[test]

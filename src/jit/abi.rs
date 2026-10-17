@@ -1837,8 +1837,113 @@ unsafe extern "C" fn h_close_loc(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// `make_loc_ref` / `make_arg_ref` / `make_var_ref_ref`: build the ref object
+/// and push `[obj, prop]` (`imm` = atom id, `imm2` = slot index). Shared with
+/// the interpreter's arm (`ref_ops::make_ref`).
+unsafe fn make_ref(f: *mut JitExecFrame, kind: crate::bytecode::ref_ops::RefKind) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let r = crate::bytecode::ref_ops::make_ref(
+            scope_of(f),
+            kind,
+            crate::atom::Atom::from_id(f.imm),
+            f.imm2 as u16,
+            f.arg_base,
+            f.var_base,
+            &mut *f.arena,
+            FrameIndex::from_u32(f.cur_frame_idx),
+            (*f.bytecode).arg_count,
+            (*f.bytecode).var_count,
+            captured_vars_of(f),
+        );
+        match r {
+            Ok((obj, prop)) => {
+                *sp = obj;
+                *sp.add(1) = prop;
+                f.sp = sp.add(2);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `make_loc_ref`.
+unsafe extern "C" fn h_make_loc_ref(f: *mut JitExecFrame) -> u32 {
+    unsafe { make_ref(f, crate::bytecode::ref_ops::RefKind::Loc) }
+}
+
+/// `make_arg_ref`.
+unsafe extern "C" fn h_make_arg_ref(f: *mut JitExecFrame) -> u32 {
+    unsafe { make_ref(f, crate::bytecode::ref_ops::RefKind::Arg) }
+}
+
+/// `make_var_ref_ref`.
+unsafe extern "C" fn h_make_var_ref_ref(f: *mut JitExecFrame) -> u32 {
+    unsafe { make_ref(f, crate::bytecode::ref_ops::RefKind::VarRefRef) }
+}
+
+/// `make_var_ref`: `[^] -> [base, prop, ^]` (`imm` = atom id).
+unsafe extern "C" fn h_make_var_ref(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let atom = crate::atom::Atom::from_id(f.imm);
+        match crate::bytecode::ref_ops::make_global_ref(scope_of(f), atom) {
+            Ok((base, prop)) => {
+                *sp = base;
+                *sp.add(1) = prop;
+                f.sp = sp.add(2);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `get_ref_value`: `[obj, prop, ^] -> [obj, value, ^]`.
+unsafe extern "C" fn h_get_ref_value(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        match crate::bytecode::ref_ops::get_ref_value(
+            scope_of(f),
+            *sp.offset(-2),
+            *sp.offset(-1),
+        ) {
+            Ok(value) => {
+                *sp = value;
+                f.sp = sp.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `put_ref_value`: `[obj, prop, val, ^] -> [^]`.
+unsafe extern "C" fn h_put_ref_value(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let r = crate::bytecode::ref_ops::put_ref_value(
+            scope_of(f),
+            *sp.offset(-3),
+            *sp.offset(-2),
+            *sp.offset(-1),
+        );
+        f.sp = sp.offset(-3);
+        if r.is_err() {
+            HELPER_EXCEPTION
+        } else {
+            HELPER_OK
+        }
+    }
+}
+
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 99;
+pub(crate) const HELPER_COUNT: usize = 105;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -2011,6 +2116,18 @@ pub(crate) const HELPER_CLOSE_LOC: usize = 96;
 pub(crate) const HELPER_OBJECT: usize = 97;
 /// Index of [`h_array_from`].
 pub(crate) const HELPER_ARRAY_FROM: usize = 98;
+/// Index of [`h_make_loc_ref`].
+pub(crate) const HELPER_MAKE_LOC_REF: usize = 99;
+/// Index of [`h_make_arg_ref`].
+pub(crate) const HELPER_MAKE_ARG_REF: usize = 100;
+/// Index of [`h_make_var_ref_ref`].
+pub(crate) const HELPER_MAKE_VAR_REF_REF: usize = 101;
+/// Index of [`h_make_var_ref`].
+pub(crate) const HELPER_MAKE_VAR_REF: usize = 102;
+/// Index of [`h_get_ref_value`].
+pub(crate) const HELPER_GET_REF_VALUE: usize = 103;
+/// Index of [`h_put_ref_value`].
+pub(crate) const HELPER_PUT_REF_VALUE: usize = 104;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -2118,4 +2235,10 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_close_loc as *const (),
     h_object as *const (),
     h_array_from as *const (),
+    h_make_loc_ref as *const (),
+    h_make_arg_ref as *const (),
+    h_make_var_ref_ref as *const (),
+    h_make_var_ref as *const (),
+    h_get_ref_value as *const (),
+    h_put_ref_value as *const (),
 ]);

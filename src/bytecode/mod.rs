@@ -7,6 +7,7 @@ pub mod arithmatic;
 pub(crate) mod class_ops;
 pub(crate) mod exec_stackless;
 pub(crate) mod operators;
+pub(crate) mod ref_ops;
 
 #[cfg(feature = "dump_bytecode")]
 mod dump;
