@@ -283,6 +283,33 @@ const CASES: &[SemCase] = sem_cases! {
         "f(1) + ',' + f(0)",
         "'nt:' + f(1) + ',' + f(0)";
 
+    // ── sync iteration (S3 2.4.1) ──
+    // Both abrupt exits are observable: `break` runs `iterator_close`, and a
+    // body `throw` unwinds through the `catch_offset(0)` sentinel (which closes
+    // the iterator) before reaching the JS `catch` below it. The iterator is
+    // built in `setup` and its methods contain no literals, so every function
+    // the warm-up calls must compile.
+    iter_for_of_close_on_break_and_throw => Compiles =
+        "var __seed = 0; var IT_LOG = ''; var IT_I = 0; var IT_RESULT = { value: undefined, done: false }; var IT_OBJ = {}; IT_OBJ[Symbol.iterator] = function () { IT_I = 0; return IT_OBJ; }; IT_OBJ.next = function () { IT_I = IT_I + 1; IT_RESULT.value = IT_I; IT_RESULT.done = IT_I > 3; return IT_RESULT; }; IT_OBJ.return = function () { IT_LOG = IT_LOG + 'r'; return IT_RESULT; }; function f(n) { var __z = 0; var s = 0; for (var v of IT_OBJ) { if (v === n) break; s = s + v; } try { for (var w of IT_OBJ) { if (w === n) throw 42; s = s + w; } } catch (e) { s = s + 100; } for (var u of IT_OBJ) { if (u === n) return s + u; } return s; }",
+        "f(2)",
+        "f(2)",
+        "'iter:' + IT_LOG + ',' + f(1)";
+    // Inherited keys: the enum record walks the prototype chain (and skips the
+    // already-visited own key).
+    iter_for_in_walks_the_prototype_chain => Compiles =
+        "var __seed = 0; var FI_BASE = { a: 1 }; var FI_OBJ = Object.create(FI_BASE); FI_OBJ.b = 2; function f(n) { var __z = 0; var s = 0; var i = 0; for (var k in FI_OBJ) { s = s + k.length + i; i = i + 1; } return s + n; }",
+        "f(1)",
+        "f(2)",
+        "'fi:' + f(3)";
+    // Built-in iterators: a string (per-code-point), a Map (entry arrays) and a
+    // fresh array literal. Only `for_of_next` is involved; there is no sentinel
+    // to test beyond the ordinary loop.
+    iter_builtin_iterables => Compiles =
+        "var __seed = 0; var MI = new Map(); MI.set('a', 1); MI.set('bb', 2); function f(n) { var __z = 0; var s = 0; for (var ch of 'abc') s = s + ch.length; for (var e of MI) s = s + e[1]; for (var v of [n, n + 1]) s = s + v; return s; }",
+        "f(1)",
+        "f(2)",
+        "'bi:' + f(3)";
+
     // ── control flow shapes the verifier must survive ──
     switch_and_labels => Compiles =
         "var __seed = 0; function f(n){ var __z = 0; var r = 0; switch (n % 4) { case 0: r = 10; break; case 1: r = 20; break; default: r = 30; } outer: for (var i = 0; i < 5; i++) { if (i === 2) continue outer; if (i === 4) break outer; r = r + i; } return r; }",
@@ -319,6 +346,7 @@ const FEATURES: &[&str] = &[
     "arguments_",
     "this_",
     "newtarget_",
+    "iter_",
 ];
 
 #[test]

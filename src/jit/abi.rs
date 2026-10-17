@@ -1221,8 +1221,174 @@ unsafe extern "C" fn h_set_name(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// `for_of_start`: `[obj, ^] -> [iter_obj, next, catch_offset(0), ^]`. The zero
+/// catch offset is the sentinel `find_catch_in_frame` later uses to close the
+/// iterator on an abrupt exit, so it must be pushed exactly like the
+/// interpreter pushes it.
+unsafe extern "C" fn h_for_of_start(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let sp = f.sp;
+        let opened = (*sp.offset(-1))
+            .get_iterator_must(scope, false)
+            .and_then(|o| {
+                o.get_property(scope, crate::atom::Atom::CONST_next)
+                    .map(|next| (o, next))
+            });
+        match opened {
+            Ok((iter, next)) => {
+                *sp.offset(-1) = JSValue::from(iter);
+                *sp = next;
+                *sp.offset(1) = JSValue::make_catch_offset(0);
+                f.sp = sp.offset(2);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `for_of_next`: calls `next()` on the iterator at `sp[imm]`, pushes
+/// `[value, done]`. Mirrors `js_for_of_next` (which also clears the iterator
+/// slot on failure so the unwinder does not close it twice).
+unsafe extern "C" fn h_for_of_next(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let sp = f.sp;
+        if crate::bytecode::operators::js_for_of_next(scope, sp, -3 - f.imm as i32).is_err() {
+            return HELPER_EXCEPTION;
+        }
+        f.sp = sp.add(2);
+        HELPER_OK
+    }
+}
+
+/// `for_in_start`: `[obj, ^] -> [enum_obj, ^]`.
+unsafe extern "C" fn h_for_in_start(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        if crate::bytecode::operators::js_for_in_start(scope_of(f), f.sp).is_err() {
+            HELPER_EXCEPTION
+        } else {
+            HELPER_OK
+        }
+    }
+}
+
+/// `for_in_next`: `[enum_obj, ^] -> [enum_obj, value, done, ^]`.
+unsafe extern "C" fn h_for_in_next(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        if crate::bytecode::operators::js_for_in_next(scope_of(f), f.sp).is_err() {
+            HELPER_EXCEPTION
+        } else {
+            f.sp = f.sp.add(2);
+            HELPER_OK
+        }
+    }
+}
+
+/// `iterator_check_object`: the value on top must be an object.
+unsafe extern "C" fn h_iterator_check_object(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        if (*f.sp.offset(-1)).is_object() {
+            HELPER_OK
+        } else {
+            let _ = scope_of(f).throw_type_error("iterator must return an object");
+            HELPER_EXCEPTION
+        }
+    }
+}
+
+/// `iterator_get_value_done`: `[iter_result, ^] -> [value, done, ^]`.
+unsafe extern "C" fn h_iterator_get_value_done(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        if crate::bytecode::operators::js_iterator_get_value_done(scope_of(f), f.sp) != 0 {
+            HELPER_EXCEPTION
+        } else {
+            f.sp = f.sp.add(1);
+            HELPER_OK
+        }
+    }
+}
+
+/// `iterator_close`: the lowering already dropped `next` and the catch offset,
+/// so `sp[-1]` is the iterator. Calls its `return` method like the interpreter.
+unsafe extern "C" fn h_iterator_close(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let target = *f.sp.offset(-1);
+        if let Some(o) = target.as_object()
+            && crate::builtins::iterator::ObjectIter::close_iter_internal(scope_of(f), o).is_err()
+        {
+            return HELPER_EXCEPTION;
+        }
+        f.sp = f.sp.offset(-1);
+        HELPER_OK
+    }
+}
+
+/// `iterator_next`: `[iter_obj, next, catch_offset, value, ^] -> [.., result, ^]`.
+unsafe extern "C" fn h_iterator_next(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let result = (*sp.offset(-3)).call(scope_of(f), *sp.offset(-4), &[*sp.offset(-1)]);
+        match result {
+            Ok(value) => {
+                *sp.offset(-1) = value;
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `iterator_call`: close (`return`) or forward the throw of the iterator at
+/// `sp[-4]`. `imm & 1` selects `throw` instead of `return`, `imm & 2` means no
+/// argument. Pushes the returned flag.
+unsafe extern "C" fn h_iterator_call(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let flags = f.imm as u8;
+        let scope = scope_of(f);
+        let atom = if flags & 1 != 0 {
+            crate::atom::Atom::CONST_throw
+        } else {
+            crate::atom::Atom::CONST_return
+        };
+        let Ok(method) = (*sp.offset(-4)).get_property(scope, atom) else {
+            return HELPER_EXCEPTION;
+        };
+        let ret_flag = if method.is_undefined_or_null() {
+            true
+        } else {
+            let args: &[JSValue] = if flags & 2 != 0 {
+                &[]
+            } else {
+                &[*sp.offset(-1)]
+            };
+            match method.call(scope, *sp.offset(-4), args) {
+                Ok(value) => {
+                    *sp.offset(-1) = value;
+                    false
+                }
+                Err(_) => return HELPER_EXCEPTION,
+            }
+        };
+        *sp = JSValue::from(ret_flag);
+        f.sp = sp.add(1);
+        HELPER_OK
+    }
+}
+
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 63;
+pub(crate) const HELPER_COUNT: usize = 72;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -1323,6 +1489,24 @@ pub(crate) const HELPER_GET_VAR_REF_CHECK: usize = 60;
 pub(crate) const HELPER_PUT_VAR_REF_CHECK: usize = 61;
 /// Index of [`h_put_var_ref_check_init`].
 pub(crate) const HELPER_PUT_VAR_REF_CHECK_INIT: usize = 62;
+/// Index of [`h_for_in_start`].
+pub(crate) const HELPER_FOR_IN_START: usize = 63;
+/// Index of [`h_for_in_next`].
+pub(crate) const HELPER_FOR_IN_NEXT: usize = 64;
+/// Index of [`h_for_of_start`].
+pub(crate) const HELPER_FOR_OF_START: usize = 65;
+/// Index of [`h_for_of_next`].
+pub(crate) const HELPER_FOR_OF_NEXT: usize = 66;
+/// Index of [`h_iterator_check_object`].
+pub(crate) const HELPER_ITERATOR_CHECK_OBJECT: usize = 67;
+/// Index of [`h_iterator_get_value_done`].
+pub(crate) const HELPER_ITERATOR_GET_VALUE_DONE: usize = 68;
+/// Index of [`h_iterator_close`].
+pub(crate) const HELPER_ITERATOR_CLOSE: usize = 69;
+/// Index of [`h_iterator_next`].
+pub(crate) const HELPER_ITERATOR_NEXT: usize = 70;
+/// Index of [`h_iterator_call`].
+pub(crate) const HELPER_ITERATOR_CALL: usize = 71;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -1394,4 +1578,13 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_get_var_ref_check as *const (),
     h_put_var_ref_check as *const (),
     h_put_var_ref_check_init as *const (),
+    h_for_in_start as *const (),
+    h_for_in_next as *const (),
+    h_for_of_start as *const (),
+    h_for_of_next as *const (),
+    h_iterator_check_object as *const (),
+    h_iterator_get_value_done as *const (),
+    h_iterator_close as *const (),
+    h_iterator_next as *const (),
+    h_iterator_call as *const (),
 ]);

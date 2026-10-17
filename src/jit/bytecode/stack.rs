@@ -272,12 +272,20 @@ fn transfer(
     let popped = state.stack.split_off(state.stack.len() - pop);
     let popped_top = popped.last().copied().unwrap_or(SlotKind::Tagged);
 
-    if matches!(name, "for_of_next" | "for_in_next") {
+    if matches!(
+        name,
+        "for_of_next" | "for_in_next" | "iterator_next" | "iterator_call"
+    ) {
         // The nominal pops are only the window the interpreter reads in place:
-        // the enumeration record (including its catch offset) and any values
-        // below stay unchanged, and the opcode pushes `value` and `done`.
+        // the iteration record (including its catch offset) and the values
+        // below stay unchanged. `for_of_next`/`for_in_next` append `value` and
+        // `done`; `iterator_next` keeps the window; `iterator_call` appends its
+        // flag above the overwritten argument.
+        let extra = (instruction.info().n_push as usize).saturating_sub(pop);
         state.stack.extend(popped);
-        state.stack.extend([SlotKind::Tagged, SlotKind::Tagged]);
+        state
+            .stack
+            .extend(std::iter::repeat_n(SlotKind::Tagged, extra));
         return check_stack_size(snapshot, instruction, state);
     }
 

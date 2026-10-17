@@ -740,22 +740,21 @@ fn jit_policy_of(id: &str) -> JitPolicy {
         }
         "make_loc_ref" | "make_arg_ref" | "make_var_ref_ref" | "make_var_ref" => Helper,
         // ── iterators / generators / async ──
+        // Sync iteration is helper-only: every arm mirrors the interpreter's own
+        // stack manipulation (including the `catch_offset(0)` sentinel that
+        // `find_catch_in_frame` unwinds through), so `for-of`/`for-in` run
+        // native. Generators and `await` need suspendable frames — keep Reject.
         "for_in_start"
         | "for_of_start"
-        | "for_await_of_start"
         | "for_in_next"
         | "for_of_next"
-        | "for_await_of_next"
         | "iterator_check_object"
         | "iterator_get_value_done"
         | "iterator_close"
         | "iterator_next"
-        | "iterator_call"
-        | "initial_yield"
-        | "yield"
-        | "yield_star"
-        | "async_yield_star"
-        | "await" => Reject,
+        | "iterator_call" => Helper,
+        "for_await_of_start" | "for_await_of_next" | "initial_yield" | "yield" | "yield_star"
+        | "async_yield_star" | "await" => Reject,
         // ── unary / arithmetic / comparison / bitwise ──
         "neg" | "plus" | "dec" | "inc" | "post_dec" | "post_inc" | "dec_loc" | "inc_loc"
         | "add_loc" | "not" | "typeof" | "delete" | "delete_var" | "mul" | "div" | "mod"

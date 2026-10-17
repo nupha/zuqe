@@ -329,7 +329,7 @@ pub(super) unsafe fn js_append_enumerate(
 }
 
 /// obj -> enum_obj
-pub(super) fn js_for_in_start(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(crate) fn js_for_in_start(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
     unsafe {
         let obj = std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED);
         let it = ForInIterPayload::create(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::from);
@@ -347,7 +347,7 @@ pub(super) fn js_for_in_start(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resu
 /// 实现 JavaScript 中 for...in 循环的迭代器逻辑，用于遍历对象的可枚举属性
 /// [enum_obj, ^] -> [enum_obj, value, done, ^]
 #[inline]
-pub(super) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(crate) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
     let mut enum_obj = unsafe {
         let v = &mut *sp.offset(-1);
         debug_assert!(v.is_object());
@@ -480,7 +480,7 @@ pub(super) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
     Ok(())
 }
 
-pub(super) unsafe fn js_iterator_get_value_done(ctx: &mut ScopedContext, sp: *mut JSValue) -> i32 {
+pub(crate) unsafe fn js_iterator_get_value_done(ctx: &mut ScopedContext, sp: *mut JSValue) -> i32 {
     let obj = unsafe { *sp.offset(-1) };
     if !obj.is_object() {
         return ctx.throw_type_error("iterator must return an object");
@@ -501,7 +501,7 @@ pub(super) unsafe fn js_iterator_get_value_done(ctx: &mut ScopedContext, sp: *mu
 }
 
 #[inline]
-pub(super) unsafe fn js_for_of_next(
+pub(crate) unsafe fn js_for_of_next(
     ctx: &mut ScopedContext,
     sp: *mut JSValue,
     base: i32,

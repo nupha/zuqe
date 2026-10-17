@@ -43,16 +43,19 @@ use crate::{jit::snapshot::ConstMeta, vm_stack::ExecMode};
 use super::{
     abi::{
         HELPER_ADD, HELPER_ADD_LOC, HELPER_AND, HELPER_DEC, HELPER_DELETE, HELPER_DIV, HELPER_EQ,
+        HELPER_FOR_IN_NEXT, HELPER_FOR_IN_START, HELPER_FOR_OF_NEXT, HELPER_FOR_OF_START,
         HELPER_GET_ARRAY_EL, HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3, HELPER_GET_FIELD,
         HELPER_GET_FIELD2, HELPER_GET_VAR, HELPER_GET_VAR_REF, HELPER_GET_VAR_REF_CHECK,
         HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE, HELPER_IN, HELPER_INC, HELPER_INSTANCEOF,
-        HELPER_LNOT, HELPER_LT, HELPER_LTE, HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ,
-        HELPER_NIP_CATCH, HELPER_NOT, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC,
-        HELPER_POW, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD, HELPER_PUT_VAR, HELPER_PUT_VAR_INIT,
-        HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK, HELPER_PUT_VAR_REF_CHECK_INIT,
-        HELPER_SAFEPOINT, HELPER_SAR, HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ,
-        HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY,
-        HELPER_TYPEOF, HELPER_XOR, JitExecFrame,
+        HELPER_ITERATOR_CALL, HELPER_ITERATOR_CHECK_OBJECT, HELPER_ITERATOR_CLOSE,
+        HELPER_ITERATOR_GET_VALUE_DONE, HELPER_ITERATOR_NEXT, HELPER_LNOT, HELPER_LT, HELPER_LTE,
+        HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH, HELPER_NOT, HELPER_OR,
+        HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC, HELPER_POW, HELPER_PUT_ARRAY_EL,
+        HELPER_PUT_FIELD, HELPER_PUT_VAR, HELPER_PUT_VAR_INIT, HELPER_PUT_VAR_REF,
+        HELPER_PUT_VAR_REF_CHECK, HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_SAFEPOINT, HELPER_SAR,
+        HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ, HELPER_STRICT_NEQ,
+        HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY, HELPER_TYPEOF, HELPER_XOR,
+        JitExecFrame,
     },
     bytecode::{
         cfg::ControlFlowGraph, decode::Instruction, stack::SlotKind, verify::VerifiedFunction,
@@ -195,6 +198,19 @@ fn helper_for(name: &str) -> Option<usize> {
         "instanceof" => HELPER_INSTANCEOF,
         "delete" => HELPER_DELETE,
         "nip_catch" => HELPER_NIP_CATCH,
+        // Sync iteration. `for_of_next`/`iterator_close`/`iterator_call` need
+        // more than a name→id map (an operand or a stack adjustment), so they
+        // have explicit arms in `lower_insn` and are only listed here for
+        // `supported()`.
+        "for_in_start" => HELPER_FOR_IN_START,
+        "for_in_next" => HELPER_FOR_IN_NEXT,
+        "for_of_start" => HELPER_FOR_OF_START,
+        "for_of_next" => HELPER_FOR_OF_NEXT,
+        "iterator_check_object" => HELPER_ITERATOR_CHECK_OBJECT,
+        "iterator_get_value_done" => HELPER_ITERATOR_GET_VALUE_DONE,
+        "iterator_close" => HELPER_ITERATOR_CLOSE,
+        "iterator_next" => HELPER_ITERATOR_NEXT,
+        "iterator_call" => HELPER_ITERATOR_CALL,
         _ => return None,
     })
 }
@@ -1516,6 +1532,47 @@ fn lower_insn(
                 helper_sig,
                 sp,
                 super::abi::HELPER_PUSH_THIS,
+                pc + size,
+            );
+            return Step::Continue(sp);
+        }
+        // `for_of_next` reads its `depth` operand through `imm` (the iterator
+        // window is `sp[-3-depth]`), like `add_loc` passes its local index.
+        "for_of_next" => {
+            let base = b.ins().iconst(types::I32, i64::from(insn.operand_u8(1)));
+            b.ins().store(MemFlags::new(), base, fv.frame, O_IMM);
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_FOR_OF_NEXT, pc + size);
+            return Step::Continue(sp);
+        }
+        // `iterator_call` carries the close/throw flag bits in its operand.
+        "iterator_call" => {
+            let flags = b.ins().iconst(types::I32, i64::from(insn.operand_u8(1)));
+            b.ins().store(MemFlags::new(), flags, fv.frame, O_IMM);
+            let sp = call_stack_helper(
+                state,
+                b,
+                fv,
+                helper_sig,
+                sp,
+                HELPER_ITERATOR_CALL,
+                pc + size,
+            );
+            return Step::Continue(sp);
+        }
+        "iterator_close" => {
+            // Drop `next` and the catch offset *before* the helper runs. The
+            // interpreter does the same, so if `return()` throws, the unwinder
+            // no longer sees this loop's own sentinel and the error propagates
+            // instead of closing the same iterator twice.
+            state.stack.flush(b, sp);
+            let sp = b.ins().iadd_imm(sp, -16);
+            let sp = call_stack_helper(
+                state,
+                b,
+                fv,
+                helper_sig,
+                sp,
+                HELPER_ITERATOR_CLOSE,
                 pc + size,
             );
             return Step::Continue(sp);
@@ -2953,6 +3010,90 @@ mod tests {
             ]),
             0,
             1,
+        ));
+
+        // Sync iteration (S3 2.4.1): real `for-of`/`for-in` shapes. The
+        // iterator window is [iter_obj, next, catch_offset]; `for_of_next`
+        // appends value/done and `iterator_close` drops the window.
+        cases.push((
+            "for_of_start",
+            seq(&[
+                &push_i32(0),
+                &[op::OP_for_of_start],
+                &[op::OP_iterator_close, op::OP_return_undef],
+            ]),
+            0,
+            0,
+        ));
+        cases.push((
+            "for_of_next",
+            seq(&[
+                &push_i32(0),
+                &[op::OP_for_of_start],
+                &[op::OP_for_of_next, 0],
+                &[op::OP_drop, op::OP_drop],
+                &[op::OP_iterator_close, op::OP_return_undef],
+            ]),
+            0,
+            0,
+        ));
+        cases.push((
+            "for_in",
+            seq(&[
+                &push_i32(0),
+                &[op::OP_for_in_start, op::OP_for_in_next],
+                &[op::OP_drop, op::OP_drop, op::OP_drop],
+                &[op::OP_return_undef],
+            ]),
+            0,
+            0,
+        ));
+        cases.push((
+            "iterator_get_value_done",
+            seq(&[
+                &push_i32(0),
+                &[op::OP_iterator_get_value_done],
+                &[op::OP_drop, op::OP_drop, op::OP_return_undef],
+            ]),
+            0,
+            0,
+        ));
+        cases.push((
+            "iterator_check_object",
+            seq(&[
+                &push_i32(0),
+                &[
+                    op::OP_iterator_check_object,
+                    op::OP_drop,
+                    op::OP_return_undef,
+                ],
+            ]),
+            0,
+            0,
+        ));
+        cases.push((
+            "iterator_next",
+            seq(&[
+                &push_i32(0),
+                &[op::OP_for_of_start],
+                &push_i32(0),
+                &[op::OP_iterator_next, op::OP_drop],
+                &[op::OP_iterator_close, op::OP_return_undef],
+            ]),
+            0,
+            0,
+        ));
+        cases.push((
+            "iterator_call",
+            seq(&[
+                &push_i32(0),
+                &[op::OP_for_of_start],
+                &push_i32(0),
+                &[op::OP_iterator_call, 0, op::OP_drop, op::OP_drop],
+                &[op::OP_iterator_close, op::OP_return_undef],
+            ]),
+            0,
+            0,
         ));
 
         // Epic E5: exception regions. `catch` pushes the handler sentinel;

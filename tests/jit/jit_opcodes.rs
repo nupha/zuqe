@@ -260,11 +260,14 @@ const CASES: &[OpCase] = op_cases! {
                   "f(1)",
           "f(-4)",
           "'cf:' + f(6)";
+    // The iterable and the object live in `setup` so the *warm-up script*
+    // contains no rejected opcode (`define_field` for an inline object literal
+    // would otherwise be the thing the gate sees rejected, not `f`).
     for_of_and_for_in => [push_i32, fclosure, drop, array_from, return, put_var, put_ref_value, get_field, get_loc, put_loc, set_loc, get_arg, if_false, goto, for_in_start, for_of_start, for_in_next, for_of_next, iterator_close, add, nop]
-        = "var __seed = 0; function f(o){ var __z = 0; var s = 0; for (var v of [1, 2, 3]) s += v; for (var k in o) s += k.length; return s; }",
-                  "f({a: 1, bb: 2})",
-          "f({ccc: 3})",
-          "'it:' + f({a: 1})";
+        = "var __seed = 0; var OFO = {a: 1, bb: 2}; function f(o){ var __z = 0; var s = 0; for (var v of [1, 2, 3]) s += v; for (var k in o) s += k.length; return s; }",
+                  "f(OFO)",
+          "f(OFO)",
+          "'it:' + f(OFO)";
     generators_and_async => [push_i32, fclosure, undefined, drop, nip, dup, insert3, call, call_method, array_from, return, return_async, throw_error, get_var, put_var, get_ref_value, put_ref_value, get_field, get_field2, get_loc, put_loc, set_loc, get_arg, if_false, if_true, goto, for_of_start, for_await_of_start, for_await_of_next, iterator_check_object, iterator_get_value_done, iterator_close, iterator_next, iterator_call, initial_yield, yield, yield_star, async_yield_star, await, add, strict_eq, nop]
         = "function* g(){ yield 1; yield* [2, 3]; } async function af(xs){ var __z = 0; var s = 0; for await (var v of xs) s += v; return s; } async function* ag(){ yield* [1, 2]; } function f(){ var __z = 0; var it = g(); return it.next().value; }",
                   "f()",
