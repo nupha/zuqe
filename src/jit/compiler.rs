@@ -314,9 +314,13 @@ fn shuffle_outputs(name: &str) -> Option<(usize, &'static [usize])> {
         "insert2" => (2, &[1, 0, 1]),
         "insert3" => (3, &[2, 0, 1, 2]),
         "insert4" => (4, &[3, 0, 1, 2, 3]),
+        // Keep in step with `jit/bytecode/stack.rs::copied_stack_values`: the
+        // `perm` family moves the *deepest* operand to the top (`perm4` of
+        // `[object, property, a, b]` is `[a, object, property, b]`), it is not
+        // a top-two swap.
         "perm3" => (3, &[1, 0, 2]),
-        "perm4" => (4, &[1, 0, 2, 3]),
-        "perm5" => (5, &[1, 0, 2, 3, 4]),
+        "perm4" => (4, &[2, 0, 1, 3]),
+        "perm5" => (5, &[3, 0, 1, 2, 4]),
         "swap" => (2, &[1, 0]),
         "swap2" => (4, &[2, 3, 0, 1]),
         "rot3l" => (3, &[1, 2, 0]),

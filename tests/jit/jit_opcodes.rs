@@ -11,8 +11,9 @@
 
 use std::collections::HashMap;
 
-use crate::common::{Case, Mode, run_case_polled};
 use zuqe::jit::{JitPolicy, opcode_names, opcode_policies};
+
+use crate::common::{Case, Mode, run_case_polled};
 
 /// Opcodes no JS program (and no compile pass) can emit today, so no JS case
 /// can ever claim them. Verified against every emit site in `src/`:
@@ -37,42 +38,23 @@ const UNREACHABLE: &[(&str, &str)] = &[
     ),
 ];
 
-/// Opcodes that are reachable in principle but that no case in this suite
-/// produces: eight are `Native`/`Helper` (their lowering is covered by
-/// `jit::compiler::every_supported_opcode_lowers`) and two are `Reject` ops
-/// inside `with` (`with_get_var`/`with_make_ref`/`with_delete_var` do have a JS
-/// case). This is the honest e2e gap of M2b-2 — it must only shrink.
-const GAPS: &[(&str, &str)] = &[
-    (
-        "add_loc",
-        "the optimizer's `set_loc` rewrite consumes the pattern add_loc matches",
-    ),
-    (
-        "dup3",
-        "no JS shape found for the depth-3 keep-top lvalue path",
-    ),
-    (
-        "perm5",
-        "no JS shape found for the depth-3 keep-second lvalue path",
-    ),
-    (
-        "put_loc_check",
-        "no JS shape found that the optimizer rewrites into it",
-    ),
-    (
-        "put_var_ref",
-        "every closure write is folded into `set_var_ref` first",
-    ),
-    (
-        "put_var_ref_check_init",
-        "`this` as a captured var_ref initializer: no JS shape found",
-    ),
-    ("rot4l", "no JS shape found for the depth-3 lvalue swap"),
-    (
-        "rot5l",
-        "no JS shape found for the depth-3 computed lvalue swap",
-    ),
-];
+/// Opcodes `Native`/`Helper` (lowering covered by
+/// `jit::compiler::every_supported_opcode_lowers`) that no case in this suite
+/// produces. This is the honest e2e gap of M2b-2 — it must only shrink.
+///
+/// Seven of the eight original entries found shapes (2026-10-17): the
+/// depth-3 `super.x` lvalues (`super.p++` → `dup3`/`perm5`, `({k: super.p} = o)`
+/// → `rot4l`, `({[k]: super.p} = o)` → `rot5l`), a TDZ-checked `for` update
+/// (`put_loc_check`), a closure variable's `for` update (`put_var_ref`) and
+/// `super()` inside an arrow (`put_var_ref_check_init`).
+const GAPS: &[(&str, &str)] = &[(
+    "add_loc",
+    "the only emit site (`optimize::optimize_get_loc`) matches \
+     `get_loc(n) … dup put_loc(n) drop`, but `resolve_scoped_vars` rewrites \
+     every KEEP_TOP local write to `set_loc` before that pass, so no bytecode \
+     ever reaches the pattern; exposing it needs an optimizer reorder \
+     (interpreter bytecode change)",
+)];
 
 /// Cases whose function the frontend refuses today although every opcode they
 /// claim is policy-accepted. **Empty since 2026-10-17** (`this_arguments_newtarget`
@@ -268,6 +250,35 @@ const CASES: &[OpCase] = op_cases! {
                   "f(OFO)",
           "f(OFO)",
           "'it:' + f(OFO)";
+    // `super.x` as an lvalue is the only producer of the depth-3 shuffles:
+    // `super.p++` (dup3 + perm5), `({v: super.p} = o)` (rot4l) and the
+    // computed-key form `({[k]: super.p} = o)` (rot5l).
+    super_lvalue_shuffles => [dup3, perm5, rot4l, rot5l]
+        = "var __seed = 0; class A { constructor(){ this.q = 0; } get p(){ return this.q; } set p(v){ this.q = v; } } class B extends A { bump(){ return super.p++; } setNamed(o){ ({ v: super.p } = o); return super.p; } setComputed(o, k){ ({ [k]: super.p } = o); return super.p; } } function f(n){ var b = new B(); b.bump(); b.setNamed({v: n}); b.setComputed({z: n + 1}, 'z'); return b.p; }",
+                  "f(1)",
+          "f(5)",
+          "'sv:' + f(3)";
+    // A `let` written by a `for` update outside its declaration is TDZ-checked
+    // on every write (`get_loc_check` … `put_loc_check`).
+    tdz_for_update => [put_loc_check]
+        = "var __seed = 0; function f(n){ let a; for (a = 0; a < n; a++) {} return a; }",
+                  "f(1)",
+          "f(4)",
+          "'tfu:' + f(3)";
+    // A `for` update on a variable captured from an enclosing function writes
+    // through the closure cell (`put_var_ref`).
+    closure_var_for_update => [put_var_ref]
+        = "var __seed = 0; function f(n){ var x = 0; function g(){ for (x = 0; x < n; x++) {} } g(); return x; }",
+                  "f(1)",
+          "f(4)",
+          "'cvfu:' + f(3)";
+    // `super()` inside an arrow captures the constructor's `this` as a lexical
+    // closure variable, whose initialization is `put_var_ref_check_init`.
+    captured_this_super_init => [put_var_ref_check_init]
+        = "var __seed = 0; class A { constructor(x){ this.x = x; } } class B extends A { constructor(){ var init = (x) => super(x); init(7); } } function f(n){ var b = new B(); return b.x + n; }",
+                  "f(1)",
+          "f(2)",
+          "'ctsi:' + f(3)";
     generators_and_async => [push_i32, fclosure, undefined, drop, nip, dup, insert3, call, call_method, array_from, return, return_async, throw_error, get_var, put_var, get_ref_value, put_ref_value, get_field, get_field2, get_loc, put_loc, set_loc, get_arg, if_false, if_true, goto, for_of_start, for_await_of_start, for_await_of_next, iterator_check_object, iterator_get_value_done, iterator_close, iterator_next, iterator_call, initial_yield, yield, yield_star, async_yield_star, await, add, strict_eq, nop]
         = "function* g(){ yield 1; yield* [2, 3]; } async function af(xs){ var __z = 0; var s = 0; for await (var v of xs) s += v; return s; } async function* ag(){ yield* [1, 2]; } function f(){ var __z = 0; var it = g(); return it.next().value; }",
                   "f()",
