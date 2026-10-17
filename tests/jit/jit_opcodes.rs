@@ -283,15 +283,16 @@ const CASES: &[OpCase] = op_cases! {
           "'ap:' + f([9], 0)";
     // ── one order-observable shape per stack shuffle (see the oracle test
     //    `lvalue_shuffle_semantics_match_the_language`) ──
-    // `nip` drops the operand below the top. It sits on the short-circuit arm
-    // of a logical assignment and keeps the *value* (the lower slot is the
-    // discarded reference object), so the expression form is what makes the
-    // order observable: `o.p ||= v` used as a statement drops it again.
+    // `nip` drops the operand below the top. It sits on the *short-circuit*
+    // arm of a logical assignment (`||=` keeps the existing value, which is
+    // the expression's result), so the observed value must come from that arm:
+    // the `p` argument is truthy here (the falsy path assigns instead and never
+    // runs the `nip`).
     logical_assign_nip => [nip]
         = "var __seed = 0; function f(o, v){ var r = (o.p ||= v); return r * 10 + o.p; }",
-                  "f({p: 0}, 1)",
-          "f({p: 0}, 5)",
-          "'nip:' + f({p: 0}, 7)";
+                  "f({p: 1}, 1)",
+          "f({p: 3}, 5)",
+          "'nip:' + f({p: 4}, 9)";
     // `dup`: the `??` guard keeps the operand for both the test and the result.
     dup_nullish => [dup]
         = "var __seed = 0; function f(a, b){ return a ?? b; }",
@@ -331,12 +332,20 @@ const CASES: &[OpCase] = op_cases! {
                   "f({a: 1}, {})",
           "f({a: 1, b: 2}, {})",
           "'sw:' + f({a: 1, b: 2, c: 3}, {})";
-    // `rot3l`: an object pattern whose target is a variable.
-    rot3l_object_pattern => [rot3l]
-        = "var __seed = 0; function f(o){ var { a, b } = o; return a * 10 + b; }",
-                  "f({a: 1, b: 2})",
-          "f({a: 3, b: 4})",
-          "'r3l:' + f({a: 5, b: 6})";
+    // `perm3`: the arguments of a spread call must keep their order (a
+    // commutative callee like `Math.max` would hide a swap).
+    perm3_spread_call_order => [perm3]
+        = "var __seed = 0; var MO = { m: function(a, b, c){ return a * 100 + b * 10 + c; } }; function f(xs){ return MO.m(1, ...xs); }",
+                  "f([1, 2])",
+          "f([4, 5])",
+          "'p3:' + f([7, 8])";
+    // `rot3l`: object rest; the pattern source/property pair is rotated before
+    // the copy, so `rest` sees the wrong properties if the order is off.
+    rot3l_object_rest => [rot3l]
+        = "var __seed = 0; function f(p){ var y = 0, z = {}; ({ y, ...z } = p); return y * 100 + z.w; }",
+                  "f({y: 1, w: 2})",
+          "f({y: 3, w: 4})",
+          "'r3l:' + f({y: 5, w: 6})";
     // `rot3r` (+ `dup1`): a computed-key target that is a *field*.
     rot3r_computed_field_target => [dup1, rot3r]
         = "var __seed = 0; function f(o, k, v){ ({ [k]: o.p } = { [k]: v }); return o.p; }",
@@ -629,20 +638,29 @@ fn a_script_that_declares_a_function_compiles() {
 /// `perm4`/`perm5` are the reason this exists: their JIT table was
 /// `[1,0,2,3]`/`[1,0,2,3,4]` instead of QuickJS's `[2,0,1,3]`/`[3,0,1,2,4]`,
 /// and no case reached them. `dup2`/`nip1` have no shape (see `UNREACHABLE`).
+///
+/// Known limits, measured by mutating each table entry and re-running this test
+/// (2026-10-17): 14 of the 16 reachable shuffles fail when their entry is
+/// permuted, so those cases are genuinely order-observable. `dup` cannot be —
+/// it duplicates one slot, so any same-height variant is identity. `rot3l` and
+/// `swap2` are exercised and assert the right value, but their snippets Resume
+/// to the interpreter at `make_loc_ref`/`put_ref_value` (still unlowered), so
+/// the shuffle itself is not isolated; the table guard
+/// (`shuffle_table_matches_the_verifier`) is what covers their order today.
 const SHUFFLE_ORACLES: &[(&str, &str, &str)] = &[
     // (shuffle, audited case, expected `main`)
-    ("nip", "logical_assign_nip", "int:55"),
+    ("nip", "logical_assign_nip", "int:33"),
     ("dup", "dup_nullish", "int:4"),
     ("dup1", "swap2_computed_target", "int:7"),
     ("insert2", "insert2_field_assign_value", "int:8"),
     ("insert3", "insert3_element_assign_value", "int:6"),
     ("insert4", "insert4_super_assign_value", "int:10"),
-    ("perm3", "spread_call", "int:8"),
+    ("perm3", "perm3_spread_call_order", "int:145"),
     ("perm4", "array_element_postfix", "int:26"),
     ("perm5", "super_lvalue_shuffles", "int:6"),
     ("swap", "swap_for_in_target", "int:21"),
     ("swap2", "swap2_computed_target", "int:7"),
-    ("rot3l", "rot3l_object_pattern", "int:34"),
+    ("rot3l", "rot3l_object_rest", "int:304"),
     ("rot3r", "rot3r_computed_field_target", "int:5"),
     ("rot4l", "super_lvalue_shuffles", "int:6"),
     ("rot5l", "super_lvalue_shuffles", "int:6"),

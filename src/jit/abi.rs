@@ -1779,6 +1779,48 @@ unsafe extern "C" fn h_put_super_value(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// `object`: `[^] -> [obj, ^]`, an empty base object (the seed for an object
+/// literal, then filled by `define_field`/`define_array_el`/...).
+unsafe extern "C" fn h_object(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let value = scope_of(f)
+            .create_base_object()
+            .map_or(JSValue::EXCEPTION, JSValue::from);
+        *f.sp = value;
+        f.sp = f.sp.add(1);
+        if value.is_exception() {
+            HELPER_EXCEPTION
+        } else {
+            HELPER_OK
+        }
+    }
+}
+
+/// `array_from`: `[v0, …, vN-1, ^] -> [array, ^]`; `imm` is `N`. Mirrors the
+/// interpreter's `ARRAY_FROM` (the same fast-array slot allocation).
+unsafe extern "C" fn h_array_from(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let count = f.imm as i32;
+        let base = f.sp.offset(-(count as isize));
+        let Ok(mut list) = crate::array::alloc_fast_array_slots(scope, count as usize) else {
+            return HELPER_EXCEPTION;
+        };
+        for i in 0..count as usize {
+            list.push(*base.add(i));
+        }
+        let Ok(array) = crate::array::Array::from_values(scope, list) else {
+            return HELPER_EXCEPTION;
+        };
+        f.sp = base;
+        *f.sp = JSValue::from(array);
+        f.sp = f.sp.add(1);
+        HELPER_OK
+    }
+}
+
 /// `close_loc`: detaches the frame's `var_ref` for local `imm`, so a later
 /// write goes through the box instead of the (now dead) frame slot.
 unsafe extern "C" fn h_close_loc(f: *mut JitExecFrame) -> u32 {
@@ -1796,7 +1838,7 @@ unsafe extern "C" fn h_close_loc(f: *mut JitExecFrame) -> u32 {
 }
 
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 97;
+pub(crate) const HELPER_COUNT: usize = 99;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -1965,6 +2007,10 @@ pub(crate) const HELPER_GET_SUPER_VALUE: usize = 94;
 pub(crate) const HELPER_PUT_SUPER_VALUE: usize = 95;
 /// Index of [`h_close_loc`].
 pub(crate) const HELPER_CLOSE_LOC: usize = 96;
+/// Index of [`h_object`].
+pub(crate) const HELPER_OBJECT: usize = 97;
+/// Index of [`h_array_from`].
+pub(crate) const HELPER_ARRAY_FROM: usize = 98;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -2070,4 +2116,6 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_get_super_value as *const (),
     h_put_super_value as *const (),
     h_close_loc as *const (),
+    h_object as *const (),
+    h_array_from as *const (),
 ]);

@@ -42,7 +42,7 @@ use crate::{jit::snapshot::ConstMeta, vm_stack::ExecMode};
 
 use super::{
     abi::{
-        HELPER_ADD, HELPER_ADD_BRAND, HELPER_ADD_LOC, HELPER_AND, HELPER_APPEND,
+        HELPER_ADD, HELPER_ADD_BRAND, HELPER_ADD_LOC, HELPER_AND, HELPER_APPEND, HELPER_ARRAY_FROM,
         HELPER_CHECK_BRAND, HELPER_CHECK_CTOR, HELPER_CHECK_CTOR_RETURN, HELPER_CLOSE_LOC,
         HELPER_COPY_DATA_PROPERTIES, HELPER_DEC, HELPER_DEFINE_ARRAY_EL, HELPER_DEFINE_CLASS,
         HELPER_DEFINE_CLASS_COMPUTED, HELPER_DEFINE_FIELD, HELPER_DEFINE_METHOD,
@@ -55,14 +55,14 @@ use super::{
         HELPER_INSTANCEOF, HELPER_ITERATOR_CALL, HELPER_ITERATOR_CHECK_OBJECT,
         HELPER_ITERATOR_CLOSE, HELPER_ITERATOR_GET_VALUE_DONE, HELPER_ITERATOR_NEXT, HELPER_LNOT,
         HELPER_LT, HELPER_LTE, HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH,
-        HELPER_NOT, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC, HELPER_POW,
-        HELPER_PRIVATE_IN, HELPER_PRIVATE_SYMBOL, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD,
-        HELPER_PUT_PRIVATE_FIELD, HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR, HELPER_PUT_VAR_INIT,
-        HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK, HELPER_PUT_VAR_REF_CHECK_INIT,
-        HELPER_SAFEPOINT, HELPER_SAR, HELPER_SET_HOME_OBJECT, HELPER_SET_NAME_COMPUTED,
-        HELPER_SET_PROTO, HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ,
-        HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY,
-        HELPER_TYPEOF, HELPER_XOR, JitExecFrame,
+        HELPER_NOT, HELPER_OBJECT, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC,
+        HELPER_POW, HELPER_PRIVATE_IN, HELPER_PRIVATE_SYMBOL, HELPER_PUT_ARRAY_EL,
+        HELPER_PUT_FIELD, HELPER_PUT_PRIVATE_FIELD, HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR,
+        HELPER_PUT_VAR_INIT, HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK,
+        HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_SAFEPOINT, HELPER_SAR, HELPER_SET_HOME_OBJECT,
+        HELPER_SET_NAME_COMPUTED, HELPER_SET_PROTO, HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR,
+        HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT,
+        HELPER_TO_PROPKEY, HELPER_TYPEOF, HELPER_XOR, JitExecFrame,
     },
     bytecode::{
         cfg::ControlFlowGraph, decode::Instruction, stack::SlotKind, verify::VerifiedFunction,
@@ -248,6 +248,10 @@ fn helper_for(name: &str) -> Option<usize> {
         "get_super_value" => HELPER_GET_SUPER_VALUE,
         "put_super_value" => HELPER_PUT_SUPER_VALUE,
         "close_loc" => HELPER_CLOSE_LOC,
+        // Literal seeds whose opcode carries its count in `imm` (`array_from`)
+        // have explicit arms in `lower_insn`.
+        "object" => HELPER_OBJECT,
+        "array_from" => HELPER_ARRAY_FROM,
         _ => return None,
     })
 }
@@ -1715,6 +1719,13 @@ fn lower_insn(
             let sp = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_CLOSE_LOC, pc + size);
             return Step::Continue(sp);
         }
+        // `array_from` reads its element count (NPOP operand) through `imm`.
+        "array_from" => {
+            let count = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
+            b.ins().store(MemFlags::new(), count, fv.frame, O_IMM);
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_ARRAY_FROM, pc + size);
+            return Step::Continue(sp);
+        }
         _ => {}
     }
 
@@ -3092,6 +3103,21 @@ mod tests {
         }
         // `rest` spends its u16 operand to index the helper's argument window.
         cases.push(("rest", seq(&[&[op::OP_rest, 1, 0], &ret]), 2, 0));
+        // Literal seeds: `object` pushes an empty base object; `array_from`
+        // pops its NPOP operand and pushes one array.
+        cases.push(("object", seq(&[&[op::OP_object, op::OP_return]]), 0, 0));
+        cases.push((
+            "array_from",
+            seq(&[
+                &push_i32(1),
+                &push_i32(2),
+                &[op::OP_array_from],
+                &u16b(2),
+                &ret,
+            ]),
+            0,
+            0,
+        ));
         // `??`'s guard: lowered inline (the tag of the top slot), not resumed.
         cases.push((
             "is_undefined_or_null",
@@ -3637,18 +3663,30 @@ mod tests {
 
     #[test]
     fn entry_opcode_unsupported_fails_closed() {
-        // `object` is verifier-accepted (pushes one value) but not lowered; a
-        // function that starts with it must not be installed.
-        let result = compile_bytes(seq(&[&[op::OP_object], &[op::OP_return]]), 0, 0);
+        // `push_bigint_i32` is verifier-accepted (0 -> 1) but is one of the
+        // `Helper`s the baseline leaves to the interpreter; a function that
+        // starts with it must not be installed.
+        let result = compile_bytes(
+            seq(&[&[op::OP_push_bigint_i32], &i32b(0), &[op::OP_return_undef]]),
+            0,
+            0,
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn unsupported_op_mid_block_still_compiles_to_a_resume() {
         // First op is supported, so the function is installed; the unsupported
-        // `object` lowers to a `Resume` exit and the interpreter finishes it.
+        // `push_bigint_i32` lowers to a `Resume` exit and the interpreter
+        // finishes it. (`object`/`array_from` were the example here until they
+        // got a lowering.)
         let result = compile_bytes(
-            seq(&[&push_i32(1), &[op::OP_object], &[op::OP_return]]),
+            seq(&[
+                &push_i32(1),
+                &[op::OP_push_bigint_i32],
+                &i32b(0),
+                &[op::OP_return],
+            ]),
             0,
             0,
         );
