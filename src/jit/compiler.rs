@@ -46,25 +46,26 @@ use super::{
         HELPER_CHECK_BRAND, HELPER_CHECK_CTOR, HELPER_CHECK_CTOR_RETURN, HELPER_CLOSE_LOC,
         HELPER_COPY_DATA_PROPERTIES, HELPER_DEC, HELPER_DEFINE_ARRAY_EL, HELPER_DEFINE_CLASS,
         HELPER_DEFINE_CLASS_COMPUTED, HELPER_DEFINE_FIELD, HELPER_DEFINE_METHOD,
-        HELPER_DEFINE_METHOD_COMPUTED, HELPER_DEFINE_PRIVATE_FIELD, HELPER_DELETE, HELPER_DIV,
-        HELPER_EQ, HELPER_FOR_IN_NEXT, HELPER_FOR_IN_START, HELPER_FOR_OF_NEXT,
-        HELPER_FOR_OF_START, HELPER_GET_ARRAY_EL, HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3,
-        HELPER_GET_FIELD, HELPER_GET_FIELD2, HELPER_GET_PRIVATE_FIELD, HELPER_GET_SUPER,
-        HELPER_GET_SUPER_VALUE, HELPER_GET_VAR, HELPER_GET_VAR_REF, HELPER_GET_VAR_REF_CHECK,
-        HELPER_GET_VAR_UNDEF, HELPER_GET_REF_VALUE, HELPER_GT, HELPER_GTE, HELPER_IN, HELPER_INC,
-        HELPER_INIT_CTOR,
-        HELPER_INSTANCEOF, HELPER_ITERATOR_CALL, HELPER_ITERATOR_CHECK_OBJECT,
-        HELPER_ITERATOR_CLOSE, HELPER_ITERATOR_GET_VALUE_DONE, HELPER_ITERATOR_NEXT, HELPER_LNOT,
-        HELPER_LT, HELPER_LTE, HELPER_MAKE_ARG_REF, HELPER_MAKE_LOC_REF, HELPER_MAKE_VAR_REF,
-        HELPER_MAKE_VAR_REF_REF, HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH,
-        HELPER_NOT, HELPER_OBJECT, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC,
-        HELPER_POW, HELPER_PRIVATE_IN, HELPER_PRIVATE_SYMBOL, HELPER_PUT_ARRAY_EL,
-        HELPER_PUT_FIELD, HELPER_PUT_PRIVATE_FIELD, HELPER_PUT_REF_VALUE, HELPER_PUT_SUPER_VALUE,
-        HELPER_PUT_VAR, HELPER_PUT_VAR_INIT, HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK,
-        HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_SAFEPOINT, HELPER_SAR, HELPER_SET_HOME_OBJECT,
-        HELPER_SET_NAME_COMPUTED, HELPER_SET_PROTO, HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR,
-        HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT,
-        HELPER_TO_PROPKEY, HELPER_TYPEOF, HELPER_XOR, JitExecFrame,
+        HELPER_DEFINE_METHOD_COMPUTED, HELPER_DEFINE_PRIVATE_FIELD, HELPER_DELETE,
+        HELPER_DELETE_VAR, HELPER_DIV, HELPER_EQ, HELPER_FOR_IN_NEXT, HELPER_FOR_IN_START,
+        HELPER_FOR_OF_NEXT, HELPER_FOR_OF_START, HELPER_GET_ARRAY_EL, HELPER_GET_ARRAY_EL2,
+        HELPER_GET_ARRAY_EL3, HELPER_GET_FIELD, HELPER_GET_FIELD2, HELPER_GET_PRIVATE_FIELD,
+        HELPER_GET_REF_VALUE, HELPER_GET_SUPER, HELPER_GET_SUPER_VALUE, HELPER_GET_VAR,
+        HELPER_GET_VAR_REF, HELPER_GET_VAR_REF_CHECK, HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE,
+        HELPER_IN, HELPER_INC, HELPER_INIT_CTOR, HELPER_INSTANCEOF, HELPER_ITERATOR_CALL,
+        HELPER_ITERATOR_CHECK_OBJECT, HELPER_ITERATOR_CLOSE, HELPER_ITERATOR_GET_VALUE_DONE,
+        HELPER_ITERATOR_NEXT, HELPER_LNOT, HELPER_LT, HELPER_LTE, HELPER_MAKE_ARG_REF,
+        HELPER_MAKE_LOC_REF, HELPER_MAKE_VAR_REF, HELPER_MAKE_VAR_REF_REF, HELPER_MOD, HELPER_MUL,
+        HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH, HELPER_NOT, HELPER_OBJECT, HELPER_OK, HELPER_OR,
+        HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC, HELPER_POW, HELPER_PRIVATE_IN,
+        HELPER_PRIVATE_SYMBOL, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD, HELPER_PUT_PRIVATE_FIELD,
+        HELPER_PUT_REF_VALUE, HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR, HELPER_PUT_VAR_INIT,
+        HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK, HELPER_PUT_VAR_REF_CHECK_INIT,
+        HELPER_SAFEPOINT, HELPER_SAR, HELPER_SET_HOME_OBJECT, HELPER_SET_NAME_COMPUTED,
+        HELPER_SET_PROTO, HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ,
+        HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY,
+        HELPER_TYPEOF, HELPER_WITH_DELETE_VAR, HELPER_WITH_GET_REF, HELPER_WITH_GET_VAR,
+        HELPER_WITH_MAKE_REF, HELPER_WITH_MISS, HELPER_WITH_PUT_VAR, HELPER_XOR, JitExecFrame,
     },
     bytecode::{
         cfg::ControlFlowGraph, decode::Instruction, stack::SlotKind, verify::VerifiedFunction,
@@ -206,6 +207,8 @@ fn helper_for(name: &str) -> Option<usize> {
         "in" => HELPER_IN,
         "instanceof" => HELPER_INSTANCEOF,
         "delete" => HELPER_DELETE,
+        // `delete name` on the global object; the fall-through of `with_delete_var`.
+        "delete_var" => HELPER_DELETE_VAR,
         "nip_catch" => HELPER_NIP_CATCH,
         // Sync iteration. `for_of_next`/`iterator_close`/`iterator_call` need
         // more than a name→id map (an operand or a stack adjustment), so they
@@ -264,6 +267,13 @@ fn helper_for(name: &str) -> Option<usize> {
         "make_var_ref" => HELPER_MAKE_VAR_REF,
         "get_ref_value" => HELPER_GET_REF_VALUE,
         "put_ref_value" => HELPER_PUT_REF_VALUE,
+        // `with_*` takes the instruction's branch on a hit, so it has an
+        // explicit arm in `lower_insn`; listed here for `supported()`.
+        "with_get_var" => HELPER_WITH_GET_VAR,
+        "with_put_var" => HELPER_WITH_PUT_VAR,
+        "with_delete_var" => HELPER_WITH_DELETE_VAR,
+        "with_make_ref" => HELPER_WITH_MAKE_REF,
+        "with_get_ref" => HELPER_WITH_GET_REF,
         _ => return None,
     })
 }
@@ -1649,6 +1659,20 @@ fn lower_insn(
             );
             return Step::Continue(sp);
         }
+        // `with_*`: the helper resolves `imm` (atom) on the environment object
+        // with `imm2` as the `is_with` flag, reports whether it handled the name
+        // and leaves the stack shaped for that answer. On a hit the opcode jumps
+        // to its label (skipping the ordinary variable access the compiler
+        // emitted right after it); on a miss it falls through to that access.
+        "with_get_var" | "with_put_var" | "with_delete_var" | "with_make_ref" | "with_get_ref" => {
+            let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+            b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
+            let is_with = b.ins().iconst(types::I32, i64::from(insn.operand_u8(9)));
+            b.ins().store(MemFlags::new(), is_with, fv.frame, O_IMM2);
+            let id = helper_for(name).expect("with_* helper");
+            lower_with(state, b, fv, sp_var, helper_sig, sp, id, insn, pc + size);
+            return Step::Stop;
+        }
         // Class / object-literal ops whose operand is an immediate. The helper
         // reads it from `imm`/`imm2`; the stack window is the opcode's own.
         "define_field" => {
@@ -1757,7 +1781,8 @@ fn lower_insn(
         "make_var_ref" => {
             let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
             b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
-            let sp = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_MAKE_VAR_REF, pc + size);
+            let sp =
+                call_stack_helper(state, b, fv, helper_sig, sp, HELPER_MAKE_VAR_REF, pc + size);
             return Step::Continue(sp);
         }
         _ => {}
@@ -1935,6 +1960,14 @@ fn lower_insn(
                 _ => HELPER_PUT_VAR_INIT,
             };
             let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
+            Step::Continue(sp)
+        }
+        // `delete name` on the global object (the fall-through of
+        // `with_delete_var`); the atom rides in `imm`.
+        "delete_var" => {
+            let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+            b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_DELETE_VAR, pc + size);
             Step::Continue(sp)
         }
         // Closure captures live behind the GC, so the helper owns the read and
@@ -2666,6 +2699,58 @@ fn lower_if(
     let result = b.ins().ireduce(types::I32, result);
     let test_slow = b.ins().icmp_imm(IntCC::NotEqual, result, 0);
     emit_cond_branch(b, fv, sp_var, state, insn, sp, test_slow, is_true);
+}
+
+/// `with_*`: call the resolver helper, then branch to the instruction's label
+/// when it handled the name and fall through to the ordinary variable access
+/// otherwise. The helper owns both arms' stack shapes (it leaves `sp` at the
+/// shape of whichever path it reports), so the code loads `sp` back and hands
+/// the same value to either edge; only the status picks the edge.
+#[allow(clippy::too_many_arguments)]
+fn lower_with(
+    state: &mut State,
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    sp_var: Variable,
+    helper_sig: cranelift_codegen::ir::SigRef,
+    sp: Value,
+    id: usize,
+    insn: &Instruction,
+    pc_after: u32,
+) {
+    state.stack.flush(b, sp);
+    b.ins().store(MemFlags::new(), sp, fv.frame, O_SP);
+    write_cur_sp(b, fv, sp);
+    let callee = b
+        .ins()
+        .load(types::I64, MemFlags::new(), fv.helpers, (id * 8) as i32);
+    let call = b.ins().call_indirect(helper_sig, callee, &[fv.frame]);
+    let status = b.inst_results(call)[0];
+    // Everything above `HELPER_WITH_MISS` (`1`/`2`) is an exception/interrupt
+    // and leaves the frame with the exit status as usual.
+    let hit = b.ins().icmp_imm(IntCC::Equal, status, i64::from(HELPER_OK));
+    let miss = b
+        .ins()
+        .icmp_imm(IntCC::Equal, status, i64::from(HELPER_WITH_MISS));
+    let resolved = b.ins().bor(hit, miss);
+    let fail = b.create_block();
+    let cont = b.create_block();
+    b.ins().brif(resolved, cont, &[], fail, &[]);
+    b.switch_to_block(fail);
+    exit_status(b, fv, status, pc_after, sp);
+    b.switch_to_block(cont);
+    let sp = b.ins().load(types::I64, MemFlags::new(), fv.frame, O_SP);
+    if insn
+        .branch_target()
+        .is_some_and(|t| t <= i64::from(insn.pc()))
+    {
+        // A resolved label can land on a back edge (the optimizer follows a
+        // `goto` at the label): poll interrupts before taking it.
+        b.def_var(sp_var, sp);
+        let cont = safepoint(state, b, fv, helper_sig, sp, pc_after);
+        b.switch_to_block(cont);
+    }
+    emit_cond_branch(b, fv, sp_var, state, insn, sp, hit, true);
 }
 
 fn emit_cond_branch(
@@ -3454,6 +3539,40 @@ mod tests {
             0,
         ));
 
+        // `with_*` (S3 2.4): the environment object(s) are the entry window, the
+        // label is the hit edge, and the fall-through runs the ordinary variable
+        // access the opcode guards. That access is sized so both edges reach the
+        // label at the same height.
+        for &(name, code, pops, pushed) in &[
+            ("with_get_var", op::OP_with_get_var, 1, 1),
+            // Its fall-through leaves the value `put_loc`/`set_loc` would take;
+            // drop it, since the hit edge consumed the value too.
+            ("with_put_var", op::OP_with_put_var, 2, 0),
+            ("with_delete_var", op::OP_with_delete_var, 1, 1),
+            ("with_make_ref", op::OP_with_make_ref, 1, 2),
+            ("with_get_ref", op::OP_with_get_ref, 1, 2),
+        ] {
+            let access: Vec<u8> = if name == "with_put_var" {
+                vec![op::OP_drop]
+            } else {
+                (0..pushed).flat_map(|i| push_i32(i as i32)).collect()
+            };
+            let mut bytes = Vec::new();
+            for i in 0..pops {
+                bytes.extend_from_slice(&push_i32(i as i32));
+            }
+            bytes.push(code);
+            bytes.extend_from_slice(&u32b(0));
+            // The label sits `5 + access.len()` bytes after the operand base.
+            bytes.extend_from_slice(&i32b(5 + access.len() as i32));
+            bytes.push(1);
+            let label = bytes.len() + access.len();
+            bytes.extend_from_slice(&access);
+            bytes.push(op::OP_return_undef);
+            assert_eq!(bytes.len(), label + 1);
+            cases.push((name, bytes, 0, 0));
+        }
+
         // Epic E5: exception regions. `catch` pushes the handler sentinel;
         // `gosub`/`ret` are the `finally` subroutine.
         let gosub_ret = seq(&[
@@ -3496,6 +3615,19 @@ mod tests {
             )
             .unwrap_or_else(|e| panic!("opcode {name} failed to lower: {e:?}"));
         }
+
+        // `delete name` on the global object: the fall-through of `with_delete_var`,
+        // so a `with` body's `delete` runs natively too.
+        compile_bytes(
+            seq(&[
+                &[op::OP_delete_var],
+                &u32b(0),
+                &[op::OP_drop, op::OP_return_undef],
+            ]),
+            0,
+            0,
+        )
+        .unwrap_or_else(|e| panic!("opcode delete_var failed to lower: {e:?}"));
 
         // Closure var refs (epic 2.1) need a non-zero closure-var count.
         for (name, code) in [

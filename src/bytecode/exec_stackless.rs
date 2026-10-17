@@ -19,17 +19,16 @@ use crate::{
         class_ops,
         operators::{
             js_append_enumerate, js_for_in_next, js_for_in_start, js_for_of_next,
-            js_has_unscopable, js_iterator_get_value_done, js_op_define_class_for_arena,
-            js_operator_delete, js_operator_in, js_operator_instanceof,
+            js_iterator_get_value_done, js_op_define_class_for_arena, js_operator_delete,
+            js_operator_in, js_operator_instanceof,
         },
-        ref_ops,
+        ref_ops, with_ops,
     },
     context::{ContextPtr, GlobalVarSetMode, ScopedContext},
     error::{
         Exception, JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
-        JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorNotDefined,
-        JS_ThrowReferenceErrorUninitialized, JS_ThrowSyntaxErrorVarRedeclaration,
-        is_backtrace_needed,
+        JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorUninitialized,
+        JS_ThrowSyntaxErrorVarRedeclaration, is_backtrace_needed,
     },
     eval::{EvalFlags, EvalType},
     function::{
@@ -3093,99 +3092,42 @@ impl Bytecode {
 
                         let mut env_obj = SP_VAL!(-1);
 
-                        if let Ok(ret) = env_obj.has_property(realm_scope, atom) {
-                            let in_env_obj = if ret {
-                                if is_with {
-                                    if let Ok(b) = js_has_unscopable(realm_scope, env_obj, atom) {
-                                        !b
-                                    } else {
-                                        break ExecAction::Exception;
-                                    }
-                                } else {
-                                    true
-                                }
-                            } else {
-                                false
-                            };
-
-                            if in_env_obj {
+                        match with_ops::in_env(realm_scope, env_obj, atom, is_with) {
+                            Ok(true) => {
                                 match opcode {
                                     OpCode::WITH_GET_VAR => {
-                                        // Re-check HasProperty after @@unscopables (ECMA-262
-                                        // 9.1.1.2.6 GetBindingValue steps 2-3). The getter
-                                        // may have deleted the property. If so, return undefined
-                                        // (non-strict) or throw ReferenceError (strict).
-                                        if !env_obj.has_property(realm_scope, atom).unwrap_or(false)
-                                        {
-                                            if rt.is_strict_mode() {
-                                                let _ = JS_ThrowReferenceErrorNotDefined(
-                                                    realm_scope,
-                                                    atom,
-                                                );
-                                                break ExecAction::Exception;
-                                            }
-                                            SP_PUT!(-1, JSValue::UNDEFINED);
-                                        } else if let Ok(val) =
-                                            env_obj.get_property(realm_scope, atom)
-                                        {
-                                            SP_PUT!(-1, val);
-                                        } else {
-                                            break ExecAction::Exception;
+                                        match with_ops::get_var(realm_scope, env_obj, atom) {
+                                            Ok(val) => SP_PUT!(-1, val),
+                                            Err(_) => break ExecAction::Exception,
                                         }
                                     }
                                     OpCode::WITH_PUT_VAR => {
-                                        // SetMutableBinding step 2: HasProperty (ECMA-262 9.1.1.2.5)
-                                        match env_obj.has_property(realm_scope, atom) {
-                                            Ok(false) | Err(_) if rt.is_strict_mode() => {
-                                                let _ = JS_ThrowReferenceErrorNotDefined(
-                                                    realm_scope,
-                                                    atom,
-                                                );
-                                                break ExecAction::Exception;
-                                            }
-                                            _ => {}
-                                        }
-                                        let prop = atom
-                                            .to_value(realm_scope)
-                                            .unwrap_or(JSValue::EXCEPTION);
-                                        let val = SP_VAL!(-2);
-                                        let ret = env_obj.set_property_value(
+                                        let ret = with_ops::put_var(
                                             realm_scope,
-                                            prop,
-                                            val,
-                                            ThrowPolicy::StrictOnly,
-                                            false,
+                                            env_obj,
+                                            atom,
+                                            SP_VAL!(-2),
                                         );
+                                        // Consumed before the error is checked, as before.
                                         SP_GO!(-2);
                                         if unlikely(ret.is_err()) {
                                             break ExecAction::Exception;
                                         }
                                     }
                                     OpCode::WITH_DELETE_VAR => {
-                                        if let Ok(b) = env_obj.delete_property(realm_scope, atom) {
-                                            SP_PUT!(-1, JSValue::from(b));
-                                        } else {
-                                            break ExecAction::Exception;
+                                        match with_ops::delete_var(realm_scope, &mut env_obj, atom)
+                                        {
+                                            Ok(b) => SP_PUT!(-1, JSValue::from(b)),
+                                            Err(_) => break ExecAction::Exception,
                                         }
                                     }
                                     OpCode::WITH_MAKE_REF => {
                                         // produce a pair object/propname on the stack
-                                        SP_PUT!(
-                                            0,
-                                            atom.to_value(realm_scope)
-                                                .unwrap_or(JSValue::EXCEPTION)
-                                        );
+                                        SP_PUT!(0, with_ops::prop_name(realm_scope, atom));
                                         SP_GO!(1);
                                     }
                                     OpCode::WITH_GET_REF => {
-                                        // GetBindingValue step 2: HasProperty (ECMA-262 9.1.1.2.6)
-                                        let val = match env_obj.has_property(realm_scope, atom) {
-                                            Ok(false) | Err(_) => JSValue::UNDEFINED,
-                                            _ => env_obj
-                                                .get_property(realm_scope, atom)
-                                                .unwrap_or(JSValue::UNDEFINED),
-                                        };
-                                        SP_PUT!(0, val);
+                                        SP_PUT!(0, with_ops::get_ref(realm_scope, env_obj, atom));
                                         SP_GO!(1);
                                     }
                                     _ => {
@@ -3199,11 +3141,9 @@ impl Bytecode {
                                 }
 
                                 PC_GO!(diff - 5);
-                            } else {
-                                SP_GO!(-1);
                             }
-                        } else {
-                            break ExecAction::Exception;
+                            Ok(false) => SP_GO!(-1),
+                            Err(_) => break ExecAction::Exception,
                         }
                     }
 

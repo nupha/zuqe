@@ -22,10 +22,17 @@ use crate::{
     vm_stack::{FrameIndex, VmStack},
 };
 
-/// Status returned by every helper. Non-zero exits the native frame.
+/// Status returned by the stack helpers: `0` is success, `1`/`2` exit the
+/// native frame with `JitExitKind::Exception`/`Interrupt`, and any other value
+/// is a status the caller interprets itself (see [`HELPER_WITH_MISS`]).
 pub(crate) const HELPER_OK: u32 = 0;
 pub(crate) const HELPER_EXCEPTION: u32 = 1;
 pub(crate) const HELPER_INTERRUPT: u32 = 2;
+/// `with_*`: the environment object did not have the name, so the helper
+/// dropped it and the generated code falls through to the normal variable
+/// access. `0` is the hit — the access was performed and the stack reshaped for
+/// the instruction's branch target.
+pub(crate) const HELPER_WITH_MISS: u32 = 3;
 
 /// What the native entry returns. Stored as a `u32` so the ABI is a single
 /// register (a big `#[repr(C)]` struct return would need an sret pointer).
@@ -1942,8 +1949,127 @@ unsafe extern "C" fn h_put_ref_value(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// `delete_var`: `[^] -> [bool, ^]` — `delete name` resolves against the global
+/// object; it is the fall-through of `with_delete_var` (which only reaches the
+/// global object when the with object does not have the name).
+unsafe extern "C" fn h_delete_var(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let atom = crate::atom::Atom::from_id(f.imm);
+        let scope = scope_of(f);
+        let mut global = scope.global_obj();
+        match global.delete_property(scope, atom) {
+            Ok(deleted) => {
+                *sp = JSValue::from(deleted);
+                f.sp = sp.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `with_get_var` / `with_put_var` / `with_delete_var` / `with_make_ref` /
+/// `with_get_ref`: resolve `imm` (atom) on the environment object on top of the
+/// stack, with `imm2` as the `is_with` flag (`@@unscopables` applies). Shared
+/// with the interpreter (`bytecode::with_ops`).
+unsafe fn with_var(f: *mut JitExecFrame, op: WithOp) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let atom = crate::atom::Atom::from_id(f.imm);
+        let mut env_obj = *sp.offset(-1);
+        let scope = scope_of(f);
+        let handled = match crate::bytecode::with_ops::in_env(scope, env_obj, atom, f.imm2 != 0) {
+            Ok(handled) => handled,
+            Err(_) => return HELPER_EXCEPTION,
+        };
+        if !handled {
+            // Fall through to the ordinary variable access below this op.
+            f.sp = sp.offset(-1);
+            return HELPER_WITH_MISS;
+        }
+        match op {
+            WithOp::GetVar => match crate::bytecode::with_ops::get_var(scope, env_obj, atom) {
+                Ok(value) => {
+                    *sp.offset(-1) = value;
+                    HELPER_OK
+                }
+                Err(_) => HELPER_EXCEPTION,
+            },
+            WithOp::PutVar => {
+                let r = crate::bytecode::with_ops::put_var(scope, env_obj, atom, *sp.offset(-2));
+                // The window is consumed before the error is examined (the
+                // interpreter's `SP_GO!(-2)` runs before its `is_err` check).
+                f.sp = sp.offset(-2);
+                if r.is_err() {
+                    HELPER_EXCEPTION
+                } else {
+                    HELPER_OK
+                }
+            }
+            WithOp::DeleteVar => {
+                match crate::bytecode::with_ops::delete_var(scope, &mut env_obj, atom) {
+                    Ok(deleted) => {
+                        *sp.offset(-1) = JSValue::from(deleted);
+                        HELPER_OK
+                    }
+                    Err(_) => HELPER_EXCEPTION,
+                }
+            }
+            WithOp::MakeRef => {
+                // The object stays; its property name is appended above it.
+                *sp = crate::bytecode::with_ops::prop_name(scope, atom);
+                f.sp = sp.add(1);
+                HELPER_OK
+            }
+            WithOp::GetRef => {
+                *sp = crate::bytecode::with_ops::get_ref(scope, env_obj, atom);
+                f.sp = sp.add(1);
+                HELPER_OK
+            }
+        }
+    }
+}
+
+/// `with_get_var`: `[env_obj, ^] -> [value, ^]` on a hit.
+unsafe extern "C" fn h_with_get_var(f: *mut JitExecFrame) -> u32 {
+    unsafe { with_var(f, WithOp::GetVar) }
+}
+
+/// `with_put_var`: `[value, env_obj, ^] -> [^]` on a hit.
+unsafe extern "C" fn h_with_put_var(f: *mut JitExecFrame) -> u32 {
+    unsafe { with_var(f, WithOp::PutVar) }
+}
+
+/// `with_delete_var`: `[env_obj, ^] -> [bool, ^]` on a hit.
+unsafe extern "C" fn h_with_delete_var(f: *mut JitExecFrame) -> u32 {
+    unsafe { with_var(f, WithOp::DeleteVar) }
+}
+
+/// `with_make_ref`: `[env_obj, ^] -> [env_obj, prop, ^]` on a hit.
+unsafe extern "C" fn h_with_make_ref(f: *mut JitExecFrame) -> u32 {
+    unsafe { with_var(f, WithOp::MakeRef) }
+}
+
+/// `with_get_ref`: `[env_obj, ^] -> [env_obj, value, ^]` on a hit.
+unsafe extern "C" fn h_with_get_ref(f: *mut JitExecFrame) -> u32 {
+    unsafe { with_var(f, WithOp::GetRef) }
+}
+
+/// Which `with_*` access [`with_var`] performs.
+#[derive(Clone, Copy)]
+enum WithOp {
+    GetVar,
+    PutVar,
+    DeleteVar,
+    MakeRef,
+    GetRef,
+}
+
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 105;
+pub(crate) const HELPER_COUNT: usize = 111;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -2128,6 +2254,18 @@ pub(crate) const HELPER_MAKE_VAR_REF: usize = 102;
 pub(crate) const HELPER_GET_REF_VALUE: usize = 103;
 /// Index of [`h_put_ref_value`].
 pub(crate) const HELPER_PUT_REF_VALUE: usize = 104;
+/// Index of [`h_with_get_var`].
+pub(crate) const HELPER_WITH_GET_VAR: usize = 105;
+/// Index of [`h_with_put_var`].
+pub(crate) const HELPER_WITH_PUT_VAR: usize = 106;
+/// Index of [`h_with_delete_var`].
+pub(crate) const HELPER_WITH_DELETE_VAR: usize = 107;
+/// Index of [`h_with_make_ref`].
+pub(crate) const HELPER_WITH_MAKE_REF: usize = 108;
+/// Index of [`h_with_get_ref`].
+pub(crate) const HELPER_WITH_GET_REF: usize = 109;
+/// Index of [`h_delete_var`].
+pub(crate) const HELPER_DELETE_VAR: usize = 110;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -2241,4 +2379,10 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_make_var_ref as *const (),
     h_get_ref_value as *const (),
     h_put_ref_value as *const (),
+    h_with_get_var as *const (),
+    h_with_put_var as *const (),
+    h_with_delete_var as *const (),
+    h_with_make_ref as *const (),
+    h_with_get_ref as *const (),
+    h_delete_var as *const (),
 ]);

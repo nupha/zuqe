@@ -106,6 +106,10 @@ impl Instruction {
             OpcodeFormat::LABEL | OpcodeFormat::LABEL_U16 => {
                 Some(operand_pc + i64::from(self.operand_i32(1)))
             }
+            // `atom:u32 | label:i32 | is_with:u8`: the label sits after the atom
+            // and is relative to `pc + 5` (`PC_GO!(diff - 5)` after the three
+            // operands, i.e. from `pc + 10`).
+            OpcodeFormat::ATOM_LABEL_U8 => Some(operand_pc + 4 + i64::from(self.operand_i32(5))),
             _ => None,
         }
     }
@@ -208,5 +212,17 @@ mod tests {
         let decoded = decode_bounded(&bytes, usize::MAX).unwrap();
         assert_eq!(decoded[0].branch_target(), Some(5));
         assert_eq!(decoded[0].name(), "goto");
+    }
+
+    /// `with_*` stores its label after the atom, relative to `pc + 5` (the
+    /// interpreter's `PC_GO!(diff - 5)` from `pc + 10`).
+    #[test]
+    fn with_label_target_follows_its_atom() {
+        let mut bytes = vec![op::OP_with_get_var];
+        bytes.extend_from_slice(&7u32.to_le_bytes());
+        bytes.extend_from_slice(&12i32.to_le_bytes());
+        bytes.push(1);
+        let decoded = decode_bounded(&bytes, usize::MAX).unwrap();
+        assert_eq!(decoded[0].branch_target(), Some(17));
     }
 }

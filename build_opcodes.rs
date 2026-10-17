@@ -742,8 +742,13 @@ fn jit_policy_of(id: &str) -> JitPolicy {
         "nip_catch" => Helper,
         "to_object" | "to_propkey" => Helper,
         // ── with / refs ──
+        // `with_*` resolves the name on the with/global variable object and
+        // either performs the access there (jumping over the normal variable
+        // access) or drops the object and falls through to it. The helper calls
+        // the interpreter's own `with_ops` functions; the two edges carry
+        // different stack shapes, which the verifier models per edge.
         "with_get_var" | "with_put_var" | "with_delete_var" | "with_make_ref" | "with_get_ref" => {
-            Reject
+            Helper
         }
         "make_loc_ref" | "make_arg_ref" | "make_var_ref_ref" | "make_var_ref" => Helper,
         // ── iterators / generators / async ──

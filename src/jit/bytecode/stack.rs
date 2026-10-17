@@ -225,6 +225,35 @@ fn check_stack_size(
     Ok(())
 }
 
+/// Reshape the state `transfer` produced for a `with_*` into the state its
+/// **branch target** sees. `transfer` applies the instruction's metadata, which
+/// is the *fall-through* effect (drop the environment object, then run the
+/// ordinary variable access the opcode guards). The target is only reached when
+/// the environment object handled the name, and there the object is replaced by
+/// the opcode's results: one value for a get/delete, the object *plus* one for
+/// the ref-producing pair, and nothing at all for a write (which also consumed
+/// the value below it). Checked against real `with` bytecode: `f`'s
+/// `with_get_var` falls through at height 2 and jumps to a target at height 3
+/// (`[.., ref_obj, prop, env_obj]` → `[.., ref_obj, prop, value]`).
+///
+/// Returns false for an instruction that is not one of the five.
+fn with_target_reshapes(name: &str, stack: &mut Vec<SlotKind>) -> bool {
+    match name {
+        // `env_obj -> value` (get) and `env_obj -> bool` (delete).
+        "with_get_var" | "with_delete_var" => stack.push(SlotKind::Tagged),
+        // `env_obj -> env_obj, prop/value` (`with_make_ref`/`with_get_ref`).
+        "with_make_ref" | "with_get_ref" => {
+            stack.extend([SlotKind::Tagged, SlotKind::Tagged]);
+        }
+        // `value, env_obj -> []` — the value below the object goes too.
+        "with_put_var" => {
+            stack.pop();
+        }
+        _ => return false,
+    }
+    true
+}
+
 fn transfer(
     snapshot: &CompileSnapshot,
     instruction: &Instruction,
@@ -553,6 +582,15 @@ pub(crate) fn prove(
             .then(|| tail.branch_target())
             .flatten()
             .and_then(|target| u32::try_from(target).ok());
+        // `with_*` is the only other opcode whose two edges disagree on the
+        // operand stack: `transfer` modeled the fall-through, the branch target
+        // gets its own shape (see `with_target_reshapes`).
+        let with_target = tail
+            .name()
+            .starts_with("with_")
+            .then(|| tail.branch_target())
+            .flatten()
+            .and_then(|target| u32::try_from(target).ok());
         if catch_target.is_some_and(|target| {
             usize::try_from(target).ok() == (tail.pc() as usize).checked_add(tail.size())
         }) {
@@ -597,6 +635,26 @@ pub(crate) fn prove(
                 continue;
             }
             let mut incoming = state.clone();
+            if with_target == Some(*successor) {
+                if !with_target_reshapes(tail.name(), &mut incoming.stack) {
+                    return Err(VerifyError::new(
+                        tail.pc(),
+                        VerifyErrorKind::UnsupportedExceptionRegion,
+                    ));
+                }
+                // The target drops the value below the object; a catch offset
+                // that far down is no longer live on this path (same rule as
+                // `transfer`'s own truncation).
+                while incoming
+                    .catches
+                    .last()
+                    .is_some_and(|(index, _)| *index >= incoming.stack.len())
+                {
+                    incoming.catches.pop();
+                }
+                budget.charge(*successor, incoming.cell_count())?;
+                check_stack_size(snapshot, tail, &incoming)?;
+            }
             if cfg.is_loop_header(*successor) {
                 // Widen locals before publishing into a loop header so a later
                 // backedge does not look like an incompatible merge.

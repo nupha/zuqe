@@ -329,6 +329,19 @@ const CASES: &[SemCase] = sem_cases! {
         "f(5)",
         "'ref:' + f(3)";
 
+    // ── with (S3 2.4) ──
+    // Every `with_*` opcode has two edges: the with object had the name (the
+    // arm runs and the bytecode skips the ordinary access) or it did not (the
+    // arm drops the object and the access runs). `WF_HIT` has both names used
+    // below, `WF_MISS` neither, and `WF_HIDDEN` hides `x` behind
+    // `@@unscopables`, which is the third way to fall through. The `for-in`
+    // writes its loop variable through `with_put_var`.
+    with_scope_edges => Compiles =
+        "var __seed = 0; var x = 5; var WF_HIT = { x: 11 }; var WF_MISS = { y: 1 }; var WF_HIDDEN = { x: 22 }; WF_HIDDEN[Symbol.unscopables] = { x: true }; function wf(o, n){ var __z = 0; var r = 0; with (o) { r = x; for (var k in o) { r = r + k.length; } } return r + n; }",
+        "wf(WF_HIT, 1)",
+        "wf(WF_MISS, 2)",
+        "'with:' + wf(WF_HIT, 1) + ',' + wf(WF_MISS, 2) + ',' + wf(WF_HIDDEN, 3)";
+
     // ── control flow shapes the verifier must survive ──
     switch_and_labels => Compiles =
         "var __seed = 0; function f(n){ var __z = 0; var r = 0; switch (n % 4) { case 0: r = 10; break; case 1: r = 20; break; default: r = 30; } outer: for (var i = 0; i < 5; i++) { if (i === 2) continue outer; if (i === 4) break outer; r = r + i; } return r; }",
@@ -367,6 +380,7 @@ const FEATURES: &[&str] = &[
     "newtarget_",
     "iter_",
     "ref_",
+    "with_",
 ];
 
 #[test]

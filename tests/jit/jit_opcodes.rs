@@ -381,8 +381,7 @@ const CASES: &[OpCase] = op_cases! {
           "'ta:' + f(4)";
     // `with` + a *call* to a name: the parser emits `scope_get_ref` (the name
     // may be a method of the with object), which resolves to `with_get_ref`.
-    // Both are `Reject`, so the function stays in the interpreter — the point of
-    // the case is the "does not compile" assertion plus interpreter parity.
+    // `with_get_ref` was the last `with_*` opcode to lower (S3 2.4).
     with_get_ref => [push_i32, fclosure, push_atom_value, undefined, null, object, drop, dup, call_method, return, return_undef, get_var, put_var, put_ref_value, define_field, set_name, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, if_false, if_true, to_object, with_get_var, with_get_ref, typeof, add, strict_eq, strict_neq, nop]
         = "var __seed = 0; var WO = { ff: function(){ return 5; } }; function wf(o, n){ var __z = 0; with (o) { return ff() + n; } }",
                   "wf(WO, 1)",

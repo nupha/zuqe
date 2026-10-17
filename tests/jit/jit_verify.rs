@@ -422,6 +422,88 @@ fn ref_cells_run_in_native_code() {
     }
 }
 
+/// S3 (2.4): the `with_*` family lowers to helpers, so a `with` body runs in
+/// native code on both of its edges — the name found on the with object and the
+/// fall-through to the ordinary variable access. The signal is the same as
+/// `ref_cells_run_in_native_code`: any instruction-level `Resume` strands the
+/// rest of the frame in the interpreter, which shows up as loop back edges.
+#[test]
+fn with_opcodes_run_in_native_code() {
+    let mut rt = Runtime::create().unwrap();
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .unwrap();
+    let jit = Jit::attach_to(&rt, eager_config()).unwrap();
+    let name = EvalName::Name("jit-with.js".into());
+    // `s`, `i` and `k` are locals, so every guarded lookup of them misses the
+    // with object and falls through; `x`/`hf` are on `WO`/`WO2`, so those hit.
+    // `delete nope` misses, `hf()` is the call-target form (`with_get_ref`) and
+    // `for (var k in o)` is the write form (`with_put_var`).
+    let define = b"var WO = {x: 1}; var WO2 = {hf: hf}; \
+                   function hf(){ return 1; } \
+                   function f(n, o){ var s = 0; \
+                     for (var i = 0; i < n; i++){ with (o) { s = s + x; delete nope; } } return s; } \
+                   function g(n, o){ var s = 0; \
+                     for (var i = 0; i < n; i++){ with (o) { for (var k in o) s = s + k.length; } } return s; } \
+                   function h(n, o){ var s = 0; \
+                     for (var i = 0; i < n; i++){ with (o) { s = s + hf(); } } return s; } \
+                   f(1, WO); g(1, WO); h(1, WO);";
+    ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
+        .unwrap();
+    jit.poll();
+    assert!(
+        jit.metrics().functions_compiled >= 3,
+        "the with functions were not compiled ({:?})",
+        jit.metrics()
+    );
+
+    for (call, expected) in [
+        ("f(100000, WO)", 100000),
+        ("g(100000, WO)", 100000),
+        // `with_get_ref` on its miss edge (the global `hf`) and its hit edge.
+        ("h(50000, WO)", 50000),
+        ("h(50000, WO2)", 50000),
+    ] {
+        let before = jit.metrics();
+        let result = ctx
+            .eval(call.as_bytes(), &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+        let after = jit.metrics();
+        assert_eq!(
+            observe(Ok(result)),
+            format!("int:{expected}"),
+            "{call}: wrong value"
+        );
+        assert_eq!(
+            after.backedges - before.backedges,
+            0,
+            "{call}: the with loop ran in the interpreter"
+        );
+    }
+}
+
+/// S3 (2.4): a `with` body inside a `try` — the resolver helper raising (the
+/// object's getter throws) must exit so the interpreter's catch scan finds the
+/// frame's handler, and the `with` name resolution itself may run user code
+/// (`@@unscopables`). Complements `with_opcodes_run_in_native_code`, which
+/// covers the non-throwing edges.
+#[test]
+fn with_throws_match_interpreter() {
+    let define = b"\
+        var TO = { get x(){ throw 'boom'; } }; \
+        var TH = { x: 3 }; TH[Symbol.unscopables] = { x: true }; \
+        var gx = 5; \
+        function f(n, o){ var s = 0; try { with (o) { s = s + x; } } catch (e) { s = 100 + n; } return s + n; } \
+        f(1, TO); f(1, TH);";
+    for call in ["f(2, TO)", "f(3, TH)", "f(4, {y: 1})"] {
+        let metrics = native_vs_interpreter(define, call);
+        assert_eq!(
+            metrics.functions_rejected, 0,
+            "the `with` function was rejected instead of compiled ({metrics:?})"
+        );
+    }
+}
+
 /// A call re-enters the caller's native code; the caller must still see its own
 /// `this` afterwards (the callee may have had a different one).
 #[test]
