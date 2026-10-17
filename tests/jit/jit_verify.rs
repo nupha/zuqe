@@ -332,6 +332,47 @@ fn calls_reenter_native() {
     assert!(total > 0, "no native entries");
 }
 
+/// Epic 1.7: a native (C/Rust) callee returning inline must not strand the
+/// caller in the interpreter. Before this, a single `Math.max(...)` before a
+/// hot loop left that loop interpreted for the rest of the frame (the loop
+/// back-edge hook fired once per iteration); now the post-call pc re-enters
+/// native.
+#[test]
+fn a_native_call_reenters_the_callers_native_code() {
+    let mut rt = Runtime::create().unwrap();
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .unwrap();
+    let jit = Jit::attach_to(&rt, eager_config()).unwrap();
+    let name = EvalName::Name("jit-reentry.js".into());
+    let define = b"function workload(n){ var m = Math.max(1, 2); var s = 0; \
+                   for (var i = 0; i < n; i++) s = s + i; return s + m; } workload(1);";
+    ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
+        .unwrap();
+    jit.poll();
+
+    let before = jit.metrics();
+    ctx.eval(
+        b"workload(100000);",
+        &name,
+        EvalType::Global,
+        EvalFlags::empty(),
+    )
+    .unwrap();
+    let after = jit.metrics();
+
+    assert_eq!(
+        after.backedges - before.backedges,
+        0,
+        "the loop after a native call ran in the interpreter"
+    );
+    assert!(
+        after.native_entries - before.native_entries >= 2,
+        "no native re-entry after the inline native call (natives: {})",
+        after.native_entries - before.native_entries
+    );
+}
+
 /// A call re-enters the caller's native code; the caller must still see its own
 /// `this` afterwards (the callee may have had a different one).
 #[test]

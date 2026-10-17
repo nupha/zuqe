@@ -352,6 +352,25 @@ impl Bytecode {
             };
         }
 
+        // Epic 1.7: set when a native (C/Rust) callee ran inline through
+        // `call_internal`, so the dispatch loop retries native at the post-call
+        // pc. Without it the interpreter would stay in the interpreter for the
+        // rest of the frame after any builtin/method call.
+        #[cfg(feature = "jit")]
+        let mut jit_retry_native = false;
+        // Epic 1.7: a native callee runs inline via `call_internal`, so mark the
+        // frame for a native retry at the post-call pc (no-op without the JIT).
+        #[cfg(feature = "jit")]
+        macro_rules! jit_mark_native_call {
+            () => {
+                jit_retry_native = true;
+            };
+        }
+        #[cfg(not(feature = "jit"))]
+        macro_rules! jit_mark_native_call {
+            () => {};
+        }
+
         let cpools = self.consts();
 
         let pc_base = bytecodes.as_ptr();
@@ -462,9 +481,11 @@ impl Bytecode {
 
         // The native code (and its helpers) reborrowed the context through a
         // raw pointer, so the original `&mut` is stale under Stacked Borrows.
-        // Re-derive it once before entering the interpreter loop.
+        // Re-derive it once before entering the interpreter loop, and again in
+        // the dispatch loop after every native re-entry (epic 1.7).
         #[cfg(feature = "jit")]
-        let realm_scope = unsafe { &mut *(jit_scope_ptr as *mut ScopedContext) };
+        #[allow(unused_mut)]
+        let mut realm_scope = unsafe { &mut *(jit_scope_ptr as *mut ScopedContext) };
 
         // ── Stack access macros ──
         // These work with raw pointers and re-derived frame-header access,
@@ -638,6 +659,61 @@ impl Bytecode {
                 #[cfg(feature = "jit")]
                 if let Some(initial) = jit_initial_action.take() {
                     break initial;
+                }
+                // Epic 1.7: a native callee just returned inline; retry native
+                // at the post-call pc so the rest of the frame stays native.
+                // The compiled entry exits `Retry` for a pc it has no entry for,
+                // which rewinds to the same pc and we carry on interpreting.
+                #[cfg(feature = "jit")]
+                if std::mem::take(&mut jit_retry_native) {
+                    let attempt_pc = unsafe { pc.offset_from(pc_base) as u32 };
+                    let cur_sp_offset_ptr: *mut i32 =
+                        unsafe { &mut (*arena_ptr).frame_mut(cur_frame_idx).cur_sp_offset };
+                    let entered = crate::jit::invoke_native(
+                        &rt,
+                        self,
+                        jit_scope_ptr,
+                        arg_base_ptr,
+                        var_base_ptr,
+                        sp_base,
+                        cur_sp_offset_ptr,
+                        this_obj,
+                        attempt_pc,
+                        u32::from(arg_real_count),
+                        arena_ptr,
+                        cur_frame_idx.as_usize() as u32,
+                        new_target,
+                        func_home_obj,
+                    );
+                    // The native code (if any) reborrowed the context; drop the
+                    // stale `&mut` before touching it again.
+                    realm_scope = unsafe { &mut *(jit_scope_ptr as *mut ScopedContext) };
+                    if let Some((kind, jf)) = entered {
+                        match kind {
+                            crate::jit::JitExitKind::Done => {
+                                save_sp!(jf.out_sp);
+                                save_pc!(jf.out_pc as usize);
+                                return ExecAction::Return(jf.out_value, false);
+                            }
+                            crate::jit::JitExitKind::Interrupt
+                            | crate::jit::JitExitKind::Unwind => {
+                                return ExecAction::Unwind;
+                            }
+                            crate::jit::JitExitKind::Exception => {
+                                save_sp!(jf.out_sp);
+                                pc = unsafe { pc_base.add(jf.out_pc as usize) };
+                                sp = unsafe { sp_base.add(jf.out_sp as usize) };
+                                break ExecAction::Exception;
+                            }
+                            crate::jit::JitExitKind::Resume
+                            | crate::jit::JitExitKind::Retry => {
+                                save_sp!(jf.out_sp);
+                                pc = unsafe { pc_base.add(jf.out_pc as usize) };
+                                sp = unsafe { sp_base.add(jf.out_sp as usize) };
+                            }
+                            _ => {}
+                        }
+                    }
                 }
                 let opcode = unsafe { std::mem::transmute::<u8, OpCode>(PC_FETCH!(u8)) };
 
@@ -1156,6 +1232,7 @@ impl Bytecode {
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             0,
                         );
+                        jit_mark_native_call!();
                         if let Ok(r) = ret_val {
                             if unlikely(opcode == OpCode::TAIL_CALL) {
                                 break ExecAction::Return(r, false);
@@ -1278,6 +1355,7 @@ impl Bytecode {
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             JS_CALL_FLAG_CONSTRUCTOR,
                         );
+                        jit_mark_native_call!();
                         if let Ok(val) = ret_val {
                             SP_GO!(-(call_argc + 2));
                             SP_PUT!(0, val);
@@ -1392,6 +1470,7 @@ impl Bytecode {
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             0,
                         );
+                        jit_mark_native_call!();
                         if let Ok(r) = ret_val {
                             if unlikely(opcode == OpCode::TAIL_CALL_METHOD) {
                                 break ExecAction::Return(r, false);
@@ -1828,6 +1907,7 @@ impl Bytecode {
                                 args,
                                 JS_CALL_FLAG_CONSTRUCTOR,
                             );
+                            jit_mark_native_call!();
                             if let Ok(val) = ret_val {
                                 SP_PUT!(0, val);
                                 SP_GO!(1);
@@ -2061,6 +2141,7 @@ impl Bytecode {
                                 },
                                 0,
                             );
+                            jit_mark_native_call!();
                             SP_GO!(-(call_argc + 1));
                             if let Ok(v) = ret_val {
                                 SP_PUT!(0, v);
@@ -2598,6 +2679,7 @@ impl Bytecode {
 
                         let result =
                             next.call_internal(realm_scope, iter, JSValue::UNDEFINED, &[], 0);
+                        jit_mark_native_call!();
                         if let Ok(obj) = result {
                             // Restore the catch offset so that NIP_CATCH
                             // (emitted for `return` inside the loop body)
