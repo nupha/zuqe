@@ -20,6 +20,7 @@ mod compiler;
 mod config;
 mod error;
 mod feedback;
+mod ir;
 mod metrics;
 mod platform;
 mod policy;

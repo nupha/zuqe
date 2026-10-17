@@ -21,7 +21,11 @@
 //! There is no separate IR layer: with no optimization passes above it, the
 //! lowering reads `VerifiedFunction` directly (C1 folded into C2).
 
-use std::{cell::Cell, collections::HashMap, mem::offset_of};
+use std::{
+    cell::Cell,
+    collections::{HashMap, HashSet},
+    mem::offset_of,
+};
 
 use cranelift_codegen::{
     Context,
@@ -55,6 +59,7 @@ use super::{
     },
     error::JitError,
     feedback::{CLASS_INT, SiteFeedback},
+    ir::{Ir, LocalRef},
 };
 
 /// Exit codes as written by generated code (keep in sync with `JitExitKind`).
@@ -293,6 +298,14 @@ struct State<'a> {
     /// registers before it can observe the frame. Each is a block parameter
     /// that every incoming edge supplies (see [`State::edge_args`]).
     carried: HashMap<u32, Vec<u32>>,
+    /// Epic S2 (1.1): per block start pc, the locals/arguments its code reads
+    /// before writing. They cross the incoming edges as block parameters too,
+    /// so the successor's first read is a register, not a frame load.
+    carried_locals: HashMap<u32, Vec<LocalRef>>,
+    /// Epic S2 (1.2): pcs whose local store is dead (no read before redefinition
+    /// on any path), so the lowering skips the memory write. Empty unless the
+    /// IR's liveness is exact.
+    dead_stores: HashSet<u32>,
     /// Register copies of local/argument slots (epic F4: fewer loads in a
     /// block). Cleared at every block entry — see [`LocalCache`].
     locals: LocalCache,
@@ -635,7 +648,11 @@ impl<'a> State<'a> {
         // Epic F4 step 2: the slots this block consumes in registers are block
         // parameters. They are appended here, before any edge exists, so every
         // edge to this block sees the same signature (`edge_args` supplies it).
+        // Stack slots come first, then the carried locals (epic S2 / 1.1).
         for _ in 0..self.carried_for(pc).len() {
+            b.append_block_param(block, types::I64);
+        }
+        for _ in 0..self.carried_locals_for(pc).len() {
             b.append_block_param(block, types::I64);
         }
         self.blocks.insert(pc, block);
@@ -647,6 +664,12 @@ impl<'a> State<'a> {
     /// empty when it reads none, or for a pc the walk never saw.
     fn carried_for(&self, pc: u32) -> &[u32] {
         self.carried.get(&pc).map_or(&[], Vec::as_slice)
+    }
+
+    /// Locals/arguments block `pc` reads before writing — carried as block
+    /// parameters right after the carried stack slots (epic S2 / 1.1).
+    fn carried_locals_for(&self, pc: u32) -> &[LocalRef] {
+        self.carried_locals.get(&pc).map_or(&[], Vec::as_slice)
     }
 
     /// Sorted, deduplicated union of several successors' carried sets: the
@@ -677,6 +700,7 @@ impl<'a> State<'a> {
     fn edge_args(
         &mut self,
         b: &mut FunctionBuilder,
+        fv: &FrameVals,
         sp: Value,
         targets: &[(Block, u32)],
     ) -> Vec<Vec<Value>> {
@@ -707,6 +731,24 @@ impl<'a> State<'a> {
                         sp,
                         StackCache::slot_offset(entry_h, k),
                     ),
+                };
+                args.push(value);
+            }
+            // Epic S2 / 1.1: the carried locals follow, in the same order
+            // `block_for` appended their parameters. Memory is authoritative
+            // here (every write stores), so a miss is a plain frame load.
+            for slot in self.carried_locals_for(pc) {
+                let value = match self.locals.entries.get(&(slot.is_arg, slot.idx)) {
+                    Some(&value) => value,
+                    None => {
+                        let base = if slot.is_arg {
+                            fv.arg_base
+                        } else {
+                            fv.var_base
+                        };
+                        b.ins()
+                            .load(types::I64, MemFlags::new(), base, (slot.idx * 8) as i32)
+                    }
                 };
                 args.push(value);
             }
@@ -1111,6 +1153,52 @@ fn mark(marked: &mut [bool], entry_h: u16, k: u32) {
     }
 }
 
+/// Epic S2 (1.1): the locals/arguments each block reads before writing, sorted
+/// so the parameter order is stable. The entry block has no incoming edge, and
+/// aliased slots are skipped for the same reason the local cache is disabled for
+/// them (`cacheable_slots`: a `VarRef` can rewrite the frame out of sight).
+fn carried_local_sets(
+    ir: &Ir,
+    verified: &VerifiedFunction,
+    locals_cacheable: bool,
+    args_cacheable: bool,
+) -> HashMap<u32, Vec<LocalRef>> {
+    let mut carried = HashMap::new();
+    for block in ir.blocks() {
+        if block.start_pc == 0 || !verified.is_reachable(block.start_pc) {
+            continue;
+        }
+        let mut slots: Vec<LocalRef> = block
+            .uses
+            .iter()
+            .copied()
+            .filter(|slot| {
+                if slot.is_arg {
+                    args_cacheable
+                } else {
+                    locals_cacheable
+                }
+            })
+            .collect();
+        slots.sort_unstable();
+        slots.dedup();
+        if !slots.is_empty() {
+            carried.insert(block.start_pc, slots);
+        }
+    }
+    carried
+}
+
+/// Epic S2 (1.2): the set of `put_loc`/`set_loc` pcs whose store the lowering
+/// should skip (see [`Ir::dead_local_stores`]). `gate` is the caller's "the IR's
+/// liveness is trustworthy for a skipped write": resume-free, exception-free and
+/// with no way to alias a frame slot.
+fn dead_local_stores(ir: &Ir, instructions: &[Instruction], gate: bool) -> HashSet<u32> {
+    ir.dead_local_stores(instructions, gate)
+        .into_iter()
+        .collect()
+}
+
 /// Entry dispatch. `frame.pc == 0` runs the function entry; an OSR pc starts at
 /// its block with `sp` taken from the frame's current stack top; an unknown pc
 /// exits `Retry` so the interpreter runs from there.
@@ -1147,7 +1235,7 @@ fn emit_osr_prologue(
         // Epic F4 step 2: the interpreter left every slot in the frame, so the
         // carried parameters are frame loads at the proven entry height.
         let args = state
-            .edge_args(b, sp_osr, &[(target, pc_val)])
+            .edge_args(b, fv, sp_osr, &[(target, pc_val)])
             .pop()
             .expect("one target");
         b.ins().jump(target, &args);
@@ -1178,6 +1266,16 @@ fn lower(
     let cfg = verified.control_flow_graph();
     let (carried, entry_heights) = carried_sets(verified, osr_pcs, strict);
     let (locals_cacheable, args_cacheable) = cacheable_slots(verified);
+    // Epic S2 (1.1): the function-scoped IR (D-13) supplies which locals each
+    // block reads before writing, so they can cross the edges as parameters.
+    let resume_free = instructions.iter().all(|i| supported(i.name()));
+    let ir = Ir::build(verified, resume_free);
+    let carried_locals = carried_local_sets(&ir, verified, locals_cacheable, args_cacheable);
+    let dead_stores = dead_local_stores(
+        &ir,
+        instructions,
+        resume_free && locals_cacheable && args_cacheable,
+    );
     let mut state = State {
         blocks: HashMap::new(),
         pending: Vec::new(),
@@ -1185,14 +1283,17 @@ fn lower(
         specialized: specialized_ops,
         stack: StackCache::default(),
         carried,
+        carried_locals,
         entry_heights,
+        dead_stores,
         locals: LocalCache::new(locals_cacheable, args_cacheable),
         const_meta: &verified.snapshot().const_meta,
     };
     let entry_block = state.block_for(b, 0);
     if osr_pcs.is_empty() {
-        // The entry stack is empty, so the entry block has no parameters.
+        // The entry block has no incoming edge, so it carries nothing.
         debug_assert!(state.carried_for(0).is_empty());
+        debug_assert!(state.carried_locals_for(0).is_empty());
         b.ins().jump(entry_block, &[]);
     } else {
         emit_osr_prologue(b, fv, sp_var, &mut state, entry_block, osr_pcs);
@@ -1216,10 +1317,20 @@ fn lower(
         // dominates this block, and the interpreter owns the frame for the rest.
         state.locals.clear();
         let carried: Vec<u32> = state.carried_for(start_pc).to_vec();
+        let carried_locals: Vec<LocalRef> = state.carried_locals_for(start_pc).to_vec();
         let params = b.block_params(cranelift_block);
-        debug_assert_eq!(params.len(), carried.len(), "block {start_pc} parameters");
-        for (&k, &v) in carried.iter().zip(params) {
+        debug_assert_eq!(
+            params.len(),
+            carried.len() + carried_locals.len(),
+            "block {start_pc} parameters"
+        );
+        for (&k, &v) in carried.iter().zip(&params[..carried.len()]) {
             state.stack.entries.insert(k, CachedSlot::unknown(v));
+        }
+        // Epic S2 (1.1): re-seed the local cache from the carried parameters —
+        // the successor's first read of a live-in local is a register now.
+        for (slot, &v) in carried_locals.iter().zip(&params[carried.len()..]) {
+            state.locals.fill(slot.is_arg, slot.idx, v);
         }
         let mut sp = b.use_var(sp_var);
         let mut stopped = false;
@@ -1275,7 +1386,7 @@ fn lower(
             let next = tail.pc() + tail.size() as u32;
             let next_block = state.block_for(b, next);
             let args = state
-                .edge_args(b, sp, &[(next_block, next)])
+                .edge_args(b, fv, sp, &[(next_block, next)])
                 .pop()
                 .expect("one target");
             b.def_var(sp_var, sp);
@@ -1692,10 +1803,18 @@ fn lower_insn(
             Step::Continue(state.stack.push(b, sp, v))
         }
         "put_loc" => {
+            let idx = u32::from(insn.operand_u16(1));
             let (sp, v) = state.stack.pop(b, sp);
-            b.ins()
-                .store(MemFlags::new(), v, fv.var_base, loc_offset_u16(insn));
-            state.locals.fill(false, u32::from(insn.operand_u16(1)), v);
+            if state.dead_stores.contains(&pc) {
+                // Epic S2 (1.2): the value is dead before any read, so the frame
+                // write is dropped. The register copy must go too — memory keeps
+                // the old value and a stale cache entry would shadow it.
+                state.locals.drop_slot(false, idx);
+            } else {
+                b.ins()
+                    .store(MemFlags::new(), v, fv.var_base, loc_offset_u16(insn));
+                state.locals.fill(false, idx, v);
+            }
             Step::Continue(sp)
         }
         "put_arg" => {
@@ -1706,10 +1825,16 @@ fn lower_insn(
             Step::Continue(sp)
         }
         "set_loc" => {
+            let idx = u32::from(insn.operand_u16(1));
             let v = state.stack.read_top(b, sp);
-            b.ins()
-                .store(MemFlags::new(), v, fv.var_base, loc_offset_u16(insn));
-            state.locals.fill(false, u32::from(insn.operand_u16(1)), v);
+            if state.dead_stores.contains(&pc) {
+                // Dead store (epic S2 / 1.2): see the `put_loc` arm.
+                state.locals.drop_slot(false, idx);
+            } else {
+                b.ins()
+                    .store(MemFlags::new(), v, fv.var_base, loc_offset_u16(insn));
+                state.locals.fill(false, idx, v);
+            }
             Step::Continue(sp)
         }
         "set_arg" => {
@@ -1763,7 +1888,7 @@ fn lower_insn(
                 b.switch_to_block(cont);
             }
             let args = state
-                .edge_args(b, sp, &[(dest, target)])
+                .edge_args(b, fv, sp, &[(dest, target)])
                 .pop()
                 .expect("one target");
             b.ins().jump(dest, &args);
@@ -1787,7 +1912,7 @@ fn lower_insn(
             state.stack.flush(b, sp);
             let dest = state.block_for(b, target);
             let args = state
-                .edge_args(b, sp, &[(dest, target)])
+                .edge_args(b, fv, sp, &[(dest, target)])
                 .pop()
                 .expect("one target");
             b.def_var(sp_var, sp);
@@ -1814,7 +1939,7 @@ fn lower_insn(
                 .copied()
                 .zip(ret_targets.iter().copied())
                 .collect();
-            let all_args = state.edge_args(b, sp, &targets);
+            let all_args = state.edge_args(b, fv, sp, &targets);
             for index in 0..ret_targets.len() {
                 let dest = dests[index];
                 let hit = b.create_block();
@@ -2299,7 +2424,7 @@ fn lower_if(
 
 fn emit_cond_branch(
     b: &mut FunctionBuilder,
-    _fv: &FrameVals,
+    fv: &FrameVals,
     sp_var: Variable,
     state: &mut State,
     insn: &Instruction,
@@ -2313,7 +2438,12 @@ fn emit_cond_branch(
     let fall_block = state.block_for(b, fallthrough);
     // The shared flush before the branch left the model empty, so the carried
     // slots of both targets arrive as frame loads on this arm.
-    let mut args = state.edge_args(b, sp, &[(target_block, target), (fall_block, fallthrough)]);
+    let mut args = state.edge_args(
+        b,
+        fv,
+        sp,
+        &[(target_block, target), (fall_block, fallthrough)],
+    );
     let fall_args = args.pop().expect("two targets");
     let target_args = args.pop().expect("two targets");
     b.def_var(sp_var, sp);
@@ -2942,6 +3072,98 @@ mod tests {
             missing.is_empty(),
             "Native opcodes with no lowering: {missing:?}"
         );
+    }
+
+    /// A small pre-tested/loop/body/exit function: `i = 0`; `while (i < 3) i++`.
+    /// The header reads `i` before writing it, so 1.1 carries it; the body
+    /// writes it, so the back edge re-carries the written value.
+    fn loop_bytes() -> Vec<u8> {
+        seq(&[
+            &push_i32(0),                 // 0..5
+            &loc(op::OP_put_loc, 0),      // 5..8
+            &branch(op::OP_goto, 4),      // 8..13 -> header at 13
+            &loc(op::OP_get_loc, 0),      // 13..16
+            &push_i32(3),                 // 16..21
+            &[op::OP_lt],                 // 21..22
+            &branch(op::OP_if_false, 11), // 22..27 -> end at 34
+            &[op::OP_inc_loc, 0],         // 27..29
+            &branch(op::OP_goto, -17),    // 29..34 -> header
+            &[op::OP_return_undef],       // 34
+        ])
+    }
+
+    fn verified_local(bytes: Vec<u8>, args: u16, vars: u16) -> VerifiedFunction {
+        verify(snapshot(bytes, args, vars), VerifyLimits::default())
+            .unwrap_or_else(|e| panic!("verify rejected: {e:?}"))
+    }
+
+    /// Epic S2 (1.1): the loop header reads `i` before writing it, so the block
+    /// declares it carried; a block that writes before reading does not.
+    #[test]
+    fn the_loop_header_carries_its_induction_local() {
+        let verified = verified_local(loop_bytes(), 0, 1);
+        let ir = Ir::build(&verified, true);
+        let carried = carried_local_sets(&ir, &verified, true, true);
+        // Header at pc 13.
+        assert_eq!(
+            carried.get(&13).cloned(),
+            Some(vec![LocalRef::local(0)]),
+            "the header reads `i` before writing it"
+        );
+        // The entry block has no incoming edge, so it carries nothing.
+        assert!(!carried.contains_key(&0));
+    }
+
+    /// Epic S2 (1.2): an unread local store is dead; a read one is not; and the
+    /// gate (no resume points / exact liveness) turns the pass off entirely.
+    #[test]
+    fn dead_local_stores_are_elided_only_when_read_free() {
+        // push_i32 1; put_loc 0; push_i32 2; put_loc 1; return_undef
+        let dead = seq(&[
+            &push_i32(1),
+            &loc(op::OP_put_loc, 0),
+            &push_i32(2),
+            &loc(op::OP_put_loc, 1),
+            &[op::OP_return_undef],
+        ]);
+        let verified = verified_local(dead, 0, 2);
+        let ir = Ir::build(&verified, true);
+        let hints = dead_local_stores(&ir, verified.instructions(), true);
+        assert!(hints.contains(&5), "put_loc 0 at pc 5 is never read");
+        assert!(hints.contains(&13), "put_loc 1 at pc 13 is never read");
+        // The gate being closed yields no hints at all.
+        assert!(dead_local_stores(&ir, verified.instructions(), false).is_empty());
+
+        // push_i32 1; put_loc 0; get_loc 0; return -> the store is live.
+        let live = seq(&[
+            &push_i32(1),
+            &loc(op::OP_put_loc, 0),
+            &loc(op::OP_get_loc, 0),
+            &[op::OP_return],
+        ]);
+        let verified = verified_local(live, 0, 1);
+        let ir = Ir::build(&verified, true);
+        let hints = dead_local_stores(&ir, verified.instructions(), true);
+        assert!(!hints.contains(&5), "put_loc 0 at pc 5 is read back");
+    }
+
+    /// Epic S2 (1.2): a read in a *later block* keeps the store alive through
+    /// the IR's liveness (not just the block-local scan).
+    #[test]
+    fn a_store_read_in_a_successor_block_stays_live() {
+        let bytes = seq(&[
+            &push_i32(1),
+            &loc(op::OP_put_loc, 0),
+            &[op::OP_push_false],
+            &branch(op::OP_if_false, 5), // -> L
+            &[op::OP_return_undef],
+            &loc(op::OP_get_loc, 0), // L
+            &[op::OP_return],
+        ]);
+        let verified = verified_local(bytes, 0, 1);
+        let ir = Ir::build(&verified, true);
+        let hints = dead_local_stores(&ir, verified.instructions(), true);
+        assert!(!hints.contains(&5), "the successor reads local 0");
     }
 
     #[test]

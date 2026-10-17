@@ -238,6 +238,16 @@ const CASES: &[SemCase] = sem_cases! {
         "f(64)",
         "'cj:' + f(0) + ',' + f(9)";
 
+    // ── cross-block local residency (epic S2 / 1.1): the loop header reads the
+    //    induction variable, the bound and the accumulators before writing any
+    //    of them, so they cross the back edge as block parameters. The safepoint
+    //    on that edge must not let a register copy drift from the frame.
+    carry_locals_across_the_back_edge => Compiles =
+        "var __seed = 0; function f(n, seed){ var acc = seed; var step = 2; var limit = n * 3; for (var i = 0; i < limit; i = i + step){ acc = ((acc * 3 + i) ^ step) | 0; } return acc + limit + i; }",
+        "f(5, 1)",
+        "f(4000, 7)",
+        "'xl:' + f(9, 2) + ',' + f(0, -1)";
+
     // ── short-circuit / `??` joins with literal arms ──
     // Until the verifier widened operand kinds at a join, every one of these
     // rejected the whole function (`Tagged` local vs `Int32` literal). The
