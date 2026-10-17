@@ -8,7 +8,7 @@ use fallible_collections::TryCollect;
 use crate::{
     Array, JS_CLASS_OBJECT, ScopeResult,
     array::alloc_fast_array_slots,
-    atom::{Atom, AtomKind},
+    atom::Atom,
     builtins::{
         generator::{FUNC_RET_AWAIT, FUNC_RET_INITIAL_YIELD, FUNC_RET_YIELD, FUNC_RET_YIELD_STAR},
         iterator::ObjectIter,
@@ -16,16 +16,12 @@ use crate::{
     bytecode::{
         OpCode, SpecialObject,
         arithmatic::{UnaryOp, op_binary_logic},
+        class_ops,
         operators::{
             js_append_enumerate, js_for_in_next, js_for_in_start, js_for_of_next,
-            js_has_unscopable, js_iterator_get_value_done, js_method_set_properties,
-            js_op_define_class_for_arena, js_operator_delete, js_operator_in,
-            js_operator_instanceof,
+            js_has_unscopable, js_iterator_get_value_done, js_op_define_class_for_arena,
+            js_operator_delete, js_operator_in, js_operator_instanceof,
         },
-    },
-    class::{
-        OP_DEFINE_METHOD_ENUMERABLE, OP_DEFINE_METHOD_GETTER, OP_DEFINE_METHOD_METHOD,
-        OP_DEFINE_METHOD_SETTER,
     },
     context::{ContextPtr, GlobalVarSetMode, ScopedContext},
     error::{
@@ -41,10 +37,8 @@ use crate::{
     },
     module::{js_dynamic_import, js_import_meta},
     object::{
-        JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
-        JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-        JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, Object,
-        PayloadPtr, ThrowPolicy,
+        JS_PROP_CONFIGURABLE, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, Object, PayloadPtr,
+        ThrowPolicy,
     },
     utils::{read_from_ptr, unlikely},
     value::JSValue,
@@ -705,8 +699,7 @@ impl Bytecode {
                                 sp = unsafe { sp_base.add(jf.out_sp as usize) };
                                 break ExecAction::Exception;
                             }
-                            crate::jit::JitExitKind::Resume
-                            | crate::jit::JitExitKind::Retry => {
+                            crate::jit::JitExitKind::Resume | crate::jit::JitExitKind::Retry => {
                                 save_sp!(jf.out_sp);
                                 pc = unsafe { pc_base.add(jf.out_pc as usize) };
                                 sp = unsafe { sp_base.add(jf.out_sp as usize) };
@@ -1845,94 +1838,43 @@ impl Bytecode {
                     // Constructor / brand / throw
                     // ═══════════════════════════════════════════════════
                     OpCode::CHECK_CTOR_RETURN => {
-                        if !SP_REF!(-1).is_object() {
-                            if unlikely(!SP_REF!(-1).is_undefined()) {
-                                // Per ES [[Construct]], throw TypeError in the CALLER's realm,
-                                // not the current function's realm.
-                                // Retrive caller's realm from the prev frame.
-                                let prev = frame!(cur_frame_idx).prev;
-                                if !prev.is_null() {
-                                    let prev_func = frame!(prev).func_obj;
-                                    if let Ok(bfun) = BCWrapper::try_from(JSValue::from(prev_func))
-                                    {
-                                        let mut caller_ctx_ptr = bfun.payload().bytecode().realm();
-                                        let mut caller_scope = caller_ctx_ptr.new_scope();
-                                        let _ = caller_scope.throw_type_error(
-                                            "derived class constructor must return \
-                                             an object or undefined",
-                                        );
-                                        // caller_scope dropped → GC scope popped
-                                        break ExecAction::Exception;
-                                    }
-                                }
-
-                                // Fallback: no caller frame available.
-                                let _ = realm_scope.throw_type_error(
-                                    "derived class constructor must return an object or undefined",
-                                );
-                                break ExecAction::Exception;
-                            } else {
-                                SP_PUT!(0, JSValue::from(true));
+                        match class_ops::check_ctor_return(
+                            realm_scope,
+                            SP_VAL!(-1),
+                            arena_ptr,
+                            cur_frame_idx,
+                        ) {
+                            Ok(flag) => {
+                                SP_PUT!(0, JSValue::from(flag));
                                 SP_GO!(1);
                             }
-                        } else {
-                            SP_PUT!(0, JSValue::from(false));
-                            SP_GO!(1);
+                            Err(_) => break ExecAction::Exception,
                         }
                     }
                     OpCode::CHECK_CTOR => {
-                        if new_target.is_undefined() {
-                            let _ = realm_scope
-                                .throw_type_error("class constructors must be invoked with 'new'");
+                        if class_ops::check_ctor(realm_scope, new_target).is_err() {
                             break ExecAction::Exception;
                         }
                     }
                     OpCode::INIT_CTOR => {
-                        // Calls the super constructor and pushes the `this` object.
-                        // Used at the start of derived class constructors,
-                        // equivalent to `super(...arguments)`.
-                        if new_target.is_undefined() {
-                            let _ = realm_scope
-                                .throw_type_error("class constructors must be invoked with 'new'");
-                            break ExecAction::Exception;
-                        }
-                        // Get the super constructor from func_obj's prototype
-                        let func_obj_val = JSValue::from(func_obj);
-                        if let Ok(super_ctor) = func_obj_val.prototype(realm_scope) {
-                            // Call the super constructor with all current args
-                            let ret_val = super_ctor.call_internal(
-                                realm_scope,
-                                JSValue::UNDEFINED,
-                                new_target,
-                                args,
-                                JS_CALL_FLAG_CONSTRUCTOR,
-                            );
-                            jit_mark_native_call!();
-                            if let Ok(val) = ret_val {
+                        match class_ops::init_ctor(realm_scope, func_obj, new_target, args) {
+                            Ok(val) => {
+                                jit_mark_native_call!();
                                 SP_PUT!(0, val);
                                 SP_GO!(1);
-                            } else {
-                                break ExecAction::Exception;
                             }
-                        } else {
-                            break ExecAction::Exception;
+                            Err(_) => break ExecAction::Exception,
                         }
                     }
                     OpCode::CHECK_BRAND => {
-                        if let Ok(b) = SP_REF!(-2).check_brand(realm_scope, SP_VAL!(-1)) {
-                            if unlikely(!b) {
-                                let _ = realm_scope.throw_type_error("invalid brand on object");
-                                break ExecAction::Exception;
-                            }
-                        } else {
+                        if class_ops::check_brand(realm_scope, SP_VAL!(-2), SP_VAL!(-1)).is_err() {
                             break ExecAction::Exception;
                         }
                     }
                     OpCode::ADD_BRAND => {
-                        let mut func_obj = SP_VAL!(-2);
-                        let home_object = SP_VAL!(-1);
+                        let r = class_ops::add_brand(realm_scope, SP_VAL!(-2), SP_VAL!(-1));
                         SP_GO!(-2);
-                        if unlikely(func_obj.add_brand(realm_scope, home_object).is_err()) {
+                        if unlikely(r.is_err()) {
                             break ExecAction::Exception;
                         }
                     }
@@ -2537,7 +2479,7 @@ impl Bytecode {
                     // Misc
                     // ═══════════════════════════════════════════════════
                     OpCode::GET_SUPER => {
-                        if let Ok(proto) = SP_REF!(-1).prototype(realm_scope) {
+                        if let Ok(proto) = class_ops::get_super(realm_scope, SP_VAL!(-1)) {
                             SP_PUT!(-1, proto);
                         } else {
                             break ExecAction::Exception;
@@ -2974,21 +2916,17 @@ impl Bytecode {
                         SP_GO!(1);
                     }
                     OpCode::GET_SUPER_VALUE => {
-                        if let Ok(atom) = SP_REF!(-1).to_atom(realm_scope) {
-                            let val = SP_REF!(-2).get_property_internal(
-                                realm_scope,
-                                atom,
-                                SP_VAL!(-3),
-                                false,
-                            );
-                            if let Ok(val) = val {
+                        match class_ops::get_super_value(
+                            realm_scope,
+                            SP_VAL!(-3),
+                            SP_VAL!(-2),
+                            SP_VAL!(-1),
+                        ) {
+                            Ok(val) => {
                                 SP_PUT!(-3, val);
                                 SP_GO!(-2);
-                            } else {
-                                break ExecAction::Exception;
                             }
-                        } else {
-                            break ExecAction::Exception;
+                            Err(_) => break ExecAction::Exception,
                         }
                     }
                     OpCode::PUT_REF_VALUE => {
@@ -3032,45 +2970,26 @@ impl Bytecode {
                     }
                     OpCode::PUT_SUPER_VALUE => {
                         // [this_obj, obj, prop, val, ^] -> [^]
-                        let this_obj = SP_VAL!(-4);
-                        let obj = SP_VAL!(-3);
-                        let prop = SP_VAL!(-2);
-                        let val = SP_VAL!(-1);
+                        let r = class_ops::put_super_value(
+                            realm_scope,
+                            SP_VAL!(-4),
+                            SP_VAL!(-3),
+                            SP_VAL!(-2),
+                            SP_VAL!(-1),
+                        );
                         SP_GO!(-4);
-                        if unlikely(!obj.is_object()) {
-                            let _ = realm_scope.throw_type_error_not_an_object();
-                            break ExecAction::Exception;
-                        }
-                        if let Ok(atom) = prop.to_atom(realm_scope) {
-                            debug_assert!(this_obj.is_object());
-                            let ret = obj.set_property_internal(
-                                realm_scope,
-                                atom,
-                                val,
-                                this_obj.as_object(),
-                                ThrowPolicy::StrictOnly,
-                                false,
-                            );
-                            if unlikely(ret.is_err()) {
-                                break ExecAction::Exception;
-                            }
-                        } else {
+                        if unlikely(r.is_err()) {
                             break ExecAction::Exception;
                         }
                     }
                     OpCode::DEFINE_ARRAY_EL => {
                         // [obj, prop, value, ^] -> [obj, prop, ^]
-                        let obj = SP_MUT!(-3);
-                        let prop = SP_REF!(-2);
-                        let value = SP_VAL!(-1);
-                        let ret = prop.to_atom(realm_scope).and_then(|a| {
-                            obj.define_property_value(
-                                realm_scope,
-                                a,
-                                value,
-                                JS_PROP_C_W_E | JS_PROP_THROW,
-                            )
-                        });
+                        let ret = class_ops::define_array_el(
+                            realm_scope,
+                            SP_MUT!(-3),
+                            SP_VAL!(-2),
+                            SP_VAL!(-1),
+                        );
                         SP_GO!(-1);
                         if unlikely(ret.is_err()) {
                             break ExecAction::Exception;
@@ -3087,11 +3006,11 @@ impl Bytecode {
                     OpCode::COPY_DATA_PROPERTIES => {
                         // target source excludeList
                         let mask = PC_FETCH!(u8) as i32;
-                        let r = SP_MUT!(-1 - (mask & 3)).copy_data_properties_from(
+                        let r = class_ops::copy_data_properties(
                             realm_scope,
-                            SP_REF!(-1 - ((mask >> 2) & 7)),
-                            SP_REF!(-1 - ((mask >> 5) & 7)),
-                            false,
+                            SP_MUT!(-1 - (mask & 3)),
+                            SP_VAL!(-1 - ((mask >> 2) & 7)),
+                            SP_VAL!(-1 - ((mask >> 5) & 7)),
                         );
                         if unlikely(r.is_err()) {
                             break ExecAction::Exception;
@@ -3103,31 +3022,32 @@ impl Bytecode {
                     // ═══════════════════════════════════════════════════
                     OpCode::PRIVATE_SYMBOL => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
-                        if let Ok(val) =
-                            realm_scope.create_symbol_from_atom(atom, AtomKind::Private)
-                        {
-                            SP_PUT!(0, val);
-                            SP_GO!(1);
-                        } else {
-                            break ExecAction::Exception;
+                        match class_ops::private_symbol(realm_scope, atom) {
+                            Ok(val) => {
+                                SP_PUT!(0, val);
+                                SP_GO!(1);
+                            }
+                            Err(_) => break ExecAction::Exception,
                         }
                     }
                     OpCode::GET_PRIVATE_FIELD => {
-                        let op_2 = SP_VAL!(-2);
-                        let op_1 = SP_VAL!(-1);
-                        let val = op_2
-                            .get_private_field(realm_scope, op_1)
-                            .unwrap_or(JSValue::EXCEPTION);
+                        let val =
+                            class_ops::get_private_field(realm_scope, SP_VAL!(-2), SP_VAL!(-1))
+                                .unwrap_or(JSValue::EXCEPTION);
                         SP_PUT!(-2, val);
                         SP_GO!(-1);
-                        if unlikely(SP_REF!(-1).is_exception()) {
+                        if unlikely(val.is_exception()) {
                             break ExecAction::Exception;
                         }
                     }
                     OpCode::PUT_PRIVATE_FIELD => {
                         // [this_obj, name, value, ^] -> [^]
-                        let ret =
-                            SP_MUT!(-3).set_private_field(realm_scope, SP_VAL!(-1), SP_VAL!(-2));
+                        let ret = class_ops::put_private_field(
+                            realm_scope,
+                            SP_MUT!(-3),
+                            SP_VAL!(-2),
+                            SP_VAL!(-1),
+                        );
                         SP_GO!(-3);
                         if unlikely(ret.is_err()) {
                             break ExecAction::Exception;
@@ -3135,8 +3055,12 @@ impl Bytecode {
                     }
                     OpCode::DEFINE_PRIVATE_FIELD => {
                         // [this_obj, name, value, ^] -> [this_obj, ^]
-                        let ret =
-                            SP_MUT!(-3).define_private_field(realm_scope, SP_VAL!(-2), SP_VAL!(-1));
+                        let ret = class_ops::define_private_field(
+                            realm_scope,
+                            SP_MUT!(-3),
+                            SP_VAL!(-2),
+                            SP_VAL!(-1),
+                        );
                         SP_GO!(-2);
                         if unlikely(ret.is_err()) {
                             break ExecAction::Exception;
@@ -3149,12 +3073,8 @@ impl Bytecode {
                     OpCode::DEFINE_FIELD => {
                         // [this_obj, value, ^] -> [this_obj, ^]
                         let atom = Atom::from_id(PC_FETCH!(u32));
-                        let ret = SP_MUT!(-2).define_property_value(
-                            realm_scope,
-                            atom,
-                            SP_VAL!(-1),
-                            JS_PROP_C_W_E | JS_PROP_THROW,
-                        );
+                        let ret =
+                            class_ops::define_field(realm_scope, SP_MUT!(-2), atom, SP_VAL!(-1));
                         SP_GO!(-1);
                         if unlikely(ret.is_err()) {
                             break ExecAction::Exception;
@@ -3172,34 +3092,21 @@ impl Bytecode {
                     }
                     OpCode::SET_NAME_COMPUTED => {
                         // [name, value, ^] -> [name, value, ^]
-                        let r = SP_MUT!(-1).as_object().unwrap().define_name_computed(
-                            realm_scope,
-                            SP_VAL!(-2),
-                            JS_PROP_CONFIGURABLE,
-                        );
+                        let r = class_ops::set_name_computed(realm_scope, SP_VAL!(-2), SP_MUT!(-1));
                         if unlikely(r.is_err()) {
                             break ExecAction::Exception;
                         }
                     }
                     OpCode::SET_PROTO => {
                         // [obj, proto, ^] -> [obj, ^]
-                        let proto = SP_VAL!(-1);
-                        if proto.is_object() || proto.is_null() {
-                            let r = SP_MUT!(-2).set_prototype_internal(realm_scope, proto, true);
-                            if unlikely(r.is_err()) {
-                                break ExecAction::Exception;
-                            }
+                        if class_ops::set_proto(realm_scope, SP_MUT!(-2), SP_VAL!(-1)).is_err() {
+                            break ExecAction::Exception;
                         }
                         SP_GO!(-1);
                     }
                     OpCode::SET_HOME_OBJECT => {
                         // [home_obj, func, ^] -> [home_obj, func, ^]
-                        if let Some(mut fo) = SP_MUT!(-1).as_object_BCWrapper() {
-                            fo.method_set_home_object(SP_VAL!(-2).as_object());
-                        } else {
-                            #[cfg(debug_assertions)]
-                            unreachable!("SET_HOME_OBJECT expect BytecodeFunction object");
-                        }
+                        class_ops::set_home_object(SP_MUT!(-1), SP_VAL!(-2));
                     }
                     OpCode::DEFINE_METHOD | OpCode::DEFINE_METHOD_COMPUTED => {
                         let (is_computed, atom, op_flags) =
@@ -3209,59 +3116,14 @@ impl Bytecode {
                                 (false, Atom::from_id(PC_FETCH!(u32)), PC_FETCH!(u8))
                             };
 
-                        let name = if atom.is_null() {
-                            if let Ok(atom) = SP_REF!(-2).to_atom(realm_scope) {
-                                atom
-                            } else {
-                                break ExecAction::Exception;
-                            }
-                        } else {
-                            atom
-                        };
-
-                        let mut flags = JS_PROP_HAS_CONFIGURABLE
-                            | JS_PROP_CONFIGURABLE
-                            | JS_PROP_HAS_ENUMERABLE
-                            | JS_PROP_THROW;
-
-                        if op_flags & OP_DEFINE_METHOD_ENUMERABLE != 0 {
-                            flags |= JS_PROP_ENUMERABLE
-                        }
-
-                        let func_obj: &mut JSValue;
-                        let mut value = JSValue::UNDEFINED;
-                        let mut getter = JSValue::UNDEFINED;
-                        let mut setter = JSValue::UNDEFINED;
-
-                        match op_flags & (OP_DEFINE_METHOD_GETTER | OP_DEFINE_METHOD_SETTER) {
-                            OP_DEFINE_METHOD_METHOD => {
-                                value = SP_VAL!(-1);
-                                func_obj = &mut value;
-                                flags |=
-                                    JS_PROP_HAS_VALUE | JS_PROP_HAS_WRITABLE | JS_PROP_WRITABLE;
-                            }
-                            OP_DEFINE_METHOD_GETTER => {
-                                getter = SP_VAL!(-1);
-                                func_obj = &mut getter;
-                                flags |= JS_PROP_HAS_GET;
-                            }
-                            OP_DEFINE_METHOD_SETTER => {
-                                setter = SP_VAL!(-1);
-                                func_obj = &mut setter;
-                                flags |= JS_PROP_HAS_SET;
-                            }
-                            _ => unreachable!(),
-                        }
-
-                        let this_obj = SP_MUT!(if is_computed { -3 } else { -2 });
-                        let mut ret =
-                            js_method_set_properties(realm_scope, func_obj, name, flags, this_obj);
-
-                        if ret.is_ok() {
-                            ret = this_obj
-                                .define_property(realm_scope, name, value, getter, setter, flags)
-                                .map(|_| ());
-                        }
+                        let ret = class_ops::define_method(
+                            realm_scope,
+                            SP_MUT!(if is_computed { -3 } else { -2 }),
+                            SP_VAL!(-1),
+                            atom,
+                            SP_VAL!(-2),
+                            op_flags,
+                        );
 
                         if is_computed {
                             SP_GO!(-2);

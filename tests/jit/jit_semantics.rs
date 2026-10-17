@@ -128,22 +128,30 @@ const CASES: &[SemCase] = sem_cases! {
         "f(9)",
         "'fil:' + f(9)";
 
-    // ── classes (all class machinery is `Reject`) ──
-    class_constructor_field => Interpreted =
+    // ── classes (base/derived/private/brand/super + object literals) ──
+    class_constructor_field => Compiles =
         "var __seed = 0; class C { constructor(x){ this.v = x; } get(){ return this.v; } } function f(){ var __z = 0; var c = new C(4); return c.get(); }",
         "f()",
         "f()",
         "'cc:' + f()";
-    class_inherit_super => Interpreted =
+    class_inherit_super => Compiles =
         "var __seed = 0; class A { constructor(){ this.p = 1; } m(){ return this.p; } } class B extends A { m(){ return super.m() + 1; } } function f(){ var __z = 0; return new B().m(); }",
         "f()",
         "f()",
         "'ci:' + f()";
-    class_private_fields => Interpreted =
+    class_private_fields => Compiles =
         "var __seed = 0; class C { #s = 5; get(){ return this.#s; } bump(){ this.#s = this.#s + 1; return this.#s; } } function f(){ var __z = 0; var c = new C(); c.bump(); return c.get(); }",
         "f()",
         "f()",
         "'cp:' + f()";
+    // Computed member names, accessors, a spread/`__proto__` object literal and
+    // a class expression all live in the same function: the whole
+    // `define_method*`/`define_class*`/`copy_data_properties`/`set_proto` set.
+    class_computed_members_and_literals => Compiles =
+        "var __seed = 0; var KEY = 'k'; var G = 'g'; class C { [KEY](){ return 1; } get v(){ return 2; } set v(x){ this.w = x; } static s(){ return 3; } static get [G](){ return 4; } } function f(n){ var __z = 0; var o = { a: n, [KEY]: n + 1, ...{ b: 2 }, get [G](){ return 5; }, __proto__: null }; var c = new C(); c.v = n; return o.a + o.k + o.b + (o.__proto__ === null ? 1 : 0) + o.g + c.k() + c.v + c.w + C.s() + C[G]; }",
+        "f(1)",
+        "f(2)",
+        "'cml:' + f(3)";
 
     // ── closures ──
     closure_counter => Compiles =
@@ -151,7 +159,7 @@ const CASES: &[SemCase] = sem_cases! {
         "f(1)",
         "f(5)",
         "'cl:' + f(5)";
-    closure_captured_block_let => Interpreted =
+    closure_captured_block_let => Compiles =
         "var __seed = 0; function apply(g){ var __z = 0; return g(); } function f(n){ var __z = 0; var out = 0; { let x = n + 1; out = apply(function(){ var __u = 0; return x; }); } return out; }",
         "f(2)",
         "f(8)",

@@ -84,7 +84,7 @@ pub(crate) fn js_operator_in(
     }
 }
 
-pub(super) fn js_operator_private_in(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
+pub(crate) fn js_operator_private_in(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
     let obj = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) }; // object
     let item = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) }; // field name or method function
 
@@ -109,7 +109,7 @@ pub(super) fn js_operator_private_in(ctx: &mut ScopedContext, sp: *mut JSValue) 
 /// Arena-aware version of `js_op_define_class` that uses
 /// `make_closure_for_arena` instead of `make_closure`.
 #[allow(clippy::too_many_arguments)]
-pub(super) fn js_op_define_class_for_arena(
+pub(crate) fn js_op_define_class_for_arena(
     ctx: &mut ScopedContext,
     sp: *mut JSValue,
     class_name: Atom,
@@ -260,7 +260,7 @@ pub(super) fn js_method_set_properties(
 /// 类似于 JavaScript 中的 `[...iterable]` 或者 `array.push(...iterable)` 操作。
 ///
 /// 操作完成后, `SP[-3]`数组中加入了来自`SP[-1]`的全部元素，`SP[-1]`没有变化，`SP[-2]`更新为结束位置index。
-pub(super) unsafe fn js_append_enumerate(
+pub(crate) unsafe fn js_append_enumerate(
     ctx: &mut ScopedContext,
     sp: *mut JSValue,
 ) -> Result<(), i32> {

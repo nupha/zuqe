@@ -677,13 +677,15 @@ fn jit_policy_of(id: &str) -> JitPolicy {
         "array_from" | "apply" => Helper,
         // ── return / constructor / brand ──
         "return" | "return_undef" => Native,
-        "check_ctor_return" | "check_ctor" | "init_ctor" | "check_brand" | "add_brand"
-        | "return_async" => Reject,
+        // Class constructors / brands are helpers now (see the class machinery
+        // below); `return_async` needs the async frame machinery and stays out.
+        "check_ctor_return" | "check_ctor" | "init_ctor" | "check_brand" | "add_brand" => Helper,
+        "return_async" => Reject,
         "throw" | "throw_error" => Helper,
         // ── unsupported interpreters ──
         "eval" | "tail_eval" | "apply_eval" | "import" => Reject,
         "regexp" => Helper,
-        "get_super" => Reject,
+        "get_super" => Helper,
         // ── variables ──
         "get_var_undef" | "get_var" | "put_var" | "put_var_init" | "get_ref_value"
         | "put_ref_value" => Helper,
@@ -695,8 +697,11 @@ fn jit_policy_of(id: &str) -> JitPolicy {
         | "define_private_field"
         | "get_super_value"
         | "put_super_value"
-        | "private_in" => Reject,
-        // class / object-literal machinery (v1)
+        | "private_in" => Helper,
+        // class / object-literal machinery: every arm is a helper that calls
+        // the interpreter's own `class_ops`/`operators` function, so literals
+        // and class definitions run native. `set_class_name` stays Reject: it
+        // is a temp opcode the resolver folds into `set_name`.
         "define_field"
         | "set_name_computed"
         | "set_proto"
@@ -707,8 +712,8 @@ fn jit_policy_of(id: &str) -> JitPolicy {
         | "define_method"
         | "define_method_computed"
         | "define_class"
-        | "define_class_computed"
-        | "set_class_name" => Reject,
+        | "define_class_computed" => Helper,
+        "set_class_name" => Reject,
         // ── locals / args / var refs ──
         "get_loc"
         | "put_loc"
@@ -728,7 +733,9 @@ fn jit_policy_of(id: &str) -> JitPolicy {
         | "get_var_ref_check"
         | "put_var_ref_check"
         | "put_var_ref_check_init" => Native,
-        "close_loc" => Reject,
+        // `close_loc` detaches the frame's `var_ref` for a block-scoped `let`
+        // captured by a closure; the helper mirrors the interpreter.
+        "close_loc" => Helper,
         // ── control flow; catch regions land in E5 ──
         "if_false" | "if_true" | "goto" => Native,
         "catch" | "gosub" | "ret" => Native,

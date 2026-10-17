@@ -1387,8 +1387,416 @@ unsafe extern "C" fn h_iterator_call(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// Result of a `class_ops` call: the helper only needs OK/EXCEPTION.
+#[inline]
+fn status(result: Result<(), i32>) -> u32 {
+    if result.is_ok() {
+        HELPER_OK
+    } else {
+        HELPER_EXCEPTION
+    }
+}
+
+/// `define_field`: `[obj, value, ^] -> [obj, ^]` (`imm` = atom id).
+unsafe extern "C" fn h_define_field(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let atom = crate::atom::Atom::from_id(f.imm);
+        let r = crate::bytecode::class_ops::define_field(
+            scope_of(f),
+            &mut *sp.offset(-2),
+            atom,
+            *sp.offset(-1),
+        );
+        f.sp = sp.offset(-1);
+        status(r)
+    }
+}
+
+/// `set_name_computed`: `[name, value, ^] -> [name, value, ^]` (peek).
+unsafe extern "C" fn h_set_name_computed(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        status(crate::bytecode::class_ops::set_name_computed(
+            scope_of(f),
+            *sp.offset(-2),
+            &mut *sp.offset(-1),
+        ))
+    }
+}
+
+/// `set_proto`: `[obj, proto, ^] -> [obj, ^]`.
+unsafe extern "C" fn h_set_proto(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let r =
+            crate::bytecode::class_ops::set_proto(scope_of(f), &mut *sp.offset(-2), *sp.offset(-1));
+        if r.is_err() {
+            return HELPER_EXCEPTION;
+        }
+        f.sp = sp.offset(-1);
+        HELPER_OK
+    }
+}
+
+/// `set_home_object`: `[home_obj, func, ^] -> [home_obj, func, ^]` (peek).
+unsafe extern "C" fn h_set_home_object(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        crate::bytecode::class_ops::set_home_object(&mut *sp.offset(-1), *sp.offset(-2));
+        HELPER_OK
+    }
+}
+
+/// `define_array_el`: `[obj, prop, value, ^] -> [obj, prop, ^]`.
+unsafe extern "C" fn h_define_array_el(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let r = crate::bytecode::class_ops::define_array_el(
+            scope_of(f),
+            &mut *sp.offset(-3),
+            *sp.offset(-2),
+            *sp.offset(-1),
+        );
+        f.sp = sp.offset(-1);
+        status(r)
+    }
+}
+
+/// `copy_data_properties`: three operands in place (`imm` = mask).
+unsafe extern "C" fn h_copy_data_properties(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let mask = f.imm as i32;
+        let target = -1 - (mask & 3);
+        let source = -1 - ((mask >> 2) & 7);
+        let exclude = -1 - ((mask >> 5) & 7);
+        let r = crate::bytecode::class_ops::copy_data_properties(
+            scope_of(f),
+            &mut *sp.offset(target as isize),
+            *sp.offset(source as isize),
+            *sp.offset(exclude as isize),
+        );
+        status(r)
+    }
+}
+
+/// `define_method`: `[obj, func, ^] -> [obj, ^]` (`imm` = atom, `imm2` = flags).
+unsafe extern "C" fn h_define_method(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let r = crate::bytecode::class_ops::define_method(
+            scope_of(f),
+            &mut *sp.offset(-2),
+            *sp.offset(-1),
+            crate::atom::Atom::from_id(f.imm),
+            JSValue::UNDEFINED,
+            f.imm2 as u8,
+        );
+        f.sp = sp.offset(-1);
+        status(r)
+    }
+}
+
+/// `define_method_computed`: `[obj, name, func, ^] -> [obj, ^]`.
+unsafe extern "C" fn h_define_method_computed(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let r = crate::bytecode::class_ops::define_method(
+            scope_of(f),
+            &mut *sp.offset(-3),
+            *sp.offset(-1),
+            crate::atom::Atom::NULL,
+            *sp.offset(-2),
+            f.imm as u8,
+        );
+        f.sp = sp.offset(-2);
+        status(r)
+    }
+}
+
+/// `define_class` / `define_class_computed` (`imm` = atom, `imm2` = flags).
+unsafe fn define_class(f: *mut JitExecFrame, is_computed: bool) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let arena = f.arena;
+        let frame_idx = FrameIndex::from_u32(f.cur_frame_idx);
+        let sp = f.sp;
+        let captured = captured_vars_of(f);
+        let r = crate::bytecode::operators::js_op_define_class_for_arena(
+            scope_of(f),
+            sp,
+            crate::atom::Atom::from_id(f.imm),
+            f.imm2 as i32,
+            captured,
+            &mut *arena,
+            frame_idx,
+            is_computed,
+        );
+        status(r)
+    }
+}
+
+/// `define_class`.
+unsafe extern "C" fn h_define_class(f: *mut JitExecFrame) -> u32 {
+    unsafe { define_class(f, false) }
+}
+
+/// `define_class_computed`.
+unsafe extern "C" fn h_define_class_computed(f: *mut JitExecFrame) -> u32 {
+    unsafe { define_class(f, true) }
+}
+
+/// `check_ctor_return`: `[ret_val, ^] -> [ret_val, bool, ^]`.
+unsafe extern "C" fn h_check_ctor_return(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        match crate::bytecode::class_ops::check_ctor_return(
+            scope_of(f),
+            *sp.offset(-1),
+            f.arena,
+            FrameIndex::from_u32(f.cur_frame_idx),
+        ) {
+            Ok(flag) => {
+                *sp = JSValue::from(flag);
+                f.sp = sp.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `check_ctor`.
+unsafe extern "C" fn h_check_ctor(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        status(crate::bytecode::class_ops::check_ctor(
+            scope_of(f),
+            f.new_target,
+        ))
+    }
+}
+
+/// `init_ctor`: `[^] -> [this, ^]`.
+unsafe extern "C" fn h_init_ctor(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let frame_idx = FrameIndex::from_u32(f.cur_frame_idx);
+        let func_obj = (*f.arena).frame(frame_idx).func_obj;
+        let args = std::slice::from_raw_parts(f.arg_base, f.arg_real_count as usize);
+        let sp = f.sp;
+        match crate::bytecode::class_ops::init_ctor(scope_of(f), func_obj, f.new_target, args) {
+            Ok(val) => {
+                *sp = val;
+                f.sp = sp.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `check_brand`: `[obj, brand, ^] -> [obj, brand, ^]` (peek + throw).
+unsafe extern "C" fn h_check_brand(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        status(crate::bytecode::class_ops::check_brand(
+            scope_of(f),
+            *sp.offset(-2),
+            *sp.offset(-1),
+        ))
+    }
+}
+
+/// `add_brand`: `[func, home_obj, ^] -> [^]`.
+unsafe extern "C" fn h_add_brand(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let r = crate::bytecode::class_ops::add_brand(scope_of(f), *sp.offset(-2), *sp.offset(-1));
+        f.sp = sp.offset(-2);
+        status(r)
+    }
+}
+
+/// `private_symbol`: `[^] -> [symbol, ^]` (`imm` = atom id).
+unsafe extern "C" fn h_private_symbol(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let atom = crate::atom::Atom::from_id(f.imm);
+        match crate::bytecode::class_ops::private_symbol(scope_of(f), atom) {
+            Ok(val) => {
+                *sp = val;
+                f.sp = sp.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `get_private_field`: `[obj, name, ^] -> [value, ^]`.
+unsafe extern "C" fn h_get_private_field(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let val = crate::bytecode::class_ops::get_private_field(
+            scope_of(f),
+            *sp.offset(-2),
+            *sp.offset(-1),
+        )
+        .unwrap_or(JSValue::EXCEPTION);
+        *sp.offset(-2) = val;
+        f.sp = sp.offset(-1);
+        if val.is_exception() {
+            HELPER_EXCEPTION
+        } else {
+            HELPER_OK
+        }
+    }
+}
+
+/// `put_private_field`: `[obj, name, value, ^] -> [^]`.
+unsafe extern "C" fn h_put_private_field(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let r = crate::bytecode::class_ops::put_private_field(
+            scope_of(f),
+            &mut *sp.offset(-3),
+            *sp.offset(-2),
+            *sp.offset(-1),
+        );
+        f.sp = sp.offset(-3);
+        status(r)
+    }
+}
+
+/// `define_private_field`: `[obj, name, value, ^] -> [obj, ^]`.
+unsafe extern "C" fn h_define_private_field(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let r = crate::bytecode::class_ops::define_private_field(
+            scope_of(f),
+            &mut *sp.offset(-3),
+            *sp.offset(-2),
+            *sp.offset(-1),
+        );
+        f.sp = sp.offset(-2);
+        status(r)
+    }
+}
+
+/// `append`: `[dest, start, src, ^] -> [dest, end, ^]`.
+unsafe extern "C" fn h_append(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        if crate::bytecode::operators::js_append_enumerate(scope_of(f), sp).is_err() {
+            return HELPER_EXCEPTION;
+        }
+        f.sp = sp.offset(-1);
+        HELPER_OK
+    }
+}
+
+/// `private_in`: `[obj, field, ^] -> [bool, ^]`.
+unsafe extern "C" fn h_private_in(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        if crate::bytecode::operators::js_operator_private_in(scope_of(f), sp).is_err() {
+            return HELPER_EXCEPTION;
+        }
+        f.sp = sp.offset(-1);
+        HELPER_OK
+    }
+}
+
+/// `get_super`: `[obj, ^] -> [obj.prototype, ^]`.
+unsafe extern "C" fn h_get_super(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        match crate::bytecode::class_ops::get_super(scope_of(f), *sp.offset(-1)) {
+            Ok(proto) => {
+                *sp.offset(-1) = proto;
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `get_super_value`: `[this, obj, prop, ^] -> [value, ^]`.
+unsafe extern "C" fn h_get_super_value(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        match crate::bytecode::class_ops::get_super_value(
+            scope_of(f),
+            *sp.offset(-3),
+            *sp.offset(-2),
+            *sp.offset(-1),
+        ) {
+            Ok(val) => {
+                *sp.offset(-3) = val;
+                f.sp = sp.offset(-2);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `put_super_value`: `[this, obj, prop, val, ^] -> [^]`.
+unsafe extern "C" fn h_put_super_value(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let r = crate::bytecode::class_ops::put_super_value(
+            scope_of(f),
+            *sp.offset(-4),
+            *sp.offset(-3),
+            *sp.offset(-2),
+            *sp.offset(-1),
+        );
+        f.sp = sp.offset(-4);
+        status(r)
+    }
+}
+
+/// `close_loc`: detaches the frame's `var_ref` for local `imm`, so a later
+/// write goes through the box instead of the (now dead) frame slot.
+unsafe extern "C" fn h_close_loc(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let idx = f.imm as u16;
+        let frame_idx = FrameIndex::from_u32(f.cur_frame_idx);
+        if let Some(vrs) = (*f.arena).try_var_refs_mut(frame_idx)
+            && let Some(vr) = vrs.iter_mut().find(|v| v.is_match(idx, false))
+        {
+            vr.detach();
+        }
+        HELPER_OK
+    }
+}
+
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 72;
+pub(crate) const HELPER_COUNT: usize = 97;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -1507,6 +1915,56 @@ pub(crate) const HELPER_ITERATOR_CLOSE: usize = 69;
 pub(crate) const HELPER_ITERATOR_NEXT: usize = 70;
 /// Index of [`h_iterator_call`].
 pub(crate) const HELPER_ITERATOR_CALL: usize = 71;
+/// Index of [`h_define_field`].
+pub(crate) const HELPER_DEFINE_FIELD: usize = 72;
+/// Index of [`h_set_name_computed`].
+pub(crate) const HELPER_SET_NAME_COMPUTED: usize = 73;
+/// Index of [`h_set_proto`].
+pub(crate) const HELPER_SET_PROTO: usize = 74;
+/// Index of [`h_set_home_object`].
+pub(crate) const HELPER_SET_HOME_OBJECT: usize = 75;
+/// Index of [`h_define_array_el`].
+pub(crate) const HELPER_DEFINE_ARRAY_EL: usize = 76;
+/// Index of [`h_copy_data_properties`].
+pub(crate) const HELPER_COPY_DATA_PROPERTIES: usize = 77;
+/// Index of [`h_define_method`].
+pub(crate) const HELPER_DEFINE_METHOD: usize = 78;
+/// Index of [`h_define_method_computed`].
+pub(crate) const HELPER_DEFINE_METHOD_COMPUTED: usize = 79;
+/// Index of [`h_define_class`].
+pub(crate) const HELPER_DEFINE_CLASS: usize = 80;
+/// Index of [`h_define_class_computed`].
+pub(crate) const HELPER_DEFINE_CLASS_COMPUTED: usize = 81;
+/// Index of [`h_check_ctor_return`].
+pub(crate) const HELPER_CHECK_CTOR_RETURN: usize = 82;
+/// Index of [`h_check_ctor`].
+pub(crate) const HELPER_CHECK_CTOR: usize = 83;
+/// Index of [`h_init_ctor`].
+pub(crate) const HELPER_INIT_CTOR: usize = 84;
+/// Index of [`h_check_brand`].
+pub(crate) const HELPER_CHECK_BRAND: usize = 85;
+/// Index of [`h_add_brand`].
+pub(crate) const HELPER_ADD_BRAND: usize = 86;
+/// Index of [`h_private_symbol`].
+pub(crate) const HELPER_PRIVATE_SYMBOL: usize = 87;
+/// Index of [`h_get_private_field`].
+pub(crate) const HELPER_GET_PRIVATE_FIELD: usize = 88;
+/// Index of [`h_put_private_field`].
+pub(crate) const HELPER_PUT_PRIVATE_FIELD: usize = 89;
+/// Index of [`h_define_private_field`].
+pub(crate) const HELPER_DEFINE_PRIVATE_FIELD: usize = 90;
+/// Index of [`h_append`].
+pub(crate) const HELPER_APPEND: usize = 91;
+/// Index of [`h_private_in`].
+pub(crate) const HELPER_PRIVATE_IN: usize = 92;
+/// Index of [`h_get_super`].
+pub(crate) const HELPER_GET_SUPER: usize = 93;
+/// Index of [`h_get_super_value`].
+pub(crate) const HELPER_GET_SUPER_VALUE: usize = 94;
+/// Index of [`h_put_super_value`].
+pub(crate) const HELPER_PUT_SUPER_VALUE: usize = 95;
+/// Index of [`h_close_loc`].
+pub(crate) const HELPER_CLOSE_LOC: usize = 96;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -1587,4 +2045,29 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_iterator_close as *const (),
     h_iterator_next as *const (),
     h_iterator_call as *const (),
+    h_define_field as *const (),
+    h_set_name_computed as *const (),
+    h_set_proto as *const (),
+    h_set_home_object as *const (),
+    h_define_array_el as *const (),
+    h_copy_data_properties as *const (),
+    h_define_method as *const (),
+    h_define_method_computed as *const (),
+    h_define_class as *const (),
+    h_define_class_computed as *const (),
+    h_check_ctor_return as *const (),
+    h_check_ctor as *const (),
+    h_init_ctor as *const (),
+    h_check_brand as *const (),
+    h_add_brand as *const (),
+    h_private_symbol as *const (),
+    h_get_private_field as *const (),
+    h_put_private_field as *const (),
+    h_define_private_field as *const (),
+    h_append as *const (),
+    h_private_in as *const (),
+    h_get_super as *const (),
+    h_get_super_value as *const (),
+    h_put_super_value as *const (),
+    h_close_loc as *const (),
 ]);

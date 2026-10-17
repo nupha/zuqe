@@ -42,20 +42,27 @@ use crate::{jit::snapshot::ConstMeta, vm_stack::ExecMode};
 
 use super::{
     abi::{
-        HELPER_ADD, HELPER_ADD_LOC, HELPER_AND, HELPER_DEC, HELPER_DELETE, HELPER_DIV, HELPER_EQ,
-        HELPER_FOR_IN_NEXT, HELPER_FOR_IN_START, HELPER_FOR_OF_NEXT, HELPER_FOR_OF_START,
-        HELPER_GET_ARRAY_EL, HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3, HELPER_GET_FIELD,
-        HELPER_GET_FIELD2, HELPER_GET_VAR, HELPER_GET_VAR_REF, HELPER_GET_VAR_REF_CHECK,
-        HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE, HELPER_IN, HELPER_INC, HELPER_INSTANCEOF,
-        HELPER_ITERATOR_CALL, HELPER_ITERATOR_CHECK_OBJECT, HELPER_ITERATOR_CLOSE,
-        HELPER_ITERATOR_GET_VALUE_DONE, HELPER_ITERATOR_NEXT, HELPER_LNOT, HELPER_LT, HELPER_LTE,
-        HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH, HELPER_NOT, HELPER_OR,
-        HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC, HELPER_POW, HELPER_PUT_ARRAY_EL,
-        HELPER_PUT_FIELD, HELPER_PUT_VAR, HELPER_PUT_VAR_INIT, HELPER_PUT_VAR_REF,
-        HELPER_PUT_VAR_REF_CHECK, HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_SAFEPOINT, HELPER_SAR,
-        HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ, HELPER_STRICT_NEQ,
-        HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY, HELPER_TYPEOF, HELPER_XOR,
-        JitExecFrame,
+        HELPER_ADD, HELPER_ADD_BRAND, HELPER_ADD_LOC, HELPER_AND, HELPER_APPEND,
+        HELPER_CHECK_BRAND, HELPER_CHECK_CTOR, HELPER_CHECK_CTOR_RETURN, HELPER_CLOSE_LOC,
+        HELPER_COPY_DATA_PROPERTIES, HELPER_DEC, HELPER_DEFINE_ARRAY_EL, HELPER_DEFINE_CLASS,
+        HELPER_DEFINE_CLASS_COMPUTED, HELPER_DEFINE_FIELD, HELPER_DEFINE_METHOD,
+        HELPER_DEFINE_METHOD_COMPUTED, HELPER_DEFINE_PRIVATE_FIELD, HELPER_DELETE, HELPER_DIV,
+        HELPER_EQ, HELPER_FOR_IN_NEXT, HELPER_FOR_IN_START, HELPER_FOR_OF_NEXT,
+        HELPER_FOR_OF_START, HELPER_GET_ARRAY_EL, HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3,
+        HELPER_GET_FIELD, HELPER_GET_FIELD2, HELPER_GET_PRIVATE_FIELD, HELPER_GET_SUPER,
+        HELPER_GET_SUPER_VALUE, HELPER_GET_VAR, HELPER_GET_VAR_REF, HELPER_GET_VAR_REF_CHECK,
+        HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE, HELPER_IN, HELPER_INC, HELPER_INIT_CTOR,
+        HELPER_INSTANCEOF, HELPER_ITERATOR_CALL, HELPER_ITERATOR_CHECK_OBJECT,
+        HELPER_ITERATOR_CLOSE, HELPER_ITERATOR_GET_VALUE_DONE, HELPER_ITERATOR_NEXT, HELPER_LNOT,
+        HELPER_LT, HELPER_LTE, HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH,
+        HELPER_NOT, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC, HELPER_POW,
+        HELPER_PRIVATE_IN, HELPER_PRIVATE_SYMBOL, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD,
+        HELPER_PUT_PRIVATE_FIELD, HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR, HELPER_PUT_VAR_INIT,
+        HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK, HELPER_PUT_VAR_REF_CHECK_INIT,
+        HELPER_SAFEPOINT, HELPER_SAR, HELPER_SET_HOME_OBJECT, HELPER_SET_NAME_COMPUTED,
+        HELPER_SET_PROTO, HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ,
+        HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY,
+        HELPER_TYPEOF, HELPER_XOR, JitExecFrame,
     },
     bytecode::{
         cfg::ControlFlowGraph, decode::Instruction, stack::SlotKind, verify::VerifiedFunction,
@@ -211,6 +218,36 @@ fn helper_for(name: &str) -> Option<usize> {
         "iterator_close" => HELPER_ITERATOR_CLOSE,
         "iterator_next" => HELPER_ITERATOR_NEXT,
         "iterator_call" => HELPER_ITERATOR_CALL,
+        // Class / object-literal / private-field machinery. The opcodes that
+        // need an immediate (`define_field`, `define_method*`, `define_class*`,
+        // `copy_data_properties`, `private_symbol`) have explicit arms in
+        // `lower_insn`; the five super/private/brand ones and `append` are
+        // plain helper calls.
+        "set_name_computed" => HELPER_SET_NAME_COMPUTED,
+        "set_proto" => HELPER_SET_PROTO,
+        "set_home_object" => HELPER_SET_HOME_OBJECT,
+        "define_array_el" => HELPER_DEFINE_ARRAY_EL,
+        "define_field" => HELPER_DEFINE_FIELD,
+        "copy_data_properties" => HELPER_COPY_DATA_PROPERTIES,
+        "define_method" => HELPER_DEFINE_METHOD,
+        "define_method_computed" => HELPER_DEFINE_METHOD_COMPUTED,
+        "define_class" => HELPER_DEFINE_CLASS,
+        "define_class_computed" => HELPER_DEFINE_CLASS_COMPUTED,
+        "private_symbol" => HELPER_PRIVATE_SYMBOL,
+        "check_ctor_return" => HELPER_CHECK_CTOR_RETURN,
+        "check_ctor" => HELPER_CHECK_CTOR,
+        "init_ctor" => HELPER_INIT_CTOR,
+        "check_brand" => HELPER_CHECK_BRAND,
+        "add_brand" => HELPER_ADD_BRAND,
+        "get_private_field" => HELPER_GET_PRIVATE_FIELD,
+        "put_private_field" => HELPER_PUT_PRIVATE_FIELD,
+        "define_private_field" => HELPER_DEFINE_PRIVATE_FIELD,
+        "append" => HELPER_APPEND,
+        "private_in" => HELPER_PRIVATE_IN,
+        "get_super" => HELPER_GET_SUPER,
+        "get_super_value" => HELPER_GET_SUPER_VALUE,
+        "put_super_value" => HELPER_PUT_SUPER_VALUE,
+        "close_loc" => HELPER_CLOSE_LOC,
         _ => return None,
     })
 }
@@ -1575,6 +1612,88 @@ fn lower_insn(
                 HELPER_ITERATOR_CLOSE,
                 pc + size,
             );
+            return Step::Continue(sp);
+        }
+        // Class / object-literal ops whose operand is an immediate. The helper
+        // reads it from `imm`/`imm2`; the stack window is the opcode's own.
+        "define_field" => {
+            let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+            b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
+            let sp =
+                call_stack_helper(state, b, fv, helper_sig, sp, HELPER_DEFINE_FIELD, pc + size);
+            return Step::Continue(sp);
+        }
+        "copy_data_properties" => {
+            let mask = b.ins().iconst(types::I32, i64::from(insn.operand_u8(1)));
+            b.ins().store(MemFlags::new(), mask, fv.frame, O_IMM);
+            let sp = call_stack_helper(
+                state,
+                b,
+                fv,
+                helper_sig,
+                sp,
+                HELPER_COPY_DATA_PROPERTIES,
+                pc + size,
+            );
+            return Step::Continue(sp);
+        }
+        "define_method" | "define_method_computed" => {
+            let computed = name == "define_method_computed";
+            // `define_method` passes atom (`imm`) and op_flags (`imm2`); the
+            // computed form has no atom operand, so it keeps its flags in `imm`
+            // and the key is read from the stack.
+            let (imm_val, imm2_val) = if computed {
+                (i64::from(insn.operand_u8(1)), 0)
+            } else {
+                (
+                    i64::from(insn.operand_u32(1)),
+                    i64::from(insn.operand_u8(5)),
+                )
+            };
+            let imm = b.ins().iconst(types::I32, imm_val);
+            b.ins().store(MemFlags::new(), imm, fv.frame, O_IMM);
+            let imm2 = b.ins().iconst(types::I32, imm2_val);
+            b.ins().store(MemFlags::new(), imm2, fv.frame, O_IMM2);
+            let id = if computed {
+                HELPER_DEFINE_METHOD_COMPUTED
+            } else {
+                HELPER_DEFINE_METHOD
+            };
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
+            return Step::Continue(sp);
+        }
+        "define_class" | "define_class_computed" => {
+            let computed = name == "define_class_computed";
+            let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+            b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
+            let flags = b.ins().iconst(types::I32, i64::from(insn.operand_u8(5)));
+            b.ins().store(MemFlags::new(), flags, fv.frame, O_IMM2);
+            let id = if computed {
+                HELPER_DEFINE_CLASS_COMPUTED
+            } else {
+                HELPER_DEFINE_CLASS
+            };
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
+            return Step::Continue(sp);
+        }
+        "private_symbol" => {
+            let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+            b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
+            let sp = call_stack_helper(
+                state,
+                b,
+                fv,
+                helper_sig,
+                sp,
+                HELPER_PRIVATE_SYMBOL,
+                pc + size,
+            );
+            return Step::Continue(sp);
+        }
+        "close_loc" => {
+            let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
+            b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM);
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_CLOSE_LOC, pc + size);
             return Step::Continue(sp);
         }
         _ => {}
@@ -3095,6 +3214,104 @@ mod tests {
             0,
             0,
         ));
+
+        // Class / object-literal / private-field machinery (S3 2.4.3). Each
+        // entry pushes as many operands as the opcode pops, applies the opcode,
+        // then drops whatever it left (so a `pops`/`pushes` mismatch fails to
+        // even verify).
+        let class_cases: Vec<(&str, Vec<u8>, usize, usize)> = vec![
+            ("check_ctor", seq(&[&[op::OP_check_ctor]]), 0, 0),
+            ("init_ctor", seq(&[&[op::OP_init_ctor]]), 0, 1),
+            (
+                "private_symbol",
+                seq(&[&[op::OP_private_symbol], &u32b(0)]),
+                0,
+                1,
+            ),
+            ("get_super", seq(&[&[op::OP_get_super]]), 1, 1),
+            ("private_in", seq(&[&[op::OP_private_in]]), 2, 1),
+            ("check_brand", seq(&[&[op::OP_check_brand]]), 2, 2),
+            ("add_brand", seq(&[&[op::OP_add_brand]]), 2, 0),
+            (
+                "get_private_field",
+                seq(&[&[op::OP_get_private_field]]),
+                2,
+                1,
+            ),
+            (
+                "define_field",
+                seq(&[&[op::OP_define_field], &u32b(0)]),
+                2,
+                1,
+            ),
+            (
+                "set_name_computed",
+                seq(&[&[op::OP_set_name_computed]]),
+                2,
+                2,
+            ),
+            ("set_proto", seq(&[&[op::OP_set_proto]]), 2, 1),
+            ("set_home_object", seq(&[&[op::OP_set_home_object]]), 2, 2),
+            (
+                "define_method",
+                seq(&[&[op::OP_define_method], &u32b(0), &[0]]),
+                2,
+                1,
+            ),
+            (
+                "define_class",
+                seq(&[&[op::OP_define_class], &u32b(0), &[0]]),
+                2,
+                2,
+            ),
+            (
+                "copy_data_properties",
+                seq(&[&[op::OP_copy_data_properties, 0]]),
+                3,
+                3,
+            ),
+            ("define_array_el", seq(&[&[op::OP_define_array_el]]), 3, 2),
+            ("append", seq(&[&[op::OP_append]]), 3, 2),
+            (
+                "put_private_field",
+                seq(&[&[op::OP_put_private_field]]),
+                3,
+                0,
+            ),
+            (
+                "define_private_field",
+                seq(&[&[op::OP_define_private_field]]),
+                3,
+                1,
+            ),
+            (
+                "define_method_computed",
+                seq(&[&[op::OP_define_method_computed, 0]]),
+                3,
+                1,
+            ),
+            (
+                "define_class_computed",
+                seq(&[&[op::OP_define_class_computed], &u32b(0), &[0]]),
+                3,
+                3,
+            ),
+            ("get_super_value", seq(&[&[op::OP_get_super_value]]), 3, 1),
+            ("put_super_value", seq(&[&[op::OP_put_super_value]]), 4, 0),
+            ("close_loc", seq(&[&loc(op::OP_close_loc, 0)]), 0, 0),
+        ];
+        for (name, op_bytes, pops, pushes) in class_cases {
+            let mut bytes = Vec::new();
+            for i in 0..pops {
+                bytes.extend_from_slice(&push_i32(i as i32));
+            }
+            bytes.extend_from_slice(&op_bytes);
+            for _ in 0..pushes {
+                bytes.push(op::OP_drop);
+            }
+            bytes.push(op::OP_return_undef);
+            cases.push((name, bytes, 0, 1));
+        }
 
         // Epic E5: exception regions. `catch` pushes the handler sentinel;
         // `gosub`/`ret` are the `finally` subroutine.
