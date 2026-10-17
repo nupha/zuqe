@@ -13,7 +13,7 @@ use std::collections::HashMap;
 
 use zuqe::jit::{JitPolicy, opcode_names, opcode_policies};
 
-use crate::common::{Case, Mode, run_case, run_case_polled};
+use crate::common::{Case, Mode, run_case_polled};
 
 /// Opcodes no *final* bytecode can contain, so no JS case can ever claim them.
 /// The JIT only ever sees the final stream (`JitPolicy` is indexed by
@@ -281,6 +281,68 @@ const CASES: &[OpCase] = op_cases! {
                   "f([1], 0)",
           "f([5], 0)",
           "'ap:' + f([9], 0)";
+    // ── one order-observable shape per stack shuffle (see the oracle test
+    //    `lvalue_shuffle_semantics_match_the_language`) ──
+    // `nip` drops the operand below the top. It sits on the short-circuit arm
+    // of a logical assignment and keeps the *value* (the lower slot is the
+    // discarded reference object), so the expression form is what makes the
+    // order observable: `o.p ||= v` used as a statement drops it again.
+    logical_assign_nip => [nip]
+        = "var __seed = 0; function f(o, v){ var r = (o.p ||= v); return r * 10 + o.p; }",
+                  "f({p: 0}, 1)",
+          "f({p: 0}, 5)",
+          "'nip:' + f({p: 0}, 7)";
+    // `dup`: the `??` guard keeps the operand for both the test and the result.
+    dup_nullish => [dup]
+        = "var __seed = 0; function f(a, b){ return a ?? b; }",
+                  "f(null, 1)",
+          "f(null, 4)",
+          "'dn:' + f(0, 4) + ',' + f(null, 9)";
+    // `dup1` + `swap2`: a computed-key target that is a *local* (the reference
+    // object for the local is built, then the object/prop pair is rotated).
+    swap2_computed_target => [dup1, swap2]
+        = "var __seed = 0; function f(o, k){ var v = 0; ({ [k]: v } = o); return v; }",
+                  "f({q: 1}, 'q')",
+          "f({q: 7}, 'q')",
+          "'s2:' + f({q: 9}, 'q')";
+    // `insert2`: an assignment expression's value survives above its target.
+    insert2_field_assign_value => [insert2]
+        = "var __seed = 0; function f(o, v){ return (o.p = v) * 2; }",
+                  "f({}, 1)",
+          "f({}, 4)",
+          "'i2:' + f({}, 6)";
+    // `insert3`: the same for an element store.
+    insert3_element_assign_value => [insert3]
+        = "var __seed = 0; function f(a, i, v){ return (a[i] = v) + 1; }",
+                  "f([0], 0, 1)",
+          "f([0], 0, 5)",
+          "'i3:' + f([0], 0, 7)";
+    // `insert4` (+ `swap` from the class machinery): `super.p = v` as an
+    // expression keeps `this` under the value.
+    insert4_super_assign_value => [insert4, swap]
+        = "var __seed = 0; class A { set p(v){ this.q = v; } get p(){ return this.q; } } class B extends A { m(){ return (super.p = 5) + this.q; } } function f(){ return new B().m(); }",
+                  "f()",
+          "f()",
+          "'i4:' + f()";
+    // `swap`: a `for-in` whose target is a property needs the store's
+    // object/value order swapped.
+    swap_for_in_target => [swap]
+        = "var __seed = 0; function f(src, o){ var n = 0; for (o.p in src) { n = n + 1; } return n * 10 + o.p.length; }",
+                  "f({a: 1}, {})",
+          "f({a: 1, b: 2}, {})",
+          "'sw:' + f({a: 1, b: 2, c: 3}, {})";
+    // `rot3l`: an object pattern whose target is a variable.
+    rot3l_object_pattern => [rot3l]
+        = "var __seed = 0; function f(o){ var { a, b } = o; return a * 10 + b; }",
+                  "f({a: 1, b: 2})",
+          "f({a: 3, b: 4})",
+          "'r3l:' + f({a: 5, b: 6})";
+    // `rot3r` (+ `dup1`): a computed-key target that is a *field*.
+    rot3r_computed_field_target => [dup1, rot3r]
+        = "var __seed = 0; function f(o, k, v){ ({ [k]: o.p } = { [k]: v }); return o.p; }",
+                  "f({p: 0}, 'q', 1)",
+          "f({p: 0}, 'q', 5)",
+          "'r3r:' + f({p: 0}, 'q', 7)";
     // `super()` inside an arrow captures the constructor's `this` as a lexical
     // closure variable, whose initialization is `put_var_ref_check_init`.
     captured_this_super_init => [put_var_ref_check_init]
@@ -557,35 +619,116 @@ fn a_script_that_declares_a_function_compiles() {
     assert_eq!(run.main, "int:4", "g(3) == 4");
 }
 
-/// Absolute oracle for the `perm`/`rot` shuffles and the TDZ/closure writes
-/// beside them. The differential suites only compare native against the
-/// interpreter, so two wrong-but-equal implementations would pass; here the
-/// audited `CASES` snippets are executed on the interpreter and checked against
-/// the *language's* answer, hard-coded. This is the check that pins the
-/// interpreter's `PERM3`/`PERM4`/`PERM5` arms (and `ROT4L`/`ROT5L`) —
-/// `perm4`/`perm5` must be `a obj prop b` / `a this obj prop b` as in QuickJS.
+/// One audited `CASES` snippet per stack shuffle, with the *language's* answer
+/// hard-coded. The differential suites only compare native against the
+/// interpreter, so a shuffle whose two slots happen to hold equal values (or
+/// that both engines get wrong the same way) would pass; here every engine —
+/// the interpreter and all three JIT modes — must produce the hand-derived
+/// value, so an engine that reorders the operands wrongly fails.
+///
+/// `perm4`/`perm5` are the reason this exists: their JIT table was
+/// `[1,0,2,3]`/`[1,0,2,3,4]` instead of QuickJS's `[2,0,1,3]`/`[3,0,1,2,4]`,
+/// and no case reached them. `dup2`/`nip1` have no shape (see `UNREACHABLE`).
+const SHUFFLE_ORACLES: &[(&str, &str, &str)] = &[
+    // (shuffle, audited case, expected `main`)
+    ("nip", "logical_assign_nip", "int:55"),
+    ("dup", "dup_nullish", "int:4"),
+    ("dup1", "swap2_computed_target", "int:7"),
+    ("insert2", "insert2_field_assign_value", "int:8"),
+    ("insert3", "insert3_element_assign_value", "int:6"),
+    ("insert4", "insert4_super_assign_value", "int:10"),
+    ("perm3", "spread_call", "int:8"),
+    ("perm4", "array_element_postfix", "int:26"),
+    ("perm5", "super_lvalue_shuffles", "int:6"),
+    ("swap", "swap_for_in_target", "int:21"),
+    ("swap2", "swap2_computed_target", "int:7"),
+    ("rot3l", "rot3l_object_pattern", "int:34"),
+    ("rot3r", "rot3r_computed_field_target", "int:5"),
+    ("rot4l", "super_lvalue_shuffles", "int:6"),
+    ("rot5l", "super_lvalue_shuffles", "int:6"),
+    ("dup3", "super_lvalue_shuffles", "int:6"),
+];
+
+/// The write shapes that came with the GAPS work, under the same absolute
+/// oracle as the shuffles: a `for` update on a TDZ-protected local / on a
+/// closure variable, and `super()` inside an arrow.
 #[test]
-fn lvalue_shuffle_semantics_match_the_language() {
-    let expectations: &[(&str, &str)] = &[
-        // dup3 + perm5: `super.p++` keeps the old value and stores the new one.
-        ("super_lvalue_shuffles", "int:6"),
-        // perm4: `a[i]++` keeps the old element and stores the new one.
-        ("array_element_postfix", "int:26"),
-        // put_loc_check / put_var_ref: a `for` update writes through the TDZ
-        // check / the closure cell.
+fn gap_write_shapes_match_the_language() {
+    for (name, expected) in [
         ("tdz_for_update", "int:4"),
         ("closure_var_for_update", "int:4"),
-        // put_var_ref_check_init: `super(x)` inside the arrow initializes the
-        // captured `this` exactly once.
         ("captured_this_super_init", "int:9"),
-    ];
-    for (name, expected) in expectations {
-        let case = CASES
+    ] {
+        let op_case = CASES
             .iter()
-            .find(|case| case.name == *name)
+            .find(|case| case.name == name)
             .unwrap_or_else(|| panic!("{name} is not in CASES"));
-        let (main, _, _) = run_case(Mode::Interpreter, &case.case);
-        assert_eq!(main, *expected, "{name}: the interpreter disagrees with JS");
+        for mode in [Mode::Interpreter, Mode::Tier1, Mode::Tier2, Mode::Automatic] {
+            let run = run_case_polled(mode, &op_case.case);
+            assert_eq!(
+                run.main,
+                expected,
+                "{name} under {}: wrong result",
+                mode.label()
+            );
+            if mode != Mode::Interpreter {
+                assert!(
+                    run.after_main.native_entries > 0,
+                    "{name} under {}: never ran native",
+                    mode.label()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn every_shuffle_has_an_order_observable_working_case() {
+    // `jit::shuffle_opcodes` is the real table; the oracle set plus the
+    // (shape-less) `UNREACHABLE` entries must account for all of it, so adding
+    // a shuffle without a case fails here.
+    const SHAPE_LESS: &[&str] = &["dup2", "nip1"];
+    let mut covered: Vec<&str> = SHUFFLE_ORACLES.iter().map(|(name, ..)| *name).collect();
+    covered.extend_from_slice(SHAPE_LESS);
+    for shuffle in zuqe::jit::shuffle_opcodes() {
+        assert!(
+            covered.contains(shuffle),
+            "{shuffle} has no order-observable case (add one to SHUFFLE_ORACLES)"
+        );
+    }
+    // Every oracle must name an audited case, and that case must actually
+    // compile (so the shuffle's lowering runs natively, not just the opcode
+    // being present in a rejected function's bytecode).
+    let policies = policy_by_name();
+    for (shuffle, case_name, expected) in SHUFFLE_ORACLES {
+        let op_case = CASES
+            .iter()
+            .find(|case| case.name == *case_name)
+            .unwrap_or_else(|| panic!("{shuffle} points at the unknown case {case_name}"));
+        assert!(
+            op_case.opcodes.contains(shuffle),
+            "{case_name} does not claim {shuffle}"
+        );
+        assert!(
+            !must_claim_reject(op_case, &policies),
+            "{case_name} claims a Reject opcode, so {shuffle} never runs natively"
+        );
+        for mode in [Mode::Interpreter, Mode::Tier1, Mode::Tier2, Mode::Automatic] {
+            let run = run_case_polled(mode, &op_case.case);
+            assert_eq!(
+                run.main,
+                *expected,
+                "{shuffle} ({case_name}) under {}: wrong result, the operands are reordered",
+                mode.label()
+            );
+            if mode != Mode::Interpreter {
+                assert!(
+                    run.after_main.native_entries > 0,
+                    "{shuffle} ({case_name}) under {}: never ran native",
+                    mode.label()
+                );
+            }
+        }
     }
 }
 

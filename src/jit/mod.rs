@@ -34,6 +34,11 @@ pub use {
     policy::{JitPolicy, opcode_names, opcode_policies},
 };
 
+/// Every opcode the baseline lowers as a pure stack shuffle (see
+/// `compiler::shuffle_opcodes`); the opcode gate checks its oracle set against
+/// this.
+pub use compiler::shuffle_opcodes;
+
 pub(crate) use abi::{FunctionSlot, JitExitKind};
 pub(crate) use feedback::FeedbackSlot;
 

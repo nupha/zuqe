@@ -303,6 +303,18 @@ fn fast_op(name: &str) -> Option<(FastOp, usize)> {
 
 /// Output arrangement for the stack shuffles: each output copies the popped
 /// operand at that index. Order matches the interpreter's writes.
+/// Every opcode the baseline lowers as a pure stack shuffle. Exported like
+/// `policy::opcode_names` so the coverage gate in `tests/jit_opcodes.rs` can
+/// check its oracle set against the real table instead of a copied list.
+pub fn shuffle_opcodes() -> &'static [&'static str] {
+    &[
+        "nip", "nip1", "dup", "dup1", "dup2", "dup3", "insert2", "insert3", "insert4", "perm3",
+        "perm4", "perm5", "swap", "swap2", "rot3l", "rot3r", "rot4l", "rot5l",
+    ]
+}
+
+/// Pop count and output source indices for a stack shuffle (see
+/// [`shuffle_opcodes`]).
 fn shuffle_outputs(name: &str) -> Option<(usize, &'static [usize])> {
     Some(match name {
         "nip" => (2, &[1]),
@@ -3462,11 +3474,16 @@ mod tests {
             SlotKind::CatchOffset,
             SlotKind::Uninitialized,
         ];
-        const SHUFFLES: &[&str] = &[
-            "nip", "nip1", "dup", "dup1", "dup2", "dup3", "insert2", "insert3", "insert4", "perm3",
-            "perm4", "perm5", "swap", "swap2", "rot3l", "rot3r", "rot4l", "rot5l",
-        ];
-        for name in SHUFFLES {
+        // `shuffle_opcodes` is the single source of truth: it must name exactly
+        // the opcodes the dispatch below handles, so neither can drift.
+        for name in crate::jit::opcode_names() {
+            assert_eq!(
+                shuffle_opcodes().contains(name),
+                shuffle_outputs(name).is_some(),
+                "{name}: `shuffle_opcodes` and the table disagree"
+            );
+        }
+        for name in shuffle_opcodes() {
             let (pop, outputs) = shuffle_outputs(name).expect("known shuffle");
             let popped = &kinds[..pop];
             let modeled = crate::jit::bytecode::stack::copied_stack_values(name, popped)
