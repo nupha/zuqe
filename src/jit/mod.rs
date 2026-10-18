@@ -191,6 +191,26 @@ impl JitState {
         self.metrics.set(m);
     }
 
+    /// P7 7.2: fold one activation's speculative guard misses into the
+    /// function's record and, once the threshold is crossed, queue the
+    /// non-speculative recompile. A function with installed code never reaches
+    /// `note_enter`, so this (not the interpreter hook) is what triggers
+    /// tier-down.
+    fn note_guard_misses(&self, bc: &Bytecode, misses: u32) {
+        if misses == 0 {
+            return;
+        }
+        let id = function_id(bc);
+        let mut m = self.metrics.get();
+        let mut coordinator = self.coordinator.borrow_mut();
+        coordinator.note_guard_misses(id, misses);
+        if coordinator.needs_tier_down_requeue(id) {
+            coordinator.enqueue(&mut m, id, Some(*bc));
+        }
+        drop(coordinator);
+        self.metrics.set(m);
+    }
+
     fn note_backedge(&self, bc: &Bytecode, pc: usize) {
         let _ = pc; // the pc is only needed once OSR lands (epic E)
         if self.disabled() {
@@ -253,8 +273,11 @@ impl JitState {
             JitTierPolicy::Tier2 => 1,
             _ => self.cfg.specialization_min_samples,
         };
-        let snapshot =
+        let mut snapshot =
             CompileSnapshot::from_bytecode(request.function_id, &request.bytecode, min_samples);
+        // P7 7.2 tier-down: after too many guard misses, recompile without
+        // speculation so the function stops paying the guards.
+        snapshot.speculate = self.coordinator.borrow().speculate(request.function_id);
         let Ok(verified) = verify(snapshot, self.limits) else {
             return CompileOutcome::Rejected;
         };
@@ -477,6 +500,9 @@ pub(crate) fn invoke_native(
             .saturating_add(u64::from(frame.guard_misses)),
         ..m
     });
+    // P7 7.2: feed the same count to the function's record so a function whose
+    // guards miss too often is recompiled without speculation.
+    state.note_guard_misses(bc, frame.guard_misses);
 
     Some((kind, frame))
 }

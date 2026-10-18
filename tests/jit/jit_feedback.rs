@@ -381,6 +381,50 @@ fn guard_misses_are_counted_for_speculative_sites() {
     );
 }
 
+/// P7 7.2 tier-down: a function whose speculative site keeps missing is
+/// recompiled without speculation, after which it stops paying the guards.
+#[test]
+fn a_miss_heavy_site_is_recompiled_without_speculation() {
+    let mut rt = Runtime::create().expect("runtime");
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .expect("context");
+    let jit = Jit::attach_to(&rt, config(JitTierPolicy::Tier2).build()).expect("attach");
+    let name = EvalName::Name("jit-tierdown.js".into());
+
+    eval(
+        &mut ctx,
+        &name,
+        "function f(n, x){ var i = x; for (var k = 0; k < n; k++){ i++; } return i; } f(3, 1);",
+    )
+    .expect("setup");
+    jit.poll();
+    let m0 = jit.metrics();
+    assert!(
+        m0.specialized_ops > 0,
+        "the inc_loc site was not specialized"
+    );
+
+    // Enough float calls to miss past the tier-down threshold; the crossing
+    // activation queues the non-speculative recompile itself.
+    eval(&mut ctx, &name, "f(200, 1.5)").expect("miss run");
+    let after = jit.metrics();
+    assert!(
+        after.specialized_guard_misses > 0,
+        "no guard miss was counted"
+    );
+    assert!(after.functions_queued > m0.functions_queued, "no requeue");
+
+    jit.poll();
+    let before = jit.metrics().specialized_guard_misses;
+    eval(&mut ctx, &name, "f(200, 1.5)").expect("post-tier-down run");
+    assert_eq!(
+        jit.metrics().specialized_guard_misses,
+        before,
+        "the tier-down code still speculated"
+    );
+}
+
 // ── Epic F5: profitability gate and tier selection ──
 
 /// One `f(3)` warm-up: every local-update site holds three samples when the

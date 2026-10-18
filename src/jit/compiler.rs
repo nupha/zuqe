@@ -409,6 +409,10 @@ struct State<'a> {
     pending: Vec<u32>,
     feedback: &'a [(u32, SiteFeedback)],
     specialized: &'a Cell<u64>,
+    /// Whether tier-2 specialization is allowed (epic 7.2 tier-down). False
+    /// after a function's speculative sites missed too often: the recompile
+    /// keeps the int fast paths but drops the speculation.
+    speculate: bool,
     /// Block-local write-back cache for operand-stack slots (epic F4).
     stack: StackCache,
     /// Epic F4 step 2: per block start pc, the slots its code reads in
@@ -885,8 +889,9 @@ impl<'a> State<'a> {
     /// Epic F2: did F1 feedback observe *only* `Int` at this site? Feedback is
     /// sorted by pc, so a binary search answers it. `both` is false for
     /// single-value sites (`inc_loc`/`dec_loc`), whose `rhs` slot stays 0.
+    /// Always false once tier-down disabled specialization for this function.
     fn int_only(&self, pc: u32, both: bool) -> bool {
-        int_only(self.feedback, pc, both)
+        self.speculate && int_only(self.feedback, pc, both)
     }
 
     fn note_specialized(&self) {
@@ -1461,6 +1466,7 @@ fn lower(
         pending: Vec::new(),
         feedback: &verified.snapshot().feedback,
         specialized: specialized_ops,
+        speculate: verified.snapshot().speculate,
         stack: StackCache::default(),
         carried,
         carried_locals,

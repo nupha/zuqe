@@ -68,7 +68,22 @@ struct FunctionRecord {
     verify_counted: bool,
     /// Held while `Queued`/`Compiling` so the GC cannot free the function.
     pinned: Option<Bytecode>,
+    /// Speculative guard misses observed in this function's native code (P7
+    /// 7.2). Past [`TIER_DOWN_MISSES`] the function is recompiled without
+    /// speculation.
+    guard_misses: u64,
+    /// Tier-down requested: the next compile must not speculate.
+    tier_down: bool,
+    /// Whether the *currently installed* code may speculate. Cleared once a
+    /// tier-down recompile installs, so the function is not re-queued forever.
+    speculate: bool,
 }
+
+/// P7 7.2: how many speculative guard misses one function may take before it is
+/// recompiled without speculation. Shortcut: a fixed threshold instead of a
+/// per-site profitability model; raise/lower it if the guard-miss metric shows
+/// the wrong trade-off.
+pub(crate) const TIER_DOWN_MISSES: u64 = 64;
 
 /// The request queue plus the lifecycle of every function the JIT has seen.
 pub(crate) struct Coordinator {
@@ -146,6 +161,9 @@ impl Coordinator {
                 attempts: 0,
                 verify_counted: false,
                 pinned: None,
+                guard_misses: 0,
+                tier_down: false,
+                speculate: true,
             }
         })
     }
@@ -201,6 +219,11 @@ impl Coordinator {
                     count_verified(m, record);
                     record.lifecycle = Lifecycle::Installed;
                     record.pinned = None;
+                    // A tier-down recompile has landed: the installed code no
+                    // longer speculates, so stop re-queueing it.
+                    if record.tier_down {
+                        record.speculate = false;
+                    }
                     m.functions_compiled = m.functions_compiled.saturating_add(1);
                 }
                 CompileOutcome::Rejected => {
@@ -247,6 +270,37 @@ impl Coordinator {
             record.verify_counted = false;
             record.hotness.clear_queued();
         }
+    }
+
+    /// P7 7.2: count this activation's speculative guard misses. Once the total
+    /// crosses [`TIER_DOWN_MISSES`], ask for a non-speculative recompile.
+    pub(crate) fn note_guard_misses(&mut self, id: u64, misses: u32) {
+        if misses == 0 {
+            return;
+        }
+        let Some(record) = self.records.get_mut(&id) else {
+            return;
+        };
+        record.guard_misses = record.guard_misses.saturating_add(u64::from(misses));
+        if record.guard_misses >= TIER_DOWN_MISSES {
+            record.tier_down = true;
+        }
+    }
+
+    /// Whether the compiler may specialize this function (P7 7.2: false once
+    /// tier-down asked for a non-speculative compile).
+    pub(crate) fn speculate(&self, id: u64) -> bool {
+        self.records
+            .get(&id)
+            .is_none_or(|record| record.speculate && !record.tier_down)
+    }
+
+    /// Whether an installed function should be re-queued for a non-speculative
+    /// recompile (P7 7.2).
+    pub(crate) fn needs_tier_down_requeue(&self, id: u64) -> bool {
+        self.records.get(&id).is_some_and(|record| {
+            record.tier_down && record.speculate && matches!(record.lifecycle, Lifecycle::Installed)
+        })
     }
 
     pub(crate) fn queue_len(&self) -> usize {

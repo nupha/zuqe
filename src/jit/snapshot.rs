@@ -51,6 +51,11 @@ pub(crate) struct CompileSnapshot {
     /// filtered by the epic F5 profitability gate. Empty under
     /// `Interpreter`/`Tier1` policies, which never record.
     pub(crate) feedback: Box<[(u32, SiteFeedback)]>,
+    /// Whether the compiler may speculatively specialize this function (epic
+    /// F2). Cleared after tier-down (P7 7.2) observed too many guard misses at
+    /// its sites: the recompile keeps the int fast paths but not the
+    /// speculation, so the guards stop being paid.
+    pub(crate) speculate: bool,
 }
 
 impl CompileSnapshot {
@@ -88,6 +93,7 @@ impl CompileSnapshot {
                 .collect(),
             ic_count,
             feedback: bc.feedback.snapshot(min_samples).into_boxed_slice(),
+            speculate: true,
         }
     }
 }
@@ -123,6 +129,7 @@ impl CompileSnapshot {
             const_meta: Box::new([]),
             ic_count: 0,
             feedback: Box::new([]),
+            speculate: true,
         }
     }
 }
