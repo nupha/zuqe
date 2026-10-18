@@ -376,6 +376,27 @@ impl Bytecode {
 
         save_sp!(sp_offset as i32);
 
+        // Epic N3: a taken loop back edge asks the JIT whether this frame can
+        // switch to its native entry at the loop header. If so, the dispatch
+        // loop's native-retry path (1.7) enters it. `cur_sp_offset` is synced
+        // first because the OSR prologue takes the resume stack pointer from it
+        // and a few opcodes (the bitwise family) leave it one slot above `sp` —
+        // harmless to the interpreter (it only scans one more slot), exact for
+        // the resume.
+        #[cfg(feature = "jit")]
+        macro_rules! jit_note_backedge {
+            ($target:expr) => {
+                if crate::jit::note_backedge(&rt, self, $target) {
+                    save_sp!(unsafe { sp.offset_from(sp_base) } as i32);
+                    jit_retry_native = true;
+                }
+            };
+        }
+        #[cfg(not(feature = "jit"))]
+        macro_rules! jit_note_backedge {
+            ($target:expr) => {};
+        }
+
         // Resolve captured_vars from the current frame's function object
         // (func_obj already extracted from the preamble frame lookup above).
         // Each function in the call chain has its own closure_var_refs.
@@ -2315,9 +2336,7 @@ impl Bytecode {
                         // Negative offset = loop back edge.
                         #[cfg(feature = "jit")]
                         if n < 0 {
-                            crate::jit::note_backedge(&rt, self, unsafe {
-                                pc.offset_from(pc_base) as usize
-                            });
+                            jit_note_backedge!(unsafe { pc.offset_from(pc_base) as usize });
                         }
 
                         if unlikely(realm_scope.poll_interrupts()) {
@@ -2355,16 +2374,16 @@ impl Bytecode {
                         if b == test {
                             let off = unsafe { read_from_ptr::<i32>(pc.offset(-4)) };
 
-                            // Taken backward branch = loop back edge.
-                            #[cfg(feature = "jit")]
-                            if off < 0 {
-                                crate::jit::note_backedge(&rt, self, unsafe {
-                                    pc.offset_from(pc_base) as usize
-                                });
-                            }
-
                             // jump pc
                             pc = unsafe { pc.offset((off - 4) as isize) };
+
+                            // Taken backward branch = loop back edge. The pc is
+                            // the branch *target* (the loop header), not the
+                            // fall-through.
+                            #[cfg(feature = "jit")]
+                            if off < 0 {
+                                jit_note_backedge!(unsafe { pc.offset_from(pc_base) as usize });
+                            }
                         }
 
                         if unlikely(realm_scope.poll_interrupts()) {

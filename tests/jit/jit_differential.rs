@@ -118,6 +118,14 @@ const NORMAL: &[Case] = dim_cases!("Normal", [
         "function w(n){ var t = 0, i = 0; while (i < n) { var j = 0; while (j < 3) { t += i ^ j; j++; } i++; } return t; } w(1);",
         "w(400)",
         "'w:' + w(2)";
+    // Epic N3: the loop *is* the eval. Nothing is warmed and the frame is never
+    // re-entered, so the only way to native code is the back edge handing the
+    // frame to the compiled loop header (inline OSR) — including the repeated
+    // exit/re-entry a throw inside the loop forces.
+    toplevel_loop_osr:
+        "var osrSeed = 1;",
+        "var s = osrSeed; for (var i = osrSeed; i < 100000; i++) { try { if (i % 5 === 0) throw i; s = (s + i * 1.5) | 0; } catch (e) { s = (s + 1) | 0; } } s;",
+        "'osr:' + (s | 0) + ':' + osrSeed";
     string_build:
         "function cat(n){ var s = ''; for (var i = 0; i < n; i++) s = s + 'ab'; return s.length; } cat(1);",
         "cat(300)",

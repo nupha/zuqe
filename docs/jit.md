@@ -53,16 +53,22 @@ ctx.eval("for (var i = 0, s = 0; i < 1e6; i++) s += i;".as_bytes(),
          zuqe::EvalType::Global, zuqe::EvalFlags::empty())?;
 
 // No poll call: the engine compiles queued functions automatically at
-// trampoline frame boundaries and on every event-loop tick.
+// trampoline frame boundaries, on every event-loop tick, and at a hot loop's
+// back edge (this snippet is a single top-level loop, so it is the back edge
+// that hands the frame to native code — inline OSR).
 println!("{:?}", jit.metrics());
 ```
 
 - `Jit::attach_to(&runtime, config)` — one JIT per `Runtime`; fails if the host
   has no Cranelift backend.
-- **Compilation is automatic.** The runtime polls at two engine safe points: the
-  interpreter's trampoline (frame boundaries) and the event-loop tick. No host
-  call is needed. The poll is a no-op unless work is queued and no native frame
-  is in flight.
+- **Compilation is automatic.** The runtime polls at three engine safe points:
+  the interpreter's trampoline (frame boundaries), the event-loop tick, and a
+  taken loop back edge. No host call is needed. The poll is a no-op unless work
+  is queued and no native frame is in flight.
+  The back-edge point is also where a *running* frame switches to native code:
+  a top-level loop that never calls anything (so it never crosses a frame
+  boundary) compiles itself at its own back edge and continues natively inside
+  the same `eval` — inline OSR into the compiled loop header.
 - `Jit::poll()` — optional explicit poll for hosts/tests that want to compile at
   an exact moment; pair it with `JitConfig::auto_poll(false)` when the timing
   must be fully manual.
@@ -81,8 +87,8 @@ println!("{:?}", jit.metrics());
 Bytecode (unchanged parser output)
    │  interpreter: note_enter / note_backedge  →  hotness counter
    │  interpreter: note_binary / note_value / note_local_update → Type feedback (Tier2)
-   ▼  engine safe point (trampoline frame boundary / event-loop tick;
-      explicit Jit::poll optional)
+   ▼  engine safe point (trampoline frame boundary / event-loop tick /
+      loop back edge; explicit Jit::poll optional)
 1. CompileSnapshot        pointer-free copy of the function (Send, no GC refs)
 2. verify                 decode → opcode policy → index bounds → CFG → abstract stack
                           (fail-closed: any failure means "never compile")
@@ -92,6 +98,9 @@ Bytecode (unchanged parser output)
 5. install                NativeEntry stored in the function's `jit` slot
    ▼
 next call → native entry runs; on exit the interpreter continues
+   (a running frame can also enter native mid-flight: the conveyed `pc` may be
+    an OSR resume point — a loop header reported by a back edge, or the pc after
+    a call the trampoline performed)
 ```
 
 ### Design principles
@@ -199,7 +208,7 @@ is not a preemptive deadline (compilation is inline).
 | Semantic stress | `tests/jit/jit_semantics.rs` | `cargo test --features jit --test jit jit_semantics` |
 | Native vs interpreter, exceptions, interrupts | `tests/jit/jit_verify.rs`, `jit_interrupt.rs` | `cargo test --features jit --test jit` |
 | Tier feedback / speculation | `tests/jit/jit_feedback.rs` | `cargo test --features jit --test jit jit_feedback` |
-| Bench matrix (34 kernels × 4 modes) | `examples/jit-bench.rs`, `tests/jit/jit-bench-matrix.sh` | `./tests/jit/jit-bench-matrix.sh --protocol process` |
+| Bench matrix (35 kernels × 4 modes) | `examples/jit-bench.rs`, `tests/jit/jit-bench-matrix.sh` | `./tests/jit/jit-bench-matrix.sh --protocol process` |
 | Feature-gating / hardening gates | `tests/jit/ci-gate.sh`, `tests/jit/ci-sanitize.sh`, `.github/workflows/ci.yml` | `./tests/jit/ci-gate.sh` |
 
 ## Current status

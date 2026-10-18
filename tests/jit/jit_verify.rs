@@ -9,7 +9,8 @@
 #![cfg(feature = "jit")]
 
 use zuqe::{
-    EvalFlags, EvalName, EvalType, JSValue, Jit, JitConfig, JitMetrics, Runtime, ScopedContext,
+    EvalFlags, EvalName, EvalType, JSValue, Jit, JitConfig, JitMetrics, JitTierPolicy, Runtime,
+    ScopedContext,
 };
 
 /// Files that benchmark or run indefinitely, or need a harness this test does
@@ -812,6 +813,125 @@ fn regexp_and_bigint_literals_run_in_native_code() {
             after.backedges - before.backedges,
             0,
             "{call}: the loop ran in the interpreter"
+        );
+    }
+}
+
+/// Epic N3: inline back-edge OSR. A top-level loop is a frame that never
+/// crosses a frame boundary and is never re-entered, so nothing is compiled
+/// when the script starts (the trampoline only polls between frames). Any native
+/// entry during that single `eval` can therefore only be the back edge handing
+/// the frame to the compiled loop header — and the back-edge count must stay
+/// near the threshold instead of growing with the trip count.
+#[test]
+fn a_top_level_loop_switches_to_native_mid_run() {
+    const SRC: &[u8] = b"var s = 1; for (var i = 1; i < 100000; i++) s = (s + i) | 0; s;";
+
+    let run = |label: &str, cfg: JitConfig| -> (String, JitMetrics) {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let jit = Jit::attach_to(&rt, cfg).unwrap();
+        let name = EvalName::Name(format!("jit-osr-{label}.js"));
+        let value = observe(ctx.eval(SRC, &name, EvalType::Global, EvalFlags::empty()));
+        // No host `poll()`: the eval is the whole measurement.
+        (value, jit.metrics())
+    };
+
+    // Baseline: the same source, interpreted only.
+    let (expected, _) = run(
+        "base",
+        JitConfig::builder()
+            .tier_policy(JitTierPolicy::Interpreter)
+            .build(),
+    );
+
+    // No call anywhere, so the script cannot be compiled at a frame boundary:
+    // the only compile trigger is the loop back edge.
+    let (got, m) = run("osr", eager_config());
+    assert_eq!(got, expected, "OSR changed the result");
+    assert!(
+        m.functions_compiled > 0,
+        "the script was never compiled ({m:?})"
+    );
+    assert!(
+        m.native_entries > 0,
+        "the loop never ran native inside the eval ({m:?})"
+    );
+    assert!(
+        m.backedges < 100,
+        "the loop stayed interpreted (backedges={})",
+        m.backedges
+    );
+
+    // `auto_poll(false)` keeps the host in control: nothing compiles and the
+    // result is still the interpreter's.
+    let (got, m) = run(
+        "manual",
+        JitConfig::builder()
+            .call_threshold(1)
+            .loop_threshold(1)
+            .auto_poll(false)
+            .build(),
+    );
+    assert_eq!(got, expected);
+    assert_eq!(m.functions_compiled, 0, "auto_poll=false still compiled");
+    assert_eq!(m.native_entries, 0, "auto_poll=false still entered native");
+}
+
+/// Epic N3: the loop shapes a back-edge OSR has to resume. Each script is a
+/// single `eval` with the loop at the top level, run once with the JIT (the
+/// frame switches to native at the loop header through `cur_sp_offset`) and once
+/// interpreted; both must agree exactly.
+#[test]
+fn top_level_loop_shapes_match_the_interpreter() {
+    // `for`/`while`/`do-while` cover the `goto` and `if_*` back edges. The first
+    // body ends in a bitwise op, one of the opcodes that leave the frame's
+    // `cur_sp_offset` one slot above `sp`; the back edge syncs it before the
+    // resume, and the result must still be the interpreter's.
+    let scripts: &[&str] = &[
+        "var s = 1; for (var i = 1; i < 30000; i++) s = (s ^ (i & 7)) | 0; s;",
+        "var i = 0, s = 0; while (i < 30000) { s = (s + i) | 0; i++; } s;",
+        "var i = 0, s = 0; do { s = (s + i) | 0; i++; } while (i < 30000); s;",
+        // Nested: the inner header is the first OSR point reached.
+        "var s = 0; for (var i = 0; i < 200; i++) { for (var j = 0; j < 200; j++) s = (s + (i ^ j)) | 0; } s;",
+        // A computed condition and a ternary join in the body: the values the
+        // native loop keeps across its own blocks must match the interpreter.
+        "var s = 0; for (var i = 0; i < 30000; i++) s = (s + ((i > 3) ? 1 : (i ? 2 : 3))) | 0; s;",
+        "var s = 0; for (var i = 0; i < 30000; i++) { if (i % 7 === 0) continue; if (i > 25000) break; s = (s + i) | 0; } s;",
+        // A callee in the loop body: the loop frame must stay native across the
+        // call (D-6's call helper) for the back-edge count to stay low.
+        "function inc(x){ return (x + 1) | 0; } var s = 0; for (var i = 0; i < 20000; i++) s = inc(s) | 0; s;",
+    ];
+
+    let run = |src: &[u8], cfg: JitConfig| -> (String, JitMetrics) {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let jit = Jit::attach_to(&rt, cfg).unwrap();
+        let name = EvalName::Name("jit-osr-shapes.js".into());
+        let value = observe(ctx.eval(src, &name, EvalType::Global, EvalFlags::empty()));
+        (value, jit.metrics())
+    };
+    for src in scripts {
+        let (expected, _) = run(
+            src.as_bytes(),
+            JitConfig::builder()
+                .tier_policy(JitTierPolicy::Interpreter)
+                .build(),
+        );
+        let (got, m) = run(src.as_bytes(), eager_config());
+        assert_eq!(got, expected, "OSR changed the result of `{src}`");
+        assert!(
+            m.native_entries > 0,
+            "`{src}` never entered native code ({m:?})"
+        );
+        assert!(
+            m.backedges < 100,
+            "`{src}` stayed interpreted (backedges={})",
+            m.backedges
         );
     }
 }

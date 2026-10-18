@@ -229,10 +229,25 @@ impl JitState {
         self.metrics.set(m);
     }
 
-    fn note_backedge(&self, bc: &Bytecode, pc: usize) {
-        let _ = pc; // the pc is only needed once OSR lands (epic E)
+    /// Record a taken loop back edge and report whether the frame should
+    /// re-enter its native code at that loop header (epic N3, inline back-edge
+    /// OSR).
+    ///
+    /// A top-level hot loop never crosses a frame boundary, so the trampoline
+    /// never polls inside the `eval` and the frame would stay interpreted to the
+    /// end. The back edge is itself a safe point (no native activation is in
+    /// flight), so this hook polls there too; once an entry is installed, the
+    /// interpreter re-enters it at the loop header.
+    ///
+    /// No pc-to-entry cache is needed: a *taken* back edge always jumps to a
+    /// loop header, and every reachable loop header is an OSR entry point of the
+    /// compiled dispatch (`collect_osr_pcs`), so "an entry is installed" is
+    /// exactly the condition. `pc` stays in the signature for the background
+    /// compiler (§12.9), which needs to know the point before an entry exists.
+    fn note_backedge(&self, bc: &Bytecode, pc: usize) -> bool {
+        let _ = pc;
         if self.disabled() {
-            return;
+            return false;
         }
         let id = function_id(bc);
         let mut m = self.metrics.get();
@@ -249,6 +264,10 @@ impl JitState {
         }
         drop(coordinator);
         self.metrics.set(m);
+        // N3: compile here, not at the next frame boundary, or the rest of this
+        // loop stays interpreted. Gated like the other automatic polls.
+        self.poll_deferred();
+        bc.jit_slot().entry().is_some()
     }
 
     /// The in-eval half of the automatic poll: the interpreter's trampoline runs
@@ -442,11 +461,13 @@ pub(crate) fn note_enter(rt: &RuntimeImpl, bc: &Bytecode) {
     }
 }
 
-/// Called when a backward branch is taken (loop back edge).
+/// Called when a backward branch is taken (loop back edge). Returns whether the
+/// interpreter should try the frame's native code at that loop header (N3).
 #[inline]
-pub(crate) fn note_backedge(rt: &RuntimeImpl, bc: &Bytecode, pc: usize) {
-    if let Some(state) = rt.jit.as_deref() {
-        state.note_backedge(bc, pc);
+pub(crate) fn note_backedge(rt: &RuntimeImpl, bc: &Bytecode, pc: usize) -> bool {
+    match rt.jit.as_deref() {
+        Some(state) => state.note_backedge(bc, pc),
+        None => false,
     }
 }
 
@@ -516,10 +537,16 @@ pub(crate) fn note_local_update(
 /// and the frame the code wrote its results into; `None` means "no native code,
 /// interpret as usual".
 ///
+/// `pc` is 0 at the function entry, or the OSR resume point otherwise: the pc
+/// after a call the trampoline performed for us, or a loop header the
+/// interpreter's back edge reported (N3, inline OSR). The compiled dispatch
+/// selects the block for it and exits `Retry` for a pc it has no entry for.
+///
 /// # Safety
-/// The caller (the interpreter) must be at the function entry (`pc == 0`), with
-/// no pending exception, and the frame pointers must belong to `bc`'s current
-/// activation.
+/// The caller (the interpreter) must be at `pc`, with no pending exception, the
+/// frame's `cur_sp_offset` holding the operand-stack height that `pc` expects
+/// (the OSR prologue reads it), and the frame pointers must belong to `bc`'s
+/// current activation.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn invoke_native(
     rt: &RuntimeImpl,
@@ -935,6 +962,59 @@ mod tests {
         assert_eq!(
             m.functions_compiled, 0,
             "auto_poll=false must leave everything to the host poll"
+        );
+    }
+
+    /// N3 inline back-edge OSR: a top-level loop is never re-entered and never
+    /// crosses a frame boundary, so the trampoline cannot poll inside the
+    /// `eval`; the back edge is what compiles the frame and hands it to its
+    /// native loop header. The signal is the same as the other native tests —
+    /// interpreter back edges — plus the first native entry. `auto_poll(false)`
+    /// must leave the whole thing interpreted.
+    #[test]
+    fn a_top_level_loop_runs_native_inside_one_eval() {
+        use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
+
+        const SRC: &[u8] = b"var s = 1; for (var i = 1; i < 50000; i++) s = (s + i) | 0; s;";
+
+        let run = |auto_poll: bool| -> JitMetrics {
+            let mut rt = crate::Runtime::create().unwrap();
+            let mut ctx = rt
+                .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+                .unwrap();
+            let jit = Jit::attach_to(
+                &rt,
+                JitConfig::builder()
+                    .call_threshold(1)
+                    .loop_threshold(1)
+                    .auto_poll(auto_poll)
+                    .build(),
+            )
+            .unwrap();
+            ctx.eval(
+                SRC,
+                &EvalName::Name("jit-osr-lib.js".into()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .unwrap();
+            // No host poll: the eval is the whole measurement.
+            jit.metrics()
+        };
+
+        let m = run(true);
+        assert!(m.functions_compiled > 0, "nothing compiled ({m:?})");
+        assert!(
+            m.native_entries > 0,
+            "the loop never entered native code ({m:?})"
+        );
+        assert!(m.backedges < 100, "the loop stayed interpreted ({m:?})");
+
+        let m = run(false);
+        assert_eq!(
+            (m.functions_compiled, m.native_entries),
+            (0, 0),
+            "auto_poll=false compiled or entered native anyway ({m:?})"
         );
     }
 

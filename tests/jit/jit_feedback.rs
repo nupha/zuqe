@@ -74,10 +74,17 @@ fn describe(ctx: &mut Context, res: JSResult) -> String {
 /// Eager thresholds so a single warm-up call queues the function and `poll`
 /// installs it before the observed run. F5 tests tweak the returned builder
 /// (e.g. `specialization_min_samples`) before `build()`.
+///
+/// `auto_poll(false)` is required by every test here: they measure what the
+/// compiler did with the feedback the *warm-up* recorded, so compilation must
+/// happen at the explicit `poll` after it. With the automatic poll on, a hot
+/// loop would compile at its first back edge (N3, inline OSR) with only the
+/// observations made so far — far below the gate these tests exercise.
 fn config(policy: JitTierPolicy) -> JitConfigBuilder {
     JitConfig::builder()
         .call_threshold(1)
         .loop_threshold(1)
+        .auto_poll(false)
         .tier_policy(policy)
 }
 

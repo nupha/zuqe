@@ -106,6 +106,18 @@ const KERNELS: &[Kernel] = &[
         define: "function workload(n, seed){ var sum = seed; for (var i = seed; i < n; i++) sum = sum + i; return sum; } workload(10, 1);",
         work: "workload(2000000, 1);",
     },
+    // The same loop as the whole *eval*, the shape N3 (inline back-edge OSR)
+    // exists for: no function entry is ever reached again, so the frame can only
+    // reach native code by handing itself to the compiled loop header at a back
+    // edge. `work` re-evaluates the script every round (each eval is a fresh
+    // function object), so the compile is part of the measured round; the loop
+    // count keeps it in the noise. `define` only exists because the harness
+    // asserts a compile happened before timing.
+    Kernel {
+        name: "toplevel-loop-osr",
+        define: "function osrWarm(n){ var s = 0; for (var i = 0; i < n; i++) s = (s + i) | 0; return s; } osrWarm(10);",
+        work: "var s = 1; for (var i = 1; i < 2000000; i++) s = (s + i) | 0; s;",
+    },
     // quickjs-bitops.js: shifts, xor, int32 wrap.
     Kernel {
         name: "bitops",
