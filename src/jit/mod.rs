@@ -443,6 +443,7 @@ pub(crate) fn invoke_native(
         cur_frame_idx,
         new_target,
         home_obj,
+        guard_misses: 0,
     };
     // SAFETY: `entry` was produced by `compile` for this exact bytecode layout
     // and ABI, and the slot is only populated while the code cache keeps the
@@ -455,6 +456,10 @@ pub(crate) fn invoke_native(
         native_interrupts: m
             .native_interrupts
             .saturating_add(u64::from(kind == JitExitKind::Interrupt)),
+        // P7 7.2: this activation's speculative guard misses.
+        specialized_guard_misses: m
+            .specialized_guard_misses
+            .saturating_add(u64::from(frame.guard_misses)),
         ..m
     });
 

@@ -57,4 +57,10 @@ pub struct JitMetrics {
     /// site clears the profitability gate (epic F5,
     /// `JitConfig::specialization_min_samples`).
     pub specialized_ops: u64,
+    /// Times an installed speculative int fast path (epic F2) bailed to its
+    /// helper because the runtime value was not the assumed `Int` (P7 7.2
+    /// instrumentation). Read together with `specialized_ops`: a high ratio
+    /// means the tier-2 specialization is paying more guards than it saves,
+    /// which is the evidence `tier-down` would need.
+    pub specialized_guard_misses: u64,
 }

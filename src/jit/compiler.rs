@@ -66,7 +66,7 @@ use super::{
         HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_THROW,
         HELPER_THROW_ERROR, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY, HELPER_TYPEOF,
         HELPER_WITH_DELETE_VAR, HELPER_WITH_GET_REF, HELPER_WITH_GET_VAR, HELPER_WITH_MAKE_REF,
-        HELPER_WITH_MISS, HELPER_WITH_PUT_VAR, HELPER_XOR, JitExecFrame,
+        HELPER_WITH_MISS, HELPER_WITH_PUT_VAR, HELPER_XOR, JitExecFrame, SPEC_MISS_IMM2,
     },
     bytecode::{
         cfg::ControlFlowGraph, decode::Instruction, stack::SlotKind, verify::VerifiedFunction,
@@ -2900,6 +2900,10 @@ fn lower_add_loc_int(
     // re-derives the full `arith_add` semantics (string concat, ToPrimitive, …).
     let imm = b.ins().iconst(types::I32, i64::from(idx));
     b.ins().store(MemFlags::new(), imm, fv.frame, O_IMM);
+    // P7 7.2 instrumentation: mark this helper call as the bail of the int fast
+    // path, so the helper tallies it as a guard miss.
+    let miss = b.ins().iconst(types::I32, i64::from(SPEC_MISS_IMM2 as i32));
+    b.ins().store(MemFlags::new(), miss, fv.frame, O_IMM2);
     let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_ADD_LOC, pc_after);
     b.def_var(sp_var, sp_slow);
     let slow_local = b
@@ -2975,6 +2979,10 @@ fn lower_incdec_loc_int(
     b.switch_to_block(slow);
     let imm = b.ins().iconst(types::I32, i64::from(idx));
     b.ins().store(MemFlags::new(), imm, fv.frame, O_IMM);
+    // P7 7.2 instrumentation: mark this helper call as the bail of the int fast
+    // path, so the helper tallies it as a guard miss.
+    let miss = b.ins().iconst(types::I32, i64::from(SPEC_MISS_IMM2 as i32));
+    b.ins().store(MemFlags::new(), miss, fv.frame, O_IMM2);
     let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, helper_id, pc_after);
     b.def_var(sp_var, sp_slow);
     let slow_local = b

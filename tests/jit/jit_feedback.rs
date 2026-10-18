@@ -354,6 +354,33 @@ fn f2_guard_miss_and_overflow_stay_correct() {
     );
 }
 
+/// P7 7.2 instrumentation: a specialized `inc_loc` that meets a non-`int` local
+/// must be counted as a guard miss, so the host can read how much a speculation
+/// costs. A baseline tier never specializes and must count nothing.
+#[test]
+fn guard_misses_are_counted_for_speculative_sites() {
+    // Warm `i++` with an int so F2 specializes it, then call with a float.
+    const DEFINE: &str =
+        "function f(n, x){ var i = x; for (var k = 0; k < n; k++){ i++; } return i; } f(3, 1);";
+    let r = "f(3, 1.5)";
+    let reference = run_script(JitTierPolicy::Interpreter, DEFINE, r).0;
+    let (out, m) = run_script(JitTierPolicy::Tier2, DEFINE, r);
+    assert_eq!(out, reference, "the bail changed the result");
+    assert!(
+        m.specialized_ops > 0,
+        "the inc_loc site was not specialized"
+    );
+    assert!(
+        m.specialized_guard_misses > 0,
+        "a specialized site that bailed was not counted as a guard miss"
+    );
+    let (_, base) = run_script(JitTierPolicy::Tier1, DEFINE, r);
+    assert_eq!(
+        base.specialized_guard_misses, 0,
+        "a baseline tier counted a guard miss"
+    );
+}
+
 // ── Epic F5: profitability gate and tier selection ──
 
 /// One `f(3)` warm-up: every local-update site holds three samples when the

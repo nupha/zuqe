@@ -124,10 +124,22 @@ pub(crate) struct JitExecFrame {
     pub new_target: JSValue,
     /// The activation's `[[HomeObject]]`, when the callee is a method.
     pub home_obj: Option<Object>,
+    /// P7 7.2 instrumentation: speculative int fast paths that bailed to their
+    /// helper during this activation. `invoke_native` folds it into
+    /// `JitMetrics::specialized_guard_misses` after the call returns; counting
+    /// per activation (not per function) keeps recursive calls from
+    /// double-counting.
+    pub guard_misses: u32,
 }
 
 /// The compiled entry. Returns a [`JitExitKind`] as a `u32`.
 pub(crate) type NativeEntry = unsafe extern "C" fn(*mut JitExecFrame) -> u32;
+
+/// `imm2` value the speculative `add_loc`/`inc_loc`/`dec_loc` slow paths write
+/// before calling their helper, so the helper knows this call is a guard miss
+/// (P7 7.2) and not the ordinary helper path. Chosen out of range of the other
+/// `imm2` users (`get_field`/`put_field` inline-cache indices).
+pub(crate) const SPEC_MISS_IMM2: u32 = u32::MAX;
 
 /// Per-function storage for the installed native entry, living on
 /// `BytecodeImpl`. Null until a compile installs one. The field is atomic only
@@ -441,11 +453,22 @@ unsafe extern "C" fn h_push_atom(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// P7 7.2 instrumentation: count one speculative guard miss when the frame
+/// marks this helper call as the bail of an `int` fast path. The count lives in
+/// the activation, so `invoke_native` can fold it without double-counting
+/// recursive calls.
+unsafe fn note_spec_miss(f: &mut JitExecFrame) {
+    if f.imm2 == SPEC_MISS_IMM2 {
+        f.guard_misses = f.guard_misses.saturating_add(1);
+    }
+}
+
 /// `inc_loc` / `dec_loc`: unary update of local `f.imm`, no operand-stack change
 /// (so an exception exit leaves `sp` exactly as the interpreter would).
 unsafe fn local_unary(f: *mut JitExecFrame, inc: bool) -> u32 {
     unsafe {
         let f = &mut *f;
+        note_spec_miss(f);
         let scope = scope_of(f);
         let slot = f.var_base.add(f.imm as usize);
         let result = UnaryOp::new(scope, *slot, true).and_then(|unary| {
@@ -566,6 +589,7 @@ unsafe extern "C" fn h_delete(f: *mut JitExecFrame) -> u32 {
 unsafe extern "C" fn h_add_loc(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
+        note_spec_miss(f);
         let scope = scope_of(f);
         let operand = *f.sp.offset(-1);
         f.sp = f.sp.offset(-1);
