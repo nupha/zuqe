@@ -62,6 +62,7 @@ Engine-level design choices that set Zuqe apart:
 - **NaN-Boxing Values**: JS values are encoded in a compact 64-bit NaN-boxed representation for cache-friendly, low-overhead storage
 - **Scope-Based Garbage Collection**: Generational, scope-bounded GC with a dedicated StackFrame GC partition
 - **Bidirectional Async Bridge**: JS `Promise`s and Rust `Future`s interoperate in both directions (feature `async_support`)
+- **Tiered JIT**: Hot bytecode functions compile to Cranelift machine code while the interpreter stays the reference; compilation is polled automatically at engine safe points, and anything the backend cannot translate falls back to the interpreter (feature `jit`)
 
 ## 🔥 Where Zuqe Shines
 
@@ -98,6 +99,7 @@ Zuqe provides several Cargo features to customize the build:
 
 | Feature              | Description                                                             | Default |
 | -------------------- | ----------------------------------------------------------------------- | ------- |
+| `jit`                | Tiered bytecode JIT (Cranelift) with a fail-closed verifier             | on      |
 | `async_support`      | Enable Promise↔Future bridge and `Runtime::run_async()`                 | on      |
 | `all_unicode`        | Full Unicode support (XID, normalization)                               | on      |
 | `crossbeam_channel`  | Use `crossbeam::channel` instead of `std::sync::mpsc`                   | off     |
@@ -243,6 +245,7 @@ For more comprehensive examples, check the [examples](examples/) directory which
   - [Running Loop](docs/loop.md)
   - [Promise](docs/promise.md)
   - [GC](docs/gc.md)
+  - [Tiered JIT](docs/jit.md) — goals, design, and a feature-to-code map
 - **[Examples](examples/)**:
   - [ZJS](docs/zjs.md)
 

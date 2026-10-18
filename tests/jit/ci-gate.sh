@@ -45,5 +45,27 @@ run_tests "off" cargo test --no-default-features --features "$OFF_FEATURES"
 echo "== on: cargo test (default features, jit included)"
 run_tests "on" cargo test
 
+check_compiles() {
+    local label=$1
+    shift
+    local out
+    if ! out=$("$@" 2>&1); then
+        echo "$out" | tail -40
+        echo "FAIL: ${label}"
+        exit 1
+    fi
+    echo "ok: ${label}"
+}
+
+# The {off,on} legs only build `default`. Optional non-default features change
+# runtime structure, and a break under one of them once shipped through an
+# all-green run: a `child_runtime`-only compile error in `tick.rs`, and a
+# `quantum_poll` missing-import error in `park.rs` (both found by hand). Compile
+# checks catch that class and stay cheap; they are not test runs.
+echo "== extra: non-default feature combinations compile with the jit feature"
+for extra in child_runtime persistent crossbeam_channel serde_json_support dump_bytecode quantum_poll; do
+    check_compiles "on+${extra}" cargo check -q --features "jit,${extra}"
+done
+
 echo "== matrix row covered: $(uname -s)/$(uname -m) {off,on}"
 echo "OK"
