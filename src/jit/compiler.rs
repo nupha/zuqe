@@ -91,6 +91,10 @@ const NULL_TAG: i64 = 2;
 const UNDEFINED_TAG: i64 = 3;
 /// `js_new_float64(d) == d.to_bits() - (0xFFF9 << 48)` for a non-NaN value.
 const FLOAT64_ADDEND: i64 = 0xFFF9 << 48;
+/// `JS_NAN_U64` (`0x7ff8… - (0xFFF9 << 48)`): the canonical quiet NaN
+/// `js_new_float64` substitutes for every NaN payload. The float fast path
+/// must box through it, because the differential suite compares bit-for-bit.
+const JS_NAN_U64_BITS: i64 = 0x7FFF_0000_0000_0000;
 
 const O_ARG_BASE: i32 = offset_of!(JitExecFrame, arg_base) as i32;
 const O_VAR_BASE: i32 = offset_of!(JitExecFrame, var_base) as i32;
@@ -1045,6 +1049,13 @@ fn safepoint(
 /// Whether the baseline can translate `verified`'s first opcode. When false,
 /// [`compile`] refuses deterministically, so callers should settle the function
 /// fail-closed rather than retry.
+///
+/// Currently this never returns `false` for verified bytecode: the only
+/// no-operand `Resume` opcodes left are the four pinned `call*`/`apply` helpers
+/// (S3 2.6), and all of them pop operands, which the verifier forbids at the
+/// entry height of 0. It is kept as the fail-closed net for a future
+/// operand-free unsupported opcode
+/// (`the_pinned_call_opcodes_cannot_be_a_function_entry` pins the premise).
 pub(crate) fn entry_is_translatable(verified: &VerifiedFunction) -> bool {
     verified
         .instructions()
@@ -1893,6 +1904,12 @@ fn lower_insn(
         _ => {}
     }
 
+    // Epic N1: `div` always yields a `Float64` (Int/Int divides as `f64`), so
+    // it gets a dedicated numeric arm instead of a `FastOp`. It is not a CSE
+    // candidate (`is_cse_expression` stays exactly the `fast_op` set).
+    if name == "div" {
+        return lower_fast_div(state, b, fv, sp_var, helper_sig, sp, insn);
+    }
     if let Some((op, helper_id)) = fast_op(name) {
         // Epic S2 (1.5): a repeat of an expression the same block already
         // computed over the same proven-numeric values. The result is still in
@@ -2430,6 +2447,84 @@ fn is_int(b: &mut FunctionBuilder, value: Value) -> Value {
     b.ins().icmp_imm(IntCC::Equal, tag, 0)
 }
 
+/// The `tag < Symbol(=-8) || tag > Exception(=6)` test that recognizes an
+/// encoded `Float64` (`JSValueTag::is_float64`): the addend shift keeps every
+/// real double's raw tag outside the non-float window.
+fn is_float64(b: &mut FunctionBuilder, value: Value) -> Value {
+    let tag = b.ins().sshr_imm(value, 48);
+    let below = b.ins().icmp_imm(
+        IntCC::SignedLessThan,
+        tag,
+        i64::from(crate::JSValueTag::Symbol as i32),
+    );
+    let above = b.ins().icmp_imm(
+        IntCC::SignedGreaterThan,
+        tag,
+        i64::from(crate::JSValueTag::Exception as i32),
+    );
+    b.ins().bor(below, above)
+}
+
+/// Whether a value is one of the two numeric tags (`Int` or `Float64`), i.e.
+/// the set the inline float path can convert to `f64` without running
+/// `ToNumber`.
+fn is_number(b: &mut FunctionBuilder, value: Value) -> Value {
+    let int = is_int(b, value);
+    let float = is_float64(b, value);
+    b.ins().bor(int, float)
+}
+
+/// Unbox a value already known to be a `Float64`: the tagged bits plus the
+/// addend are the double's raw bits (`js_value_get_float64`).
+fn unbox_float64(b: &mut FunctionBuilder, value: Value) -> Value {
+    let addend = b.ins().iconst(types::I64, FLOAT64_ADDEND);
+    let bits = b.ins().iadd(value, addend);
+    b.ins().bitcast(types::F64, MemFlags::new(), bits)
+}
+
+/// Convert an `Int`-tagged value to `f64`: its low 32 bits are the `i32`.
+fn int_to_float64(b: &mut FunctionBuilder, value: Value) -> Value {
+    let v = b.ins().ireduce(types::I32, value);
+    b.ins().fcvt_from_sint(types::F64, v)
+}
+
+/// Convert a proven number to `f64`: widen an `Int` (known-int operands need no
+/// check) or unbox a `Float64`. `is_float` is the runtime `is_float64` test for
+/// an operand whose tag is not statically known.
+fn number_to_float64(
+    b: &mut FunctionBuilder,
+    value: Value,
+    known_int: bool,
+    is_float: Option<Value>,
+) -> Value {
+    if known_int {
+        return int_to_float64(b, value);
+    }
+    let from_float = unbox_float64(b, value);
+    match is_float {
+        Some(is_float) => {
+            let from_int = int_to_float64(b, value);
+            b.ins().select(is_float, from_float, from_int)
+        }
+        None => from_float,
+    }
+}
+
+/// Box a computed `f64` exactly like `js_new_float64`: any NaN payload becomes
+/// the engine's canonical quiet NaN, everything else is the raw bits minus the
+/// addend (which turns `-0.0`/`±Inf` into their tagged form unchanged).
+fn box_float64(b: &mut FunctionBuilder, d: Value) -> Value {
+    let bits = b.ins().bitcast(types::I64, MemFlags::new(), d);
+    let abs = b.ins().band_imm(bits, 0x7FFF_FFFF_FFFF_FFFF);
+    let nan = b
+        .ins()
+        .icmp_imm(IntCC::UnsignedGreaterThan, abs, 0x7FF0_0000_0000_0000);
+    let addend = b.ins().iconst(types::I64, FLOAT64_ADDEND);
+    let encoded = b.ins().isub(bits, addend);
+    let canonical = b.ins().iconst(types::I64, JS_NAN_U64_BITS);
+    b.ins().select(nan, canonical, encoded)
+}
+
 /// Epic S2 (1.5): this instruction is a repeat — the same block computed the
 /// same expression over the same proven-numeric values, and its result is still
 /// in `reg`. Copying it into the result slot is the whole instruction: the tag
@@ -2498,9 +2593,18 @@ fn lower_fast_binary(
     // the new `sp`) and are flushed by the helper's own preamble on the slow
     // path, which is the only path that still reads them.
     state.stack.flush_except(b, sp, &[top - 1, top]);
+    // Epic N1: `add`/`sub`/`mul` over two numbers where at least one is a
+    // `Float64` get an inline arm too. Bitwise/shift/comparison ops stay
+    // Int-only, and two operands the compiler proved Int never need it.
+    let float_ok = matches!(op, FastOp::Add | FastOp::Sub | FastOp::Mul);
+    let float = match both_int {
+        Some(_) if float_ok => Some(b.create_block()),
+        _ => None,
+    };
+    let else_target = float.unwrap_or(slow);
     match both_int {
         Some(both_int) => {
-            b.ins().brif(both_int, fast, &[], slow, &[]);
+            b.ins().brif(both_int, fast, &[], else_target, &[]);
         }
         // Both operands are already known: the check is gone, but the split
         // stays so the overflow bail below still has its target.
@@ -2508,6 +2612,39 @@ fn lower_fast_binary(
             let yes = b.ins().iconst(types::I8, 1);
             b.ins().brif(yes, fast, &[], slow, &[]);
         }
+    }
+
+    if let Some(float) = float {
+        b.switch_to_block(float);
+        // Not both Int here, so "both numbers" means at least one `Float64`. A
+        // known-Int operand needs no check; the others must pass `is_number`.
+        let a_num = (!a_known).then(|| is_number(b, a));
+        let c_num = (!c_known).then(|| is_number(b, c));
+        let both_num = match (a_num, c_num) {
+            (Some(x), Some(y)) => b.ins().band(x, y),
+            (Some(x), None) => x,
+            (None, Some(y)) => y,
+            (None, None) => unreachable!("both known Int went to the Int arm"),
+        };
+        let float_fast = b.create_block();
+        b.ins().brif(both_num, float_fast, &[], slow, &[]);
+
+        b.switch_to_block(float_fast);
+        let a_float = (!a_known).then(|| is_float64(b, a));
+        let c_float = (!c_known).then(|| is_float64(b, c));
+        let af = number_to_float64(b, a, a_known, a_float);
+        let cf = number_to_float64(b, c, c_known, c_float);
+        let f = match op {
+            FastOp::Add => b.ins().fadd(af, cf),
+            FastOp::Sub => b.ins().fsub(af, cf),
+            _ => b.ins().fmul(af, cf),
+        };
+        let boxed = box_float64(b, f);
+        b.ins().store(MemFlags::new(), boxed, sp, -16);
+        let sp_next = b.ins().iadd_imm(sp, -8);
+        b.def_var(sp_var, sp_next);
+        let keep = [boxed];
+        b.ins().jump(cont, if kept { &keep } else { &[] });
     }
 
     b.switch_to_block(fast);
@@ -2625,6 +2762,78 @@ fn lower_fast_binary(
         let v = b.ins().load(types::I64, MemFlags::new(), sp_next, -8);
         return Step::Continue(state.stack.result_int(sp_next, v));
     }
+    Step::Continue(b.use_var(sp_var))
+}
+
+/// Epic N1: inline `Float64` division. `div` always produces a `Float64`
+/// (`Int/Int` divides as `f64` in the interpreter: `TwoNumbers::div`), so there
+/// is no Int arm — any two proven numbers convert to `f64` and divide.
+/// Everything else (BigInt, string, `ToPrimitive`) falls back to the helper.
+/// The float-heavy kernels spend most of their arithmetic here.
+#[allow(clippy::too_many_arguments)]
+fn lower_fast_div(
+    state: &mut State,
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    sp_var: Variable,
+    helper_sig: cranelift_codegen::ir::SigRef,
+    sp: Value,
+    insn: &Instruction,
+) -> Step {
+    let pc_after = insn.pc() + insn.size() as u32;
+    let top = state.stack.height;
+    let a_known = state.stack.known_int(top - 1);
+    let c_known = state.stack.known_int(top);
+    let a = state.stack.read(b, sp, top - 1);
+    let c = state.stack.read(b, sp, top);
+
+    let fast = b.create_block();
+    let slow = b.create_block();
+    let cont = b.create_block();
+    // Like `lower_fast_binary`: materialize everything but the operands; the
+    // helper's own preamble flushes those on the slow path.
+    state.stack.flush_except(b, sp, &[top - 1, top]);
+    let both_num = match (a_known, c_known) {
+        (true, true) => None,
+        (true, false) => Some(is_number(b, c)),
+        (false, true) => Some(is_number(b, a)),
+        (false, false) => {
+            let a_num = is_number(b, a);
+            let c_num = is_number(b, c);
+            Some(b.ins().band(a_num, c_num))
+        }
+    };
+    match both_num {
+        Some(both_num) => {
+            b.ins().brif(both_num, fast, &[], slow, &[]);
+        }
+        // Both operands are already known Int: Int/Int still divides through
+        // `f64`, so this arm is the same as the float one.
+        None => {
+            let yes = b.ins().iconst(types::I8, 1);
+            b.ins().brif(yes, fast, &[], slow, &[]);
+        }
+    }
+
+    b.switch_to_block(fast);
+    let a_float = (!a_known).then(|| is_float64(b, a));
+    let c_float = (!c_known).then(|| is_float64(b, c));
+    let af = number_to_float64(b, a, a_known, a_float);
+    let cf = number_to_float64(b, c, c_known, c_float);
+    let quotient = b.ins().fdiv(af, cf);
+    let boxed = box_float64(b, quotient);
+    b.ins().store(MemFlags::new(), boxed, sp, -16);
+    let sp_next = b.ins().iadd_imm(sp, -8);
+    b.def_var(sp_var, sp_next);
+    b.ins().jump(cont, &[]);
+
+    b.switch_to_block(slow);
+    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_DIV, pc_after);
+    b.def_var(sp_var, sp_slow);
+    b.ins().jump(cont, &[]);
+
+    b.switch_to_block(cont);
+    state.stack.consumed_binary();
     Step::Continue(b.use_var(sp_var))
 }
 

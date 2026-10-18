@@ -161,6 +161,12 @@ const NUMERIC: &[Case] = dim_cases!("NumericTagEdge", [
         "function lt(a, b){ return a < b; } function seq(a, b){ return a === b; } lt(1, 2);",
         "lt('2', 10)",
         "'cmp:' + seq('5', 5) + ',' + lt(NaN, 1) + ',' + seq(undefined, undefined)";
+    // Epic N1: every shape of the inline Float64 arithmetic — Float/Float,
+    // Int/Float, Int/Int division, ±Inf, NaN, int32 overflow into a double.
+    float_arithmetic_shapes:
+        "function fa(a, b){ return a + b; } function fs(a, b){ return a - b; } function fm(a, b){ return a * b; } function fd(a, b){ return a / b; } fa(1.5, 2.5); fs(1.5, 2.5); fm(1.5, 2.5); fd(1.5, 2.5);",
+        "String(fa(1.5, 2.5)) + '/' + String(fs(1, 2.5)) + '/' + String(fm(3, 0.5)) + '/' + String(fd(1, 0)) + '/' + String(fd(-1, 0)) + '/' + String(fd(0, 0)) + '/' + String(fa(2147483647, 1))",
+        "'fa:' + fa(2, 3) + ',' + fd(6, 3)";
 ]);
 
 const EXCEPTION: &[Case] = dim_cases!("ExceptionOrNonthrow", [

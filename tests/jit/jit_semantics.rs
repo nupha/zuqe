@@ -363,6 +363,17 @@ const CASES: &[SemCase] = sem_cases! {
         "g(false, XF_I, XF_F)",
         "'fj:' + g(true, XF_I, XF_F) + ',' + g(false, XF_I, XF_F)";
 
+    // ── inline Float64 arithmetic (epic N1) ──
+    // `add`/`sub`/`mul`/`div` over two numbers take an inline `f64` arm; the
+    // `DataView` exposes the exact IEEE bits, so a lost sign, a wrong NaN
+    // payload (the box must canonicalize) or an int/float mix-up cannot hide
+    // behind `String()`.
+    float_mixed_arithmetic => Compiles =
+        "var __seed = 0; var __ab = new ArrayBuffer(8); var __dv = new DataView(__ab); function bits(x){ __dv.setFloat64(0, x); return __dv.getUint32(0).toString(16) + ':' + __dv.getUint32(4).toString(16); } function fadd(a, b){ var __z = 0; return a + b; } function fsub(a, b){ var __z = 0; return a - b; } function fmul(a, b){ var __z = 0; return a * b; } function fdiv(a, b){ var __z = 0; return a / b; }",
+        "fadd(1.5, 2.25); fsub(1.5, 2.25); fmul(1.5, 2); fdiv(1, 3)",
+        "bits(fadd(1.5, 2.25)) + '|' + bits(fadd(1, 0.5)) + '|' + bits(fadd(0.1, 0.2)) + '|' + bits(fsub(1.5, 2.25)) + '|' + bits(fmul(1.5, -2)) + '|' + bits(fmul(3, 0.5)) + '|' + bits(fdiv(1, 3)) + '|' + bits(fdiv(1, 0)) + '|' + bits(fdiv(-1, 0)) + '|' + bits(fdiv(1, -0)) + '|' + bits(fdiv(0, 0)) + '|' + bits(fdiv(1e308, 1e-308)) + '|' + bits(fadd(2147483647, 1))",
+        "'fb:' + bits(fadd(2, 3)) + ',' + bits(fdiv(6, 3))";
+
     // ── cross-block value reuse (S2 1.5) ──
     // The same numeric expression twice in one block is computed once; an
     // operand that is *not* provably numeric must still be evaluated every time
@@ -443,6 +454,7 @@ const FEATURES: &[&str] = &[
     "cse_",
     "raise_",
     "fact_",
+    "float_",
 ];
 #[test]
 fn every_semantic_feature_has_a_case() {
