@@ -5,9 +5,9 @@
 //!
 //! The interpreter counts entries and backward branches here; when a function
 //! crosses its threshold it is queued for compilation exactly once. Thresholds
-//! start from the configured base. They only adapt when measured work is
-//! available — Tier 1 has none, so it is always neutral; the Tier 2 feedback
-//! table (epic F1) supplies `measured_work`.
+//! start from the configured base. The function's static shape (bytecode size,
+//! helper density) can raise them on any tier; measured work — the Tier 2
+//! feedback table (epic F1) supplies it — can lower them further.
 
 use crate::{
     bytecode::{OP_COUNT_FINAL, opcode_info_final},
@@ -91,19 +91,20 @@ impl AdaptiveInputs {
 
     /// Larger and helper-dominated functions need more evidence before we
     /// spend compile time on them; functions already shown to do a lot of work
-    /// can be compiled sooner. Without measurements the base is unchanged.
+    /// can be compiled sooner. The static shape (bytecode size / helper
+    /// density) is read unconditionally, so it also guides a tier that records
+    /// no measurements; the measured work only lowers the base.
     ///
     /// An eager base (both thresholds 1) is left alone: the host asked for
     /// "compile on the first event", and doubling that would silently defeat
     /// the diagnostic/test harnesses that rely on it.
     pub(crate) fn thresholds(&self, base_calls: u32, base_loops: u32) -> HotThresholds {
-        let Some(work) = self.measured_work else {
-            return HotThresholds::neutral(base_calls, base_loops);
-        };
         if base_calls <= 1 && base_loops <= 1 {
             return HotThresholds::neutral(base_calls, base_loops);
         }
-        if work >= 4096 {
+        // Proven work outranks the static shape: a function observed doing a lot
+        // of interpreter work is worth compiling even if it is large.
+        if self.measured_work.is_some_and(|work| work >= 4096) {
             return HotThresholds {
                 calls: base_calls / 2,
                 loops: base_loops / 2,
@@ -178,6 +179,22 @@ mod tests {
         assert_eq!(th.calls, 32);
         assert_eq!(th.loops, 56);
         assert_eq!(th.reason, HotReason::NeutralBase);
+    }
+
+    /// The static shape is read even when no measurement exists (a baseline
+    /// tier), so the audit's "dead input" concern cannot come back: a
+    /// helper-dominated function doubles its base with `measured_work: None`.
+    #[test]
+    fn a_helper_dense_function_doubles_without_a_measurement() {
+        let inputs = AdaptiveInputs {
+            instruction_count: 10,
+            helper_ops: 3,
+            measured_work: None,
+            ..AdaptiveInputs::default()
+        };
+        let th = inputs.thresholds(32, 56);
+        assert_eq!((th.calls, th.loops), (64, 112));
+        assert_eq!(th.reason, HotReason::HelperDensity);
     }
 
     #[test]

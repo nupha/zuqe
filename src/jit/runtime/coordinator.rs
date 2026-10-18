@@ -293,8 +293,9 @@ mod tests {
 
     /// Epic F5 wiring: the interpreter's measurement reaches the thresholds. A
     /// helper-dominated function (every opcode a `Helper`) is expensive to
-    /// compile, so with a measurement its base doubles — but an eager base
-    /// (`1`, what the diagnostic harnesses ask for) is never adapted.
+    /// compile, so its static shape doubles the base; proven work (4096
+    /// observations) halves it instead. An eager base (`1`, what the diagnostic
+    /// harnesses ask for) is never adapted.
     #[test]
     fn measured_work_adapts_the_production_base_only() {
         let helper_dense = [crate::bytecode::opcodes::OP_add; 4];
@@ -321,12 +322,16 @@ mod tests {
         }
         assert!(c.record_call(&mut m, 4, &helper_dense, 4096), "16th call");
 
-        // Same function, no measurement (a baseline tier): the base stands.
+        // Same function, no measurement (a baseline tier): the *static* helper
+        // density still doubles the base, so 64 calls are needed.
         let mut c = Coordinator::new(32, 56, 8, 4, 30_000);
-        for _ in 0..31 {
+        for _ in 0..63 {
             assert!(!c.record_call(&mut m, 2, &helper_dense, 0));
         }
-        assert!(c.record_call(&mut m, 2, &helper_dense, 0), "32nd call");
+        assert!(
+            c.record_call(&mut m, 2, &helper_dense, 0),
+            "the static shape applies without a measurement"
+        );
 
         // Eager base: adaptation is skipped, so the first call queues it.
         let mut c = Coordinator::new(1, 1, 8, 4, 30_000);

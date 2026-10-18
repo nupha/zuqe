@@ -41,7 +41,10 @@ pub struct JitMetrics {
     /// Functions permanently parked in the interpreter: rejected, or out of
     /// compile attempts.
     pub functions_settled: u64,
-    /// Deoptimizations back to the interpreter. Reserved for later epics.
+    /// Deoptimizations back to the interpreter. Always `0`: D-25 rejected the
+    /// whole-frame deopt / `DeoptMap` design, so a guard miss falls back to the
+    /// interpreter helper *inside* the native frame instead of unwinding. The
+    /// field stays for API stability but is never written.
     pub deopts: u64,
     /// Machine code bytes currently published.
     pub code_bytes: u64,
