@@ -78,7 +78,7 @@ pub(crate) struct ParkState {
     /// to a cheap periodic poll. Set via `RuntimeImpl::use_quantum_poll`.
     /// Requires the `quantum_poll` feature.
     #[cfg(feature = "quantum_poll")]
-    quantum_ms: AtomicU32,
+    quantum_ms: std::sync::atomic::AtomicU32,
     /// Warn-once flag: a deadline was due but no deadline waker is set.
     #[cfg(debug_assertions)]
     deadline_waker_warned: std::sync::atomic::AtomicBool,
@@ -292,9 +292,9 @@ impl ParkState {
 
     /// Fallback quantum poll interval (0 = off).
     #[cfg(feature = "quantum_poll")]
-    fn quantum(&self) -> Option<Duration> {
-        let ms = self.quantum_ms.load(Ordering::Relaxed);
-        (ms > 0).then(|| Duration::from_millis(ms as u64))
+    fn quantum(&self) -> Option<std::time::Duration> {
+        let ms = self.quantum_ms.load(std::sync::atomic::Ordering::Relaxed);
+        (ms > 0).then(|| std::time::Duration::from_millis(ms as u64))
     }
 }
 
