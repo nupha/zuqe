@@ -69,7 +69,7 @@ pub(crate) fn type_class(v: JSValue) -> u16 {
 /// the tier-2 gate tell "this `add_loc`/`inc_loc` site only ever produces
 /// `Int`" from "it overflows to `Float64` every iteration" — the second keeps
 /// speculating and pays its overflow bail on every trip (see
-/// `jit_todo.md` 7.1). Sites with no result (branch conditions) keep it 0.
+/// `jit_handover.md` §6.23). Sites with no result (branch conditions) keep it 0.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SiteFeedback {
     pub(crate) lhs: u16,

@@ -9,5 +9,6 @@
 - [Writing a Zapi Extension](zapi-extension.md) — building an extension as a dynamic library the engine loads as a module.
 - [Running Loop](loop.md) — `eval_wait`, the tick loop, and async runtime mode.
 - [Garbage Collection](gc.md) — GC scopes, the root scope, and custom tracers.
+- [Tiered JIT](jit.md) — the optional bytecode JIT: goals, design, code map.
 - [Promise](promise.md) — Promise ↔ Future integration.
 - [ZJS Shell](zjs.md) — the `zjs` command-line interpreter.
