@@ -3053,6 +3053,67 @@ mod tests {
         );
     }
 
+    /// Epic S2 (1.6): a local's `Int32` proof survives a **loop header** when
+    /// every edge into it agrees, so a loop-invariant bound is known-Int on every
+    /// iteration and the comparison in the header needs no tag check.
+    ///
+    /// The two compilations are the *same bytes* and differ only in the tag the
+    /// pool constant carries (0 = Int, 8 = Float64), so the byte gap is exactly
+    /// the check the cross-block fact removes. Before 1.6 the header was widened
+    /// on the way in, and both shapes compiled identically.
+    #[test]
+    fn a_loop_invariant_int_bound_keeps_its_fact() {
+        // i = 0; limit = <const>;                        (preheader)
+        // L: get_loc i; get_loc limit; lt; if_false E;   (header)
+        //    get_loc limit; push_i32 1; add; put_loc 3;  (body: sum up)
+        //    inc_loc i; goto L;
+        // E: return_undef
+        let shape = |preheader: Vec<u8>| {
+            let mut bytes = preheader;
+            let header = bytes.len() as i32;
+            bytes.extend_from_slice(&loc(op::OP_get_loc, 0));
+            bytes.extend_from_slice(&loc(op::OP_get_loc, 1));
+            bytes.extend_from_slice(&[op::OP_lt]);
+            let if_pc = bytes.len() as i32;
+            bytes.push(op::OP_if_false);
+            bytes.extend_from_slice(&0i32.to_le_bytes());
+            let body = bytes.len() as i32;
+            bytes.extend_from_slice(&loc(op::OP_get_loc, 1));
+            bytes.extend_from_slice(&push_i32(1));
+            bytes.push(op::OP_add);
+            bytes.extend_from_slice(&loc(op::OP_put_loc, 3));
+            bytes.extend_from_slice(&loc8(op::OP_inc_loc, 0));
+            let goto_pc = bytes.len() as i32;
+            bytes.push(op::OP_goto);
+            bytes.extend_from_slice(&0i32.to_le_bytes());
+            let end = bytes.len() as i32;
+            bytes.push(op::OP_return_undef);
+            // Branch offsets are relative to the byte after the opcode.
+            bytes[(if_pc as usize + 1)..(if_pc as usize + 5)]
+                .copy_from_slice(&(end - (if_pc + 1)).to_le_bytes());
+            bytes[(goto_pc as usize + 1)..(goto_pc as usize + 5)]
+                .copy_from_slice(&(header - (goto_pc + 1)).to_le_bytes());
+            assert!(body < end);
+            bytes
+        };
+        // Both shapes are the *same* bytes: `limit` is stored from a pool constant,
+        // and only the constant's tag differs (0 = Int, 8 = Float64). The gap is
+        // exactly the checks the cross-block fact removes from the header.
+        let body = shape(seq(&[
+            &push_i32(0),
+            &loc(op::OP_put_loc, 0),
+            &[op::OP_push_const],
+            &u32b(0),
+            &loc(op::OP_put_loc, 1),
+        ]));
+        let proven = compile_len(body.clone(), 4, 0);
+        let unproven = compile_len(body, 4, 8);
+        assert!(
+            proven < unproven,
+            "a loop-invariant Int bound keeps its fact: {proven} vs {unproven} bytes"
+        );
+    }
+
     /// Epic 1.4 item 3: a local the verifier proves `Int32` carries the fact
     /// through `get_loc`, so its consumer skips a check. The two shapes are the
     /// same bytecode; only the initializing producer differs, so the byte-size

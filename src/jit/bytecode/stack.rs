@@ -655,15 +655,18 @@ pub(crate) fn prove(
                 budget.charge(*successor, incoming.cell_count())?;
                 check_stack_size(snapshot, tail, &incoming)?;
             }
-            if cfg.is_loop_header(*successor) {
-                // Widen locals before publishing into a loop header so a later
-                // backedge does not look like an incompatible merge.
-                for local in &mut incoming.locals {
-                    if matches!(*local, SlotKind::Int32 | SlotKind::Float64) {
-                        *local = SlotKind::Tagged;
-                    }
-                }
-            }
+            // Epic S2 (1.6): a block's entry facts are the join over **all** its
+            // incoming edges, and the worklist below re-processes the block
+            // whenever a merge widens it — so "every predecessor agrees" falls
+            // out of the fixpoint on its own. A loop header used to be widened
+            // unconditionally on the way in (the old `is_loop_header` branch),
+            // which threw away the proof for a local every edge agreed on: a
+            // loop-invariant bound (`for (i = 0; i < limit; i++)` with `limit`
+            // computed before the loop) and both arms of a join that assign it.
+            // Widening is still what a disagreement does, and it is still
+            // immediate: `merge_state` only reports a change, and the block is
+            // re-processed with the wider state before the next pc records its
+            // `local_kinds`.
             if let Some(expected) = block_entries.get_mut(successor) {
                 budget.charge(*successor, incoming.cell_count())?;
                 if merge_state(*successor, expected, &incoming)? {

@@ -342,6 +342,27 @@ const CASES: &[SemCase] = sem_cases! {
         "wf(WF_MISS, 2)",
         "'with:' + wf(WF_HIT, 1) + ',' + wf(WF_MISS, 2) + ',' + wf(WF_HIDDEN, 3)";
 
+    // ── cross-block facts (S2 1.6) ──
+    // The loop header re-reads a bound every iteration and the body's two arms
+    // merge back into it, so the `Int32` proof has to survive a join *and* a
+    // backedge. The bound is produced before the loop (tag 0 in the pool = Int);
+    // `XF_BIG` is the same code with a bound the engine cannot type as Int, so
+    // the shapes differ only in whether the header keeps its checks. Both must
+    // agree with the interpreter, and a Float64 bound must not be read as Int.
+    fact_loop_invariant_bound => Compiles =
+        "var __seed = 0; var XF_BIG = 4000000000; function f(n, lim, big){ var __z = 0; var s = 0; for (var i = 0; i < lim; i++){ if (i & 1) { s = s + i; } else { s = s + (i * 2); } } for (var j = 0; j < n; j++){ if (j > big) { break; } s = s + 1; } return s; }",
+        "f(3, 6, XF_BIG)",
+        "f(4, 9, XF_BIG)",
+        "'fact:' + f(5, 11, XF_BIG)";
+    // The merge case on its own: both arms assign an Int to the same local, and
+    // the join must keep the proof for the read after it (with a Float64 arm the
+    // join has to widen, or the consumer would skip a needed check).
+    fact_join_of_two_int_arms => Compiles =
+        "var __seed = 0; var XF_I = 3; var XF_F = 2.5; function g(c, i, f){ var __z = 0; var x; if (c) { x = i + 1; } else { x = i + 2; } var s = x * 2; var y; if (c) { y = i * 3; } else { y = f; } return s + (y === f ? 1 : 0); }",
+        "g(true, XF_I, XF_F)",
+        "g(false, XF_I, XF_F)",
+        "'fj:' + g(true, XF_I, XF_F) + ',' + g(false, XF_I, XF_F)";
+
     // ── cross-block value reuse (S2 1.5) ──
     // The same numeric expression twice in one block is computed once; an
     // operand that is *not* provably numeric must still be evaluated every time
@@ -421,6 +442,7 @@ const FEATURES: &[&str] = &[
     "with_",
     "cse_",
     "raise_",
+    "fact_",
 ];
 #[test]
 fn every_semantic_feature_has_a_case() {
