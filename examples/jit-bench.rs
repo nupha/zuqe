@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
 //! Multi-mode benchmark matrix (M2b-6): interpreter / tier1 / tier2 /
-//! automatic over a small set of numeric, property and array kernels (kernels
-//! ported from quickjs-jit `benchmarks/scripts/*.js`).
+//! automatic over 34 kernels ported from quickjs-jit
+//! `benchmarks/scripts/*.js` — scalars, control flow, Float64, bit ops,
+//! monomorphic and polymorphic properties, packed and typed arrays, iteration,
+//! closures/calls, exceptions, JSON, regexp, strings, Map/Set/BigInt, classes.
 //!
 //! Run with: `cargo run --release --features jit --example jit-bench -- \
 //!   --modes interpreter,tier1,tier2,automatic` (or `scripts/jit-bench-matrix.sh`).
@@ -11,20 +13,23 @@
 //! Two protocols (epic G4):
 //! * `--protocol inproc` (default): every mode runs in this process, `ROUNDS`
 //!   timed rounds each, median reported. Fast, and what CI runs.
-//! * `--protocol process`: the reference implementation's protocol — `ROUNDS`
+//! * `--protocol process`: the reference implementation's protocol — `rounds`
 //!   *fresh processes* per mode, **interleaved** (round by round) so drift in
 //!   machine state hits every mode alike, plus a bootstrap confidence interval
-//!   on the speedup. Slower; use it when a number matters.
+//!   on the speedup. Slower; use it when a number matters (the full 34-kernel
+//!   matrix at the default 30 rounds takes ~30 min).
 //!
 //! Protocol: 2 warm-up rounds discarded, then 7 timed rounds; the per-round
-//! median is reported. Every mode must produce the same result per kernel,
-//! asserted bit-exactly before that row is printed. `tier2` records feedback
-//! and applies the speculative int specialization of epic F1/F2.
+//! median is reported. Every mode must produce the same result per kernel
+//! (a number or a string), asserted bit-exactly before that row is printed.
+//! `tier2` records feedback and applies the speculative int specialization of
+//! epic F1/F2.
 
 use std::time::{Duration, Instant};
 
 use zuqe::{
-    Context, EvalFlags, EvalName, EvalType, Jit, JitConfig, JitTierPolicy, Runtime, ScopedContext,
+    Context, EvalFlags, EvalName, EvalType, JSValue, Jit, JitConfig, JitTierPolicy, Runtime,
+    ScopedContext,
 };
 
 const WARMUP: usize = 2;
@@ -77,10 +82,16 @@ struct Kernel {
     name: &'static str,
     /// Defines `workload(...)` and warms it up once; must not throw.
     define: &'static str,
-    /// The timed computation; returns the kernel's result value.
+    /// The timed computation; returns the kernel's result value (number or string).
     work: &'static str,
 }
 
+// The ported `../quickjs-jit/benchmarks/scripts/*.js` kernels. Two upstream
+// files are deliberately absent:
+// * `exceptions-promises-async.js` — `async`/`await` stays `Reject` (todo 2.4.2)
+//   and the harness cannot consume a Promise result, so it can neither compile
+//   nor be compared across modes.
+// * `numeric.js` — byte-identical to `scalar-loop.js`; one of the two is enough.
 const KERNELS: &[Kernel] = &[
     // Iterative fib (the original jit-bench kernel), loop moved into workload.
     Kernel {
@@ -161,6 +172,269 @@ const KERNELS: &[Kernel] = &[
                  sum = sum + p.x + p.y; } return sum; } workload(10, 1, SHAPES);",
         work: "workload(500000, 1, SHAPES);",
     },
+    // ── 4.1: the rest of ../quickjs-jit/benchmarks/scripts (see the note above
+    // the list for the two upstream files that are not ported). ──
+    // adversarial.js: a branch whose rare arm exits to a builtin call.
+    Kernel {
+        name: "adversarial",
+        define: "function workload(iterations){ var value = 0; \
+                 for (var i = 0; i < iterations; i++) value = (i % 7) ? (value + i) : String(value).length; \
+                 return String(value); } workload(10);",
+        work: "workload(450000);",
+    },
+    // arrays-typed.js: the two hot callees (packed array sum, typed convert),
+    // batched because the reference's `workload` is allocation-dominated.
+    Kernel {
+        name: "arrays-typed",
+        define: "var values = new Array(2000); for (var i = 0; i < values.length; i++) values[i] = (i * 17 + 1) & 0xffff; \
+                 var ints = new Int32Array(values); var floats = new Float64Array(2000); \
+                 function sumElements(values){ var sum = 0; for (var i = 0; i < values.length; i++) sum = (sum + values[i]) | 0; return sum; } \
+                 function convertAndSum(ints, floats){ var mixed = 0.0; for (var i = 0; i < ints.length; i++){ floats[i] = ints[i] * 0.25 + 0.5; mixed += floats[i]; } return mixed; } \
+                 function workload(rounds, vals, src, dst){ var s = 0; for (var r = 0; r < rounds; r++) s = s + sumElements(vals) + convertAndSum(src, dst); return s; } \
+                 workload(2, values, ints, floats);",
+        work: "workload(80, values, ints, floats);",
+    },
+    // call-heavy.js: monomorphic direct call per iteration; `call` has no
+    // lowering yet (2.6/D-6), so every iteration leaves the native frame.
+    Kernel {
+        name: "call-heavy",
+        define: "function increment(value, delta){ return value + delta; } \
+                 function workload(iterations, seed, target){ var value = seed; var delta = 0; \
+                 for (var i = 0; i < iterations; i++){ value = target(value, delta); if (delta >= 8) delta = 0; else delta = delta + 1; } return value; } \
+                 workload(10, 1, increment);",
+        work: "workload(300000, 1, increment);",
+    },
+    // calls-closures.js: a curried closure allocated and called twice per
+    // iteration (closure captures live across the calls).
+    Kernel {
+        name: "calls-closures",
+        define: "function workload(iterations){ var add = x => y => (x + y) | 0; var sum = 0; \
+                 for (var i = 0; i < iterations; i++) sum = add(sum)(i & 31); return String(sum); } workload(10);",
+        work: "workload(40000);",
+    },
+    // calls-recursion-closures.js: recursion plus a four-deep call chain onto
+    // a closure that mutates a captured variable.
+    Kernel {
+        name: "calls-recursion-closures",
+        define: "function recursiveSum(n){ return n <= 0 ? 0 : n + recursiveSum(n - 1); } \
+                 function call4(fn, value){ return fn(value); } function call3(fn, value){ return call4(fn, value); } \
+                 function call2(fn, value){ return call3(fn, value); } function call1(fn, value){ return call2(fn, value); } \
+                 function workload(iterations, seed){ var captured = seed; var update = value => (captured = (captured + value) | 0); \
+                 for (var i = 0; i < iterations; i++) call1(update, recursiveSum(i & 7)); return captured; } workload(10, 1);",
+        work: "workload(40000, 1);",
+    },
+    // collections.js: grow a packed array with push, then drain it with for-of.
+    Kernel {
+        name: "collections",
+        define: "function workload(iterations){ var values = []; for (var i = 0; i < iterations; i++) values.push((i * 17) & 1023); \
+                 var sum = 0; for (const value of values) sum += value; return String(sum); } workload(10);",
+        work: "workload(200000);",
+    },
+    // exceptions-sync.js: a primitive throw every 16th iteration, a finally on
+    // every iteration and a helper-raised TypeError every 64th. `throw` has no
+    // lowering (2.6), so the throw sites leave the native frame.
+    Kernel {
+        name: "exceptions-sync",
+        define: "function workload(iterations, seed){ var table = [{ w: 1 }, { w: 2 }, null, { w: 3 }]; \
+                 var caught = 0; var total = seed | 0; var finals = 0; var missing = 0; \
+                 for (var i = 0; i < iterations; i++){ try { if ((i & 15) === 0) throw i; total = (total + i) | 0; } \
+                 catch (value) { caught += value; } finally { finals++; } \
+                 if ((i & 63) === 1){ try { total = (total + table[(i >> 6) & 3].w) | 0; } catch (error) { missing++; } } } \
+                 return caught + ':' + total + ':' + finals + ':' + missing; } workload(10, 1);",
+        work: "workload(300000, 1);",
+    },
+    // fibonacci-iterative.js: the fib batched in JS so the call boundary does
+    // not dominate the compute evidence.
+    Kernel {
+        name: "fibonacci-iterative",
+        define: "function workload(iterations, seed){ var result = seed; \
+                 for (var batch = seed; batch < iterations; batch++){ var a = seed; var b = 1; \
+                 for (var i = seed; i < 40; i++){ var next = a + b; a = b; b = next; } result = a; } return result; } \
+                 workload(10, 1);",
+        work: "workload(20000, 1);",
+    },
+    // fibonacci-recursive.js: the reference's single fib(20) is microseconds, so
+    // it is batched; the measured unit stays one recursive fib.
+    Kernel {
+        name: "fibonacci-recursive",
+        define: "function fibonacci(n){ if (n < 2) return n; return fibonacci(n - 1) + fibonacci(n - 2); } \
+                 function workload(iterations, seed){ var result = seed; for (var b = seed; b < iterations; b++) result = fibonacci(20) + seed; return result; } \
+                 workload(1, 1);",
+        work: "workload(20, 1);",
+    },
+    // float64array-traversal.js: Int32Array -> Float64Array conversion, both
+    // buffers handed in as one argument object.
+    Kernel {
+        name: "float64array-traversal",
+        define: "var f64ints = new Int32Array(2000); var f64floats = new Float64Array(2000); \
+                 for (var i = 0; i < f64ints.length; i++) f64ints[i] = (i * 17) & 0xffff; \
+                 var f64buffers = { ints: f64ints, floats: f64floats }; \
+                 function convertAndSum(seed, buffers){ var ints = buffers.ints; var floats = buffers.floats; var sum = seed; \
+                 for (var i = 0; i < ints.length; i++){ floats[i] = ints[i] * 0.25 + 0.5; sum += floats[i]; } return sum; } \
+                 function workload(rounds, seed){ var s = 0; for (var r = 0; r < rounds; r++) s += convertAndSum(seed, f64buffers); return s; } \
+                 workload(2, 1);",
+        work: "workload(100, 1);",
+    },
+    // for-of-array.js: unlike collections.js the array is built once, so the
+    // timed part is the iterator protocol alone.
+    Kernel {
+        name: "for-of-array",
+        define: "function buildValues(iterations){ var values = []; for (var i = 0; i < iterations; i++) values.push((i * 17) & 1023); return values; } \
+                 var forOfValues = buildValues(20000); \
+                 function sumForOf(values){ var sum = 0; for (const value of values) sum += value; return sum; } \
+                 function workload(rounds){ var s = 0; for (var r = 0; r < rounds; r++) s += sumForOf(forOfValues); return String(s); } \
+                 workload(1);",
+        work: "workload(50);",
+    },
+    // generic-call-entry.js: a non-numeric (Bool) argument excludes the
+    // numeric direct-call signature, so this measures the generic entry.
+    Kernel {
+        name: "generic-call-entry",
+        define: "function incrementIf(value, enabled){ if (enabled) return value + 1; return value; } \
+                 function workload(iterations, seed, target){ var value = seed; \
+                 for (var i = 0; i < iterations; i++) value = target(value, true); return value; } workload(10, 1, incrementIf);",
+        work: "workload(400000, 1, incrementIf);",
+    },
+    // generic-call-fallback.js: the callee mutates its argument, keeping it
+    // outside the pure direct-leaf shape.
+    Kernel {
+        name: "generic-call-fallback",
+        define: "function incrementAndRecord(value, enabled, state){ state.calls = state.calls + 1; if (enabled) return value + 1; return value; } \
+                 var gcfState = { target: incrementAndRecord, calls: 0 }; \
+                 function workload(iterations, seed, state){ state.calls = 0; var target = state.target; var value = seed; \
+                 for (var i = 0; i < iterations; i++) value = target(value, true, state); return value + state.calls; } \
+                 workload(10, 1, gcfState);",
+        work: "workload(300000, 1, gcfState);",
+    },
+    // host-compute.js: gpui-shell's layout kernel, verbatim. The reference's
+    // one-render call is microseconds, so `workload` repeats it; the template
+    // string of the reference is dropped (the number is the observable).
+    Kernel {
+        name: "host-compute",
+        define: "function layoutKernel(batches, seed){ var checksum = seed; \
+                 for (var batch = 0; batch < batches; batch += 1){ var a = 0; var b = 1; \
+                 for (var i = 0; i < 40; i += 1){ var next = a + b; a = b; b = next; } checksum = b; } return checksum; } \
+                 function workload(renders, seed){ var last = 0; for (var r = 0; r < renders; r++) last = layoutKernel(100, seed); return last; } \
+                 workload(1, 0);",
+        work: "workload(200, 0);",
+    },
+    // int32array-traversal.js: Int32Array element reads only.
+    Kernel {
+        name: "int32array-traversal",
+        define: "var i32values = new Int32Array(2000); for (var i = 0; i < i32values.length; i++) i32values[i] = (i * 17) & 0xffff; \
+                 function sumInt32(seed, values){ var sum = seed; for (var i = 0; i < values.length; i++) sum = (sum + values[i]) | 0; return sum; } \
+                 function workload(rounds, seed, values){ var s = 0; for (var r = 0; r < rounds; r++) s = sumInt32(seed, values); return s; } \
+                 workload(2, 1, i32values);",
+        work: "workload(150, 1, i32values);",
+    },
+    // json-codec.js: stringify + parse per iteration; both are builtin calls,
+    // so this measures the surrounding native frame, not JSON itself.
+    Kernel {
+        name: "json-codec",
+        define: "function workload(iterations, seed){ var payload = { name: 'rquickjs', enabled: true, values: [1, 2.5, null, 'four'], \
+                 nested: { seed: seed, tags: ['jit', 'quickjs', 'benchmark'] } }; var total = 0; var last = ''; \
+                 for (var i = 0; i < iterations; i++){ payload.nested.seed = i + seed; last = JSON.stringify(payload); \
+                 var decoded = JSON.parse(last); total += decoded.values.length + decoded.nested.tags.length + decoded.nested.seed; } \
+                 return total + ':' + last.length; } workload(10, 1);",
+        work: "workload(3000, 1);",
+    },
+    // map-set-bigint.js: Map/Set churn plus 64-bit BigInt arithmetic.
+    Kernel {
+        name: "map-set-bigint",
+        define: "function workload(iterations, seed){ var map = new Map(); var set = new Set(); var big = BigInt(seed); \
+                 for (var i = 0; i < iterations; i++){ var key = (i * 17) & 255; map.set(key, (map.get(key) || 0) + 1); set.add(key); \
+                 big = (big * 33n + BigInt(key + 1)) & 0xffffffffffffffffn; } var count = 0; for (const value of map.values()) count += value; \
+                 return count + ':' + set.size + ':' + big.toString(16); } workload(10, 1);",
+        work: "workload(30000, 1);",
+    },
+    // methods-dynamic.js: constructor + prototype methods, destructuring,
+    // `**`, `instanceof`, `in`, and a polymorphic `typeof` dispatch.
+    Kernel {
+        name: "methods-dynamic",
+        define: "function Vec(x, y){ this.x = x; this.y = y; } \
+                 Vec.prototype.dot = function (other){ return this.x * other.x + this.y * other.y; }; \
+                 Vec.prototype.scale = function (k){ return new Vec(this.x * k, this.y * k); }; \
+                 function describe(value){ if (typeof value === 'undefined') return 0; if (typeof value === 'function') return 1; \
+                 if (value instanceof Vec) return 2; if (typeof value !== 'object') return 3; if ('kind' in value) return 4 + value.kind; return 7; } \
+                 function tally(counts, key){ counts[key] += 1; } \
+                 function workload(iterations, seed){ var values = [undefined, describe, new Vec(1, 2), { kind: 1 }, { other: 1 }, 'text', { kind: 2 }]; \
+                 var counts = [0, 0, 0, 0, 0, 0, 0, 0]; var sum = 0; \
+                 for (var i = 0; i < iterations; i++){ var v = new Vec(i & 7, seed + 1); var { x, y } = v.scale(2); \
+                 sum += v.dot({ x: x, y: y }) + (x ** 2) % 5; tally(counts, describe(values[i % values.length])); } \
+                 return sum + ':' + counts.join(','); } workload(10, 1);",
+        work: "workload(8000, 1);",
+    },
+    // mixed-quotes.js: 96 quotes per render, sorted with a comparator, then
+    // flattened into a report string. The reference does one render per call,
+    // which is microseconds, so `workload` repeats the render.
+    Kernel {
+        name: "mixed-quotes",
+        define: "function quoteScore(seed, index){ var previous = seed; var current = seed + index + 1; var aggregate = 0; \
+                 for (var sample = 0; sample < 32; sample += 1){ var next = previous + current; previous = current; current = next; \
+                 aggregate += current & 2047; } return aggregate; } \
+                 function compareQuotes(left, right){ return right.score - left.score; } \
+                 function render(seed){ var quotes = []; var total = 0; \
+                 for (var index = 0; index < 96; index += 1){ var score = quoteScore(seed, index); total += score; quotes.push({ index: index, score: score }); } \
+                 quotes.sort(compareQuotes); var visible = ''; \
+                 for (var rank = 0; rank < 12; rank += 1){ var quote = quotes[rank]; visible += 'SYM' + quote.index + ':' + quote.score + ';'; } \
+                 return 'total:' + total + ';' + visible; } \
+                 function workload(renders, seed){ var visible = ''; for (var r = 0; r < renders; r++) visible = render(seed); return visible; } \
+                 workload(1, 17);",
+        work: "workload(100, 17);",
+    },
+    // objects-polymorphic.js: four shapes per site, one prototype-less.
+    Kernel {
+        name: "objects-polymorphic",
+        define: "function workload(iterations, seed){ var objects = []; \
+                 for (var i = 0; i < iterations; i++){ var object; switch (i & 3){ case 0: object = { x: i, y: seed, kind: 0 }; break; \
+                 case 1: object = { y: seed, x: i, extra: 1, kind: 1 }; break; case 2: object = { x: i, kind: 2 }; object.y = seed; break; \
+                 default: object = Object.create(null); object.kind = 3; object.x = i; object.y = seed; } \
+                 object.x += object.kind; objects.push(object); } var sum = 0; \
+                 for (var j = 0; j < objects.length; j++) sum += objects[j].x + objects[j].y; return sum; } workload(10, 1);",
+        work: "workload(20000, 1);",
+    },
+    // quickjs-int-arith.js: int_arith out of QuickJS's microbench. The
+    // Math.max call is outside the loops; see handover 6.20 for why the tier2
+    // column used to be slow here.
+    Kernel {
+        name: "quickjs-int-arith",
+        define: "function workload(iterations){ var globalResult = 0; var outer = Math.max(1, iterations >> 7); \
+                 for (var j = 0; j < outer; j++){ var sum = 0; for (var i = 0; i < 1000; i++) sum += i * i; globalResult += sum; } \
+                 return String(globalResult); } workload(10);",
+        work: "workload(128000);",
+    },
+    // strings-json.js: rope growth via fromCharCode, then a JSON report.
+    Kernel {
+        name: "strings-json",
+        define: "function workload(iterations){ var text = ''; \
+                 for (var i = 0; i < iterations; i++) text += String.fromCharCode(97 + (i % 26)); \
+                 return JSON.stringify({ length: text.length, first: text.slice(0, 8) }); } workload(10);",
+        work: "workload(20000);",
+    },
+    // strings-regexp.js: build a delimited string, then a global match and a
+    // callback-free replace. The regexp literals are `regexp` opcodes, which
+    // have no lowering yet (2.6), so they leave the native frame.
+    Kernel {
+        name: "strings-regexp",
+        define: "function workload(iterations, seed){ var pieces = []; \
+                 for (var i = 0; i < iterations; i++) pieces.push('item-' + ((i + seed) % 97) + ':' + (i % 13)); \
+                 var text = pieces.join('|'); var matches = text.match(/item-(?:1[0-9]|2[0-9]|3[0-2]):\\d+/g) || []; \
+                 var replaced = text.replace(/item-(\\d+):(\\d+)/g, '$2@$1'); \
+                 return matches.length + ':' + replaced.length + ':' + replaced.slice(-16); } workload(10, 1);",
+        work: "workload(6000, 1);",
+    },
+    // typed-convert-traversal.js: both typed arrays reach one callee; only the
+    // source's length bounds the loop.
+    Kernel {
+        name: "typed-convert-traversal",
+        define: "var tcInts = new Int32Array(2000); var tcFloats = new Float64Array(2000); \
+                 for (var i = 0; i < tcInts.length; i++) tcInts[i] = (i * 17) & 0xffff; \
+                 function convertAndSum(ints, floats){ var mixed = 0.0; for (var i = 0; i < ints.length; i++){ \
+                 floats[i] = ints[i] * 0.25 + 0.5; mixed += floats[i]; } return mixed; } \
+                 function workload(rounds, seed, ints){ var s = seed; for (var r = 0; r < rounds; r++) s += convertAndSum(ints, tcFloats); return s; } \
+                 workload(2, 1, tcInts);",
+        work: "workload(100, 1, tcInts);",
+    },
 ];
 
 /// Parse `--modes interpreter,tier1,tier2,automatic`; default is every
@@ -196,25 +470,40 @@ fn parse_modes(args: &[String]) -> Vec<Mode> {
     selected
 }
 
-fn eval(ctx: &mut Context, src: &[u8]) -> f64 {
-    let v = ctx
-        .eval(
-            src,
-            &EvalName::Name("jit-bench.js".into()),
-            EvalType::Global,
-            EvalFlags::empty(),
-        )
-        .unwrap();
+fn eval(ctx: &mut Context, src: &[u8]) -> JSValue {
+    ctx.eval(
+        src,
+        &EvalName::Name("jit-bench.js".into()),
+        EvalType::Global,
+        EvalFlags::empty(),
+    )
+    .unwrap()
+}
+
+/// Result digest used for the cross-mode equality check. Kernels may return a
+/// number or a string (many reference kernels build a report string), so a
+/// number keeps its exact bit pattern and a string is folded into a 64-bit FNV
+/// over its code units. Computed *outside* the timed window so it never lands
+/// in a round's duration.
+fn digest(v: &JSValue) -> u64 {
     // Normalize Int/Float64 tags: numeric equality is what the bench checks
     // (tag-exact equality is covered by tests/jit_differential.rs).
-    v.as_int()
-        .map(|i| i as f64)
-        .or_else(|| v.as_float())
-        .expect("kernel must return a number")
+    if let Some(f) = v.as_int().map(|i| i as f64).or_else(|| v.as_float()) {
+        return f.to_bits();
+    }
+    let s = v
+        .as_string(true)
+        .expect("kernel must return a number or a string");
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for i in 0..s.len() {
+        h ^= s.get(i).unwrap_or(0) as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
 }
 
 struct Run {
-    result: f64,
+    result: u64,
     median: Duration,
     compiled: u64,
 }
@@ -243,7 +532,7 @@ fn run_kernel(kernel: &Kernel, mode: Mode) -> Run {
     }
 
     // Verify run first, then warm-up (discarded), then timed rounds.
-    let result = eval(&mut ctx, kernel.work.as_bytes());
+    let result = digest(&eval(&mut ctx, kernel.work.as_bytes()));
     for _ in 0..WARMUP {
         std::hint::black_box(eval(&mut ctx, kernel.work.as_bytes()));
     }
@@ -251,15 +540,16 @@ fn run_kernel(kernel: &Kernel, mode: Mode) -> Run {
         .map(|_| {
             let start = Instant::now();
             let r = eval(&mut ctx, kernel.work.as_bytes());
+            let elapsed = start.elapsed();
             // Every timed round must still produce the verified result.
             assert_eq!(
-                r.to_bits(),
-                result.to_bits(),
+                digest(&r),
+                result,
                 "{}: {} timed round drifted",
                 kernel.name,
                 mode.label()
             );
-            start.elapsed()
+            elapsed
         })
         .collect();
     samples.sort_unstable();
@@ -307,7 +597,7 @@ fn run_one(args: &[String]) -> bool {
     });
     let run = run_kernel(kernel, mode);
     println!(
-        "ms={} result={} compiled={}",
+        "ms={} result={:016x} compiled={}",
         run.median.as_secs_f64() * 1e3,
         run.result,
         run.compiled
@@ -379,7 +669,7 @@ fn run_process_protocol(show: &[Mode], rounds: usize) {
 
     for kernel in KERNELS {
         let mut samples: Vec<(Mode, Vec<f64>)> = run.iter().map(|&m| (m, Vec::new())).collect();
-        let mut result: Option<f64> = None;
+        let mut result: Option<u64> = None;
         for _ in 0..rounds {
             for mode in &run {
                 let out = std::process::Command::new(&exe)
@@ -399,11 +689,11 @@ fn run_process_protocol(show: &[Mode], rounds: usize) {
                     String::from_utf8_lossy(&out.stderr)
                 );
                 let ms: f64 = fields["ms"].parse().expect("ms");
-                let value: f64 = fields["result"].parse().expect("result");
+                let value = u64::from_str_radix(fields["result"], 16).expect("result");
                 match result {
                     Some(expected) => assert_eq!(
-                        value.to_bits(),
-                        expected.to_bits(),
+                        value,
+                        expected,
                         "{}: {} disagrees with the interpreter",
                         kernel.name,
                         mode.label()
@@ -445,7 +735,7 @@ fn run_process_protocol(show: &[Mode], rounds: usize) {
                 )
             })
             .collect();
-        println!("{:<14}{}", kernel.name, row);
+        println!("{:<24}{}", kernel.name, row);
     }
 
     println!("results: identical across modes (asserted bit-exact per kernel)");
@@ -510,7 +800,7 @@ fn main() {
             }
         })
         .collect();
-    println!("{:<14}{}", "kernel", header);
+    println!("{:<24}{}", "kernel", header);
 
     let mut compiled: Vec<(Mode, u64)> = run.iter().map(|&m| (m, 0)).collect();
     for kernel in KERNELS {
@@ -524,8 +814,8 @@ fn main() {
         // Result consistency across modes is part of the acceptance.
         for (m, r) in &runs {
             assert_eq!(
-                r.result.to_bits(),
-                base.to_bits(),
+                r.result,
+                base,
                 "{}: {} disagrees with interpreter",
                 kernel.name,
                 m.label()
@@ -550,7 +840,7 @@ fn main() {
             })
             .collect::<Vec<_>>()
             .join("");
-        println!("{:<14}{}", kernel.name, row);
+        println!("{:<24}{}", kernel.name, row);
 
         for (m, r) in &runs {
             let slot = compiled.iter_mut().find(|(cm, _)| cm == m).unwrap();
