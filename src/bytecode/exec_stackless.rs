@@ -394,6 +394,17 @@ impl Bytecode {
         };
 
         if throwed {
+            // An interrupt is control flow, not a JS exception: it bypasses
+            // catch handling entirely, the same rule as the
+            // `ExecAction::Exception` handler below. Without this guard an
+            // interrupt raised inside a callee unwinds that frame and a
+            // `catch` in the caller would swallow it, so a direct call would
+            // behave differently from a call that nests a new trampoline
+            // (D-6's call helpers, or a native callback host).
+            if rt.interrupt_code.is_some() {
+                return ExecAction::Unwind;
+            }
+
             let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
 
             // Add backtrace before catch lookup (matching exec.rs's

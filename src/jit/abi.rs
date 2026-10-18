@@ -17,7 +17,10 @@ use crate::{
         operators::{js_operator_delete, js_operator_in, js_operator_instanceof},
     },
     context::GlobalVarSetMode,
-    function::{BCWrapper, VarRef, js_build_arguments, js_build_mapped_arguments},
+    function::{
+        BCWrapper, CallContext, JS_CALL_FLAG_CONSTRUCTOR, VarRef, js_build_arguments,
+        js_build_mapped_arguments, js_function_apply,
+    },
     object::{JSProperty, Object, ThrowPolicy},
     vm_stack::{FrameIndex, VmStack},
 };
@@ -2214,8 +2217,121 @@ unsafe extern "C" fn h_push_bigint_i32(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// `call <argc>`: `[func, arg1..argN, ^] -> [ret, ^]` (D-6).
+///
+/// The callee runs through the interpreter's own `call_internal` on this very
+/// frame, so the operand stack stays authoritative and a callee with a native
+/// entry runs natively inside the helper (the trampoline's `invoke_native`).
+/// The caller does **not** leave its native frame: only the C stack grows, one
+/// Rust frame per nested JS call, bounded by `js_check_thread_stack_overflow`
+/// (`BytecodeFunction::call`) so runaway recursion is still a catchable
+/// `stack overflow`, not a crash.
+///
+/// On failure nothing is popped (`f.sp` keeps the pre-instruction height the
+/// interpreter rethrows from) and the caller exits `HELPER_EXCEPTION`; the
+/// interpreter's `find_catch_in_frame` then scans this frame's stack.
+unsafe extern "C" fn h_call(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let argc = f.imm as usize;
+        let base = f.sp.offset(-(argc as isize) - 1);
+        let func = *base;
+        let args = std::slice::from_raw_parts(base.add(1), argc);
+        match func.call_internal(scope, JSValue::UNDEFINED, JSValue::UNDEFINED, args, 0) {
+            Ok(value) => {
+                *base = value;
+                f.sp = base.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `call_method <argc>`: `[this, func, arg1..argN, ^] -> [ret, ^]` (D-6). Same
+/// frame/native-entry contract as [`h_call`]; `this` is the receiver below the
+/// callee.
+unsafe extern "C" fn h_call_method(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let argc = f.imm as usize;
+        let base = f.sp.offset(-(argc as isize) - 2);
+        let method_this = *base;
+        let func = *base.add(1);
+        let args = std::slice::from_raw_parts(base.add(2), argc);
+        match func.call_internal(scope, method_this, JSValue::UNDEFINED, args, 0) {
+            Ok(value) => {
+                *base = value;
+                f.sp = base.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `call_constructor <argc>`: `[func, new_target, arg1..argN, ^] -> [ret, ^]`
+/// (D-6). `call_internal` owns the constructor protocol (legacy instance
+/// creation, derived-constructor `this`, `super()` prototype fix-up).
+unsafe extern "C" fn h_call_constructor(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let argc = f.imm as usize;
+        let base = f.sp.offset(-(argc as isize) - 2);
+        let func = *base;
+        let new_target = *base.add(1);
+        let args = std::slice::from_raw_parts(base.add(2), argc);
+        match func.call_internal(
+            scope,
+            JSValue::UNDEFINED,
+            new_target,
+            args,
+            JS_CALL_FLAG_CONSTRUCTOR,
+        ) {
+            Ok(value) => {
+                *base = value;
+                f.sp = base.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `apply <magic>`: `[func, this_arg, array_arg, ^] -> [ret, ^]` (D-6), reusing
+/// the interpreter's `js_function_apply` (which flattens `array_arg` through
+/// `build_arg_list`). Mirroring the interpreter's observable result, the
+/// window is kept until success so the failure exit reports the
+/// pre-instruction height.
+unsafe extern "C" fn h_apply(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let magic = f.imm as i32;
+        let sp = f.sp;
+        let func = *sp.offset(-3);
+        let this_arg = *sp.offset(-2);
+        let array_arg = *sp.offset(-1);
+        let scope = scope_of(f);
+        match js_function_apply(
+            scope,
+            CallContext::new(func, &[this_arg, array_arg], magic, None),
+        ) {
+            Ok(value) => {
+                let base = sp.offset(-3);
+                *base = value;
+                f.sp = base.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 115;
+pub(crate) const HELPER_COUNT: usize = 119;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -2420,6 +2536,14 @@ pub(crate) const HELPER_THROW_ERROR: usize = 112;
 pub(crate) const HELPER_REGEXP: usize = 113;
 /// Index of [`h_push_bigint_i32`].
 pub(crate) const HELPER_PUSH_BIGINT_I32: usize = 114;
+/// Index of [`h_call`].
+pub(crate) const HELPER_CALL: usize = 115;
+/// Index of [`h_call_method`].
+pub(crate) const HELPER_CALL_METHOD: usize = 116;
+/// Index of [`h_call_constructor`].
+pub(crate) const HELPER_CALL_CONSTRUCTOR: usize = 117;
+/// Index of [`h_apply`].
+pub(crate) const HELPER_APPLY: usize = 118;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -2543,4 +2667,8 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_throw_error as *const (),
     h_regexp as *const (),
     h_push_bigint_i32 as *const (),
+    h_call as *const (),
+    h_call_method as *const (),
+    h_call_constructor as *const (),
+    h_apply as *const (),
 ]);

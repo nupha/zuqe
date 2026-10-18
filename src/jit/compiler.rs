@@ -42,7 +42,8 @@ use crate::{jit::snapshot::ConstMeta, vm_stack::ExecMode};
 
 use super::{
     abi::{
-        HELPER_ADD, HELPER_ADD_BRAND, HELPER_ADD_LOC, HELPER_AND, HELPER_APPEND, HELPER_ARRAY_FROM,
+        HELPER_ADD, HELPER_ADD_BRAND, HELPER_ADD_LOC, HELPER_AND, HELPER_APPEND, HELPER_APPLY,
+        HELPER_ARRAY_FROM, HELPER_CALL, HELPER_CALL_CONSTRUCTOR, HELPER_CALL_METHOD,
         HELPER_CHECK_BRAND, HELPER_CHECK_CTOR, HELPER_CHECK_CTOR_RETURN, HELPER_CLOSE_LOC,
         HELPER_COPY_DATA_PROPERTIES, HELPER_DEC, HELPER_DEFINE_ARRAY_EL, HELPER_DEFINE_CLASS,
         HELPER_DEFINE_CLASS_COMPUTED, HELPER_DEFINE_FIELD, HELPER_DEFINE_METHOD,
@@ -175,6 +176,12 @@ fn supported(name: &str) -> bool {
                 | "catch"
                 | "gosub"
                 | "ret"
+                // D-6: the four call opcodes run the callee through a call
+                // helper on the same frame (no per-call exit).
+                | "call"
+                | "call_method"
+                | "call_constructor"
+                | "apply"
         )
 }
 
@@ -1055,12 +1062,12 @@ fn safepoint(
 /// [`compile`] refuses deterministically, so callers should settle the function
 /// fail-closed rather than retry.
 ///
-/// Currently this never returns `false` for verified bytecode: the only
-/// no-operand `Resume` opcodes left are the four pinned `call*`/`apply` helpers
-/// (S3 2.6), and all of them pop operands, which the verifier forbids at the
-/// entry height of 0. It is kept as the fail-closed net for a future
-/// operand-free unsupported opcode
-/// (`the_pinned_call_opcodes_cannot_be_a_function_entry` pins the premise).
+/// Since D-6 lowered the last four `Helper` opcodes (`call`/`call_method`/
+/// `call_constructor`/`apply`), every opcode a *verified* function can contain
+/// is supported — the only unsupported names are policy `Reject`, which
+/// `verify` refuses before compilation (see
+/// `every_opcode_the_verifier_accepts_is_lowered`). The check stays as the
+/// fail-closed net for a future `Helper` with no lowering.
 pub(crate) fn entry_is_translatable(verified: &VerifiedFunction) -> bool {
     verified
         .instructions()
@@ -1748,6 +1755,24 @@ fn lower_insn(
                 HELPER_ITERATOR_CLOSE,
                 pc + size,
             );
+            return Step::Continue(sp);
+        }
+        // D-6: the four call opcodes. The helper performs the whole JS call on
+        // the current frame through `call_internal`, so the caller never exits
+        // natively; `imm` carries the argument count (`call`/`call_method`/
+        // `call_constructor`) or `apply`'s magic. `call_stack_helper` flushes
+        // the operand stack and reloads `sp` from the frame (the helper popped
+        // the call window and pushed the result).
+        "call" | "call_method" | "call_constructor" | "apply" => {
+            let operand = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
+            b.ins().store(MemFlags::new(), operand, fv.frame, O_IMM);
+            let id = match name {
+                "call" => HELPER_CALL,
+                "call_method" => HELPER_CALL_METHOD,
+                "call_constructor" => HELPER_CALL_CONSTRUCTOR,
+                _ => HELPER_APPLY,
+            };
+            let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
             return Step::Continue(sp);
         }
         // `with_*`: the helper resolves `imm` (atom) on the environment object
@@ -4101,6 +4126,54 @@ mod tests {
         push_bigint.extend_from_slice(&i32b(-7));
         cases.push(("push_bigint_i32", seq(&[&push_bigint, &ret]), 0, 0));
 
+        // D-6 call opcodes: the helper takes the whole call window off the
+        // operand stack, so just enough operands are pushed for the verifier.
+        // `call`/`call_method`/`call_constructor` carry an NPOP argc (0 here);
+        // `apply` a `U16` magic.
+        cases.push((
+            "call",
+            seq(&[&push_i32(0), &[op::OP_call], &u16b(0), &ret]),
+            0,
+            0,
+        ));
+        cases.push((
+            "call_method",
+            seq(&[
+                &push_i32(0),
+                &push_i32(0),
+                &[op::OP_call_method],
+                &u16b(0),
+                &ret,
+            ]),
+            0,
+            0,
+        ));
+        cases.push((
+            "call_constructor",
+            seq(&[
+                &push_i32(0),
+                &push_i32(0),
+                &[op::OP_call_constructor],
+                &u16b(0),
+                &ret,
+            ]),
+            0,
+            0,
+        ));
+        cases.push((
+            "apply",
+            seq(&[
+                &push_i32(0),
+                &push_i32(0),
+                &push_i32(0),
+                &[op::OP_apply],
+                &u16b(0),
+                &ret,
+            ]),
+            0,
+            0,
+        ));
+
         for (name, bytes, args, vars) in cases {
             compile_bytes(bytes, args, vars)
                 .unwrap_or_else(|e| panic!("opcode {name} failed to lower: {e:?}"));
@@ -4238,21 +4311,18 @@ mod tests {
         );
     }
 
-    /// `Helper` opcodes the baseline deliberately does **not** lower. They are
-    /// not a gap: each one exits the native frame at every execution, so any
-    /// function containing them still compiles but only runs natively outside
-    /// those instructions. `delete_var` was in this set by accident until 2.6
-    /// lowered it — `every_native_policy_opcode_is_lowered` cannot catch that
-    /// class of mistake because it only guards `Native`.
-    ///
-    /// The list is the todo 2.6 remainder: the four call opcodes. Lowering them
-    /// means passing operands to helpers natively, which is D-6 phase two (the
-    /// helper calling convention), not a missing `lower_insn` arm.
+    /// `Helper` opcodes the baseline deliberately does **not** lower. Empty
+    /// since D-6 lowered the last four (`call`/`call_method`/`call_constructor`/
+    /// `apply`); every `Helper` opcode now has a lowering. `delete_var` was in
+    /// this set by accident until 2.6 lowered it —
+    /// `every_native_policy_opcode_is_lowered` cannot catch that class of
+    /// mistake because it only guards `Native`.
     #[test]
     fn every_helper_policy_opcode_is_lowered_or_pinned() {
         use crate::jit::{JitPolicy, opcode_names, opcode_policies};
-        /// `Helper` policy, no lowering, intentional (sorted).
-        const PINNED: &[&str] = &["apply", "call", "call_constructor", "call_method"];
+        /// `Helper` policy, no lowering, intentional. A new entry must carry the
+        /// reason it still exits the native frame.
+        const PINNED: &[&str] = &[];
         let mut missing: Vec<&str> = opcode_names()
             .iter()
             .zip(opcode_policies())
@@ -4265,14 +4335,32 @@ mod tests {
             "Helper opcodes without a lowering changed: add the lowering, or pin the \
              name here with the reason it still exits the native frame"
         );
-        // And the pin itself cannot rot: a name that gained a lowering must come
-        // out of the list, or the guard above starts asserting nothing.
-        for name in PINNED {
-            assert!(
-                !supported(name),
-                "{name} now lowers natively but is still pinned as an intentional Resume"
-            );
-        }
+    }
+
+    /// D-6 completes the coverage: every opcode the verifier accepts is lowered,
+    /// so the `Resume` fallback in `lower_insn` is unreachable for verified
+    /// bytecode. The only unsupported names are policy `Reject`, which `verify`
+    /// refuses before lowering (this test pins that equality so a new `Reject`
+    /// that verifies — or a new supported-but-unlowered opcode — is caught).
+    #[test]
+    fn every_opcode_the_verifier_accepts_is_lowered() {
+        use crate::jit::{JitPolicy, opcode_names, opcode_policies};
+        let unsupported: Vec<&str> = opcode_names()
+            .iter()
+            .zip(opcode_policies())
+            .filter(|(name, _)| !supported(name))
+            .map(|(name, _)| *name)
+            .collect();
+        let rejected: Vec<&str> = opcode_names()
+            .iter()
+            .zip(opcode_policies())
+            .filter(|(_, policy)| **policy == JitPolicy::Reject)
+            .map(|(name, _)| *name)
+            .collect();
+        assert_eq!(
+            unsupported, rejected,
+            "the unsupported set must be exactly the `Reject` policy set"
+        );
     }
 
     /// Every shuffle's JIT permutation must equal the frontend's model in
@@ -4453,30 +4541,20 @@ mod tests {
         assert!(compile(&verified, isa.as_ref(), &Cell::new(0)).is_ok());
     }
 
-    #[test]
-    fn unsupported_op_mid_block_still_compiles_to_a_resume() {
-        // First op is supported, so the function is installed; the unsupported
-        // `call` lowers to a `Resume` exit and the interpreter finishes it
-        // (`object`/`array_from`/`push_bigint_i32` were the example here until
-        // they got lowerings).
-        let result = compile_bytes(
-            seq(&[&push_i32(1), &[op::OP_call], &u16b(0), &[op::OP_return]]),
-            0,
-            0,
-        );
-        assert!(result.is_ok());
-    }
-
     /// Why [`entry_is_translatable`] cannot fire today: the only opcodes the
-    /// baseline refuses are the four pinned call opcodes, and every one of them
-    /// pops an operand, so putting one at pc 0 fails verification (`StackUnderflow`
-    /// at height 0) before the entry check is reached. The check stays as the
-    /// fail-closed net for a future `Helper` with no operands — the pin list
-    /// above is the thing that would have to name it.
+    /// baseline could refuse are policy `Reject`, and every surviving opcode is
+    /// lowered (D-6); a `Reject` opcode at pc 0 fails verification before the
+    /// entry check is reached. The check stays as the fail-closed net for a
+    /// future operand-free unsupported opcode.
     #[test]
-    fn the_pinned_call_opcodes_cannot_be_a_function_entry() {
+    fn the_call_opcodes_cannot_be_a_function_entry() {
         use crate::bytecode::opcode_info_final;
         use crate::jit::opcode_names;
+        // `Reject` opcodes that pop no operand are the only ones that could start
+        // a verified function; none of them lower, so `entry_is_translatable`
+        // stays unreachable. `apply`/`call`/`call_constructor`/`call_method` pop
+        // at least one operand each (D-6 note moved to
+        // `every_opcode_the_verifier_accepts_is_lowered`).
         const PINNED: &[&str] = &["apply", "call", "call_constructor", "call_method"];
         for name in PINNED {
             let id = opcode_names()

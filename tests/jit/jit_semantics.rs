@@ -428,13 +428,26 @@ const CASES: &[SemCase] = sem_cases! {
         "'rse:' + f(3)";
     // `regexp` and `push_bigint_i32` build their value in a helper, so a loop
     // that creates one per iteration runs natively (no method call, no
-    // conversion: `call_method`/`call` have no lowering yet, todo 2.6 leaves
-    // them to D-6 phase two).
+    // conversion).
     raise_regexp_and_bigint_literals => Compiles =
         "var __seed = 0; function re(n){ var __z = 0; var s = 0; for (var i = 0; i < n; i++){ var r = /a+b/; s = s + r.source.length; } return s; } function big(n){ var __z = 0; var s = 0n; for (var i = 0; i < n; i++){ s = s + 123456789n; } return s === 123456789000n; }",
         "re(2); big(1)",
         "re(20); big(1000)",
         "'reb:' + re(5) + ',' + big(1000)";
+
+    // ── calls: `call` / `call_method` / `call_constructor` / `apply` (D-6) ──
+    // A spread call (`...`) and `Function.prototype.apply` both compile to the
+    // `apply` opcode; the method form (`O.add`) is `call_method` with a
+    // non-undefined `this`; `inc.call` is a normal method call on `Function`.
+    call_apply_methods_and_constructor => Compiles =
+        "var __seed = 0; var O = { base: 10, add(n){ return this.base + n; } }; \
+         function inc(x){ return x + 1; } function Ctor(v){ this.v = v; } \
+         function f(n){ var __z = 0; var acc = 0; \
+           for (var i = 0; i < n; i++){ acc = inc(acc); acc = O.add(acc); acc = inc.apply(null, [acc]); \
+             acc = inc.call(null, acc); acc = inc(...[acc]); acc = new Ctor(acc).v; } return acc; }",
+        "f(2)",
+        "f(20)",
+        "'calls:' + f(5) + ',' + O.add(1)";
 };
 
 /// Feature areas the suite must cover, checked so the list cannot silently
@@ -467,6 +480,7 @@ const FEATURES: &[&str] = &[
     "raise_",
     "fact_",
     "float_",
+    "call_",
 ];
 #[test]
 fn every_semantic_feature_has_a_case() {

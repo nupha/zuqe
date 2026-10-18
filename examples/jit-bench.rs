@@ -194,8 +194,9 @@ const KERNELS: &[Kernel] = &[
                  workload(2, values, ints, floats);",
         work: "workload(80, values, ints, floats);",
     },
-    // call-heavy.js: monomorphic direct call per iteration; `call` has no
-    // lowering yet (2.6/D-6), so every iteration leaves the native frame.
+    // call-heavy.js: monomorphic direct call per iteration; the `call` helper
+    // (D-6) runs the callee on the caller's frame, so no per-iteration frame
+    // exit/interpreter dispatch/re-entry is paid.
     Kernel {
         name: "call-heavy",
         define: "function increment(value, delta){ return value + delta; } \
@@ -231,8 +232,9 @@ const KERNELS: &[Kernel] = &[
         work: "workload(200000);",
     },
     // exceptions-sync.js: a primitive throw every 16th iteration, a finally on
-    // every iteration and a helper-raised TypeError every 64th. `throw` has no
-    // lowering (2.6), so the throw sites leave the native frame.
+    // every iteration and a helper-raised TypeError every 64th. The throw
+    // sites must leave the native frame (the catch scan is the interpreter's),
+    // so the exception-dense loop stays a negative kernel (2.6).
     Kernel {
         name: "exceptions-sync",
         define: "function workload(iterations, seed){ var table = [{ w: 1 }, { w: 2 }, null, { w: 3 }]; \

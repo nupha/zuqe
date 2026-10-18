@@ -315,9 +315,10 @@ fn misc_operators_match_interpreter() {
     }
 }
 
-/// Epic E4: a call exits to the trampoline, which runs the callee and then
-/// re-enters the caller's native code at the post-call pc. Mutual recursion
-/// stresses that re-entry (every return lands back in native code).
+/// Epic E4 / D-6: mutual recursion through `call` must match the interpreter.
+/// Under D-6 the callee runs through the call helper on the caller's frame
+/// (each nested call is a native entry), so the recursion stays native; the
+/// value parity and the native-entry count are the assertions.
 #[test]
 fn calls_reenter_native() {
     let define = b"\
@@ -332,13 +333,14 @@ fn calls_reenter_native() {
     assert!(total > 0, "no native entries");
 }
 
-/// Epic 1.7: a native (C/Rust) callee returning inline must not strand the
-/// caller in the interpreter. Before this, a single `Math.max(...)` before a
-/// hot loop left that loop interpreted for the rest of the frame (the loop
-/// back-edge hook fired once per iteration); now the post-call pc re-enters
-/// native.
+/// D-6: a native call from native code no longer exits the caller's frame, so
+/// the loop after it stays native without any re-entry — the signal is
+/// `backedges == 0` (an instruction-level `Resume` would strand the loop in the
+/// interpreter and show up as loop back edges). Before 1.7 a native call left
+/// the caller interpreted; before D-6 the `call` itself still exited the frame
+/// and needed a re-entry. Now the helper runs the callee inline.
 #[test]
-fn a_native_call_reenters_the_callers_native_code() {
+fn a_native_call_does_not_strand_the_caller_in_the_interpreter() {
     let mut rt = Runtime::create().unwrap();
     let mut ctx = rt
         .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
@@ -352,23 +354,30 @@ fn a_native_call_reenters_the_callers_native_code() {
     jit.poll();
 
     let before = jit.metrics();
-    ctx.eval(
-        b"workload(100000);",
-        &name,
-        EvalType::Global,
-        EvalFlags::empty(),
-    )
-    .unwrap();
+    let result = ctx
+        .eval(
+            b"workload(60000);",
+            &name,
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap();
     let after = jit.metrics();
 
+    // sum(0..59999) = 1799970000, + m (2).
+    assert_eq!(
+        observe(Ok(result)),
+        "int:1799970002",
+        "native result after a native call"
+    );
     assert_eq!(
         after.backedges - before.backedges,
         0,
         "the loop after a native call ran in the interpreter"
     );
     assert!(
-        after.native_entries - before.native_entries >= 2,
-        "no native re-entry after the inline native call (natives: {})",
+        after.native_entries - before.native_entries >= 1,
+        "the workload's native entry did not run (natives: {})",
         after.native_entries - before.native_entries
     );
 }
@@ -574,6 +583,80 @@ fn with_throws_match_interpreter() {
     }
 }
 
+/// D-6: the four call opcodes lower to helpers that run the callee on the same
+/// frame, so a call site no longer exits the caller's native code. The signal is
+/// the same as `ref_cells_run_in_native_code`: any instruction-level `Resume`
+/// would strand the rest of the frame in the interpreter and show up as loop
+/// back edges. Covers `call` (direct), `call_method`, `call_constructor`,
+/// `apply` (spread call), and a throw that crosses a call.
+#[test]
+fn call_opcodes_run_in_native_code() {
+    let mut rt = Runtime::create().unwrap();
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .unwrap();
+    let jit = Jit::attach_to(&rt, eager_config()).unwrap();
+    let name = EvalName::Name("jit-calls.js".into());
+    // `h` returns its argument, so every kernel's result is just its trip count.
+    let define = b"var OBJ = { m: h }; \
+                   function h(x){ return x; } \
+                   function direct(n){ var s = 0; for (var i = 0; i < n; i++) s = h(s + 1); return s; } \
+                   function method(n){ var s = 0; for (var i = 0; i < n; i++) s = OBJ.m(s + 1); return s; } \
+                   function spread(n){ var s = 0; for (var i = 0; i < n; i++) s = h(...[s + 1]); return s; } \
+                   function Ctor(v){ this.v = v; } \
+                   function ctor(n){ var s = 0; for (var i = 0; i < n; i++) s = new Ctor(s + 1).v; return s; } \
+                   function thrower(){ throw 7; } \
+                   function catcher(n){ try { thrower(); } catch (e) { return e + n; } return -1; } \
+                   direct(1); method(1); spread(1); ctor(1); catcher(1);";
+    ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
+        .unwrap();
+    jit.poll();
+    assert!(
+        jit.metrics().functions_compiled >= 6,
+        "the call functions were not compiled ({:?})",
+        jit.metrics()
+    );
+
+    for (call, expected) in [
+        ("direct(100000)", 100000),
+        ("method(100000)", 100000),
+        ("spread(100000)", 100000),
+        ("ctor(100000)", 100000),
+        // The throw unwinds through `h_call` and is caught in the caller.
+        ("catcher(5)", 12),
+    ] {
+        let before = jit.metrics();
+        let result = ctx
+            .eval(call.as_bytes(), &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+        let after = jit.metrics();
+        assert_eq!(
+            observe(Ok(result)),
+            format!("int:{expected}"),
+            "{call}: wrong value"
+        );
+        assert_eq!(
+            after.backedges - before.backedges,
+            0,
+            "{call}: a call exited the native frame (interpreter back edges)"
+        );
+    }
+}
+
+/// D-6 acceptance: a call in generated code nests one Rust frame per JS call,
+/// so unbounded recursion must surface as a catchable stack error (the engine's
+/// guard fires) instead of overrunning the C stack. `native_vs_interpreter`
+/// asserts the caught value matches the interpreter, so any divergence in
+/// where the guard fires is visible; a crash fails the process.
+#[test]
+fn deep_native_recursion_is_bounded() {
+    let define = b"function deep(n){ return deep(n + 1) + 1; } \
+                   function guard(){ try { deep(0); return 'none'; } catch (e) { return 'caught:' + e.name; } } \
+                   guard();";
+    let metrics = native_vs_interpreter(define, "guard()");
+    assert!(metrics.native_entries > 0, "the recursion never ran native");
+}
+
 /// A call re-enters the caller's native code; the caller must still see its own
 /// `this` afterwards (the callee may have had a different one).
 #[test]
@@ -693,8 +776,8 @@ fn native_throws_match_the_interpreter() {
 /// loop that creates one per iteration stays in native code — the signal is the
 /// same as `ref_cells_run_in_native_code`: an instruction-level `Resume` would
 /// strand the rest of the frame in the interpreter and show up as loop back
-/// edges. The RegExp kernel deliberately avoids a method call (`call_method`
-/// has no lowering yet), and the BigInt one compares instead of converting.
+/// edges. The RegExp kernel deliberately avoids a method call; the BigInt one
+/// compares instead of converting.
 #[test]
 fn regexp_and_bigint_literals_run_in_native_code() {
     let mut rt = Runtime::create().unwrap();
