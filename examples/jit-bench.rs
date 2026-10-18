@@ -8,7 +8,7 @@
 //! closures/calls, exceptions, JSON, regexp, strings, Map/Set/BigInt, classes.
 //!
 //! Run with: `cargo run --release --features jit --example jit-bench -- \
-//!   --modes interpreter,tier1,tier2,automatic` (or `scripts/jit-bench-matrix.sh`).
+//!   --modes interpreter,tier1,tier2,automatic` (or `tests/jit/jit-bench-matrix.sh`).
 //!
 //! Two protocols (epic G4):
 //! * `--protocol inproc` (default): every mode runs in this process, `ROUNDS`

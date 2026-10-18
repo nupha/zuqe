@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! Does the engine start at all? `scripts/ci-sanitize.sh` runs this under
+//! Does the engine start at all? `tests/jit/ci-sanitize.sh` runs this under
 //! AddressSanitizer first: `Runtime::create_context` must not fail before any
 //! JIT code is reached, otherwise the sanitizer leg measures the environment
 //! rather than the JIT.

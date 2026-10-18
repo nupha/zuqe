@@ -9,7 +9,7 @@
 # this script runs the legs available on the current host and prints the row it
 # covered. Cross-rows need a runner with that host.
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 OFF_FEATURES="inline_cache,big_int,all_unicode,async_support,builtin_mapset,builtin_proxy,builtin_atomic,builtin_regexp,builtin_reflect,builtin_json,builtin_date,builtin_math,builtin_weakref"
 

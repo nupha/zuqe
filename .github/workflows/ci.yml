@@ -1,9 +1,9 @@
 # M2b / S4 4.2: the {off,on} x {linux x86_64, linux aarch64, macOS arm64}
 # feature-gating matrix. Each row runs the same entry points the maintainer
-# runs locally (`scripts/ci-gate.sh`, `scripts/ci-sanitize.sh`), so a row that
-# is green here is exactly what `memo/jit_handover.md` records.
+# runs locally (`tests/jit/ci-gate.sh`, `tests/jit/ci-sanitize.sh`), so a row
+# that is green here is exactly what `memo/jit_handover.md` records.
 #
-# `scripts/ci-gate.sh` spells the `off` leg's feature list explicitly because
+# `tests/jit/ci-gate.sh` spells the `off` leg's feature list explicitly because
 # D-19 keeps `jit` in `default`; it also asserts cranelift is unreachable with
 # the feature off.
 name: ci
@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: ci-gate
-        run: ./scripts/ci-gate.sh
+        run: ./tests/jit/ci-gate.sh
 
   sanitize:
     name: sanitize (ubuntu x86_64)
@@ -36,4 +36,4 @@ jobs:
       # The script prints an explicit SKIP while the engine-side ASan blocker
       # (jit_todo 3.1) is open; it still runs the fault-injection leg.
       - name: ci-sanitize
-        run: ./scripts/ci-sanitize.sh
+        run: ./tests/jit/ci-sanitize.sh

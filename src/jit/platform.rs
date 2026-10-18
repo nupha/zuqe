@@ -212,7 +212,7 @@ fn page_round_up(len: usize) -> usize {
 
 /// Real-hardware check of the whole publication path on aarch64 (this is the
 /// platform the i-cache flush exists for; x86_64 cannot exercise it). Runs only
-/// on an aarch64 runner — `scripts/ci-gate.sh`'s matrix lists it.
+/// on an aarch64 runner — `tests/jit/ci-gate.sh`'s matrix lists it.
 #[cfg(all(test, target_arch = "aarch64"))]
 mod tests {
     use super::CodeMem;

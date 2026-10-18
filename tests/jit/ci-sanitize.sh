@@ -8,7 +8,7 @@
 #   4. AddressSanitizer (nightly), gated on a probe that proves the engine can
 #      create a context at all under the sanitizer
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 TARGET=x86_64-unknown-linux-gnu
 
