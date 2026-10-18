@@ -2127,6 +2127,13 @@ fn lower_insn(
             Step::Continue(sp)
         }
         "get_array_el" | "get_array_el2" | "get_array_el3" | "put_array_el" => {
+            // The site index rides in `imm2` (array element keys are runtime
+            // values, so the cached property atom lives in the cache entry).
+            #[cfg(feature = "inline_cache")]
+            {
+                let ic = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
+                b.ins().store(MemFlags::new(), ic, fv.frame, O_IMM2);
+            }
             let id = match name {
                 "get_array_el" => HELPER_GET_ARRAY_EL,
                 "get_array_el2" => HELPER_GET_ARRAY_EL2,
@@ -3427,6 +3434,15 @@ mod tests {
         out
     }
 
+    /// `get_array_el*`/`put_array_el` encoding: `[op]`, plus `[ic_idx:u16]` when
+    /// the inline cache is compiled in.
+    fn array_el(opcode: u8) -> Vec<u8> {
+        let mut out = vec![opcode];
+        #[cfg(feature = "inline_cache")]
+        out.extend_from_slice(&u16b(0));
+        out
+    }
+
     /// Every opcode the baseline claims to support must lower without a
     /// Cranelift error. This is the coverage net for the lowering `match`.
     #[test]
@@ -3623,19 +3639,34 @@ mod tests {
         // Epic E3: array-element helpers. Stack effects differ per opcode.
         cases.push((
             "get_array_el",
-            seq(&[&push_i32(0), &push_i32(0), &[op::OP_get_array_el], &ret]),
+            seq(&[
+                &push_i32(0),
+                &push_i32(0),
+                &array_el(op::OP_get_array_el),
+                &ret,
+            ]),
             0,
             0,
         ));
         cases.push((
             "get_array_el2",
-            seq(&[&push_i32(0), &push_i32(0), &[op::OP_get_array_el2], &ret]),
+            seq(&[
+                &push_i32(0),
+                &push_i32(0),
+                &array_el(op::OP_get_array_el2),
+                &ret,
+            ]),
             0,
             0,
         ));
         cases.push((
             "get_array_el3",
-            seq(&[&push_i32(0), &push_i32(0), &[op::OP_get_array_el3], &ret]),
+            seq(&[
+                &push_i32(0),
+                &push_i32(0),
+                &array_el(op::OP_get_array_el3),
+                &ret,
+            ]),
             0,
             0,
         ));
@@ -3645,7 +3676,8 @@ mod tests {
                 &push_i32(0),
                 &push_i32(0),
                 &push_i32(0),
-                &[op::OP_put_array_el, op::OP_return_undef],
+                &array_el(op::OP_put_array_el),
+                &[op::OP_return_undef],
             ]),
             0,
             0,

@@ -235,6 +235,18 @@ const CASES: &[SemCase] = sem_cases! {
         "f(500)",
         "'ic:' + f(7) + ',' + PO[0].x + ',' + PO[4].y";
 
+    // ── element access on a non-fast (dictionary) array (epic N2): `delete
+    //    a[1]` converts the literal into a sparse array whose elements are own
+    //    shape properties, so the element site's `(shape, prop)` cache serves
+    //    the repeated `a[8]` read and write. The tombstone (`a[1]`),
+    //    out-of-range (`a[99]`), negative (`a[-1]`) and `length` shapes must
+    //    stay on the slow path and stay tag-exact ──
+    ic_dictionary_array_elements => Compiles =
+        "var __seed = 0; function f(n){ var __z = 0; var a = [1,2,3,4,5]; delete a[1]; a[8] = 40; var s = 0; for (var i = 0; i < n; i++) { s = (s + a[8]) | 0; a[8] = (a[8] + 1) & 1023; s = (s + (a[1] === undefined ? 7 : 0) + (a[99] === undefined ? 3 : 0) + (a[-1] === undefined ? 5 : 0)) | 0; a['length'] = 9; } return s + a.length; }",
+        "f(1)",
+        "f(400)",
+        "'dic:' + f(3) + ',' + f(0)";
+
     // ── cross-block operand stack residency (epic F4 step 2): short-circuit
     //    and ternary joins leave a merged slot on the operand stack, which the
     //    join block must read exactly like the interpreter does. The values

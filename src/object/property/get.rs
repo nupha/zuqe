@@ -270,14 +270,14 @@ impl ObjectImpl {
         self.get_property_internal(ctx, atom, Object::from_ref(self).into(), false)
     }
 
-    /// get property by prop value
-    pub fn get_property_value(&self, ctx: &mut ScopedContext, prop: JSValue) -> JSResult {
-        // fast path: check if prop is an index
+    /// The numeric-key fast path (packed/typed arrays and dense arrays).
+    /// Returns `None` when the slow lookup must run.
+    fn get_property_index_value(&self, ctx: &mut ScopedContext, prop: JSValue) -> Option<JSResult> {
         if let Some(num) = prop.as_number() {
             match num {
                 IntOrFloat::Int64(i) if i >= 0 => {
                     if let Some(r) = self.get_property_index(ctx, i as usize) {
-                        return r;
+                        return Some(r);
                     }
                 }
                 IntOrFloat::Float64(f) if f >= 0.0 && f.fract() == 0.0 => {
@@ -285,15 +285,91 @@ impl ObjectImpl {
                     if n <= u32::MAX as i64
                         && let Some(r) = self.get_property_index(ctx, n as usize)
                     {
-                        return r;
+                        return Some(r);
                     }
                 }
                 _ => {}
             }
         }
+        None
+    }
 
+    /// Cached `(slot, flags)` for `(current shape, prop)`, if this site already
+    /// holds one and the slot is not a deleted tombstone (which keeps its shape
+    /// but has no value).
+    #[cfg(feature = "inline_cache")]
+    pub(crate) fn cached_slot(
+        &self,
+        prop: Atom,
+        site: &crate::function::InlineCacheSite,
+    ) -> Option<(u32, u8)> {
+        let shape = self.shape()?;
+        let shape_ptr = unsafe { shape.gc_ref().as_ptr().as_ptr() };
+        let hit = site.find(shape_ptr, shape.uid, prop.id())?;
+        if matches!(self.prop_slot(hit.0 as usize), JSProperty::Deleted) {
+            return None;
+        }
+        Some(hit)
+    }
+
+    /// Record `(current shape, prop) -> (slot, flags)` after a successful own
+    /// lookup, so the next execution can skip the HashList traversal. Fills a
+    /// free way only: array keys are runtime values and must not churn the
+    /// site (`InlineCacheSite::insert_fill_only`).
+    #[cfg(feature = "inline_cache")]
+    pub(crate) fn cache_own_property(
+        &self,
+        prop: Atom,
+        site: &mut crate::function::InlineCacheSite,
+    ) {
+        if let Some(shape) = self.shape()
+            && let Some((idx, flags)) = self.find_shape_property(prop)
+        {
+            let shape_ptr = unsafe { shape.gc_ref().as_ptr().as_ptr() };
+            site.insert_fill_only(shape_ptr, shape.uid, prop.id(), idx as u32, flags as u8);
+        }
+    }
+
+    /// get property by prop value
+    pub fn get_property_value(&self, ctx: &mut ScopedContext, prop: JSValue) -> JSResult {
+        if let Some(r) = self.get_property_index_value(ctx, prop) {
+            return r;
+        }
         // slow path
         self.get_property_value_slow(ctx, prop)
+    }
+
+    /// `get_property_value` with an inline-cache site: an own property the site
+    /// has already seen resolves straight to its slot, and a successful full
+    /// lookup fills the site. This is what serves non-fast (sparse/dictionary)
+    /// array elements, whose key is not known statically.
+    #[cfg(feature = "inline_cache")]
+    pub(crate) fn get_property_value_ic(
+        &self,
+        ctx: &mut ScopedContext,
+        prop: JSValue,
+        site: &mut crate::function::InlineCacheSite,
+    ) -> JSResult {
+        if let Some(r) = self.get_property_index_value(ctx, prop) {
+            return r;
+        }
+        // A still-fast array keeps its elements in the payload (or has none
+        // here, e.g. an out-of-range typed read); the IC exists for the
+        // non-fast case where elements are own shape properties.
+        if self.is_fast_array() {
+            return self.get_property_value_slow(ctx, prop);
+        }
+        let atom = prop.to_atom(ctx)?;
+        if let Some((slot, _)) = self.cached_slot(atom, site) {
+            return self
+                .prop_slot(slot as usize)
+                .value(ctx, Object::from_ref(self).into());
+        }
+        let result = self.get_property_internal(ctx, atom, Object::from_ref(self).into(), false);
+        if result.is_ok() {
+            self.cache_own_property(atom, site);
+        }
+        result
     }
 
     #[inline]
@@ -430,6 +506,22 @@ impl JSValue {
         } else {
             let atom = prop.to_atom(ctx)?;
             self.get_property_internal(ctx, atom, *self, false)
+        }
+    }
+
+    /// `get_property_value` with an inline-cache site; only objects can hit the
+    /// cache, every other value falls back to the plain lookup.
+    #[cfg(feature = "inline_cache")]
+    pub(crate) fn get_property_value_ic(
+        &self,
+        ctx: &mut ScopedContext,
+        prop: JSValue,
+        site: &mut crate::function::InlineCacheSite,
+    ) -> JSResult {
+        if let Some(o) = self.as_object() {
+            o.get_property_value_ic(ctx, prop, site)
+        } else {
+            self.get_property_value(ctx, prop)
         }
     }
 

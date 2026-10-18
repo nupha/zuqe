@@ -476,6 +476,10 @@ impl FunctionDef {
             };
             push_vec_u8(bc_out, dec_inc);
             push_vec_u8(bc_out, OpCode::PUT_ARRAY_EL as u8);
+            // Preserve the inline-cache index the matched `put_array_el`
+            // carried (`code_match` reads a U16 operand into `cc.idx`).
+            #[cfg(feature = "inline_cache")]
+            push_vec_u16(bc_out, cc.idx as u16);
             *pos_next = cc.pos;
             return true;
         }

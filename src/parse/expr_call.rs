@@ -281,6 +281,10 @@ impl<'s> JSParseState<'s> {
             opcodes::OP_get_super_value => {
                 let fd = self.cur_func_mut();
                 fd.byte_code[fd.last_opcode_pos as usize] = opcodes::OP_get_array_el;
+                // The rewritten instruction carries an inline-cache site like
+                // any other `get_array_el`; append its index (the operand slot
+                // is free because `get_super_value` had no payload).
+                fd.emit_inline_cache_index();
                 // on stack: this func_obj
                 opcode = opcodes::OP_get_array_el;
                 drop_count = 2;

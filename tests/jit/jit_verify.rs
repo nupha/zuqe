@@ -422,6 +422,58 @@ fn ref_cells_run_in_native_code() {
     }
 }
 
+/// Epic N2: element access on a non-fast (dictionary) array. `delete a[1]`
+/// converts the literal to a sparse array whose elements are own shape
+/// properties, so the element site's `(shape, prop)` inline cache serves the
+/// repeated reads/writes of the same key while out-of-range and negative keys
+/// stay on the slow path. The signal is the same as the other native tests:
+/// any instruction-level `Resume` shows up as interpreter loop back edges.
+#[test]
+fn dictionary_array_elements_run_in_native_code() {
+    let mut rt = Runtime::create().unwrap();
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .unwrap();
+    let jit = Jit::attach_to(&rt, eager_config()).unwrap();
+    let name = EvalName::Name("jit-dict-array.js".into());
+    let define = b"function f(n){ var a = [1,2,3,4,5]; delete a[1]; a[8] = 40; var s = 0; \
+                   for (var i = 0; i < n; i++){ \
+                     s = (s + a[8] + (a[1] === undefined ? 7 : 0) + (a[99] === undefined ? 3 : 0) \
+                          + (a[-1] === undefined ? 5 : 0)) | 0; } return s; } \
+                   function g(n){ var a = [1,2,3,4,5]; delete a[1]; a[8] = 0; var s = 0; \
+                   for (var i = 0; i < n; i++){ a[8] = (a[8] + 1) & 1023; s = (s + a[8]) | 0; } \
+                   return s + a[8]; } \
+                   f(1); g(1);";
+    ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
+        .unwrap();
+    jit.poll();
+    assert!(
+        jit.metrics().functions_compiled >= 2,
+        "the dictionary-array functions were not compiled ({:?})",
+        jit.metrics()
+    );
+
+    // `55` per iteration: 40 (a[8]) + 7 (deleted tombstone) + 3 (out of range)
+    // + 5 (negative key). `g` writes the same key `n` times (n < 1024).
+    for (call, expected) in [("f(100000)", 100000 * 55), ("g(1000)", 500500 + 1000)] {
+        let before = jit.metrics();
+        let result = ctx
+            .eval(call.as_bytes(), &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+        let after = jit.metrics();
+        assert_eq!(
+            observe(Ok(result)),
+            format!("int:{expected}"),
+            "{call} returned the wrong value"
+        );
+        assert_eq!(
+            after.backedges - before.backedges,
+            0,
+            "{call}: the dictionary-array loop ran in the interpreter"
+        );
+    }
+}
+
 /// S3 (2.4): the `with_*` family lowers to helpers, so a `with` body runs in
 /// native code on both of its edges — the name found on the with object and the
 /// fall-through to the ordinary variable access. The signal is the same as

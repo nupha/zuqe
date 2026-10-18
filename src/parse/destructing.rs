@@ -222,7 +222,7 @@ impl<'s> JSParseState<'s> {
                             self.emit_op(OpCode::PERM3); // TOS: excludeList src prop
                         }
                         // get the computed property from the source object
-                        self.emit_op(OpCode::GET_ARRAY_EL2);
+                        self.emit_array_el(OpCode::GET_ARRAY_EL2);
                     } else {
                         // named property
                         if has_ellipsis {
@@ -292,7 +292,7 @@ impl<'s> JSParseState<'s> {
                     // computed property name on stack
                     // XXX: should have OP_get_array_el2x with depth
                     // source prop -- val
-                    self.emit_op(OpCode::GET_ARRAY_EL);
+                    self.emit_array_el(OpCode::GET_ARRAY_EL);
                 } else {
                     // named property
                     // XXX: should have OP_get_field2x with depth
@@ -341,7 +341,7 @@ impl<'s> JSParseState<'s> {
                         // computed property name on stack
                         // XXX: should have OP_get_array_el2x with depth
                         // source prop -- val
-                        self.emit_op(OpCode::GET_ARRAY_EL);
+                        self.emit_array_el(OpCode::GET_ARRAY_EL);
                     } else {
                         // named property
                         // XXX: should have OP_get_field2x with depth

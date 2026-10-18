@@ -716,19 +716,38 @@ unsafe extern "C" fn h_put_var_init(f: *mut JitExecFrame) -> u32 {
     unsafe { global_put(f, true) }
 }
 
+/// Shared `get_array_el*` lookup: the site's `(shape, prop)` cache (a
+/// non-fast array element is an ordinary own shape property), then the full
+/// lookup that fills the site.
+#[inline]
+unsafe fn array_el_get(
+    f: &JitExecFrame,
+    scope: &mut ScopedContext,
+    target: JSValue,
+    prop: JSValue,
+) -> JSValue {
+    #[cfg(feature = "inline_cache")]
+    {
+        let ic_idx = f.imm2 as usize;
+        // SAFETY: single-threaded; the cache is interior-mutable by design.
+        let cache = unsafe { &mut *(*f.bytecode).inline_cache.get() };
+        if let Some(site) = cache.get_mut(ic_idx) {
+            return target
+                .get_property_value_ic(scope, prop, site)
+                .unwrap_or(JSValue::EXCEPTION);
+        }
+    }
+    target
+        .get_property_value(scope, prop)
+        .unwrap_or(JSValue::EXCEPTION)
+}
+
 /// `get_array_el`: `[array, prop, ^] -> [value, ^]`.
-///
-/// shortcut: element accesses carry no inline-cache index, so they lean on
-/// `get_property_index`'s class/bounds fast path instead of a shape IC;
-/// upgrade to a real `InlineCacheSite` when non-fast (dictionary) arrays show
-/// up hot — that needs an ic-index operand on GET_ARRAY_EL/PUT_ARRAY_EL.
 unsafe extern "C" fn h_get_array_el(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
         let scope = scope_of(f);
-        let value = (*f.sp.offset(-2))
-            .get_property_value(scope, *f.sp.offset(-1))
-            .unwrap_or(JSValue::EXCEPTION);
+        let value = array_el_get(f, scope, *f.sp.offset(-2), *f.sp.offset(-1));
         let is_err = value.is_exception();
         *f.sp.offset(-2) = value;
         f.sp = f.sp.offset(-1);
@@ -741,9 +760,7 @@ unsafe extern "C" fn h_get_array_el2(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
         let scope = scope_of(f);
-        let value = (*f.sp.offset(-2))
-            .get_property_value(scope, *f.sp.offset(-1))
-            .unwrap_or(JSValue::EXCEPTION);
+        let value = array_el_get(f, scope, *f.sp.offset(-2), *f.sp.offset(-1));
         let is_err = value.is_exception();
         *f.sp.offset(-1) = value;
         if is_err { HELPER_EXCEPTION } else { HELPER_OK }
@@ -766,9 +783,7 @@ unsafe extern "C" fn h_get_array_el3(f: *mut JitExecFrame) -> u32 {
             };
             *f.sp.offset(-1) = prop1;
         }
-        let value = array
-            .get_property_value(scope, *f.sp.offset(-1))
-            .unwrap_or(JSValue::EXCEPTION);
+        let value = array_el_get(f, scope, array, *f.sp.offset(-1));
         let is_err = value.is_exception();
         *f.sp = value;
         f.sp = f.sp.add(1);
@@ -784,7 +799,31 @@ unsafe extern "C" fn h_put_array_el(f: *mut JitExecFrame) -> u32 {
         let mut array = *f.sp.offset(-3);
         let prop = *f.sp.offset(-2);
         let value = *f.sp.offset(-1);
-        let result = array.set_property_value(scope, prop, value, ThrowPolicy::StrictOnly, false);
+        let result = {
+            #[cfg(feature = "inline_cache")]
+            {
+                let ic_idx = f.imm2 as usize;
+                // SAFETY: single-threaded; interior-mutable by design.
+                let cache = &mut *(*f.bytecode).inline_cache.get();
+                match cache.get_mut(ic_idx) {
+                    Some(site) => array.set_property_value_ic(
+                        scope,
+                        prop,
+                        value,
+                        ThrowPolicy::StrictOnly,
+                        false,
+                        site,
+                    ),
+                    None => {
+                        array.set_property_value(scope, prop, value, ThrowPolicy::StrictOnly, false)
+                    }
+                }
+            }
+            #[cfg(not(feature = "inline_cache"))]
+            {
+                array.set_property_value(scope, prop, value, ThrowPolicy::StrictOnly, false)
+            }
+        };
         f.sp = f.sp.offset(-3);
         if result.is_err() {
             HELPER_EXCEPTION
@@ -826,7 +865,7 @@ unsafe fn field_get(f: *mut JitExecFrame, push: bool) -> u32 {
             {
                 let shape_ptr = shape.gc_ref().as_ptr().as_ptr();
                 // The site holds up to IC_WAYS shapes (epic F3).
-                if let Some((slot, _)) = cache[ic_idx].find(shape_ptr, shape.uid) {
+                if let Some((slot, _)) = cache[ic_idx].find(shape_ptr, shape.uid, atom.id()) {
                     let slot = slot as usize;
                     if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
                         return match o.prop_slot(slot).value(scope, o.into()) {
@@ -852,6 +891,7 @@ unsafe fn field_get(f: *mut JitExecFrame, push: bool) -> u32 {
                             cache[ic_idx].insert(
                                 shape.gc_ref().as_ptr().as_ptr(),
                                 shape.uid,
+                                atom.id(),
                                 idx as u32,
                                 flags as u8,
                             );
@@ -891,7 +931,9 @@ unsafe extern "C" fn h_put_field(f: *mut JitExecFrame) -> u32 {
                 && let Some(shape) = o.shape()
             {
                 let shape_ptr = shape.gc_ref().as_ptr().as_ptr();
-                if let Some((slot, cached_flags)) = cache[ic_idx].find(shape_ptr, shape.uid) {
+                if let Some((slot, cached_flags)) =
+                    cache[ic_idx].find(shape_ptr, shape.uid, atom.id())
+                {
                     let slot = slot as usize;
                     if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
                         let flags = cached_flags as u32;
@@ -927,6 +969,7 @@ unsafe extern "C" fn h_put_field(f: *mut JitExecFrame) -> u32 {
                 cache[ic_idx].insert(
                     shape.gc_ref().as_ptr().as_ptr(),
                     shape.uid,
+                    atom.id(),
                     idx as u32,
                     flags as u8,
                 );

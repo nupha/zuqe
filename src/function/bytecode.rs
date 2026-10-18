@@ -20,15 +20,19 @@ use crate::{
 
 use super::{FunctionKind, closure::ClosureVar, var::JSVarDef};
 
-/// A single inline-cache entry for GET_FIELD_IC / GET_FIELD2_IC.
+/// A single inline-cache entry for a `get_field`/`get_field2`/`put_field` or
+/// `get_array_el*`/`put_array_el` site.
 ///
 /// Each entry caches the result of the last full shape-property lookup so that
 /// subsequent executions of the same bytecode instruction can skip the
 /// HashList traversal and directly index into prop_values.
 ///
-/// The (shape_ptr, shape_uid) pair together defeat the ABA problem: even if a
-/// freed shape's memory is reused by a new shape at the same address, the uid
-/// will differ, preventing a stale cache hit.
+/// The (shape_ptr, shape_uid, prop) triple together identify the cached
+/// property: `prop` is the atom the site observed (the instruction's own atom
+/// for `*_field`, the runtime key for array elements, whose atom is not known
+/// statically). The (shape_ptr, shape_uid) pair alone defeats the ABA problem:
+/// even if a freed shape's memory is reused by a new shape at the same address,
+/// the uid will differ, preventing a stale cache hit.
 #[cfg(feature = "inline_cache")]
 #[derive(Clone, Copy, Default)]
 #[repr(C)]
@@ -39,10 +43,11 @@ pub(crate) struct InlineCacheEntry {
     pub(crate) shape_uid: u32,
     /// Cached slot index into the object's prop_values array.
     pub(crate) slot: u32,
+    /// Atom id of the cached property. Atoms are never freed or reused, so
+    /// storing an id observed at runtime (array element keys) is safe.
+    pub(crate) prop: u32,
     /// Cached property flags (e.g. Writable, Configurable, GetSet …).
     /// Only the low 6 bits are used (JS_PROP_*); stored as u8 for clarity.
-    /// Does not reduce struct size (24 bytes with padding) but documents
-    /// the actual domain.
     pub(crate) flags: u8,
 }
 
@@ -53,10 +58,10 @@ pub(crate) struct InlineCacheEntry {
 #[cfg(feature = "inline_cache")]
 pub(crate) const IC_WAYS: usize = 4;
 
-/// One `get_field`/`get_field2`/`put_field` site: up to [`IC_WAYS`] cached
-/// shapes plus the cursor that picks the eviction victim. Both the
-/// interpreter and the JIT helpers go through [`Self::find`]/[`Self::insert`],
-/// so the two fast paths can never drift apart.
+/// One property-access site: up to [`IC_WAYS`] cached `(shape, prop)` entries
+/// plus the cursor that picks the eviction victim. Both the interpreter and the
+/// JIT helpers go through [`Self::find`]/[`Self::insert`], so the two fast paths
+/// can never drift apart.
 #[cfg(feature = "inline_cache")]
 #[derive(Clone, Copy, Default)]
 pub(crate) struct InlineCacheSite {
@@ -68,52 +73,79 @@ pub(crate) struct InlineCacheSite {
 
 #[cfg(feature = "inline_cache")]
 impl InlineCacheSite {
-    /// The cached `(slot, flags)` for `shape`, if this site has seen it.
+    /// The cached `(slot, flags)` for `(shape, prop)`, if this site has seen it.
     /// `shape_ptr` is only ever compared, never dereferenced (see the GC
     /// safety note on `BytecodeImpl::inline_cache`).
     pub(crate) fn find(
         &self,
         shape_ptr: *const crate::object::ShapeImpl,
         shape_uid: u32,
+        prop: u32,
     ) -> Option<(u32, u8)> {
         self.ways
             .iter()
-            .find(|w| w.shape_ptr == shape_ptr && w.shape_uid == shape_uid)
+            .find(|w| w.shape_ptr == shape_ptr && w.shape_uid == shape_uid && w.prop == prop)
             .map(|w| (w.slot, w.flags))
     }
 
-    /// Record `shape -> (slot, flags)`: refresh the matching way, else fill
-    /// the first empty way (a monomorphic site therefore stays on `ways[0]`
+    /// Record `(shape, prop) -> (slot, flags)`: refresh the matching way, else
+    /// fill the first empty way (a monomorphic site therefore stays on `ways[0]`
     /// and costs exactly what the old single entry cost), else evict
     /// round-robin.
     pub(crate) fn insert(
         &mut self,
         shape_ptr: *const crate::object::ShapeImpl,
         shape_uid: u32,
+        prop: u32,
         slot: u32,
         flags: u8,
     ) {
-        let way = match self
-            .ways
-            .iter()
-            .position(|w| w.shape_ptr == shape_ptr && w.shape_uid == shape_uid)
-        {
-            Some(i) => i,
-            None => match self.ways.iter().position(|w| w.shape_ptr.is_null()) {
+        let way =
+            match self.ways.iter().position(|w| {
+                w.shape_ptr == shape_ptr && w.shape_uid == shape_uid && w.prop == prop
+            }) {
                 Some(i) => i,
-                None => {
-                    let i = self.cursor as usize % IC_WAYS;
-                    self.cursor = self.cursor.wrapping_add(1);
-                    i
-                }
-            },
-        };
+                None => match self.ways.iter().position(|w| w.shape_ptr.is_null()) {
+                    Some(i) => i,
+                    None => {
+                        let i = self.cursor as usize % IC_WAYS;
+                        self.cursor = self.cursor.wrapping_add(1);
+                        i
+                    }
+                },
+            };
         self.ways[way] = InlineCacheEntry {
             shape_ptr,
             shape_uid,
             slot,
+            prop,
             flags,
         };
+    }
+
+    /// Fill a free way only; once every way is taken, keep what is there.
+    ///
+    /// Array-element sites cache runtime keys, so a dynamic-key loop (for-in
+    /// over a dictionary object, or `a[i]` over a sparse array) would otherwise
+    /// evict round-robin on every miss and never converge. Field sites keep
+    /// `insert`, whose static key makes eviction useful for polymorphic shapes.
+    pub(crate) fn insert_fill_only(
+        &mut self,
+        shape_ptr: *const crate::object::ShapeImpl,
+        shape_uid: u32,
+        prop: u32,
+        slot: u32,
+        flags: u8,
+    ) {
+        if let Some(way) = self.ways.iter().position(|w| w.shape_ptr.is_null()) {
+            self.ways[way] = InlineCacheEntry {
+                shape_ptr,
+                shape_uid,
+                slot,
+                prop,
+                flags,
+            };
+        }
     }
 }
 
@@ -795,14 +827,15 @@ mod inline_cache_site_tests {
             as *const crate::object::ShapeImpl
     }
 
+    /// Insert with `prop == seed` for the shape-only tests.
     fn insert(site: &mut InlineCacheSite, seed: u32, slot: u32) {
-        site.insert(shape_at(seed as usize), seed, slot, 0);
+        site.insert(shape_at(seed as usize), seed, seed, slot, 0);
     }
 
     #[test]
     fn empty_site_never_hits() {
         let site = InlineCacheSite::default();
-        assert_eq!(site.find(shape_at(1), 1), None);
+        assert_eq!(site.find(shape_at(1), 1, 1), None);
     }
 
     #[test]
@@ -814,12 +847,12 @@ mod inline_cache_site_tests {
         // Nothing evicted yet: all shapes stay reachable with their own slot.
         for seed in 0..IC_WAYS as u32 {
             assert_eq!(
-                site.find(shape_at(seed as usize), seed),
+                site.find(shape_at(seed as usize), seed, seed),
                 Some((seed * 10, 0))
             );
         }
         // An unknown shape misses.
-        assert_eq!(site.find(shape_at(99), 99), None);
+        assert_eq!(site.find(shape_at(99), 99, 99), None);
     }
 
     #[test]
@@ -827,11 +860,21 @@ mod inline_cache_site_tests {
         let mut site = InlineCacheSite::default();
         insert(&mut site, 1, 1);
         insert(&mut site, 2, 2);
-        // Re-inserting a seen shape refreshes its slot instead of consuming a
-        // way or advancing the eviction cursor.
+        // Re-inserting a seen (shape, prop) refreshes its slot instead of
+        // consuming a way or advancing the eviction cursor.
         insert(&mut site, 1, 7);
-        assert_eq!(site.find(shape_at(1), 1), Some((7, 0)));
-        assert_eq!(site.find(shape_at(2), 2), Some((2, 0)));
+        assert_eq!(site.find(shape_at(1), 1, 1), Some((7, 0)));
+        assert_eq!(site.find(shape_at(2), 2, 2), Some((2, 0)));
+    }
+
+    /// Array-element sites see a runtime key, so the same shape with a
+    /// different property atom must not resolve to the first key's slot.
+    #[test]
+    fn different_prop_on_the_same_shape_misses() {
+        let mut site = InlineCacheSite::default();
+        site.insert(shape_at(1), 1, 7, 3, 0);
+        assert_eq!(site.find(shape_at(1), 1, 7), Some((3, 0)));
+        assert_eq!(site.find(shape_at(1), 1, 8), None);
     }
 
     #[test]
@@ -841,22 +884,42 @@ mod inline_cache_site_tests {
             insert(&mut site, seed, seed);
         }
         insert(&mut site, 100, 100); // evicts the first-empty fill order: seed 0
-        assert_eq!(site.find(shape_at(0), 0), None);
+        assert_eq!(site.find(shape_at(0), 0, 0), None);
         for seed in 1..IC_WAYS as u32 {
-            assert_eq!(site.find(shape_at(seed as usize), seed), Some((seed, 0)));
+            assert_eq!(
+                site.find(shape_at(seed as usize), seed, seed),
+                Some((seed, 0))
+            );
         }
-        assert_eq!(site.find(shape_at(100), 100), Some((100, 0)));
+        assert_eq!(site.find(shape_at(100), 100, 100), Some((100, 0)));
 
         insert(&mut site, 101, 101); // next victim is the next way
-        assert_eq!(site.find(shape_at(1), 1), None);
-        assert_eq!(site.find(shape_at(101), 101), Some((101, 0)));
+        assert_eq!(site.find(shape_at(1), 1, 1), None);
+        assert_eq!(site.find(shape_at(101), 101, 101), Some((101, 0)));
     }
 
     /// An ABA-shaped stale entry must never resolve: same address, new uid.
     #[test]
     fn uid_mismatch_defeats_address_reuse() {
         let mut site = InlineCacheSite::default();
-        site.insert(shape_at(1), 11, 3, 0);
-        assert_eq!(site.find(shape_at(1), 22), None);
+        site.insert(shape_at(1), 11, 11, 3, 0);
+        assert_eq!(site.find(shape_at(1), 22, 11), None);
+    }
+
+    /// Array sites fill free ways and then stop, so a dynamic-key loop cannot
+    /// churn the cache forever.
+    #[test]
+    fn fill_only_keeps_the_first_ways() {
+        let mut site = InlineCacheSite::default();
+        for seed in 0..10u32 {
+            site.insert_fill_only(shape_at(seed as usize), seed, seed, seed, 0);
+        }
+        for seed in 0..IC_WAYS as u32 {
+            assert_eq!(
+                site.find(shape_at(seed as usize), seed, seed),
+                Some((seed, 0))
+            );
+        }
+        assert_eq!(site.find(shape_at(4), 4, 4), None);
     }
 }

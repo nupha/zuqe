@@ -93,6 +93,14 @@ impl<'s> JSParseState<'s> {
         self.cur_func_mut().emit_get_field2(atom, ln, lp);
     }
 
+    /// Emit an array-element access with its own inline-cache site.
+    #[inline(always)]
+    pub fn emit_array_el(&mut self, op: OpCode) {
+        let ln = self.last_line_num;
+        let lp = self.last_line_pos;
+        self.cur_func_mut().emit_array_el(op, ln, lp);
+    }
+
     /// emit on current function def.
     /// return label or -1 if dead code.
     pub fn emit_goto(&mut self, opcode: OpCode, label: i32) -> i32 {

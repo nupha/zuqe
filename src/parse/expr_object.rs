@@ -79,7 +79,7 @@ impl<'s> JSParseState<'s> {
         if prev_op == opcodes::OP_get_super {
             self.emit_op(OpCode::GET_SUPER_VALUE);
         } else {
-            self.emit_op(OpCode::GET_ARRAY_EL);
+            self.emit_array_el(OpCode::GET_ARRAY_EL);
         }
 
         Ok(())

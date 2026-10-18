@@ -152,10 +152,27 @@ static OP_CODES: LazyLock<Vec<OpcodeDef>> = LazyLock::new(|| {
         DEF!("get_private_field", 1, 2, 1, "NONE", false, Never),
         DEF!("put_private_field", 1, 3, 0, "NONE", false, Never),
         DEF!("define_private_field", 1, 3, 1, "NONE", false, Never),
+        // Array-element access carries an inline-cache index when the
+        // `inline_cache` feature is on (same two-variant pattern as
+        // `get_field`/`put_field` above): the site caches
+        // `(shape, prop atom) -> slot` for own shape properties, which is what
+        // non-fast (sparse / dictionary) array elements are stored as.
+        #[cfg(not(feature = "inline_cache"))]
         DEF!("get_array_el", 1, 2, 1, "NONE", false, Never),
+        #[cfg(not(feature = "inline_cache"))]
         DEF!("get_array_el2", 1, 2, 2, "NONE", false, Never),
+        #[cfg(not(feature = "inline_cache"))]
         DEF!("get_array_el3", 1, 2, 3, "NONE", false, Never),
+        #[cfg(not(feature = "inline_cache"))]
         DEF!("put_array_el", 1, 3, 0, "NONE", false, Never),
+        #[cfg(feature = "inline_cache")]
+        DEF!("get_array_el", 3, 2, 1, "U16", false, Never),
+        #[cfg(feature = "inline_cache")]
+        DEF!("get_array_el2", 3, 2, 2, "U16", false, Never),
+        #[cfg(feature = "inline_cache")]
+        DEF!("get_array_el3", 3, 2, 3, "U16", false, Never),
+        #[cfg(feature = "inline_cache")]
+        DEF!("put_array_el", 3, 3, 0, "U16", false, Never),
         DEF!("get_super_value", 1, 3, 1, "NONE", false, Never),
         DEF!("put_super_value", 1, 4, 0, "NONE", false, Never),
         DEF!("define_field", 5, 2, 1, "ATOM", false, Never),
@@ -311,7 +328,13 @@ static OP_CODES: LazyLock<Vec<OpcodeDef>> = LazyLock::new(|| {
         def!("get_field_opt_chain", 5, 1, 1, "ATOM", Never),
         #[cfg(feature = "inline_cache")]
         def!("get_field_opt_chain", 7, 1, 1, "ATOM_U16", Never),
+        // Same size/format as the final `get_array_el` it is rewritten into
+        // (see `resolve_vars`), so the optional-chain label lookup and the
+        // payload copy stay valid.
+        #[cfg(not(feature = "inline_cache"))]
         def!("get_array_el_opt_chain", 1, 2, 1, "NONE", Never),
+        #[cfg(feature = "inline_cache")]
+        def!("get_array_el_opt_chain", 3, 2, 1, "U16", Never),
         def!("set_class_name", 5, 1, 1, "U32", Never),
         def!("line_num", 9, 0, 0, "U32_U32", Never),
     ];

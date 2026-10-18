@@ -64,11 +64,7 @@ impl FunctionDef {
     pub fn emit_get_field(&mut self, atom: Atom, last_line_num: i32, last_line_pos: u32) {
         self.emit_op(OpCode::GET_FIELD, last_line_num, last_line_pos);
         self.emit_atom(atom);
-        #[cfg(feature = "inline_cache")]
-        {
-            self.emit_u16(self.inline_cache_count);
-            self.inline_cache_count += 1;
-        }
+        self.emit_inline_cache_index();
     }
 
     /// Emit a named-property-get that preserves the object on the stack
@@ -76,11 +72,7 @@ impl FunctionDef {
     pub fn emit_get_field2(&mut self, atom: Atom, last_line_num: i32, last_line_pos: u32) {
         self.emit_op(OpCode::GET_FIELD2, last_line_num, last_line_pos);
         self.emit_atom(atom);
-        #[cfg(feature = "inline_cache")]
-        {
-            self.emit_u16(self.inline_cache_count);
-            self.inline_cache_count += 1;
-        }
+        self.emit_inline_cache_index();
     }
 
     /// Emit a named-property-put — either PUT_FIELD_IC (with inline_cache
@@ -88,11 +80,25 @@ impl FunctionDef {
     pub fn emit_put_field(&mut self, atom: Atom, last_line_num: i32, last_line_pos: u32) {
         self.emit_op(OpCode::PUT_FIELD, last_line_num, last_line_pos);
         self.emit_atom(atom);
+        self.emit_inline_cache_index();
+    }
+
+    /// Append the next inline-cache site index. A no-op without the feature
+    /// (the opcodes then carry no operand).
+    #[inline(always)]
+    pub(crate) fn emit_inline_cache_index(&mut self) {
         #[cfg(feature = "inline_cache")]
         {
             self.emit_u16(self.inline_cache_count);
             self.inline_cache_count += 1;
         }
+    }
+
+    /// Emit an array-element access (`get_array_el*` / `put_array_el`) with its
+    /// own inline-cache site.
+    pub fn emit_array_el(&mut self, op: OpCode, last_line_num: i32, last_line_pos: u32) {
+        self.emit_op(op, last_line_num, last_line_pos);
+        self.emit_inline_cache_index();
     }
 
     pub fn emit_return(&mut self, mut hasval: bool, last_line_num: i32, last_line_pos: u32) {

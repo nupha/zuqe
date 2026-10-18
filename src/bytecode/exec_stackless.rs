@@ -234,6 +234,17 @@ pub(crate) fn get_var_ref(
 }
 
 impl Bytecode {
+    /// Inline-cache site `ic_idx` of this function, if the function has one.
+    #[cfg(feature = "inline_cache")]
+    #[inline]
+    fn inline_cache_site(&self, ic_idx: usize) -> Option<&mut crate::function::InlineCacheSite> {
+        // SAFETY: the interpreter is single-threaded and owns its bytecode; the
+        // cache is interior-mutable by design (same contract as the GET_FIELD
+        // fast path).
+        let cache = unsafe { &mut *self.inline_cache.get() };
+        cache.get_mut(ic_idx)
+    }
+
     /// Execute bytecodes using the arena-based stackless model.
     ///
     /// This variant works with FrameIndex + VmStack instead of
@@ -2107,7 +2118,8 @@ impl Bytecode {
                                 let shape_ptr = unsafe { shape.gc_ref().as_ptr().as_ptr() };
 
                                 // The site holds up to IC_WAYS shapes (epic F3).
-                                if let Some((slot, _)) = ic_cache[ic_idx].find(shape_ptr, shape.uid)
+                                if let Some((slot, _)) =
+                                    ic_cache[ic_idx].find(shape_ptr, shape.uid, atom.id())
                                 {
                                     let slot = slot as usize;
                                     // delete marks slot Deleted without changing shape
@@ -2143,6 +2155,7 @@ impl Bytecode {
                                     ic_cache[ic_idx].insert(
                                         unsafe { shape.gc_ref().as_ptr().as_ptr() },
                                         shape.uid,
+                                        atom.id(),
                                         idx as u32,
                                         flags as u8,
                                     );
@@ -2180,7 +2193,7 @@ impl Bytecode {
                                 let shape_ptr = unsafe { shape.gc_ref().as_ptr().as_ptr() };
 
                                 if let Some((slot, cached_flags)) =
-                                    ic_cache[ic_idx].find(shape_ptr, shape.uid)
+                                    ic_cache[ic_idx].find(shape_ptr, shape.uid, atom.id())
                                 {
                                     let slot = slot as usize;
 
@@ -2231,6 +2244,7 @@ impl Bytecode {
                                 ic_cache[ic_idx].insert(
                                     unsafe { shape.gc_ref().as_ptr().as_ptr() },
                                     shape.uid,
+                                    atom.id(),
                                     idx as u32,
                                     flags as u8,
                                 );
@@ -2352,9 +2366,19 @@ impl Bytecode {
                     // ═══════════════════════════════════════════════════
                     OpCode::GET_ARRAY_EL => {
                         // [array, prop, ^] -> [value, ^]
-                        let val = SP_REF!(-2)
-                            .get_property_value(realm_scope, SP_VAL!(-1))
-                            .unwrap_or(JSValue::EXCEPTION);
+                        #[cfg(feature = "inline_cache")]
+                        let ic_idx = PC_FETCH!(u16) as usize;
+                        let val = {
+                            #[cfg(feature = "inline_cache")]
+                            let r = if let Some(site) = self.inline_cache_site(ic_idx) {
+                                SP_REF!(-2).get_property_value_ic(realm_scope, SP_VAL!(-1), site)
+                            } else {
+                                SP_REF!(-2).get_property_value(realm_scope, SP_VAL!(-1))
+                            };
+                            #[cfg(not(feature = "inline_cache"))]
+                            let r = SP_REF!(-2).get_property_value(realm_scope, SP_VAL!(-1));
+                            r.unwrap_or(JSValue::EXCEPTION)
+                        };
                         let is_err = val.is_exception();
                         SP_PUT!(-2, val);
                         SP_GO!(-1);
@@ -2365,9 +2389,19 @@ impl Bytecode {
                     }
                     OpCode::GET_ARRAY_EL2 => {
                         // [array, prop, ^] -> [array, value, ^]
-                        let val = SP_REF!(-2)
-                            .get_property_value(realm_scope, SP_VAL!(-1))
-                            .unwrap_or(JSValue::EXCEPTION);
+                        #[cfg(feature = "inline_cache")]
+                        let ic_idx = PC_FETCH!(u16) as usize;
+                        let val = {
+                            #[cfg(feature = "inline_cache")]
+                            let r = if let Some(site) = self.inline_cache_site(ic_idx) {
+                                SP_REF!(-2).get_property_value_ic(realm_scope, SP_VAL!(-1), site)
+                            } else {
+                                SP_REF!(-2).get_property_value(realm_scope, SP_VAL!(-1))
+                            };
+                            #[cfg(not(feature = "inline_cache"))]
+                            let r = SP_REF!(-2).get_property_value(realm_scope, SP_VAL!(-1));
+                            r.unwrap_or(JSValue::EXCEPTION)
+                        };
                         let is_err = val.is_exception();
                         SP_PUT!(-1, val);
 
@@ -2377,6 +2411,8 @@ impl Bytecode {
                     }
                     OpCode::GET_ARRAY_EL3 => {
                         // [array, prop, ^] -> [array, prop1, value, ^]
+                        #[cfg(feature = "inline_cache")]
+                        let ic_idx = PC_FETCH!(u16) as usize;
                         let arr = SP_REF!(-2);
 
                         if !arr.is_int() && !arr.is_string_or_symbol() {
@@ -2392,9 +2428,17 @@ impl Bytecode {
                             SP_PUT!(-1, prop1);
                         }
 
-                        let val = arr
-                            .get_property_value(realm_scope, SP_VAL!(-1))
-                            .unwrap_or(JSValue::EXCEPTION);
+                        let val = {
+                            #[cfg(feature = "inline_cache")]
+                            let r = if let Some(site) = self.inline_cache_site(ic_idx) {
+                                arr.get_property_value_ic(realm_scope, SP_VAL!(-1), site)
+                            } else {
+                                arr.get_property_value(realm_scope, SP_VAL!(-1))
+                            };
+                            #[cfg(not(feature = "inline_cache"))]
+                            let r = arr.get_property_value(realm_scope, SP_VAL!(-1));
+                            r.unwrap_or(JSValue::EXCEPTION)
+                        };
                         let is_err = val.is_exception();
                         SP_PUT!(0, val);
                         SP_GO!(1);
@@ -2405,7 +2449,29 @@ impl Bytecode {
                     }
                     OpCode::PUT_ARRAY_EL => {
                         // [arr, prop, value, ^] -> [^]
+                        #[cfg(feature = "inline_cache")]
+                        let ic_idx = PC_FETCH!(u16) as usize;
                         let mut arr = SP_VAL!(-3);
+                        #[cfg(feature = "inline_cache")]
+                        let ret = if let Some(site) = self.inline_cache_site(ic_idx) {
+                            arr.set_property_value_ic(
+                                realm_scope,
+                                SP_VAL!(-2),
+                                SP_VAL!(-1),
+                                ThrowPolicy::StrictOnly,
+                                false,
+                                site,
+                            )
+                        } else {
+                            arr.set_property_value(
+                                realm_scope,
+                                SP_VAL!(-2),
+                                SP_VAL!(-1),
+                                ThrowPolicy::StrictOnly,
+                                false,
+                            )
+                        };
+                        #[cfg(not(feature = "inline_cache"))]
                         let ret = arr.set_property_value(
                             realm_scope,
                             SP_VAL!(-2),

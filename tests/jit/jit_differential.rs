@@ -122,6 +122,15 @@ const NORMAL: &[Case] = dim_cases!("Normal", [
         "function cat(n){ var s = ''; for (var i = 0; i < n; i++) s = s + 'ab'; return s.length; } cat(1);",
         "cat(300)",
         "'cat:' + cat(5)";
+    // Epic N2: element access on a non-fast (dictionary) array. `delete a[1]`
+    // makes the literal sparse, so its elements are own shape properties and
+    // the element site's `(shape, prop)` inline cache serves the repeated `a[8]`
+    // read/write. The tombstone, out-of-range, negative and `length` shapes must
+    // stay on the slow path and agree bit for bit.
+    dictionary_array_el:
+        "function dict(n){ var a = [1,2,3,4,5]; delete a[1]; a[8] = 40; var s = 0; for (var i = 0; i < n; i++) { s = (s + a[8]) | 0; a[8] = (a[8] + 1) & 1023; s = (s + (a[1] === undefined ? 7 : 0) + (a[99] === undefined ? 3 : 0) + (a[-1] === undefined ? 5 : 0)) | 0; a['length'] = 9; } return s + a.length; } dict(1);",
+        "dict(400)",
+        "'dict:' + dict(3) + ',' + dict(0)";
 ]);
 
 const NUMERIC: &[Case] = dim_cases!("NumericTagEdge", [

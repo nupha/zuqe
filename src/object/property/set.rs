@@ -316,6 +316,24 @@ impl ObjectImpl {
         throw: ThrowPolicy,
         no_add: bool,
     ) -> Result<bool, i32> {
+        if let Some(r) = self.set_property_value_index(ctx, prop, val, throw, no_add) {
+            return r;
+        }
+
+        let atom = prop.to_atom(ctx)?;
+        self.set_property_internal(ctx, atom, val, Some(Object::from_ref(self)), throw, no_add)
+    }
+
+    /// The numeric-key fast path shared by `set_property_value` and its
+    /// inline-cache variant. `None` when the slow path must run.
+    fn set_property_value_index(
+        &mut self,
+        ctx: &mut ScopedContext,
+        prop: JSValue,
+        val: JSValue,
+        throw: ThrowPolicy,
+        no_add: bool,
+    ) -> Option<Result<bool, i32>> {
         let index_key: Option<usize> = if let Some(num) = prop.as_number() {
             match num {
                 IntOrFloat::Int64(i) if i >= 0 => Some(i as usize),
@@ -333,14 +351,46 @@ impl ObjectImpl {
             None
         };
 
-        if let Some(idx) = index_key
-            && let Some(r) = self.set_property_u32_internal(ctx, idx, val, throw, no_add)
-        {
+        let idx = index_key?;
+        self.set_property_u32_internal(ctx, idx, val, throw, no_add)
+    }
+
+    /// `set_property_value` with an inline-cache site: a direct slot write when
+    /// the site has seen `(shape, prop)` as a writable own data property,
+    /// otherwise the full set (which fills the site).
+    #[cfg(feature = "inline_cache")]
+    pub(crate) fn set_property_value_ic(
+        &mut self,
+        ctx: &mut ScopedContext,
+        prop: JSValue,
+        val: JSValue,
+        throw: ThrowPolicy,
+        no_add: bool,
+        site: &mut crate::function::InlineCacheSite,
+    ) -> Result<bool, i32> {
+        if let Some(r) = self.set_property_value_index(ctx, prop, val, throw, no_add) {
             return r;
         }
-
         let atom = prop.to_atom(ctx)?;
-        self.set_property_internal(ctx, atom, val, Some(Object::from_ref(self)), throw, no_add)
+        // Still-fast arrays keep their elements in the payload; only non-fast
+        // arrays store elements as own shape properties the IC can serve.
+        let cacheable = !self.is_fast_array();
+        if cacheable && let Some((slot, flags)) = self.cached_slot(atom, site) {
+            let flags = flags as u32;
+            if flags & JS_PROP_TMASK == JS_PROP_NORMAL
+                && flags & JS_PROP_WRITABLE != 0
+                && flags & JS_PROP_LENGTH == 0
+            {
+                self.set_prop_slot(slot as usize, JSProperty::Normal(val));
+                return Ok(true);
+            }
+        }
+        let result =
+            self.set_property_internal(ctx, atom, val, Some(Object::from_ref(self)), throw, no_add);
+        if result.is_ok() && cacheable {
+            self.cache_own_property(atom, site);
+        }
+        result
     }
 
     /// Generic `[[Set]]` with receiver = `self`. New properties are created as
@@ -621,6 +671,25 @@ impl JSValue {
         } else {
             let atom = prop.to_atom(ctx)?;
             self.set_property_internal(ctx, atom, val, None, throw, no_add)
+        }
+    }
+
+    /// `set_property_value` with an inline-cache site; primitives fall back to
+    /// the plain set (the site only caches object shape properties).
+    #[cfg(feature = "inline_cache")]
+    pub(crate) fn set_property_value_ic(
+        &mut self,
+        ctx: &mut ScopedContext,
+        prop: Self,
+        val: Self,
+        throw: ThrowPolicy,
+        no_add: bool,
+        site: &mut crate::function::InlineCacheSite,
+    ) -> Result<bool, i32> {
+        if let Some(mut o) = self.as_object() {
+            o.set_property_value_ic(ctx, prop, val, throw, no_add, site)
+        } else {
+            self.set_property_value(ctx, prop, val, throw, no_add)
         }
     }
 

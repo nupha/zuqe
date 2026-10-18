@@ -272,6 +272,12 @@ impl FunctionDef {
                         )
                     {
                         push_vec_u8(&mut bc_out, cc.op as u8);
+                        // `put_array_el` carries its inline-cache index; it must
+                        // be preserved or the following opcodes shift.
+                        #[cfg(feature = "inline_cache")]
+                        if cc.op as u8 == opcodes::OP_put_array_el {
+                            push_vec_u16(&mut bc_out, cc.idx as u16);
+                        }
                         pos_next = cc.pos;
                         if cc.line_num != -1 && cc.line_num != line_num {
                             line_num = cc.line_num;
@@ -691,7 +697,13 @@ impl FunctionDef {
                     });
                 }
                 opcodes::op_get_array_el_opt_chain => {
+                    // Same size/format as the final opcode it becomes, so the
+                    // inline-cache operand (if any) is copied along.
+                    let payload_len = op_len - 1;
                     bc_out.push(opcodes::OP_get_array_el);
+                    bc_out.extend_from_slice(unsafe {
+                        std::slice::from_raw_parts(bc_buf_ptr.add(pos + 1), payload_len)
+                    });
                 }
                 _ => {
                     // Default: copy opcode as-is

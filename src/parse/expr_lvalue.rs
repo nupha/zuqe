@@ -174,7 +174,7 @@ impl<'s> JSParseState<'s> {
                     self.emit_scope_var(OpCodeTemp::SCOPE_GET_PRIVATE_FIELD2, name, scope);
                 }
                 opcodes::OP_get_array_el => {
-                    self.emit_op(OpCode::GET_ARRAY_EL3);
+                    self.emit_array_el(OpCode::GET_ARRAY_EL3);
                 }
                 opcodes::OP_get_super_value => {
                     self.emit_op(OpCode::TO_PROPKEY);
@@ -306,7 +306,7 @@ impl<'s> JSParseState<'s> {
                 self.emit_scope_var(OpCodeTemp::SCOPE_PUT_PRIVATE_FIELD, name, scope as _);
             }
             opcodes::OP_get_array_el => {
-                self.emit_op(OpCode::PUT_ARRAY_EL);
+                self.emit_array_el(OpCode::PUT_ARRAY_EL);
             }
             opcodes::OP_get_ref_value => {
                 self.emit_op(OpCode::PUT_REF_VALUE);
