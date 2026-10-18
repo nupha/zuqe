@@ -75,6 +75,10 @@ pub(crate) struct JitState {
     coordinator: RefCell<Coordinator>,
     /// Published code, bounded by `cfg.max_code_bytes`.
     cache: RefCell<CodeCache>,
+    /// Set by a loop back edge when there is queued work; the interpreter's
+    /// trampoline polls at its next safe iteration (P6 5.1) so functions hot
+    /// inside one `eval` can run natively.
+    poll_requested: Cell<bool>,
     limits: VerifyLimits,
 }
 
@@ -99,6 +103,7 @@ impl JitState {
             isa,
             metrics: Cell::new(JitMetrics::default()),
             coordinator: RefCell::new(coordinator),
+            poll_requested: Cell::new(false),
             limits,
         })
     }
@@ -224,8 +229,23 @@ impl JitState {
         if coordinator.record_loop(&mut m, id, bc.opcodes(), measured) {
             coordinator.enqueue(&mut m, id, Some(*bc));
         }
+        // P6 5.1: there is work for the compiler; ask the trampoline to poll at
+        // its next safe iteration (a no-op unless the host opted in).
+        if coordinator.queue_len() > 0 {
+            self.poll_requested.set(true);
+        }
         drop(coordinator);
         self.metrics.set(m);
+    }
+
+    /// P6 5.1: poll from the interpreter's trampoline when a back edge asked
+    /// for it and the host enabled `poll_during_eval`. Runs between
+    /// `execute_with_arena` calls, where the runtime is at a safe point.
+    fn poll_deferred(&self) {
+        if self.cfg.poll_during_eval && self.poll_requested.get() {
+            self.poll_requested.set(false);
+            self.poll();
+        }
     }
 
     /// Verify, compile and install every queued function. Runs on the polling
@@ -387,6 +407,15 @@ pub(crate) fn note_enter(rt: &RuntimeImpl, bc: &Bytecode) {
 pub(crate) fn note_backedge(rt: &RuntimeImpl, bc: &Bytecode, pc: usize) {
     if let Some(state) = rt.jit.as_deref() {
         state.note_backedge(bc, pc);
+    }
+}
+
+/// Poll from the interpreter's trampoline if a back edge asked for it (P6 5.1).
+#[cfg(feature = "jit")]
+#[inline]
+pub(crate) fn poll_deferred(rt: &RuntimeImpl) {
+    if let Some(state) = rt.jit.as_deref() {
+        state.poll_deferred();
     }
 }
 
@@ -794,6 +823,70 @@ mod tests {
         assert!(m.compile_failures > 0, "the refused publish was recorded");
         assert!(m.functions_retried > 0, "the attempt was retried first");
         assert!(m.functions_settled > 0, "out of attempts -> settled");
+    }
+
+    /// P6 5.1: with `poll_during_eval`, a function that becomes hot *inside* one
+    /// `eval` is compiled by the interpreter's trampoline, so later calls run
+    /// natively without the host ever polling. This is what lets a Test262
+    /// test's own local functions reach native code.
+    #[test]
+    fn poll_during_eval_compiles_inside_one_eval() {
+        use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
+
+        const SRC: &[u8] =
+            b"function inner(n){ var s = 0; for (var i = 0; i < n; i++) s += i; return s; } \
+            var t = 0; for (var k = 0; k < 50; k++) t += inner(200); t;";
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let jit = Jit::attach_to(
+            &rt,
+            JitConfig::builder()
+                .call_threshold(1)
+                .loop_threshold(1)
+                .poll_during_eval(true)
+                .build(),
+        )
+        .unwrap();
+        ctx.eval(
+            SRC,
+            &EvalName::Name("jit-inline-poll.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap();
+        let m = jit.metrics();
+        assert!(m.functions_compiled > 0, "nothing compiled during the eval");
+        assert!(m.native_entries > 0, "no native code ran during the eval");
+
+        // Control: the same script with the default (host polls only) has
+        // compiled nothing when the eval returns.
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let jit = Jit::attach_to(
+            &rt,
+            JitConfig::builder()
+                .call_threshold(1)
+                .loop_threshold(1)
+                .build(),
+        )
+        .unwrap();
+        ctx.eval(
+            SRC,
+            &EvalName::Name("jit-inline-poll-ctl.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap();
+        assert_eq!(
+            jit.metrics().functions_compiled,
+            0,
+            "the default must not poll during the eval"
+        );
     }
 
     /// D-16 retirement end to end: with a budget of one code page, compiling a

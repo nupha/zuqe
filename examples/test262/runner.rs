@@ -73,6 +73,11 @@ fn eager_jit_config() -> zuqe::JitConfig {
     zuqe::JitConfig::builder()
         .call_threshold(1)
         .loop_threshold(1)
+        // P6 5.1: poll from the interpreter's trampoline on a back edge, so a
+        // test-local function that becomes hot inside its own `eval` runs
+        // natively during the assertions instead of waiting for the next host
+        // poll (there is none until the test finishes).
+        .poll_during_eval(true)
         .build()
 }
 
@@ -589,7 +594,9 @@ pub async fn run_test_file(
         );
 
         // Drain what the harness queued so harness helpers can run natively
-        // while the test script executes (poll only runs at scope depth 1).
+        // while the test script executes. With `poll_during_eval` the
+        // trampoline also polls on a back edge, so this warm-up poll is mostly
+        // a head start for the harness helpers the test calls early.
         #[cfg(feature = "jit")]
         if let Some(jit) = &jit {
             jit.poll();

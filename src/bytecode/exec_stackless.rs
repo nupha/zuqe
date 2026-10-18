@@ -3438,6 +3438,12 @@ pub(crate) fn execute_trampoline(
     let mut args;
 
     'trampoline: loop {
+        // P6 5.1: a loop back edge inside the frame we just ran may have queued
+        // a function; polling here (between `execute_with_arena` calls) is a
+        // safe point, so hot functions can run natively inside this `eval`.
+        #[cfg(feature = "jit")]
+        crate::jit::poll_deferred(&rt_ptr);
+
         let arena = unsafe { &mut *arena_ptr };
 
         rt_ptr.active_frame_index = cur_frame_idx;

@@ -54,6 +54,12 @@ pub struct JitConfig {
     pub(crate) max_code_bytes: usize,
     pub(crate) max_metadata_bytes: usize,
     pub(crate) max_queue_len: usize,
+    /// Whether the interpreter may poll the JIT from its trampoline when a loop
+    /// back edge has queued work (P6 5.1). Off by default: the inline model then
+    /// only compiles when the host calls [`Jit::poll`] between evaluations. On,
+    /// a function that becomes hot *inside* one `eval` can run natively without
+    /// waiting for the next host poll (what the Test262 runner needs).
+    pub(crate) poll_during_eval: bool,
     /// Reserved for the §12 background compiler (`jit_background`). The inline
     /// model compiles on the calling thread between two `poll`s, so this field
     /// is stored and reported but **not read anywhere yet**: `workers(8)` does
@@ -86,6 +92,7 @@ impl std::fmt::Debug for JitConfig {
             .field("max_code_bytes", &self.max_code_bytes)
             .field("max_metadata_bytes", &self.max_metadata_bytes)
             .field("max_queue_len", &self.max_queue_len)
+            .field("poll_during_eval", &self.poll_during_eval)
             .field("workers", &self.workers)
             .field("compile_timeout_ms", &self.compile_timeout_ms)
             .field("max_compile_attempts", &self.max_compile_attempts)
@@ -103,6 +110,7 @@ impl Default for JitConfig {
             max_code_bytes: DEFAULT_MAX_CODE_BYTES,
             max_metadata_bytes: DEFAULT_MAX_METADATA_BYTES,
             max_queue_len: DEFAULT_MAX_QUEUE_LEN,
+            poll_during_eval: false,
             workers: DEFAULT_WORKERS,
             compile_timeout_ms: DEFAULT_COMPILE_TIMEOUT_MS,
             max_compile_attempts: DEFAULT_MAX_COMPILE_ATTEMPTS,
@@ -200,6 +208,13 @@ impl JitConfigBuilder {
 
     pub fn max_queue_len(mut self, n: usize) -> Self {
         self.0.max_queue_len = n.max(1);
+        self
+    }
+
+    /// Enable polling the JIT from the interpreter's trampoline on a back edge
+    /// (P6 5.1). Off by default; see [`JitConfig::poll_during_eval`].
+    pub const fn poll_during_eval(mut self, on: bool) -> Self {
+        self.0.poll_during_eval = on;
         self
     }
 
