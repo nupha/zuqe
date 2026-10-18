@@ -154,8 +154,12 @@ impl<'c> ScopedContext<'c> {
             .unwrap();
 
         // standard error constructors
+        let error_proto = self.class_proto(JS_CLASS_ERROR).unwrap();
         for (i, name) in STD_ERROR_NAMES.iter().enumerate() {
             let atom = Atom::intern_static(self, name).unwrap();
+            // Built as a root, then linked: the kind's prototype object (created
+            // unchained in `init_core_objects`) and its constructor are both
+            // made to inherit `Error` here, by the one `link_class_extends`.
             let func_obj = NativeFunction::create(
                 self,
                 Callback::ConstructorOrFunc(js_error_constructor),
@@ -166,7 +170,7 @@ impl<'c> ScopedContext<'c> {
                     1
                 },
                 i as _, // magic
-                ctor,
+                self.function_proto(),
                 None,
             )
             .unwrap();
@@ -174,6 +178,13 @@ impl<'c> ScopedContext<'c> {
             let et_proto = self.error_protos[i]; // <-- this was initialized in core
             self.add_global_constructor(name, func_obj.into(), et_proto.as_object().unwrap())
                 .unwrap();
+            self.link_class_extends(
+                et_proto.as_object().unwrap(),
+                Some(func_obj.into()),
+                Some(error_proto),
+                Some(ctor),
+            )
+            .unwrap();
         }
     }
 
@@ -237,13 +248,12 @@ impl<'c> ScopedContext<'c> {
         }
 
         let iter_proto = self.iterator_proto().unwrap();
-        let mut array_iter = self
-            .create_base_object_with_proto(Some(iter_proto))
-            .unwrap();
-        array_iter
-            .install_fields(self, js_array_iterator_proto_funcs)
-            .unwrap();
-        self.class_slots[JS_CLASS_ARRAY_ITERATOR as usize].proto = Some(array_iter);
+        self.init_class_proto_extends(
+            JS_CLASS_ARRAY_ITERATOR,
+            Some(iter_proto),
+            js_array_iterator_proto_funcs,
+        )
+        .unwrap();
     }
 
     pub(super) fn intrinsic_base_number(&mut self) {
@@ -308,13 +318,12 @@ impl<'c> ScopedContext<'c> {
         self.class_slots[JS_CLASS_STRING as usize].proto = Some(string_proto);
 
         let iter_proto = self.iterator_proto().unwrap();
-        let mut string_iter = self
-            .create_base_object_with_proto(Some(iter_proto))
-            .unwrap();
-        string_iter
-            .install_fields(self, js_string_iterator_proto_funcs)
-            .unwrap();
-        self.class_slots[JS_CLASS_STRING_ITERATOR as usize].proto = Some(string_iter);
+        self.init_class_proto_extends(
+            JS_CLASS_STRING_ITERATOR,
+            Some(iter_proto),
+            js_string_iterator_proto_funcs,
+        )
+        .unwrap();
 
         self.use_class(JS_CLASS_STRING).unwrap();
 

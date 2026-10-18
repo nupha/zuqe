@@ -574,7 +574,7 @@ macro_rules! def_native_object {
 mod tests {
     use gc_lite::GcTrace;
 
-    use crate::{JSValue, NativeObject, Runtime, ScopedContext};
+    use crate::{CallContext, ClassCtorDef, JSResult, JSValue, NativeObject, Runtime, ScopedContext};
 
     #[derive(GcTrace, Debug, PartialEq)]
     pub struct HostPayload {
@@ -582,6 +582,32 @@ mod tests {
     }
 
     crate::def_native_object!("HostTest", HostTest, HostPayload, &[], None);
+
+    fn host_base_ctor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+        HostBase::new_instance(ctx, cc.this(), HostPayload { value: 0 }).map(JSValue::from)
+    }
+
+    fn host_derived_ctor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+        HostDerived::new_instance(ctx, cc.this(), HostPayload { value: 0 }).map(JSValue::from)
+    }
+
+    // A base and a child that declares it with `extends:`, both with
+    // constructors so the static side of the link is observable as well.
+    crate::def_native_object!(
+        "HostBase",
+        HostBase,
+        HostPayload,
+        &[],
+        Some(ClassCtorDef::new(host_base_ctor, 0, false))
+    );
+    crate::def_native_object!(
+        "HostDerived",
+        HostDerived,
+        HostPayload,
+        &[],
+        Some(ClassCtorDef::new(host_derived_ctor, 0, false)),
+        extends: HostBase::class_id
+    );
 
     /// The linkme-collected class is present in the static table with an id
     /// assigned during `init_static_class_defs`.
@@ -629,6 +655,44 @@ mod tests {
 
             assert_eq!(obj.take_payload().map(|p| p.value), Some(7));
             assert!(obj.payload().is_none(), "payload was moved out");
+            Ok::<(), i32>(())
+        })?;
+        Ok(())
+    }
+
+    /// `extends:` in the macro is only the declaration of a parent; what chains
+    /// the two classes is `link_class_extends`, and it chains both sides.
+    #[test]
+    fn host_class_extends_links_both_chains() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let (base, derived) = (HostBase::class_id(), HostDerived::class_id());
+        assert_ne!(derived, 0, "derived class id must be assigned at engine init");
+        assert_ne!(derived, base);
+
+        let mut ctx = rt.create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            // Building the child builds its parent too, wherever the parent sits
+            // in the registration order.
+            cx.use_class(derived)?;
+            Ok(())
+        })?;
+
+        ctx.with_new_scope(|cx| {
+            let base_proto = cx.class_proto(base).expect("base prototype");
+            let derived_proto = cx.class_proto(derived).expect("derived prototype");
+            assert_eq!(
+                derived_proto.prototype(cx)?,
+                Some(base_proto),
+                "derived prototype must inherit the base prototype"
+            );
+
+            let base_ctor = cx.class_constructor(base).expect("base constructor");
+            let derived_ctor = cx.class_constructor(derived).expect("derived constructor");
+            assert_eq!(
+                derived_ctor.prototype(cx)?,
+                Some(base_ctor),
+                "derived constructor must inherit the base constructor"
+            );
             Ok::<(), i32>(())
         })?;
         Ok(())

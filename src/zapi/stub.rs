@@ -649,12 +649,13 @@ fn parent_class_id(ctx: &ScopedContext, parent: *const ZqClassDef) -> Option<Cla
 }
 
 /// Chain every registered class onto its `extends =` parent that is not already
-/// chained.
+/// chained, through the one `link_class_extends`.
 ///
 /// A class builds as a root when its parent is not registered yet, so a parent
 /// arriving later leaves an unlinked child behind. `zapi_register_class` calls
 /// this after each registration; `use_class` inside makes sure the parent is
-/// built before anything chains onto it.
+/// built before anything chains onto it. A class whose parent never arrives
+/// stays the root class it was built as.
 fn link_pending_parents(ctx: &mut ScopedContext) -> Result<(), i32> {
     let base = static_class_count();
     for index in 0..ctx.rt().zapi_class_defs.len() {
@@ -674,22 +675,13 @@ fn link_pending_parents(ctx: &mut ScopedContext) -> Result<(), i32> {
         }
 
         ctx.use_class(parent_id)?;
-        let (Some(mut child_proto), Some(parent_proto)) =
-            (ctx.class_proto(id), ctx.class_proto(parent_id))
-        else {
+        let (child_proto, child_ctor) = (ctx.class_proto(id), ctx.class_constructor(id));
+        let (parent_proto, parent_ctor) =
+            (ctx.class_proto(parent_id), ctx.class_constructor(parent_id));
+        let (Some(child_proto), Some(parent_proto)) = (child_proto, parent_proto) else {
             continue;
         };
-        // Already chained: nothing to do, and a second set would be wasteful.
-        if child_proto.prototype(ctx)? == Some(parent_proto) {
-            continue;
-        }
-        child_proto.set_prototype(ctx, JSValue::from(parent_proto))?;
-
-        if let (Some(child_ctor), Some(parent_ctor)) =
-            (ctx.class_constructor(id), ctx.class_constructor(parent_id))
-        {
-            JSValue::from(child_ctor).set_prototype(ctx, JSValue::from(parent_ctor))?;
-        }
+        ctx.link_class_extends(child_proto, child_ctor, Some(parent_proto), parent_ctor)?;
     }
     Ok(())
 }
@@ -707,12 +699,13 @@ unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClas
     let leaked: &'static str = unsafe { crate::zapi::ext_str_static(name) };
 
     fn zapi_class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
-        // `extends = Base` in `#[zq_class]` lands in `parent_class`. Resolve it
-        // before the prototype is built, because the prototype must chain onto
-        // the parent's. The parent may not be registered yet — a module is free
-        // to declare the child first, and an extension may register the parent
-        // later from its own init hook — so `None` here just builds the class as
-        // a root; `link_pending_parents` chains it once the parent shows up.
+        // The prototype and the constructor are built as a root class here — a
+        // prototype chained to `Object.prototype`, a constructor on
+        // `Function.prototype`. `extends = Base` does not take effect until
+        // `link_pending_parents` applies it through the one
+        // `link_class_extends`, the same call a builtin and a script's
+        // `class ... extends` inherit through; a class whose parent is not
+        // registered yet is simply a root class until then.
         let Some(class_def) = ctx.rt().zapi_def(class_id) else {
             return Ok(());
         };
@@ -720,14 +713,8 @@ unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClas
             return Ok(());
         }
         let def = unsafe { &*class_def };
-        let parent_id = parent_class_id(ctx, def.parent_class);
-        let parent_ctor = parent_id.and_then(|id| ctx.class_constructor(id));
-
-        let parent_proto = match parent_id {
-            Some(id) => Some(ctx.class_proto(id).ok_or(-1)?),
-            None => None,
-        };
-        let o = ctx.create_instance_with_proto(parent_proto, PayloadPtr::none(class_id))?;
+        let object_proto = ctx.class_proto(crate::JS_CLASS_OBJECT);
+        let o = ctx.create_instance_with_proto(object_proto, PayloadPtr::none(class_id))?;
         ctx.class_slots[class_id as usize].proto = Some(o);
 
         // Build the constructor (ClassCtorDef equivalent): a constructor-flagged
@@ -774,14 +761,13 @@ unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClas
         let mut proto = ctx.class_proto(class_id).ok_or(-1)?;
         proto.install_fields(ctx, &proto_entries)?;
 
-        ctx.init_class_constructor_with_parent(
+        ctx.init_class_constructor(
             class_id,
             zapi_class_ctor_fn,
             def.call_arity as i32,
             magic as i16,
             proto,
             &static_entries,
-            parent_ctor,
         )?;
         // The constructor lives in `class_slots[class_id].ctor` (GC-traced).
         // `load_extension` publishes it to the module namespace; it is not
@@ -2337,6 +2323,69 @@ mod class_registration_tests {
     /// Multi-runtime isolation regression: the same extension class (one
     /// `ZqClassDef*` — a process-level static in real extensions) registered
     /// into two runtimes must stay fully isolated: per-runtime class ids,
+    /// A parent that registers *after* its child: the child is built as a root
+    /// class and the pending pass chains it once the parent shows up. That is the
+    /// order a module is free to write — `#[zq_class(extends = Base)]` before
+    /// `Base` — and the only reason `link_pending_parents` exists, so it is
+    /// asserted here instead of being left to the registration order of whichever
+    /// module happens to be loaded.
+    #[test]
+    fn pending_parent_chains_when_it_registers_later() -> Result<(), i32> {
+        use std::ffi::{CStr, c_char};
+
+        use zuqe_zapi::ffi::{ZqClassDef, ZqRawCtx};
+
+        use crate::{ClassID, Context};
+
+        fn def(name: &'static CStr, parent: *const ZqClassDef) -> ZqClassDef {
+            ZqClassDef {
+                name: name.as_ptr() as *const c_char,
+                parent_class: parent,
+                finalize: None,
+                gc_trace: None,
+                call: None,
+                has_instance: None,
+                call_arity: 0,
+                proto_entries_len: 0,
+                proto_entries: std::ptr::null(),
+                static_entries_len: 0,
+                static_entries: std::ptr::null(),
+            }
+        }
+
+        fn register(ctx: &mut Context<'_>, zq: *const ZqClassDef) -> Result<ClassID, i32> {
+            let id = ctx.with_new_scope(|cx| unsafe {
+                super::zapi_register_class(cx as *mut ScopedContext as ZqRawCtx, zq)
+            });
+            if id < 0 { Err(-1) } else { Ok(id as ClassID) }
+        }
+
+        let _lock = REG_LOCK.lock().unwrap();
+
+        let base: *const ZqClassDef = Box::leak(Box::new(def(c"LateBase", std::ptr::null())));
+        let child: *const ZqClassDef = Box::leak(Box::new(def(c"LateChild", base)));
+
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        // The child first: its parent is not registered yet, so it starts as a
+        // root class.
+        let child_id = register(&mut ctx, child)?;
+        let base_id = register(&mut ctx, base)?;
+
+        ctx.with_new_scope(|cx| {
+            let child_proto = cx.class_proto(child_id).expect("child prototype");
+            let base_proto = cx.class_proto(base_id).expect("base prototype");
+            assert_eq!(
+                child_proto.prototype(cx)?,
+                Some(base_proto),
+                "a parent that registers later must still chain"
+            );
+            Ok::<(), i32>(())
+        })?;
+        Ok(())
+    }
+
     /// create/instanceof/gc_trace/finalize, and one runtime's GC must not touch
     /// the other's objects.
     #[test]

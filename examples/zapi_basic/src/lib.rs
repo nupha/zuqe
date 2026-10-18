@@ -291,6 +291,39 @@ impl Counter {
 }
 
 // ──────────────────────────────────────
+// RichCounter: `extends = Counter` — both sides of the chain
+// ──────────────────────────────────────
+
+/// A `Counter` that starts at 10 and knows its own name:
+/// `class RichCounter extends Counter`. The host chains both sides when the
+/// classes are registered — the prototype onto `Counter.prototype`, the
+/// constructor onto `Counter` — so a `RichCounter` finds the inherited instance
+/// methods and, through the static side, `Counter.isCounter`.
+///
+/// It carries the **same payload type** as `Counter` on purpose: an inherited
+/// method casts the instance payload to the type it was written for
+/// (`Counter::payload` is an unchecked cast), so a child that shares the base's
+/// methods has to share the base's payload layout.
+#[zq_class(name = "RichCounter", payload = CounterPayload, extends = Counter)]
+struct RichCounter;
+
+#[zq_class_impl]
+impl RichCounter {
+    fn constructor<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        let label = cc.arg(0).raw();
+        RichCounter::new_instance(cx, CounterPayload { count: 10, label })
+    }
+
+    /// `richName()` — the child's own method, next to the inherited ones.
+    #[zq_method(name = "richName")]
+    fn rich_name<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        let c = cc.this();
+        let p = RichCounter::payload(cx, c).ok_or_else(|| cx.throw_type("not a RichCounter"))?;
+        Ok(ZqValue::from(p.label))
+    }
+}
+
+// ──────────────────────────────────────
 // Value export: a module-level constant
 // ──────────────────────────────────────
 
@@ -355,7 +388,7 @@ thread_local! {
         call_js,
         make_date, date_time,
         make_u8, u8_get, u8_set,
-        Counter, version,
+        Counter, RichCounter, version,
         module_path,
     ],
     finalize = module_finalize,

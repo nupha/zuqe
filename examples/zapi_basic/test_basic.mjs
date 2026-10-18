@@ -6,7 +6,9 @@
 //   2. standard host objects (Date, Uint8Array) invoked from inside the
 //      extension
 //   3. the Counter class: constructor, instance methods, static method, plus
-//      the class-payload gc_trace / finalize path
+//      the class-payload gc_trace / finalize path — and `RichCounter`, which
+//      `extends = Counter`, so the prototype chain, the constructor chain and
+//      member lookup through both are exercised end to end
 //   4. a module-level value export (`VERSION`)
 //   5. the module's own load path (`modulePath()` vs the injected `__file__`)
 //
@@ -106,6 +108,42 @@ test("Counter methods + static", () => {
     eq(c.label(), "first");
     eq(basic.Counter.isCounter(c), true);
     eq(basic.Counter.isCounter({}), false);
+});
+
+// ── 8b. inheritance: `#[zq_class(..., extends = Counter)]` ──
+// The host chains both sides when the classes register: the child's prototype
+// inherits `Counter.prototype`, and the child constructor inherits `Counter`.
+test("RichCounter.prototype.__proto__ === Counter.prototype", () =>
+    eq(
+        Object.getPrototypeOf(basic.RichCounter.prototype),
+        basic.Counter.prototype,
+        "prototype chain",
+    ));
+test("RichCounter.__proto__ === Counter", () =>
+    eq(Object.getPrototypeOf(basic.RichCounter), basic.Counter, "constructor chain"));
+test("a RichCounter instance is both a RichCounter and a Counter", () => {
+    const r = new basic.RichCounter("rich");
+    eq(r instanceof basic.RichCounter, true, "instanceof RichCounter");
+    eq(r instanceof basic.Counter, true, "instanceof Counter");
+});
+test("inherited instance methods run on a RichCounter", () => {
+    const r = new basic.RichCounter("rich");
+    eq(r.value(), 10, "the child's constructor started it at 10");
+    eq(r.increment(), 11, "increment is Counter's body on the shared payload");
+    eq(r.label(), "rich", "label is Counter's body too");
+});
+test("the child's own method is there as well", () => {
+    const r = new basic.RichCounter("rich");
+    eq(r.richName(), "rich", "richName");
+});
+test("an inherited static is reachable from the child", () => {
+    const r = new basic.RichCounter("rich");
+    eq(basic.RichCounter.isCounter(r), true, "isCounter through the static chain");
+});
+test("the chain does not leak the other way", () => {
+    const c = new basic.Counter("plain");
+    eq(c instanceof basic.RichCounter, false, "a Counter is not a RichCounter");
+    eq(typeof c.richName, "undefined", "the child's method is not on the base");
 });
 
 // ── 9. payload label survives GC pressure ──

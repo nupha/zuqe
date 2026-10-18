@@ -18,7 +18,7 @@ impl AsyncFunction {
     pub fn class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
         debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
-        let proto = ctx.create_base_object_with_proto(Some(ctx.function_proto()))?;
+        let proto = ctx.create_base_object()?;
         ctx.init_class_proto_internal(class_id, proto, js_async_function_proto_funcs)?;
 
         let ctor = NativeFunction::create(
@@ -27,11 +27,21 @@ impl AsyncFunction {
             Atom::CONST_AsyncFunction,
             1,
             FunctionKind::Async as i16,
-            ctx.function_ctor(),
+            ctx.function_proto(),
             None,
         )?;
         ctx.bind_ctor_proto_ex(ctor.into(), proto, 0, JS_PROP_CONFIGURABLE)?;
         ctx.class_slots[class_id as usize].ctor = Some(ctor.into());
+
+        // %AsyncFunction% inherits Function, by the one link.
+        let function_proto = ctx.function_proto();
+        let function_ctor = ctx.function_ctor();
+        ctx.link_class_extends(
+            proto,
+            Some(ctor.into()),
+            Some(function_proto),
+            Some(function_ctor),
+        )?;
 
         Ok(())
     }

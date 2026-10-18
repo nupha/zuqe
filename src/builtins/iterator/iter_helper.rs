@@ -61,9 +61,7 @@ pub(crate) fn js_iterator_helper_class_init(
     class_id: ClassID,
 ) -> Result<(), i32> {
     let iter_proto = ctx.iterator_proto()?;
-    let mut proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
-    proto.install_fields(ctx, js_iterator_helper_proto_funcs)?;
-    ctx.set_class_proto(class_id, proto);
+    ctx.init_class_proto_extends(class_id, Some(iter_proto), js_iterator_helper_proto_funcs)?;
     Ok(())
 }
 

@@ -10,6 +10,7 @@ use crate::{
     function::{Callback, CallbackFn, NativeFunction},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object},
     runtime::RuntimeImpl,
+    value::JSValue,
 };
 
 impl RuntimeImpl {
@@ -41,6 +42,49 @@ impl RuntimeImpl {
 }
 
 impl<'c> ScopedContext<'c> {
+    /// The one way a class extends another one.
+    ///
+    /// Whatever kind a class is — defined in Rust (a builtin, or one an
+    /// extension registered) or written as `class` in a script — its parent is
+    /// established here and nowhere else: `child_proto` is re-prototyped onto
+    /// `parent_proto`, and `child_ctor`, when both it and `parent_ctor` exist,
+    /// onto `parent_ctor`. That is the whole of `class Child extends Parent`:
+    /// instances reach the parent's prototype members through the first link,
+    /// static members through the second.
+    ///
+    /// Every class is built as a *root* first (its prototype an ordinary object
+    /// on `Object.prototype`, its constructor on `Function.prototype`) and then
+    /// linked, so all three kinds link the same way. That is what lets a parent
+    /// that only appears later — an extension class whose base registers after
+    /// it — be linked when it does, and it is why the class builders take no
+    /// parent: there is no second path that creates the relation.
+    ///
+    /// `parent_proto: None` is `class Child extends null`, whose prototype chain
+    /// stops at the child. `parent_ctor: None` leaves the constructor on
+    /// `Function.prototype`, which is what `extends null` wants; a child without
+    /// a constructor of its own links nothing on that side. A class that extends
+    /// nothing is simply never linked.
+    pub(crate) fn link_class_extends(
+        &mut self,
+        child_proto: Object,
+        child_ctor: Option<Object>,
+        parent_proto: Option<Object>,
+        parent_ctor: Option<Object>,
+    ) -> Result<(), i32> {
+        let mut child_proto = child_proto;
+        // Re-linking costs nothing: a pass that runs again over classes that are
+        // already linked — zapi re-runs its pending pass after every
+        // registration — finds the chain already equal and `set_prototype`
+        // returns early.
+        child_proto.set_prototype(self, parent_proto.map_or(JSValue::NULL, JSValue::from))?;
+
+        if let (Some(mut child_ctor), Some(parent_ctor)) = (child_ctor, parent_ctor) {
+            child_ctor.set_prototype(self, JSValue::from(parent_ctor))?;
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn init_class_proto_internal(
         &mut self,
         class_id: ClassID,
@@ -67,6 +111,26 @@ impl<'c> ScopedContext<'c> {
         Ok(p)
     }
 
+    /// The class prototype of `class_id`, installed with `entries`, inheriting
+    /// `parent_proto` — the shape the iterator classes (and every other class
+    /// whose prototype is all it has) repeat. Built as a root and then linked,
+    /// like every class in the engine: this is only the proto-side convenience,
+    /// and `link_class_extends` below is still the one call that decides what
+    /// inheriting means.
+    pub(crate) fn init_class_proto_extends(
+        &mut self,
+        class_id: ClassID,
+        parent_proto: Option<Object>,
+        entries: &[FieldDef],
+    ) -> Result<(), i32> {
+        let proto = self.create_base_object()?;
+        self.init_class_proto_internal(class_id, proto, entries)?;
+        if let Some(parent_proto) = parent_proto {
+            self.link_class_extends(proto, None, Some(parent_proto), None)?;
+        }
+        Ok(())
+    }
+
     pub(super) fn init_class_ctor_internal(
         &mut self,
         class_id: ClassID,
@@ -75,7 +139,6 @@ impl<'c> ScopedContext<'c> {
         magic: i16,
         proto: Object,
         entries: &[FieldDef],
-        parent_ctor: Option<Object>,
     ) -> Result<Object, i32> {
         debug_assert!(self.class_slots.len() > class_id as usize);
         debug_assert!(
@@ -89,20 +152,15 @@ impl<'c> ScopedContext<'c> {
             .map(|cd| cd.name_atom)
             .unwrap_or(Atom::NULL);
 
-        // A derived class chains its constructor onto the parent's, so static
-        // members are inherited the way `class B extends A` specifies.
-        let ctor_proto = match parent_ctor {
-            Some(p) => p,
-            None => self.function_proto(),
-        };
-
+        // A root constructor: `link_class_extends` is what chains a derived one
+        // onto its parent, so that no class is born with a parent.
         let mut ctor: Object = NativeFunction::create(
             self,
             handler,
             class_name,
             length as _,
             magic,
-            ctor_proto,
+            self.function_proto(),
             None,
         )?
         .into();
@@ -126,24 +184,6 @@ impl<'c> ScopedContext<'c> {
         proto: Object,
         entries: &[FieldDef],
     ) -> Result<Object, i32> {
-        self.init_class_constructor_with_parent(
-            class_id, callback, length, magic, proto, entries, None,
-        )
-    }
-
-    /// `parent_ctor` chains the new constructor onto an existing one, giving
-    /// the class static-side inheritance (`Child.__proto__ === Base`). Pass
-    /// `None` for a root class.
-    pub fn init_class_constructor_with_parent(
-        &mut self,
-        class_id: ClassID,
-        callback: CallbackFn,
-        length: i32,
-        magic: i16,
-        proto: Object,
-        entries: &[FieldDef],
-        parent_ctor: Option<Object>,
-    ) -> Result<Object, i32> {
         self.init_class_ctor_internal(
             class_id,
             Callback::Constructor(callback),
@@ -151,7 +191,6 @@ impl<'c> ScopedContext<'c> {
             magic,
             proto,
             entries,
-            parent_ctor,
         )
     }
 
@@ -171,7 +210,6 @@ impl<'c> ScopedContext<'c> {
             magic,
             proto,
             entries,
-            None,
         )
     }
 

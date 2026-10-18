@@ -55,8 +55,8 @@ name = "mymod"                 # → libmymod.dylib / libmymod.so
 crate-type = ["cdylib"]        # a dynamic library, not a Rust rlib
 
 [dependencies]
-zuqe_zapi = "0.3.0"
-zuqe_zapi_macros = "0.3.0"
+zuqe_zapi = "0.4.0"
+zuqe_zapi_macros = "0.4.0"
 ```
 
 Two things matter here:
@@ -477,6 +477,40 @@ Key points:
   `#[zq_module(exports = [...])]`.
 - `examples/zapi_event` has more class patterns; full GC rules are in
   [gc.md](gc.md).
+
+### Inheriting from another class
+
+`extends = Base` names another `#[zq_class]` of yours as the parent:
+
+```rust
+#[zq_class(name = "Transaction", payload = TxPayload, payload_no_gc, extends = JsDatabase)]
+struct JsTransaction;
+```
+
+The host chains both sides when the classes are registered: an instance of the
+child finds every prototype member of the parent, and the child constructor
+inherits the parent's statics — `JsTransaction.__proto__ === JsDatabase`, so a
+static like `JsDatabase.isOpen(t)` works on a child too.
+
+- **Registration order does not matter.** The child may be declared, exported or
+  registered before its parent, including a parent the module registers later
+  from its own init hook; the two are linked once both are known.
+- **The parent must be a `#[zq_class]` from the same extension.** The parent is
+  named by a pointer into your own module's class table, so a class from another
+  `.dylib`, or a builtin such as `Array`, cannot be named: the child is then
+  registered as a class **without** a parent, and nothing warns you.
+- **It is member lookup, not `super`.** A `#[zq_method]` body is Rust, so a child
+  that wants the parent's behaviour calls it by name —
+  `JsDatabase::close(ctx, cc)` — not `super.close()`.
+- **Payloads are independent.** `extends` chains prototypes; it does not make a
+  child instance a valid `Base` for `Base::payload`. Give the child its own
+  payload, or share the type deliberately.
+- **A class without `extends` is an ordinary root class.** Its prototype inherits
+  `Object.prototype`, so the helpers reachable from its instances include
+  `hasOwnProperty` and `toString`.
+- **The reverse direction needs nothing.** A script's
+  `class Derived extends NativeBase` works already: the constructor trampoline
+  derives the instance prototype from `new_target.prototype`.
 
 ---
 

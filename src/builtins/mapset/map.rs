@@ -366,13 +366,11 @@ impl MapSet {
         match class_id {
             JS_CLASS_MAP_ITERATOR => {
                 let iter_proto = ctx.iterator_proto()?;
-                let proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
-                ctx.init_class_proto_internal(class_id, proto, js_map_iterator_proto_funcs)
+                ctx.init_class_proto_extends(class_id, Some(iter_proto), js_map_iterator_proto_funcs)
             }
             JS_CLASS_SET_ITERATOR => {
                 let iter_proto = ctx.iterator_proto()?;
-                let proto = ctx.create_base_object_with_proto(Some(iter_proto))?;
-                ctx.init_class_proto_internal(class_id, proto, js_set_iterator_proto_funcs)
+                ctx.init_class_proto_extends(class_id, Some(iter_proto), js_set_iterator_proto_funcs)
             }
             _ => {
                 unreachable!()
