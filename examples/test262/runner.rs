@@ -70,14 +70,12 @@ pub fn enable_jit() {
 /// maximizes the share of native code exercised within a short sample run.
 #[cfg(feature = "jit")]
 fn eager_jit_config() -> zuqe::JitConfig {
+    // The engine polls automatically (trampoline frame boundaries + the
+    // event-loop tick), so a test-local function that becomes hot inside its own
+    // `eval` is compiled and entered natively during the assertions.
     zuqe::JitConfig::builder()
         .call_threshold(1)
         .loop_threshold(1)
-        // P6 5.1: poll from the interpreter's trampoline on a back edge, so a
-        // test-local function that becomes hot inside its own `eval` runs
-        // natively during the assertions instead of waiting for the next host
-        // poll (there is none until the test finishes).
-        .poll_during_eval(true)
         .build()
 }
 
@@ -594,9 +592,9 @@ pub async fn run_test_file(
         );
 
         // Drain what the harness queued so harness helpers can run natively
-        // while the test script executes. With `poll_during_eval` the
-        // trampoline also polls on a back edge, so this warm-up poll is mostly
-        // a head start for the harness helpers the test calls early.
+        // while the test script executes. The engine polls automatically at
+        // trampoline frame boundaries and at each tick; this explicit poll is
+        // kept as a hard guarantee before the test body.
         #[cfg(feature = "jit")]
         if let Some(jit) = &jit {
             jit.poll();

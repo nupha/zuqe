@@ -307,6 +307,14 @@ impl RuntimeImpl {
         #[cfg(feature = "builtin_weakref")]
         self.process_finrec_cleanups();
 
+        // Automatic JIT poll: this is the event-loop safe point (after the
+        // per-context job scopes closed, after the collection above), so the
+        // queue keeps draining during long `eval_wait` / host tick loops. A
+        // no-op without a JIT, with `auto_poll` off, while a native activation
+        // is still on the stack, or when nothing is queued.
+        #[cfg(feature = "jit")]
+        crate::jit::poll_if_queued(self);
+
         // Progress takes priority: if any real work was produced this round,
         // advance immediately (a co-existing `Again` job is already re-queued
         // and will be polled next round). Only when there is no real progress

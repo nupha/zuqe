@@ -79,6 +79,10 @@ pub(crate) struct JitState {
     /// trampoline polls at its next safe iteration (P6 5.1) so functions hot
     /// inside one `eval` can run natively.
     poll_requested: Cell<bool>,
+    /// Number of native activations currently on the Rust stack. Automatic
+    /// polling is only allowed at zero: retiring a live mapping (D-16) while
+    /// generated code still runs would free the code under it.
+    native_depth: Cell<u32>,
     limits: VerifyLimits,
 }
 
@@ -104,6 +108,7 @@ impl JitState {
             metrics: Cell::new(JitMetrics::default()),
             coordinator: RefCell::new(coordinator),
             poll_requested: Cell::new(false),
+            native_depth: Cell::new(0),
             limits,
         })
     }
@@ -192,6 +197,13 @@ impl JitState {
         if coordinator.record_call(&mut m, id, bc.opcodes(), measured) {
             coordinator.enqueue(&mut m, id, Some(*bc));
         }
+        // Enqueueing here (a call-count hot function) must also ask for a poll:
+        // the trampoline polls at its next frame boundary, so the callee can run
+        // natively for the rest of the eval. A loop-only marker would miss
+        // call-count hotness.
+        if coordinator.queue_len() > 0 {
+            self.poll_requested.set(true);
+        }
         drop(coordinator);
         self.metrics.set(m);
     }
@@ -211,6 +223,7 @@ impl JitState {
         coordinator.note_guard_misses(id, misses);
         if coordinator.needs_tier_down_requeue(id) {
             coordinator.enqueue(&mut m, id, Some(*bc));
+            self.poll_requested.set(true);
         }
         drop(coordinator);
         self.metrics.set(m);
@@ -238,20 +251,42 @@ impl JitState {
         self.metrics.set(m);
     }
 
-    /// P6 5.1: poll from the interpreter's trampoline when a back edge asked
-    /// for it and the host enabled `poll_during_eval`. Runs between
-    /// `execute_with_arena` calls, where the runtime is at a safe point.
+    /// The in-eval half of the automatic poll: the interpreter's trampoline runs
+    /// at frame boundaries (between `execute_with_arena` calls, no JS running), so
+    /// a hot callee that was just queued can be compiled and then entered
+    /// natively for the rest of the *same* `eval`. This is what makes the
+    /// automatic poll useful for a single-eval host: polling only when the eval
+    /// returns would compile after all the work is done.
+    ///
+    /// `poll_requested` is raised by every enqueue (entry, back edge, tier-down);
+    /// gated on `auto_poll` and on `native_depth == 0` (the trampoline can be
+    /// entered from a native callee through the call helpers, and retiring a
+    /// mapping then would free running code).
     fn poll_deferred(&self) {
-        if self.cfg.poll_during_eval && self.poll_requested.get() {
+        if self.cfg.auto_poll && self.native_depth.get() == 0 && self.poll_requested.get() {
             self.poll_requested.set(false);
             self.poll();
         }
     }
 
-    /// Verify, compile and install every queued function. Runs on the polling
-    /// thread, outside `with_new_scope`. A failed attempt is retried in the
-    /// same poll until it installs, is rejected, or runs out of attempts, so
-    /// the queue is always drained when this returns.
+    /// Automatic poll at an engine safe point (eval return, event-loop tick).
+    /// A cheap no-op unless the host left `auto_poll` on, no native activation
+    /// is in flight, and something is actually queued.
+    fn poll_if_queued(&self) {
+        if self.cfg.auto_poll
+            && self.native_depth.get() == 0
+            && self.coordinator.borrow().queue_len() > 0
+        {
+            self.poll();
+        }
+    }
+
+    /// Verify, compile and install every queued function. Runs on the calling
+    /// thread (inline model). The automatic poll only reaches this with no
+    /// native activation in flight, and a host calling [`Jit::poll`] directly
+    /// must not do so while generated code is running. A failed attempt is
+    /// retried in the same poll until it installs, is rejected, or runs out of
+    /// attempts, so the queue is always drained when this returns.
     fn poll(&self) {
         let mut m = self.metrics.get();
         let timeout = self.coordinator.borrow().timeout();
@@ -370,9 +405,14 @@ impl Jit {
         Ok(Jit { rt: rt.clone() })
     }
 
-    /// Drive the coordinator. Call only from outside `with_new_scope`: it may
-    /// run host callbacks and touch the runtime. Verifies and compiles every
-    /// queued function.
+    /// Drive the coordinator. Verifies and compiles every queued function.
+    ///
+    /// The runtime polls itself at engine safe points (eval return, event-loop
+    /// tick), so a host normally does not need to call this. It stays public for
+    /// hosts and tests that want to compile at an exact moment; pair it with
+    /// [`JitConfigBuilder::auto_poll`]`(false)` when the timing must be fully
+    /// explicit. Must not be called while generated code is running (a nested
+    /// eval from a native callback); the automatic poll checks for that.
     pub fn poll(&self) {
         if let Some(state) = self.rt.jit() {
             state.poll();
@@ -416,6 +456,18 @@ pub(crate) fn note_backedge(rt: &RuntimeImpl, bc: &Bytecode, pc: usize) {
 pub(crate) fn poll_deferred(rt: &RuntimeImpl) {
     if let Some(state) = rt.jit.as_deref() {
         state.poll_deferred();
+    }
+}
+
+/// Automatic poll at an engine safe point (eval return, event-loop tick), so a
+/// host never has to drive compilation itself. No-op unless a JIT is attached,
+/// `JitConfig::auto_poll` is on, no native activation is in flight and the queue
+/// is non-empty.
+#[cfg(feature = "jit")]
+#[inline]
+pub(crate) fn poll_if_queued(rt: &RuntimeImpl) {
+    if let Some(state) = rt.jit.as_deref() {
+        state.poll_if_queued();
     }
 }
 
@@ -515,7 +567,19 @@ pub(crate) fn invoke_native(
     // SAFETY: `entry` was produced by `compile` for this exact bytecode layout
     // and ABI, and the slot is only populated while the code cache keeps the
     // mapping alive; the frame outlives the call.
+    //
+    // `native_depth` brackets the call: while it is non-zero no automatic poll
+    // may retire a mapping (the code could still be executing). A nested
+    // activation (a native callee through the call helpers) keeps it > 0 for the
+    // whole outer run. A panic would leave it high, which only disables the
+    // automatic poll — the safe direction.
+    state
+        .native_depth
+        .set(state.native_depth.get().saturating_add(1));
     let raw = unsafe { entry(&mut frame) };
+    state
+        .native_depth
+        .set(state.native_depth.get().saturating_sub(1));
     let kind = JitExitKind::from_raw(raw);
     let m = state.metrics.get();
     state.metrics.set(JitMetrics {
@@ -655,6 +719,7 @@ mod tests {
             JitConfig::builder()
                 .call_threshold(1)
                 .loop_threshold(1)
+                .auto_poll(false) // the test drives the enqueue → GC → poll window
                 .build(),
         )
         .unwrap();
@@ -752,6 +817,7 @@ mod tests {
                 .call_threshold(1)
                 .loop_threshold(1)
                 .max_compile_attempts(1)
+                .auto_poll(false) // inject the fault before the first compile
                 .build(),
         )
         .unwrap();
@@ -825,67 +891,50 @@ mod tests {
         assert!(m.functions_settled > 0, "out of attempts -> settled");
     }
 
-    /// P6 5.1: with `poll_during_eval`, a function that becomes hot *inside* one
-    /// `eval` is compiled by the interpreter's trampoline, so later calls run
-    /// natively without the host ever polling. This is what lets a Test262
-    /// test's own local functions reach native code.
+    /// Automatic polling without any host call. The in-eval point is the
+    /// interpreter's trampoline: a hot callee that was just queued is compiled at
+    /// the next frame boundary and then runs natively for the rest of the same
+    /// `eval`. `auto_poll(false)` is the manual control.
     #[test]
-    fn poll_during_eval_compiles_inside_one_eval() {
+    fn automatic_poll_compiles_without_a_host_call() {
         use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
 
         const SRC: &[u8] =
             b"function inner(n){ var s = 0; for (var i = 0; i < n; i++) s += i; return s; } \
             var t = 0; for (var k = 0; k < 50; k++) t += inner(200); t;";
 
-        let mut rt = crate::Runtime::create().unwrap();
-        let mut ctx = rt
-            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        let run = |label: &str, cfg: JitConfig| -> JitMetrics {
+            let mut rt = crate::Runtime::create().unwrap();
+            let mut ctx = rt
+                .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+                .unwrap();
+            let jit = Jit::attach_to(&rt, cfg).unwrap();
+            ctx.eval(
+                SRC,
+                &EvalName::Name(format!("jit-auto-poll-{label}.js")),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
             .unwrap();
-        let jit = Jit::attach_to(
-            &rt,
-            JitConfig::builder()
-                .call_threshold(1)
-                .loop_threshold(1)
-                .poll_during_eval(true)
-                .build(),
-        )
-        .unwrap();
-        ctx.eval(
-            SRC,
-            &EvalName::Name("jit-inline-poll.js".into()),
-            EvalType::Global,
-            EvalFlags::empty(),
-        )
-        .unwrap();
-        let m = jit.metrics();
-        assert!(m.functions_compiled > 0, "nothing compiled during the eval");
-        assert!(m.native_entries > 0, "no native code ran during the eval");
+            // No explicit poll anywhere: everything below is the engine's doing.
+            jit.metrics()
+        };
+        let eager = || JitConfig::builder().call_threshold(1).loop_threshold(1);
 
-        // Control: the same script with the default (host polls only) has
-        // compiled nothing when the eval returns.
-        let mut rt = crate::Runtime::create().unwrap();
-        let mut ctx = rt
-            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
-            .unwrap();
-        let jit = Jit::attach_to(
-            &rt,
-            JitConfig::builder()
-                .call_threshold(1)
-                .loop_threshold(1)
-                .build(),
-        )
-        .unwrap();
-        ctx.eval(
-            SRC,
-            &EvalName::Name("jit-inline-poll-ctl.js".into()),
-            EvalType::Global,
-            EvalFlags::empty(),
-        )
-        .unwrap();
+        // Default: compile from the trampoline as soon as `inner` is hot, so the
+        // rest of the *same* eval runs natively.
+        let m = run("default", eager().build());
+        assert!(m.functions_compiled > 0, "nothing compiled during the eval");
+        assert!(
+            m.native_entries > 0,
+            "the hot callee never ran native inside the eval"
+        );
+
+        // `auto_poll(false)`: only an explicit `Jit::poll()` compiles anything.
+        let m = run("manual", eager().auto_poll(false).build());
         assert_eq!(
-            jit.metrics().functions_compiled,
-            0,
-            "the default must not poll during the eval"
+            m.functions_compiled, 0,
+            "auto_poll=false must leave everything to the host poll"
         );
     }
 

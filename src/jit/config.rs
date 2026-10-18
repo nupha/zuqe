@@ -54,12 +54,14 @@ pub struct JitConfig {
     pub(crate) max_code_bytes: usize,
     pub(crate) max_metadata_bytes: usize,
     pub(crate) max_queue_len: usize,
-    /// Whether the interpreter may poll the JIT from its trampoline when a loop
-    /// back edge has queued work (P6 5.1). Off by default: the inline model then
-    /// only compiles when the host calls [`Jit::poll`] between evaluations. On,
-    /// a function that becomes hot *inside* one `eval` can run natively without
-    /// waiting for the next host poll (what the Test262 runner needs).
-    pub(crate) poll_during_eval: bool,
+    /// Poll automatically at engine safe points, so the host never has to call
+    /// `Jit::poll()` itself. On by default. Two points: the interpreter's
+    /// trampoline (frame boundaries, so a hot callee runs natively for the rest
+    /// of the *same* `eval`) and the event-loop tick (after the collection, so a
+    /// long `eval_wait` / host loop keeps draining). The poll runs only when work
+    /// is queued and no native frame is in flight. Turn it off only to keep full
+    /// manual control of the compile timing (tests/benchmarks).
+    pub(crate) auto_poll: bool,
     /// Reserved for the §12 background compiler (`jit_background`). The inline
     /// model compiles on the calling thread between two `poll`s, so this field
     /// is stored and reported but **not read anywhere yet**: `workers(8)` does
@@ -92,7 +94,7 @@ impl std::fmt::Debug for JitConfig {
             .field("max_code_bytes", &self.max_code_bytes)
             .field("max_metadata_bytes", &self.max_metadata_bytes)
             .field("max_queue_len", &self.max_queue_len)
-            .field("poll_during_eval", &self.poll_during_eval)
+            .field("auto_poll", &self.auto_poll)
             .field("workers", &self.workers)
             .field("compile_timeout_ms", &self.compile_timeout_ms)
             .field("max_compile_attempts", &self.max_compile_attempts)
@@ -110,7 +112,7 @@ impl Default for JitConfig {
             max_code_bytes: DEFAULT_MAX_CODE_BYTES,
             max_metadata_bytes: DEFAULT_MAX_METADATA_BYTES,
             max_queue_len: DEFAULT_MAX_QUEUE_LEN,
-            poll_during_eval: false,
+            auto_poll: true,
             workers: DEFAULT_WORKERS,
             compile_timeout_ms: DEFAULT_COMPILE_TIMEOUT_MS,
             max_compile_attempts: DEFAULT_MAX_COMPILE_ATTEMPTS,
@@ -153,6 +155,12 @@ impl JitConfig {
 
     pub const fn max_queue_len(&self) -> usize {
         self.max_queue_len
+    }
+
+    /// Whether the JIT polls itself at engine safe points (trampoline frame
+    /// boundaries and the event-loop tick). See the `auto_poll` field.
+    pub const fn auto_poll(&self) -> bool {
+        self.auto_poll
     }
 
     pub const fn workers(&self) -> usize {
@@ -211,10 +219,11 @@ impl JitConfigBuilder {
         self
     }
 
-    /// Enable polling the JIT from the interpreter's trampoline on a back edge
-    /// (P6 5.1). Off by default; see [`JitConfig::poll_during_eval`].
-    pub const fn poll_during_eval(mut self, on: bool) -> Self {
-        self.0.poll_during_eval = on;
+    /// Turn the automatic poll on/off (on by default; see the `auto_poll`
+    /// field). Off means only an explicit `Jit::poll()` compiles anything, which
+    /// is useful for tests that pin the compile moment.
+    pub const fn auto_poll(mut self, on: bool) -> Self {
+        self.0.auto_poll = on;
         self
     }
 
