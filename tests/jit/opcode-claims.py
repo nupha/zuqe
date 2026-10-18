@@ -9,7 +9,9 @@ the bytecode the engine prints for that case.
 
 The dump interleaves a case's scripts and functions in one `<Bytecode>` block,
 so a claim describes the whole case (its scripts included). `CLAIM` lines come
-from `bytecode_dump_audit` and list what the manifest claims.
+from `bytecode_dump_audit` and list what the manifest claims. Only the final
+(pass 2) bytecode is scanned: an opcode that disappears before resolution
+(`resolve_variables`/`resolve_labels`) does not count as covered.
 """
 import collections
 import re
@@ -20,14 +22,19 @@ TESTS = Path(__file__).resolve().parent / "jit_opcodes.rs"
 
 
 def split_blocks(lines):
-    blocks, cur = [], None
+    """Group the dump into one block per function.
+
+    The engine prints a function's bytecode *before* its `<Bytecode …>` header
+    (the header is emitted when the bytecode object is created, after both
+    passes), so a block ends at its header — attributing the preceding body to
+    the right function instead of the next one.
+    """
+    blocks, cur = [], []
     for ln in lines:
+        cur.append(ln)
         if ln.startswith("<Bytecode "):
-            if cur:
-                blocks.append(cur)
-            cur = [ln]
-        elif cur is not None:
-            cur.append(ln)
+            blocks.append(cur)
+            cur = []
     if cur:
         blocks.append(cur)
     return blocks
@@ -38,16 +45,38 @@ CONT = re.compile(r"^\s+([0-9A-F]{2})\s+(?:\d+:\s*)?([a-z0-9_]+)\b")
 STACK = re.compile(r"^\s*\d+:\s+([a-z0-9_]+)\b")
 HEADER = re.compile(r"(audit-[^:]+)\.js:\d+: function: (\S+)")
 CLAIM = re.compile(r"^CLAIM (\S+) (.*)$")
+PASS = re.compile(r"^pass (\d+)$")
+SECOND_PASS = 2
+
+
+def final_pass_lines(lines):
+    """Keep only the second (final) pass of every dumped function.
+
+    The engine dumps pass 1 (pre-resolution) and pass 2 (post-resolution, what
+    the JIT consumes). A claim that only appears before variable/label
+    resolution must not pass the audit, so every pass-1 block is dropped.
+    """
+    kept = []
+    pass_no = None
+    for ln in lines:
+        m = PASS.match(ln)
+        if m:
+            pass_no = int(m.group(1))
+            continue
+        if pass_no is None or pass_no == SECOND_PASS:
+            kept.append(ln)
+    return kept
 
 
 def found_in_dump(text, nameset):
     found = collections.defaultdict(set)
-    for block in split_blocks(text.splitlines()):
-        m = HEADER.search(block[0])
+    for block in split_blocks(final_pass_lines(text.splitlines())):
+        header = next((ln for ln in reversed(block) if ln.startswith("<Bytecode ")), "")
+        m = HEADER.search(header)
         if not m:
             continue
         case = m.group(1).replace("audit-", "")
-        for ln in block[1:]:
+        for ln in block:
             mm = STACK.match(ln) or OP_LINE.match(ln) or CONT.match(ln)
             if mm and mm.group(mm.lastindex) in nameset:
                 found[case].add(mm.group(mm.lastindex))

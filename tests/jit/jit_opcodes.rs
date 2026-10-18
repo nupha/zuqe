@@ -46,6 +46,12 @@ const UNREACHABLE: &[(&str, &str)] = &[
          pattern survived to pass 3, but `resolve_scoped_vars` rewrites the KEEP_TOP \
          local write to `set_loc` in pass 2",
     ),
+    (
+        "nop",
+        "only ever written as pass-1 padding by `optimize::optimize_scope_make_ref` \
+         and dropped by `resolve_variables` (`OP_nop => {}`), so it cannot reach the \
+         final stream the JIT consumes",
+    ),
 ];
 
 /// Opcodes `Native`/`Helper` (lowering covered by
@@ -56,7 +62,19 @@ const UNREACHABLE: &[(&str, &str)] = &[
 /// update → `put_var_ref`, `super()` inside an arrow →
 /// `put_var_ref_check_init`, and `add_loc` → moved to [`UNREACHABLE`]). The
 /// list stays so a future shape-less opcode has somewhere honest to go.
-const GAPS: &[(&str, &str)] = &[];
+///
+/// 2026-10-18 (S5 5.2): the claim audit now scans only the **final** bytecode,
+/// which exposed one more: `get_ref_value` (the read half of the ref-cell
+/// pair) never survives `resolve_scoped_vars` — a simple local/arg/global
+/// target is folded to `get_*` and a `with`/ref write is the only path that
+/// keeps a reference alive, and it keeps `put_ref_value`, not the read. A shape
+/// needing a reference *read* is still wanted.
+const GAPS: &[(&str, &str)] = &[(
+    "get_ref_value",
+    "no case yields it in the final stream: `optimize_scope_make_ref` folds ref \
+     reads to `get_loc`/`get_arg`/`get_var`, and the ref objects that survive \
+     (`[a,b] = p`, `for (v of p)`) are only ever written through (`put_ref_value`)",
+)];
 
 /// Cases whose function the frontend refuses today although every opcode they
 /// claim is policy-accepted. **Empty since 2026-10-17** (`this_arguments_newtarget`
@@ -83,32 +101,32 @@ macro_rules! op_cases {
 }
 
 const CASES: &[OpCase] = op_cases! {
-    literals => [push_i32, push_const, fclosure, push_atom_value, null, push_this, push_false, push_true, return, get_var, put_var, put_ref_value, get_loc, put_loc, if_false, goto, add, nop]
+    literals => [push_i32, push_const, fclosure, push_atom_value, null, push_this, push_false, push_true, call, return, get_var, put_var, get_loc, put_loc, set_loc, if_false, goto, add]
         = "var __seed = 0; function f(){ var __z = 0; var a = 1; var b = 2.5; var c = 'abc'; var d = undefined; var e = null; var g = false; var h = true; var t = this; return a + b + (t ? 0 : 0); }",
                   "f(0)",
           "f(0)",
           "'lit:' + f(0)";
-    locals_and_args => [push_i32, fclosure, drop, return, put_var, put_ref_value, get_loc, put_loc, set_loc, get_arg, set_arg, add, sub, nop]
+    locals_and_args => [push_i32, fclosure, drop, call, return, put_var, get_loc, put_loc, set_loc, get_arg, set_arg, add, sub]
         = "var __seed = 0; function f(a, b){ var __z = 0; var x = a; x = x + b; a = x; return x - a + b; }",
                   "f(1, 2)",
           "f(3, 4)",
           "'la:' + f(3, 4)";
-    let_locals => [push_i32, fclosure, drop, return, put_var, put_ref_value, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, get_loc_check, mul, add, nop]
+    let_locals => [push_i32, fclosure, drop, call, return, put_var, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, get_loc_check, mul, add]
         = "var __seed = 0; function f(n){ var __z = 0; var r = 0; { let x = n + 1; let y = x * 2; r = x + y; } return r; }",
                   "f(1)",
           "f(4)",
           "'ll:' + f(4)";
-    parameter_defaults => [push_i32, fclosure, undefined, drop, dup, return, put_var, put_ref_value, get_loc, put_loc, get_arg, set_arg, set_loc_uninitialized, get_loc_check, if_false, add, strict_eq, nop]
+    parameter_defaults => [push_i32, fclosure, undefined, drop, dup, call, return, put_var, get_loc, put_loc, set_loc, get_arg, put_arg, set_arg, set_loc_uninitialized, get_loc_check, if_false, add, strict_eq]
         = "var __seed = 0; function f(a = 7, b = a + 1){ var __z = 0; return a + b; }",
                   "f(1)",
           "f()",
           "'pd:' + f()";
-    implicit_return => [push_i32, fclosure, return, return_undef, put_var, put_ref_value, get_loc, put_loc, get_arg, add, nop]
+    implicit_return => [push_i32, fclosure, call, return, return_undef, put_var, get_loc, put_loc, set_loc, get_arg, add]
         = "var __seed = 0; function f(n){ var __z = 0; var x = n + 1; }",
                   "f(1)",
           "f(4)",
           "'ir:' + typeof f(4)";
-    temporal_dead_zone => [push_i32, fclosure, undefined, drop, return, throw, put_var, put_ref_value, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, get_loc_check, set_loc_check, goto, catch, add, nop]
+    temporal_dead_zone => [push_i32, fclosure, undefined, drop, call, return, throw, put_var, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, get_loc_check, set_loc_check, goto, catch, add]
         = "var __seed = 0; function f(n){ var __z = 0; var r = 0; { let a; try { r = r + a; } catch (e) { r = 100; } a = n + 1; let b = n; b = b + 1; r = r + a + b; } return r; }",
                   "f(1)",
           "f(5)",
@@ -116,130 +134,130 @@ const CASES: &[OpCase] = op_cases! {
     // `set_name` is not claimed: the anonymous inner function expression only
     // carries it in the pre-optimization (pass 1) stream, where the audit still
     // sees it, but the optimizer drops it — the final bytecode has none.
-    closure_var_refs => [push_i32, fclosure, drop, insert3, call, return, get_var, put_var, put_ref_value, get_loc, put_loc, set_loc, get_arg, get_var_ref, set_var_ref, add, nop]
+    closure_var_refs => [push_i32, fclosure, drop, call, return, get_var, put_var, get_loc, put_loc, set_loc, get_arg, get_var_ref, set_var_ref, add]
         = "var __seed = 0; function apply(g){ var __z = 0; return g(); } function f(n){ var __z = 0; var m = n; var r = apply(function(){ var __u = 0; m = m + 1; return m; }); return r + n; }",
                   "f(1)",
           "f(5)",
           "'cv:' + f(5)";
-    closure_let_refs => [push_i32, fclosure, drop, dup, insert3, call, return, get_var, put_var, put_ref_value, set_name, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, get_var_ref_check, put_var_ref_check, close_loc, add, nop]
+    closure_let_refs => [push_i32, fclosure, drop, dup, call, return, get_var, put_var, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, get_var_ref_check, put_var_ref_check, close_loc, add]
         = "var __seed = 0; function apply(g){ var __z = 0; return g(); } function f(n){ var __z = 0; var out = 0; { let m = n; out = apply(function(){ var __u = 0; m = m + 1; return m; }); } return out + n; }",
                   "f(2)",
           "f(3)",
           "'cr:' + f(3)";
-    captured_loop_ref => [push_i32, fclosure, drop, insert3, perm4, call, return, get_var, put_var, get_ref_value, put_ref_value, get_loc, put_loc, set_loc, get_arg, get_var_ref, if_false, goto, post_inc, inc_loc, add, lt, nop]
+    captured_loop_ref => [push_i32, fclosure, drop, call, return, get_var, put_var, get_loc, put_loc, set_loc, get_arg, get_var_ref, if_false, goto, post_inc, inc_loc, add, lt]
         = "var __seed = 0; function apply(g){ var __z = 0; return g(); } function f(n){ var __z = 0; var out = 0; for (var i = 0; i < 3; i++) { out = apply(function(){ var __u = 0; return i; }); } return out + n; }",
                   "f(1)",
           "f(2)",
           "'clr:' + f(2)";
-    nested_closure_ref => [push_i32, fclosure, object, drop, insert3, call, return, get_var, put_var, put_ref_value, set_name, get_loc, put_loc, set_loc, get_arg, get_var_ref, set_loc_uninitialized, to_object, with_get_var, with_make_ref, make_var_ref_ref, add, nop]
+    nested_closure_ref => [push_i32, fclosure, object, call, return, get_var, put_var, put_ref_value, get_loc, put_loc, set_loc, get_arg, get_var_ref, set_loc_uninitialized, to_object, with_get_var, with_make_ref, make_var_ref_ref, add]
         = "var __seed = 0; function apply(g){ var __z = 0; return g(); } function f(n){ var __z = 0; var m = n; var r = apply(function(){ var __u = 0; return apply(function(){ var __t = 0; with ({}) { m = m + 1; } return m; }); }); return r + n; }",
                   "f(1)",
           "f(4)",
           "'ncr:' + f(4)";
-    globals => [push_i32, fclosure, push_atom_value, drop, dup, return, get_var_undef, get_var, put_var, put_ref_value, get_loc, put_loc, get_arg, if_false, goto, typeof, delete_var, add, strict_eq, nop]
+    globals => [push_i32, fclosure, push_atom_value, drop, dup, call, return, get_var_undef, get_var, put_var, get_loc, put_loc, set_loc, get_arg, if_false, goto, typeof, delete_var, add, strict_eq]
         = "var G = 0; var W = 0; var GG = 1; function f(n){ var __z = 0; G = n + 1; W = W + 1; delete GG; return G + W + (typeof NOPE === 'undefined' ? 0 : 1); }",
                   "f(0)",
           "f(5)",
           "'gl:' + f(5)";
-    with_statement => [push_i32, fclosure, object, drop, return, get_var, put_var, put_ref_value, define_field, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, to_object, with_get_var, with_delete_var, with_make_ref, make_loc_ref, make_var_ref, delete_var, add, nop]
+    with_statement => [push_i32, fclosure, object, drop, call, return, get_var, put_var, put_ref_value, define_field, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, to_object, with_get_var, with_delete_var, with_make_ref, make_loc_ref, make_var_ref, delete_var, add]
         = "var __seed = 0; var WO = {x: 1}; function f(o){ var __z = 0; var r = 0; with (o) { r = x; x = r + 1; delete x; } return r; }",
                   "f(WO)",
           "f(WO)",
           "'w:' + f(WO)";
-    unary_operators => [push_i32, fclosure, push_atom_value, drop, return, put_var, put_ref_value, get_loc, put_loc, set_loc, get_arg, if_false, goto, neg, plus, dec, inc, post_dec, post_inc, dec_loc, inc_loc, not, lnot, typeof, add, strict_eq, and, nop]
+    unary_operators => [push_i32, fclosure, push_atom_value, drop, call, return, put_var, get_loc, put_loc, set_loc, get_arg, if_false, goto, neg, plus, dec, inc, post_dec, post_inc, dec_loc, inc_loc, not, lnot, typeof, add, strict_eq, and]
         = "var __seed = 0; function f(n){ var __z = 0; var x = n; x += 2; x++; x--; var q = (x++) + (x--) + (++x) + (--x); var a = -x; var b = +x; var c = !a; var d = ~b; var e = typeof x; return x + a + b + (c ? 1 : 0) + (d & 0) + (e === 'number' ? 1 : 0); }",
                   "f(5)",
           "f(9)",
           "'u:' + f(9)";
-    binary_operators => [push_i32, fclosure, drop, return, put_var, put_ref_value, get_loc, put_loc, set_loc, get_arg, if_false, inc_loc, mul, div, mod, add, sub, pow, shl, sar, shr, lt, lte, gt, gte, eq, neq, strict_eq, strict_neq, and, xor, or, nop]
+    binary_operators => [push_i32, fclosure, drop, call, return, put_var, get_loc, put_loc, set_loc, get_arg, if_false, post_inc, inc_loc, mul, div, mod, add, sub, pow, shl, sar, shr, lt, lte, gt, gte, eq, neq, strict_eq, strict_neq, and, xor, or]
         = "var __seed = 0; function f(n){ var __z = 0; var x = n; var s = 0; s += x + 1; s += x - 1; s += x * 2; s += x / 2; s += x % 3; s += x ** 2; if (x < 3) s++; if (x <= 3) s++; if (x > 3) s++; if (x >= 3) s++; if (x == 3) s++; if (x != 3) s++; if (x === 3) s++; if (x !== 3) s++; s += x & 3; s += x | 3; s += x ^ 3; s += x << 1; s += x >> 1; s += x >>> 1; return s; }",
                   "f(4)",
           "f(7)",
           "'b:' + f(7)";
-    relational_operators => [push_i32, fclosure, push_atom_value, object, return, put_var, put_ref_value, define_field, get_loc, put_loc, get_arg, if_false, goto, add, instanceof, in, nop]
+    relational_operators => [push_i32, fclosure, push_atom_value, object, call, return, put_var, define_field, get_loc, put_loc, set_loc, get_arg, if_false, goto, add, instanceof, in]
         = "var __seed = 0; var KO = {k: 1}; function f(o, c){ var __z = 0; return (('k' in o) ? 1 : 0) + ((o instanceof c) ? 2 : 0); }",
                   "f(KO, Object)",
           "f(KO, Object)",
           "'ro:' + f(KO, Object)";
     // `??` lowers inline (its `is_undefined_or_null` guard) and its join with
     // the literal arm verifies, so this is a fully compiling case.
-    nullish_coalescing => [push_i32, fclosure, drop, dup, return, put_var, put_ref_value, get_loc, put_loc, get_arg, if_false, is_undefined_or_null, nop]
+    nullish_coalescing => [push_i32, fclosure, drop, dup, call, return, put_var, get_loc, put_loc, set_loc, get_arg, if_false, is_undefined_or_null]
         = "var __seed = 0; function f(x){ var __z = 0; return x ?? 7; }",
                   "f(null)",
           "f(3)",
           "'nc:' + f(3) + ',' + f(null)";
-    properties => [push_i32, fclosure, push_atom_value, object, drop, array_from, return, put_var, put_ref_value, get_field, get_field2, put_field, get_array_el, get_array_el3, put_array_el, define_field, get_loc, put_loc, get_arg, delete, add, nop]
+    properties => [push_i32, fclosure, push_atom_value, object, drop, insert2, call, array_from, return, put_var, get_field, get_field2, put_field, get_array_el, get_array_el3, put_array_el, define_field, get_loc, put_loc, set_loc, get_arg, delete, add]
         = "var __seed = 0; var PO = {p: 1, q: 2, tmp: 9}; var PA = [0, 5, 0]; function f(o, a, i){ var __z = 0; var x = o.p; o.p = x + 1; o.q += 1; var y = o.q; var z = a[i]; a[i] += 1; delete o.tmp; return x + y + z + a[i]; }",
                   "f(PO, PA, 1)",
           "f(PO, PA, 1)",
           "'p:' + f(PO, PA, 1)";
-    array_literal => [push_i32, fclosure, array_from, return, put_var, put_ref_value, get_field, get_array_el, get_loc, put_loc, set_loc, get_arg, add, nop]
+    array_literal => [push_i32, fclosure, call, array_from, return, put_var, get_field, get_array_el, get_loc, put_loc, set_loc, get_arg, add]
         = "var __seed = 0; function f(n){ var __z = 0; var a = [n, n + 1, n + 2]; return a[0] + a.length; }",
                   "f(1)",
           "f(4)",
           "'al:' + f(4)";
-    spread_call => [push_i32, fclosure, drop, perm3, array_from, apply, return, get_var, put_var, put_ref_value, get_field2, append, get_loc, put_loc, get_arg, nop]
+    spread_call => [push_i32, fclosure, drop, perm3, call, array_from, apply, return, get_var, put_var, get_field2, append, get_loc, put_loc, set_loc, get_arg]
         = "var __seed = 0; function f(a){ var __z = 0; return Math.max(1, ...a); }",
                   "f([5, 9])",
           "f([3, 8, 2])",
           "'sc:' + f([3, 8, 2])";
-    object_spread => [push_i32, fclosure, null, object, drop, return, put_var, put_ref_value, copy_data_properties, get_loc, put_loc, get_arg, nop]
+    object_spread => [push_i32, fclosure, null, object, drop, call, return, put_var, copy_data_properties, get_loc, put_loc, set_loc, get_arg]
         = "var __seed = 0; function f(o){ var __z = 0; return { ...o }; }",
                   "f({a: 1})",
           "f({b: 2})",
           "'os:' + f({c: 3}).c";
-    object_literal => [push_i32, push_const, fclosure, push_atom_value, undefined, null, push_this, object, drop, dup, swap, call, call_method, return, return_undef, check_ctor, get_var, put_var, put_ref_value, define_field, set_name, set_name_computed, set_proto, define_array_el, define_method, define_method_computed, define_class_computed, get_loc, put_loc, get_arg, get_var_ref, set_loc_uninitialized, get_var_ref_check, close_loc, if_false, to_propkey, add, nop]
+    object_literal => [push_i32, push_const, fclosure, push_atom_value, undefined, null, push_this, object, drop, dup, swap, call, call_method, return, return_undef, check_ctor, get_var, put_var, define_field, set_name_computed, set_proto, define_array_el, define_method, define_method_computed, define_class_computed, get_loc, put_loc, set_loc, get_arg, get_var_ref, set_loc_uninitialized, get_var_ref_check, close_loc, if_false, to_propkey, add]
         = "var __seed = 0; function f(n){ var __z = 0; return { a: n, ['b']: n + 1, m(){ return n; }, [String(n)]: function(){ return n; }, [String(n) + 'M'](){ return n; }, [String(n) + 'C']: class { z(){ return 1; } }, __proto__: null }; }",
                   "f(1)",
           "f(2)",
           "'ol:' + f(3).a";
-    object_rest_pattern => [push_i32, fclosure, undefined, null, object, drop, dup, swap, rot3l, return, put_var, put_ref_value, get_field, define_field, copy_data_properties, get_loc, put_loc, get_arg, if_true, goto, to_object, make_loc_ref, for_of_start, for_of_next, iterator_close, add, strict_eq, nop]
+    object_rest_pattern => [push_i32, fclosure, undefined, null, object, drop, dup, swap, rot3l, call, return, put_var, put_ref_value, get_field, define_field, copy_data_properties, get_loc, put_loc, set_loc, get_arg, if_true, goto, to_object, make_loc_ref, for_of_start, for_of_next, iterator_close, add, strict_eq]
         = "var __seed = 0; function f(p){ var __z = 0; var a, b, c; [a, b] = p; ({x: c} = p); var {y, ...rest} = p; return a + b + c + y + rest.z; }",
                   "f([1, 2, {x: 3, y: 4, z: 5}])",
           "f([3, 4, {x: 5, y: 6, z: 7}])",
           "'orp:' + f([1, 2, {x: 3, y: 4, z: 5}])";
-    destructuring_shuffle => [push_i32, fclosure, object, drop, dup, dup1, swap2, rot3l, rot3r, array_from, return, get_var, put_var, put_ref_value, get_field, put_field, get_array_el, get_array_el2, define_field, get_loc, put_loc, get_arg, goto, to_object, to_propkey, make_loc_ref, for_of_start, for_of_next, iterator_close, add, nop]
+    destructuring_shuffle => [push_i32, fclosure, object, drop, dup, dup1, swap2, rot3l, rot3r, call, array_from, return, get_var, put_var, put_ref_value, get_field, put_field, get_array_el, get_array_el2, define_field, get_loc, put_loc, set_loc, get_arg, goto, to_object, to_propkey, make_loc_ref, for_of_start, for_of_next, iterator_close, add]
         = "var __seed = 0; var o1 = {p: 1, q: [7], r: 8}; function f(p, k, o){ var __z = 0; var a = 1, b = 2, c = 3, d = 4, e = 5; var v = 0; [a, b, c, d, e] = p; [a, b] = [b, a]; ({[k]: o.p} = o1); ({[k]: [v]} = o1); ({[k]: v} = o1); ({a: v} = o1); return a + b + c + d + e + v + o.p; }",
                   "f([1, 2, 3, 4, 5], 'q', o1)",
           "f([10, 20, 30, 40, 50], 'r', o1)",
           "'ds:' + f([1, 2, 3, 4, 5], 'q', o1)";
-    call_shapes => [push_i32, fclosure, push_this, object, drop, dup, insert2, call_constructor, call, call_method, return, return_undef, get_var, put_var, put_ref_value, get_field, get_field2, put_field, define_field, set_name, get_loc, put_loc, get_arg, mul, add, nop]
+    call_shapes => [push_i32, fclosure, push_this, object, drop, dup, insert2, call_constructor, call, call_method, return, return_undef, get_var, put_var, get_field, get_field2, put_field, define_field, set_name, get_loc, put_loc, set_loc, get_arg, mul, add]
         = "var __seed = 0; var GADD = function(a, b){ var __t = 0; return a + b; }; var MO1 = {m: function(x){ return x; }}; var MO2 = {m: function(x){ return x * 2; }}; var CT1 = function(n){ this.v = n; }; var CT2 = function(n){ this.v = n * 10; }; function f(o, Ctor){ var __z = 0; return GADD(1, 2) + o.m(3) + (new Ctor(4)).v; }",
                   "f(MO1, CT1)",
           "f(MO2, CT2)",
           "'cs:' + f(MO1, CT1)";
     // Proper tail calls are only rewritten in strict mode (ES IsInTailPosition).
-    tail_calls => [push_i32, fclosure, push_atom_value, drop, call, tail_call, call_method, tail_call_method, return, get_var, put_var, put_ref_value, get_field2, get_loc, put_loc, get_arg, add, nop]
+    tail_calls => [push_i32, fclosure, push_atom_value, drop, call, tail_call, tail_call_method, return, get_var, put_var, get_field2, get_loc, put_loc, set_loc, get_arg, add]
         = "var __seed = 0; function g(n){ var __z = 0; return n + 1; } function f(n){ \"use strict\"; var __z = 0; return g(n); } function h(o){ \"use strict\"; var __z = 0; return o.m(); }",
                   "f(1)",
           "f(3) + h({m: function(){ return 1; }})",
           "'tc:' + f(4)";
-    eval_calls => [push_i32, fclosure, push_atom_value, push_this, special_object, drop, insert3, array_from, return, eval, tail_eval, apply_eval, get_var, put_var, put_ref_value, append, get_loc, put_loc, get_arg, make_var_ref, add, nop]
+    eval_calls => [push_i32, fclosure, push_atom_value, push_this, special_object, drop, call, array_from, return, eval, tail_eval, apply_eval, get_var, put_var, put_ref_value, append, get_loc, put_loc, set_loc, get_arg, make_var_ref, add]
         = "var __seed = 0; var G = 1; function f(n){ \"use strict\"; var __z = 0; return eval('n + 1'); } function h(n){ \"use strict\"; var __z = 0; G = G + eval('n'); return G; } function e2(a){ \"use strict\"; var __z = 0; return eval(...a); }",
                   "f(1)",
           "f(3)",
           "'ev:' + f(4)";
-    dynamic_import => [push_i32, fclosure, undefined, null, return, throw, import, put_var, put_ref_value, get_loc, put_loc, get_arg, catch, nip_catch, nop]
+    dynamic_import => [push_i32, fclosure, undefined, null, call, return, throw, import, put_var, get_loc, put_loc, set_loc, get_arg, catch, nip_catch]
         = "var __seed = 0; function f(p){ var __z = 0; try { return import(p); } catch (e) { return null; } }",
                   "f('./x.js')",
           "f('./y.js')",
           "'im:' + typeof f('./z.js')";
-    regexp_literal => [push_i32, push_const, fclosure, call_method, return, regexp, put_var, put_ref_value, get_field2, get_loc, put_loc, get_arg, nop]
+    regexp_literal => [push_i32, push_const, fclosure, call, call_method, return, regexp, put_var, get_field2, get_loc, put_loc, set_loc, get_arg]
         = "var __seed = 0; function f(s){ var __z = 0; return /ab+c/.test(s); }",
                   "f('abbbbc')",
           "f('ac')",
           "'re:' + f('abbbc')";
-    bigint_literal => [push_i32, fclosure, call, return, get_var, put_var, put_ref_value, get_loc, put_loc, get_arg, add, push_bigint_i32, nop]
+    bigint_literal => [push_i32, fclosure, call, return, get_var, put_var, get_loc, put_loc, set_loc, get_arg, add, push_bigint_i32]
         = "var __seed = 0; function f(n){ var __z = 0; return 5n + BigInt(n); }",
                   "f(1)",
           "f(2)",
           "'bi:' + f(4)";
-    try_catch_finally => [push_i32, fclosure, push_atom_value, undefined, drop, dup, call_constructor, return, throw, get_var, put_var, put_ref_value, get_loc, put_loc, get_arg, set_arg, if_false, goto, catch, gosub, ret, add, strict_eq, nop]
+    try_catch_finally => [push_i32, fclosure, push_atom_value, undefined, drop, dup, call_constructor, call, return, throw, get_var, put_var, get_loc, put_loc, set_loc, get_arg, set_arg, if_false, goto, catch, gosub, ret, add, strict_eq]
         = "var __seed = 0; function f(n){ var __z = 0; try { if (n === 0) throw new Error('x'); } catch (e) { } finally { n = n + 1; } return n; }",
                   "f(0)",
           "f(3)",
           "'tc:' + f(3)";
-    control_flow => [push_i32, fclosure, return, put_var, put_ref_value, get_loc, put_loc, get_arg, if_false, neg, gt, nop]
+    control_flow => [push_i32, fclosure, call, return, put_var, get_loc, put_loc, set_loc, get_arg, if_false, neg, gt]
         = "var __seed = 0; function f(n){ var __z = 0; ; if (n > 0) { return n; } else { return -n; } }",
                   "f(1)",
           "f(-4)",
@@ -247,7 +265,7 @@ const CASES: &[OpCase] = op_cases! {
     // The iterable and the object live in `setup` so the *warm-up script*
     // contains no rejected opcode (`define_field` for an inline object literal
     // would otherwise be the thing the gate sees rejected, not `f`).
-    for_of_and_for_in => [push_i32, fclosure, drop, array_from, return, put_var, put_ref_value, get_field, get_loc, put_loc, set_loc, get_arg, if_false, goto, for_in_start, for_of_start, for_in_next, for_of_next, iterator_close, add, nop]
+    for_of_and_for_in => [push_i32, fclosure, object, drop, call, array_from, return, put_var, get_field, define_field, get_loc, put_loc, set_loc, get_arg, if_false, goto, for_in_start, for_of_start, for_in_next, for_of_next, iterator_close, add]
         = "var __seed = 0; var OFO = {a: 1, bb: 2}; function f(o){ var __z = 0; var s = 0; for (var v of [1, 2, 3]) s += v; for (var k in o) s += k.length; return s; }",
                   "f(OFO)",
           "f(OFO)",
@@ -255,28 +273,28 @@ const CASES: &[OpCase] = op_cases! {
     // `super.x` as an lvalue is the only producer of the depth-3 shuffles:
     // `super.p++` (dup3 + perm5), `({v: super.p} = o)` (rot4l) and the
     // computed-key form `({[k]: super.p} = o)` (rot5l).
-    super_lvalue_shuffles => [dup3, perm5, rot4l, rot5l]
+    super_lvalue_shuffles => [push_i32, push_const, fclosure, push_atom_value, undefined, push_this, object, special_object, drop, dup, dup1, dup3, insert2, perm5, swap, rot4l, rot5l, call_constructor, call, call_method, return, return_undef, check_ctor, init_ctor, get_super, get_var, put_var, put_var_init, get_field, get_field2, put_field, get_array_el, get_super_value, put_super_value, define_field, define_method, define_class, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, get_loc_check, put_loc_check_init, get_loc_checkthis, get_var_ref_check, close_loc, if_false, goto, to_object, to_propkey, post_inc, add]
         = "var __seed = 0; class A { constructor(){ this.q = 0; } get p(){ return this.q; } set p(v){ this.q = v; } } class B extends A { bump(){ return super.p++; } setNamed(o){ ({ v: super.p } = o); return super.p; } setComputed(o, k){ ({ [k]: super.p } = o); return super.p; } } function f(n){ var b = new B(); b.bump(); b.setNamed({v: n}); b.setComputed({z: n + 1}, 'z'); return b.p; }",
                   "f(1)",
           "f(5)",
           "'sv:' + f(3)";
     // A `let` written by a `for` update outside its declaration is TDZ-checked
     // on every write (`get_loc_check` … `put_loc_check`).
-    tdz_for_update => [put_loc_check]
+    tdz_for_update => [push_i32, fclosure, undefined, drop, call, return, put_var, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, get_loc_check, put_loc_check, set_loc_check, if_false, goto, post_inc, lt]
         = "var __seed = 0; function f(n){ let a; for (a = 0; a < n; a++) {} return a; }",
                   "f(1)",
           "f(4)",
           "'tfu:' + f(3)";
     // A `for` update on a variable captured from an enclosing function writes
     // through the closure cell (`put_var_ref`).
-    closure_var_for_update => [put_var_ref]
+    closure_var_for_update => [push_i32, fclosure, drop, call, return, return_undef, put_var, get_loc, put_loc, set_loc, get_var_ref, put_var_ref, set_var_ref, if_false, goto, inc, post_inc, lt]
         = "var __seed = 0; function f(n){ var x = 0; function g(){ for (x = 0; x < n; x++) {} } g(); return x; }",
                   "f(1)",
           "f(4)",
           "'cvfu:' + f(3)";
     // `a[i]++` is the depth-2 keep-second lvalue path (`perm4`): the old value
     // is kept for the expression while the new one is stored.
-    array_element_postfix => [perm4]
+    array_element_postfix => [push_i32, fclosure, drop, perm4, call, return, put_var, get_array_el, get_array_el3, put_array_el, get_loc, put_loc, set_loc, get_arg, if_false, goto, post_inc, inc_loc, add, lt]
         = "var __seed = 0; function f(a, i){ var r = 0; for (var k = 0; k < 3; k++) { r = r + a[i]++; } return r + a[i]; }",
                   "f([1], 0)",
           "f([5], 0)",
@@ -288,93 +306,93 @@ const CASES: &[OpCase] = op_cases! {
     // the expression's result), so the observed value must come from that arm:
     // the `p` argument is truthy here (the falsy path assigns instead and never
     // runs the `nip`).
-    logical_assign_nip => [nip]
+    logical_assign_nip => [push_i32, fclosure, drop, nip, dup, insert2, call, return, put_var, get_field, get_field2, put_field, get_loc, put_loc, set_loc, get_arg, if_true, goto, mul, add]
         = "var __seed = 0; function f(o, v){ var r = (o.p ||= v); return r * 10 + o.p; }",
                   "f({p: 1}, 1)",
           "f({p: 3}, 5)",
           "'nip:' + f({p: 4}, 9)";
     // `dup`: the `??` guard keeps the operand for both the test and the result.
-    dup_nullish => [dup]
+    dup_nullish => [push_i32, fclosure, drop, dup, call, return, put_var, get_loc, set_loc, get_arg, if_false, is_undefined_or_null]
         = "var __seed = 0; function f(a, b){ return a ?? b; }",
                   "f(null, 1)",
           "f(null, 4)",
           "'dn:' + f(0, 4) + ',' + f(null, 9)";
     // `dup1` + `swap2`: a computed-key target that is a *local* (the reference
     // object for the local is built, then the object/prop pair is rotated).
-    swap2_computed_target => [dup1, swap2]
+    swap2_computed_target => [push_i32, fclosure, drop, dup, dup1, swap2, call, return, put_var, put_ref_value, get_array_el, get_loc, put_loc, set_loc, get_arg, goto, to_object, to_propkey, make_loc_ref]
         = "var __seed = 0; function f(o, k){ var v = 0; ({ [k]: v } = o); return v; }",
                   "f({q: 1}, 'q')",
           "f({q: 7}, 'q')",
           "'s2:' + f({q: 9}, 'q')";
     // `insert2`: an assignment expression's value survives above its target.
-    insert2_field_assign_value => [insert2]
+    insert2_field_assign_value => [push_i32, fclosure, insert2, call, return, put_var, put_field, get_loc, set_loc, get_arg, mul]
         = "var __seed = 0; function f(o, v){ return (o.p = v) * 2; }",
                   "f({}, 1)",
           "f({}, 4)",
           "'i2:' + f({}, 6)";
     // `insert3`: the same for an element store.
-    insert3_element_assign_value => [insert3]
+    insert3_element_assign_value => [push_i32, fclosure, insert3, call, return, put_var, put_array_el, get_loc, set_loc, get_arg, add]
         = "var __seed = 0; function f(a, i, v){ return (a[i] = v) + 1; }",
                   "f([0], 0, 1)",
           "f([0], 0, 5)",
           "'i3:' + f([0], 0, 7)";
     // `insert4` (+ `swap` from the class machinery): `super.p = v` as an
     // expression keeps `this` under the value.
-    insert4_super_assign_value => [insert4, swap]
+    insert4_super_assign_value => [push_i32, push_const, fclosure, push_atom_value, undefined, push_this, special_object, drop, dup, insert2, insert4, swap, call_constructor, call, call_method, return, return_undef, check_ctor, init_ctor, get_super, get_var, put_var, put_var_init, get_field, get_field2, put_field, put_super_value, define_method, define_class, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, get_loc_check, put_loc_check_init, get_loc_checkthis, get_var_ref_check, close_loc, if_false, add]
         = "var __seed = 0; class A { set p(v){ this.q = v; } get p(){ return this.q; } } class B extends A { m(){ return (super.p = 5) + this.q; } } function f(){ return new B().m(); }",
                   "f()",
           "f()",
           "'i4:' + f()";
     // `swap`: a `for-in` whose target is a property needs the store's
     // object/value order swapped.
-    swap_for_in_target => [swap]
+    swap_for_in_target => [push_i32, fclosure, drop, swap, call, return, put_var, get_field, put_field, get_loc, put_loc, set_loc, get_arg, if_false, goto, for_in_start, for_in_next, mul, add]
         = "var __seed = 0; function f(src, o){ var n = 0; for (o.p in src) { n = n + 1; } return n * 10 + o.p.length; }",
                   "f({a: 1}, {})",
           "f({a: 1, b: 2}, {})",
           "'sw:' + f({a: 1, b: 2, c: 3}, {})";
     // `perm3`: the arguments of a spread call must keep their order (a
     // commutative callee like `Math.max` would hide a swap).
-    perm3_spread_call_order => [perm3]
+    perm3_spread_call_order => [push_i32, fclosure, object, drop, perm3, call, array_from, apply, return, get_var, put_var, get_field2, define_field, set_name, append, get_loc, set_loc, get_arg, mul, add]
         = "var __seed = 0; var MO = { m: function(a, b, c){ return a * 100 + b * 10 + c; } }; function f(xs){ return MO.m(1, ...xs); }",
                   "f([1, 2])",
           "f([4, 5])",
           "'p3:' + f([7, 8])";
     // `rot3l`: object rest; the pattern source/property pair is rotated before
     // the copy, so `rest` sees the wrong properties if the order is off.
-    rot3l_object_rest => [rot3l]
+    rot3l_object_rest => [push_i32, fclosure, null, object, drop, dup, swap, rot3l, call, return, put_var, put_ref_value, get_field, define_field, copy_data_properties, get_loc, put_loc, set_loc, get_arg, goto, to_object, make_loc_ref, mul, add]
         = "var __seed = 0; function f(p){ var y = 0, z = {}; ({ y, ...z } = p); return y * 100 + z.w; }",
                   "f({y: 1, w: 2})",
           "f({y: 3, w: 4})",
           "'r3l:' + f({y: 5, w: 6})";
     // `rot3r` (+ `dup1`): a computed-key target that is a *field*.
-    rot3r_computed_field_target => [dup1, rot3r]
+    rot3r_computed_field_target => [push_i32, fclosure, object, drop, dup, dup1, rot3r, call, return, put_var, get_field, put_field, get_array_el, define_array_el, get_loc, set_loc, get_arg, goto, to_object, to_propkey]
         = "var __seed = 0; function f(o, k, v){ ({ [k]: o.p } = { [k]: v }); return o.p; }",
                   "f({p: 0}, 'q', 1)",
           "f({p: 0}, 'q', 5)",
           "'r3r:' + f({p: 0}, 'q', 7)";
     // `super()` inside an arrow captures the constructor's `this` as a lexical
     // closure variable, whose initialization is `put_var_ref_check_init`.
-    captured_this_super_init => [put_var_ref_check_init]
+    captured_this_super_init => [push_i32, push_const, fclosure, undefined, push_this, special_object, drop, dup, insert2, swap, call_constructor, call, call_method, return, return_undef, check_ctor, get_super, get_var, put_var, put_var_init, get_field, put_field, set_name, define_class, get_loc, put_loc, set_loc, get_arg, get_var_ref, set_loc_uninitialized, get_loc_checkthis, get_var_ref_check, put_var_ref_check_init, close_loc, if_false, add]
         = "var __seed = 0; class A { constructor(x){ this.x = x; } } class B extends A { constructor(){ var init = (x) => super(x); init(7); } } function f(n){ var b = new B(); return b.x + n; }",
                   "f(1)",
           "f(2)",
           "'ctsi:' + f(3)";
-    generators_and_async => [push_i32, fclosure, undefined, drop, nip, dup, insert3, call, call_method, array_from, return, return_async, throw_error, get_var, put_var, get_ref_value, put_ref_value, get_field, get_field2, get_loc, put_loc, set_loc, get_arg, if_false, if_true, goto, for_of_start, for_await_of_start, for_await_of_next, iterator_check_object, iterator_get_value_done, iterator_close, iterator_next, iterator_call, initial_yield, yield, yield_star, async_yield_star, await, add, strict_eq, nop]
+    generators_and_async => [push_i32, fclosure, undefined, drop, nip, dup, call, call_method, array_from, return, return_async, throw_error, get_var, put_var, get_field, get_field2, get_loc, put_loc, set_loc, get_arg, if_false, if_true, goto, for_of_start, for_await_of_start, for_await_of_next, iterator_check_object, iterator_get_value_done, iterator_close, iterator_next, iterator_call, initial_yield, yield, yield_star, async_yield_star, await, add, strict_eq]
         = "function* g(){ yield 1; yield* [2, 3]; } async function af(xs){ var __z = 0; var s = 0; for await (var v of xs) s += v; return s; } async function* ag(){ yield* [1, 2]; } function f(){ var __z = 0; var it = g(); return it.next().value; }",
                   "f()",
           "f()",
           "'gy:' + f()";
-    classes => [push_i32, push_const, fclosure, push_atom_value, private_symbol, undefined, null, push_this, push_true, object, special_object, drop, dup, insert2, insert3, insert4, swap, call_constructor, call_method, return, return_undef, check_ctor_return, check_ctor, init_ctor, check_brand, add_brand, get_super, get_var, put_var, put_var_init, put_ref_value, get_field, get_field2, put_field, get_private_field, put_private_field, define_private_field, get_array_el, put_array_el, get_super_value, put_super_value, set_name, set_home_object, define_method, define_class, get_loc, put_loc, set_loc, get_arg, get_var_ref, set_loc_uninitialized, get_loc_check, put_loc_check_init, get_loc_checkthis, get_var_ref_check, close_loc, if_false, goto, add, private_in, nop]
+    classes => [push_i32, push_const, fclosure, push_atom_value, private_symbol, undefined, null, push_this, push_true, object, special_object, drop, dup, insert2, insert4, swap, call_constructor, call, call_method, return, return_undef, check_ctor_return, check_ctor, init_ctor, check_brand, add_brand, get_super, get_var, put_var, put_var_init, get_field, get_field2, put_field, get_private_field, put_private_field, define_private_field, get_array_el, put_array_el, get_super_value, put_super_value, set_name, set_home_object, define_method, define_class, get_loc, put_loc, set_loc, get_arg, get_var_ref, set_loc_uninitialized, get_loc_check, put_loc_check_init, get_loc_checkthis, get_var_ref_check, close_loc, if_false, goto, add, private_in]
         = "var __seed = 0; class A { constructor(x){ this.p = x; } m(){ return this.p; } } class B extends A { #priv = 3; #pm(){ return 1; } constructor(){ super(1); this.q = 2; } m(){ this.#priv = 9; var r = (super.p = 5); return super.m() + super.p + this.#priv + this.#pm() + ((#priv in this) ? 1 : 0) + r; } } class E extends A { } class D extends A { constructor(){ super(1); return this; } } function f(k){ var __z = 0; var o = {}; o[k] = class { n(){ return 1; } }; var b = new B(); var e = new E(2); var d = new D(); return b.m() + e.p + d.p; }",
                   "f('C')",
           "f('D')",
           "'cl:' + f('E')";
-    scoped_block_close => [push_i32, fclosure, object, drop, insert2, call_method, return, put_var, put_ref_value, get_field2, put_field, set_name, get_loc, put_loc, get_arg, set_loc_uninitialized, get_var_ref_check, close_loc, add, nop]
+    scoped_block_close => [push_i32, fclosure, object, drop, insert2, call, call_method, return, put_var, get_field2, put_field, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, get_var_ref_check, close_loc, add]
         = "var __seed = 0; function f(n){ var __z = 0; var o = {}; { let x = n + 1; o.g = function(){ return x; }; } return o.g(); }",
                   "f(1)",
           "f(5)",
           "'sb:' + f(5)";
-    this_arguments_newtarget => [push_i32, fclosure, push_atom_value, push_this, special_object, return, put_var, put_ref_value, get_field, get_loc, put_loc, get_arg, if_false, goto, typeof, add, strict_eq, nop]
+    this_arguments_newtarget => [push_i32, fclosure, push_atom_value, push_this, special_object, call, return, put_var, get_field, get_loc, put_loc, set_loc, get_arg, if_false, goto, typeof, add, strict_eq]
         = "var __seed = 0; function f(a){ var __z = 0; var t = this; var args = arguments.length; var nt = typeof new.target; return a + args + (nt === 'undefined' ? 0 : 1) + (t ? 0 : 0); }",
                   "f(1)",
           "f(2)",
@@ -382,18 +400,18 @@ const CASES: &[OpCase] = op_cases! {
     // `with` + a *call* to a name: the parser emits `scope_get_ref` (the name
     // may be a method of the with object), which resolves to `with_get_ref`.
     // `with_get_ref` was the last `with_*` opcode to lower (S3 2.4).
-    with_get_ref => [push_i32, fclosure, push_atom_value, undefined, null, object, drop, dup, call_method, return, return_undef, get_var, put_var, put_ref_value, define_field, set_name, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, if_false, if_true, to_object, with_get_var, with_get_ref, typeof, add, strict_eq, strict_neq, nop]
+    with_get_ref => [push_i32, fclosure, undefined, object, call, call_method, return, get_var, put_var, define_field, set_name, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, to_object, with_get_var, with_get_ref, add]
         = "var __seed = 0; var WO = { ff: function(){ return 5; } }; function wf(o, n){ var __z = 0; with (o) { return ff() + n; } }",
                   "wf(WO, 1)",
           "wf(WO, 2)",
           "'wr:' + wf(WO, 3)";
     // `with` + a `var` written through the with object (`for (var k in o)`).
-    with_put_var => [push_i32, fclosure, push_atom_value, null, object, drop, dup, return, put_var, put_ref_value, define_field, get_loc, put_loc, get_arg, set_loc_uninitialized, if_false, if_true, goto, to_object, with_get_var, with_put_var, with_make_ref, make_loc_ref, for_in_start, for_in_next, typeof, add, strict_eq, strict_neq, nop]
+    with_put_var => [push_i32, fclosure, object, drop, call, return, put_var, put_ref_value, define_field, get_loc, put_loc, set_loc, get_arg, set_loc_uninitialized, if_false, goto, to_object, with_get_var, with_put_var, with_make_ref, make_loc_ref, for_in_start, for_in_next, add]
         = "var __seed = 0; var WO2 = { a: 1, b: 2 }; function ws(o, n){ var __z = 0; var r = 0; with (o) { for (var k in o) { r = r + 1; } } return r + n; }",
                   "ws(WO2, 1)",
           "ws(WO2, 2)",
           "'wv:' + ws(WO2, 3)";
-    rest_parameters => [push_i32, fclosure, rest, drop, dup, return, put_var, put_ref_value, get_field, get_array_el, get_loc, put_loc, get_arg, put_arg, if_true, add, nop]
+    rest_parameters => [push_i32, fclosure, rest, drop, dup, call, return, put_var, get_field, get_array_el, get_loc, put_loc, set_loc, get_arg, put_arg, if_true, add]
         = "var __seed = 0; function f(a, ...rest){ var __z = 0; return a + rest.length + (rest[0] || 0); }",
                   "f(1, 2, 3)",
           "f(5)",
