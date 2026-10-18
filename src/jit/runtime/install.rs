@@ -3,33 +3,36 @@
 
 //! Publish one compiled function into executable memory and its `jit` slot.
 
+use std::rc::Rc;
+
 use crate::{
     function::Bytecode,
-    jit::{abi::NativeEntry, code_cache::CodeCache, platform::CodeMem},
+    jit::{
+        code_cache::{CodeBlock, CodeCache, CodeSlot},
+        platform::CodeMem,
+    },
 };
 
-/// Map, publish and install `bytes` for `bytecode`. Returns `false` when the
-/// code cache is at its byte quota, in which case nothing is installed and the
-/// caller records a failed attempt.
+/// Map, publish and install `bytes` for `bytecode`. Returns `None` when nothing
+/// was installed (the mapping failed or the artifact does not fit the whole
+/// budget); otherwise the ids of the live mappings the cache retired to make
+/// room, which the caller resets to `Cold` so they can recompile. The
+/// function's slot owns the mapping (D-16); the cache only tracks its bytes.
 pub(crate) fn publish(
     cache: &mut CodeCache,
     id: u64,
     bytecode: &Bytecode,
     bytes: &[u8],
-) -> bool {
+) -> Option<Vec<u64>> {
     let Ok(mem) = CodeMem::alloc(bytes.len()) else {
-        return false;
+        return None;
     };
     if mem.write(bytes).is_err() || mem.make_executable().is_err() {
-        return false;
+        return None;
     }
-    // SAFETY: `mem.entry()` is the start of the just-published code, produced
-    // by `compiler::compile` for the same `NativeEntry` ABI. The code cache
-    // keeps the mapping alive for as long as the entry can be called.
-    let entry: NativeEntry = unsafe { std::mem::transmute(mem.entry()) };
-    if cache.insert(id, mem).is_err() {
-        return false;
-    }
-    bytecode.jit_slot().install(entry);
-    true
+    let block = Rc::new(CodeBlock::new(mem));
+    let slot = Rc::new(CodeSlot::new(block, cache.clock()));
+    let evicted = cache.insert(id, &slot).ok()?;
+    bytecode.jit_slot().install(slot);
+    Some(evicted)
 }

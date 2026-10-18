@@ -232,6 +232,9 @@ impl JitState {
 
         m.polls = m.polls.saturating_add(1);
         m.queue_len = self.coordinator.borrow().queue_len() as u64;
+        // D-16: reclaim the budget of mappings whose function is already gone,
+        // so a long-running process can keep compiling after churn.
+        self.cache.borrow_mut().reclaim();
         m.code_bytes = self.cache.borrow().used_bytes();
         self.metrics.set(m);
         if let Some(observe) = &self.cfg.metrics_observer {
@@ -266,10 +269,22 @@ impl JitState {
         };
         m.specialized_ops = m.specialized_ops.saturating_add(specialized.get());
         let mut cache = self.cache.borrow_mut();
-        if runtime::publish(&mut cache, request.function_id, &request.bytecode, &bytes) {
-            CompileOutcome::Installed
-        } else {
-            CompileOutcome::Failed
+        let published =
+            runtime::publish(&mut cache, request.function_id, &request.bytecode, &bytes);
+        drop(cache);
+        match published {
+            Some(evicted) => {
+                // D-16: the cache retired these live mappings to fit. Clear
+                // their hotness so becoming hot again recompiles them.
+                if !evicted.is_empty() {
+                    let mut coordinator = self.coordinator.borrow_mut();
+                    for id in evicted {
+                        coordinator.invalidate(id);
+                    }
+                }
+                CompileOutcome::Installed
+            }
+            None => CompileOutcome::Failed,
         }
     }
 
@@ -753,5 +768,68 @@ mod tests {
         assert!(m.compile_failures > 0, "the refused publish was recorded");
         assert!(m.functions_retried > 0, "the attempt was retried first");
         assert!(m.functions_settled > 0, "out of attempts -> settled");
+    }
+
+    /// D-16 retirement end to end: with a budget of one code page, compiling a
+    /// second function retires the first live mapping instead of refusing the
+    /// compile. The retired function must fall back to the interpreter and
+    /// still return the right answer (a stale entry would be a UAF, not a
+    /// wrong result, so this test's real value is that it does not crash).
+    #[test]
+    fn the_code_cache_retires_a_live_mapping_under_a_tight_quota() {
+        use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        // One page (`CodeMem` rounds every mapping up to a page): one function.
+        let jit = Jit::attach_to(
+            &rt,
+            JitConfig::builder()
+                .call_threshold(1)
+                .loop_threshold(1)
+                .tier_policy(JitTierPolicy::Tier1)
+                .max_code_bytes(4096)
+                .build(),
+        )
+        .unwrap();
+        let name = EvalName::Name("jit-retire.js".into());
+
+        ctx.eval(
+            b"function a(n){ var s = 0; for (var i = 0; i < n; i++) s += i; return s; } a(10);",
+            &name,
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap();
+        jit.poll();
+        let after_a = jit.metrics();
+        assert!(after_a.functions_compiled >= 1, "a was not compiled");
+        assert!(after_a.code_bytes <= 4096, "a exceeded the quota");
+
+        ctx.eval(
+            b"function b(n){ var s = 1; for (var i = 0; i < n; i++) s = s + 1; return s + n; } b(10);",
+            &name,
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap();
+        jit.poll();
+        let after_b = jit.metrics();
+        assert!(
+            after_b.functions_compiled > after_a.functions_compiled,
+            "b was not compiled; the quota refused it instead of retiring a"
+        );
+        assert!(
+            after_b.code_bytes <= 4096,
+            "the retired mapping was not reclaimed ({after_b:?})"
+        );
+
+        // `a`'s code is gone; running it again must not call the freed mapping.
+        let got = ctx
+            .eval(b"a(100)", &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+        assert_eq!(got.as_int(), Some(4950), "the retired function is wrong");
     }
 }

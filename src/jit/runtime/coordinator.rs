@@ -237,8 +237,8 @@ impl Coordinator {
     }
 
     /// Return a function to `Cold` after its code was discarded, so it can be
-    /// compiled again if it becomes hot.
-    #[allow(dead_code)]
+    /// compiled again if it becomes hot. Called when the code cache retires a
+    /// live mapping (D-16).
     pub(crate) fn invalidate(&mut self, id: u64) {
         if let Some(record) = self.records.get_mut(&id) {
             record.lifecycle = Lifecycle::Cold;

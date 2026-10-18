@@ -142,40 +142,46 @@ pub(crate) type NativeEntry = unsafe extern "C" fn(*mut JitExecFrame) -> u32;
 pub(crate) const SPEC_MISS_IMM2: u32 = u32::MAX;
 
 /// Per-function storage for the installed native entry, living on
-/// `BytecodeImpl`. Null until a compile installs one. The field is atomic only
-/// because the slot is written through `&Bytecode` (interior mutability); all
-/// access happens on the single runtime thread.
-#[repr(transparent)]
+/// `BytecodeImpl`. `None` until a compile installs one. It holds a strong `Rc`
+/// to its [`CodeSlot`], so the mapping lives exactly as long as a function that
+/// can call it exists and is freed when the last `BytecodeImpl` is collected
+/// (D-16). Written through `&Bytecode` (interior mutability); all access happens
+/// on the single runtime thread.
+///
+/// [`CodeSlot`]: crate::jit::code_cache::CodeSlot
 pub(crate) struct FunctionSlot {
-    entry: std::sync::atomic::AtomicPtr<()>,
+    slot: std::cell::UnsafeCell<Option<std::rc::Rc<crate::jit::code_cache::CodeSlot>>>,
 }
 
 impl Default for FunctionSlot {
     fn default() -> Self {
         Self {
-            entry: std::sync::atomic::AtomicPtr::new(std::ptr::null_mut()),
+            slot: std::cell::UnsafeCell::new(None),
         }
     }
 }
 
 impl FunctionSlot {
-    /// The installed entry, or `None` while the function is interpreted.
+    /// The installed entry, or `None` while the function is interpreted (or
+    /// after the cache evicted its mapping). The returned pointer stays valid
+    /// for as long as this slot holds the code.
     #[inline]
     pub(crate) fn entry(&self) -> Option<NativeEntry> {
-        let raw = self.entry.load(std::sync::atomic::Ordering::Acquire);
-        if raw.is_null() {
-            None
-        } else {
-            // SAFETY: the pointer was produced by `install` from a `NativeEntry`.
-            Some(unsafe { std::mem::transmute::<*mut (), NativeEntry>(raw) })
-        }
+        // SAFETY: single-threaded; a short read with no aliasing reference held
+        // across it (the caller copies the entry pointer out immediately).
+        let slot = unsafe { &*self.slot.get() }.as_ref()?;
+        let code = slot.entry()?;
+        // SAFETY: `code` is the start of code produced by `compiler::compile`
+        // for the same `NativeEntry` ABI.
+        Some(unsafe { std::mem::transmute::<*const u8, NativeEntry>(code) })
     }
 
-    /// Publish `entry`. Callers must have already made the backing code
-    /// executable. (A tier tag arrives with Tier 2.)
-    pub(crate) fn install(&self, entry: NativeEntry) {
-        self.entry
-            .store(entry as *mut (), std::sync::atomic::Ordering::Release);
+    /// Publish `slot` (whose code is already executable). `poll` is the only
+    /// caller and runs between native activations, so no in-flight call
+    /// observes the swap.
+    pub(crate) fn install(&self, slot: std::rc::Rc<crate::jit::code_cache::CodeSlot>) {
+        // SAFETY: single-threaded; see the type's note.
+        unsafe { *self.slot.get() = Some(slot) };
     }
 }
 

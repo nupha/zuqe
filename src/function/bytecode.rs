@@ -281,9 +281,11 @@ pub struct BytecodeImpl {
     pub(crate) inline_cache: UnsafeCell<Box<[InlineCacheSite]>>,
 
     /// JIT state for this function (feature `jit`): the installed native-entry
-    /// slot. Interior-mutable because the interpreter reaches it through
-    /// `&Bytecode`. Deliberately **not** visited by `GcTrace`: it holds no GC
-    /// reference, and tracing it would keep a stale entry alive.
+    /// slot, which also owns the published code mapping (a strong `Rc`, D-16).
+    /// Interior-mutable because the interpreter reaches it through `&Bytecode`.
+    /// Deliberately **not** visited by `GcTrace`: the mapping holds no GC
+    /// reference, and tracing it would keep a stale entry alive — the pool of
+    /// mappings is bounded instead by this field's `Drop`.
     #[cfg(feature = "jit")]
     pub(crate) jit: crate::jit::FunctionSlot,
 
