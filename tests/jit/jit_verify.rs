@@ -548,6 +548,139 @@ fn exceptions_match_interpreter() {
     }
 }
 
+/// S3 (2.6): `throw` and `throw_error` raise from native code. The frame still
+/// has to leave (the catch scan is the interpreter's), but the exception — its
+/// value, its error class, its message and its `stack` — must be exactly what
+/// the interpreter produces, including for a throw that escapes to the caller
+/// and for the engine-generated errors `throw_error` carries.
+///
+/// The `stack` comparison is the pc check: `cur_pc_offset` is the *post*
+/// instruction offset in both engines and `do_build_backtrace` subtracts one
+/// byte, so reporting the throw's own pc instead of `pc + size` would move the
+/// reported line to the previous instruction.
+#[test]
+fn native_throws_match_the_interpreter() {
+    // Each function throws on a line of its own, so a one-instruction pc drift
+    // is visible in the stack instead of hiding inside a line of neighbours.
+    let define = b"\
+        function looped(n){ var caught = 0; var seen = ''; \
+          for (var i = 0; i < n; i++){ \
+            try { \
+              if (i % 3 === 0) throw i; \
+              if (i % 3 === 1) throw new Error('e' + i); \
+              seen = seen + 'ok'; \
+            } catch (e) { caught = caught + 1; seen = seen + '|' + e.message; } } \
+          return caught + ':' + seen; } \
+        function escapes(n){ \
+          var e = new Error('escaped'); \
+          throw e; } \
+        function caller(n){ try { escapes(n); } catch (e) { return e.message; } return 'no-throw'; } \
+        function constAssign(n){ \
+          const c = n; \
+          try { c = 1; } catch (e) { return e.name + ':' + e.message; } return 'assigned'; } \
+        function tdz(n){ \
+          try { { let a; return a; } } catch (e) { return e.name + ':' + e.message; } return 'none'; } \
+        looped(1); escapes; caller(1); constAssign(1); tdz(1);";
+    for (call, expected) in [
+        (
+            "looped(30)",
+            "10:ok|ok|e1|ok|ok|e4|ok|ok|e7|ok|ok|e10|ok|ok|e13|ok|ok|e16|ok|ok|e19|ok|ok|e22|ok|ok|e25|ok|ok|e28",
+        ),
+        ("caller(1)", "escaped"),
+        (
+            "constAssign(7)",
+            "TypeError:Assignment to constant variable.",
+        ),
+        ("tdz(1)", "ReferenceError:x is not defined"),
+    ] {
+        let metrics = native_vs_interpreter(define, call);
+        assert_eq!(
+            metrics.functions_rejected, 0,
+            "the throwing function was rejected instead of compiled ({metrics:?})"
+        );
+    }
+
+    // `escapes` has no handler in its own frame: the native frame raises, the
+    // interpreter finds no sentinel and propagates to the caller's catch.
+    let define_throw = b"function escapes(){ var e = new Error('escaped'); throw e; } \
+                        function guard(){ try { escapes(); } catch (e) { return e.message; } return 'none'; } \
+                        guard();";
+    let mut rt = Runtime::create().unwrap();
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .unwrap();
+    let jit = Jit::attach_to(&rt, eager_config()).unwrap();
+    let name = EvalName::Name("jit-throw-frames.js".into());
+    ctx.eval(define_throw, &name, EvalType::Global, EvalFlags::empty())
+        .unwrap();
+    jit.poll();
+    assert!(
+        jit.metrics().functions_compiled >= 2,
+        "the throwing functions were not compiled ({:?})",
+        jit.metrics()
+    );
+    let native = ctx.eval(b"escapes()", &name, EvalType::Global, EvalFlags::empty());
+    assert!(native.is_err(), "the native run must propagate the error");
+    assert!(
+        jit.metrics().native_entries > 0,
+        "the native entry did not run"
+    );
+
+    let mut base_rt = Runtime::create().unwrap();
+    let mut base_ctx = base_rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .unwrap();
+    base_ctx
+        .eval(define_throw, &name, EvalType::Global, EvalFlags::empty())
+        .unwrap();
+    let expected = base_ctx.eval(b"escapes()", &name, EvalType::Global, EvalFlags::empty());
+    assert_eq!(expected.unwrap_err(), native.unwrap_err());
+}
+
+/// S3 (2.6): `regexp` and `push_bigint_i32` build their value in a helper, so a
+/// loop that creates one per iteration stays in native code — the signal is the
+/// same as `ref_cells_run_in_native_code`: an instruction-level `Resume` would
+/// strand the rest of the frame in the interpreter and show up as loop back
+/// edges. The RegExp kernel deliberately avoids a method call (`call_method`
+/// has no lowering yet), and the BigInt one compares instead of converting.
+#[test]
+fn regexp_and_bigint_literals_run_in_native_code() {
+    let mut rt = Runtime::create().unwrap();
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .unwrap();
+    let jit = Jit::attach_to(&rt, eager_config()).unwrap();
+    let name = EvalName::Name("jit-engine-ops.js".into());
+    let define = b"function re(n){ var s = 0; \
+                    for (var i = 0; i < n; i++){ var r = /a+b/; s = s + r.source.length; } return s; } \
+                  function big(n){ var s = 0n; \
+                    for (var i = 0; i < n; i++){ s = s + 123456789n; } \
+                    return s === 123456789000n; } \
+                  re(1); big(1);";
+    ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
+        .unwrap();
+    jit.poll();
+    assert!(
+        jit.metrics().functions_compiled >= 2,
+        "the regexp/bigint functions were not compiled ({:?})",
+        jit.metrics()
+    );
+
+    for (call, expected) in [("re(100000)", "int:300000"), ("big(1000)", "bool:true")] {
+        let before = jit.metrics();
+        let result = ctx
+            .eval(call.as_bytes(), &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+        let after = jit.metrics();
+        assert_eq!(observe(Ok(result)), expected, "{call}: wrong value");
+        assert_eq!(
+            after.backedges - before.backedges,
+            0,
+            "{call}: the loop ran in the interpreter"
+        );
+    }
+}
+
 #[test]
 fn native_loop_handles_gc_and_interrupt_safepoints() {
     // A long allocation loop: the back-edge safepoint must run collections

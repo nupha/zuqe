@@ -16,7 +16,7 @@ use crate::{
     bytecode::{
         OpCode, SpecialObject,
         arithmatic::{UnaryOp, op_binary_logic},
-        class_ops,
+        class_ops, engine_ops,
         operators::{
             js_append_enumerate, js_for_in_next, js_for_in_start, js_for_of_next,
             js_iterator_get_value_done, js_op_define_class_for_arena, js_operator_delete,
@@ -25,11 +25,7 @@ use crate::{
         ref_ops, with_ops,
     },
     context::{ContextPtr, GlobalVarSetMode, ScopedContext},
-    error::{
-        Exception, JS_THROW_ERROR_DELETE_SUPER, JS_THROW_ERROR_ITERATOR_THROW, JS_THROW_VAR_REDECL,
-        JS_THROW_VAR_RO, JS_THROW_VAR_UNINITIALIZED, JS_ThrowReferenceErrorUninitialized,
-        JS_ThrowSyntaxErrorVarRedeclaration, is_backtrace_needed,
-    },
+    error::{Exception, is_backtrace_needed},
     eval::{EvalFlags, EvalType},
     function::{
         BCWrapper, Bytecode, CallContext, FunctionKind, GcScopeKind, JS_CALL_FLAG_CONSTRUCTOR,
@@ -43,9 +39,6 @@ use crate::{
     value::JSValue,
     vm_stack::{ExecMode, FrameAllocError, FrameIndex, VM_MAX_CALL_DEPTH, VirtualFrame, VmStack},
 };
-
-#[cfg(feature = "big_int")]
-use crate::bigint::BigIntRef;
 
 /// Action returned by the bytecode interpreter inner loop to the trampoline.
 /// The inner loop processes opcodes normally; when it encounters a call,
@@ -1860,30 +1853,7 @@ impl Bytecode {
                     OpCode::THROW_ERROR => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
                         let type_ = PC_FETCH!(u8);
-                        match type_ {
-                            JS_THROW_VAR_RO => {
-                                let _ = realm_scope.throw_type_error_read_only(atom);
-                            }
-                            JS_THROW_VAR_REDECL => {
-                                let _ = JS_ThrowSyntaxErrorVarRedeclaration(realm_scope, atom);
-                            }
-                            JS_THROW_VAR_UNINITIALIZED => {
-                                let _ = JS_ThrowReferenceErrorUninitialized(realm_scope, atom);
-                            }
-                            JS_THROW_ERROR_DELETE_SUPER => {
-                                let _ = realm_scope
-                                    .throw_reference_error("unsupported reference to 'super'");
-                            }
-                            JS_THROW_ERROR_ITERATOR_THROW => {
-                                let _ = realm_scope
-                                    .throw_type_error("iterator does not have a throw method");
-                            }
-                            _ => {
-                                let _ = realm_scope.throw_internal_error(&format!(
-                                    "invalid throw var type {type_}"
-                                ));
-                            }
-                        }
+                        engine_ops::throw_error(realm_scope, atom, type_);
                         break ExecAction::Exception;
                     }
 
@@ -2472,22 +2442,16 @@ impl Bytecode {
                         }
                     }
                     OpCode::REGEXP => {
-                        #[cfg(feature = "builtin_regexp")]
+                        // The shared builder raises on failure, so the stack
+                        // moves only on success (`[id, ^] -> [regexp, ^]`).
                         if let Some(re_id) = SP_VAL!(-1).as_int() {
-                            let re = realm_scope.rt().regexp_precompiled[re_id as usize].clone();
-                            let regexp = crate::builtins::regexp::RegExp::from(
-                                realm_scope,
-                                JSValue::UNDEFINED,
-                                re,
-                            )
-                            .map_or(JSValue::EXCEPTION, |o| o.into());
+                            let regexp = engine_ops::make_regexp(realm_scope, re_id)
+                                .unwrap_or(JSValue::EXCEPTION);
                             SP_PUT!(-2, regexp);
                             SP_GO!(-1);
-                        }
-                        #[cfg(not(feature = "builtin_regexp"))]
-                        {
-                            realm_scope.throw_internal_error("regex not supported");
-                            break ExecAction::Exception;
+                            if unlikely(SP_REF!(-2).is_exception()) {
+                                break ExecAction::Exception;
+                            }
                         }
                     }
                     OpCode::PUSH_BIGINT_I32 => {
@@ -2495,26 +2459,13 @@ impl Bytecode {
                         // i32-range BigInt literals are reconstructed here from
                         // the immediate (no constant-pool lookup, no parser-side
                         // GC allocation).
-                        #[cfg(feature = "big_int")]
-                        {
-                            let a = PC_FETCH!(i32);
-                            let big = BigIntRef::create(
-                                realm_scope,
-                                a < 0,
-                                vec![a.unsigned_abs() as u64],
-                            )
-                            .map_or(JSValue::EXCEPTION, JSValue::make_bigint);
-                            SP_PUT!(0, big);
-                            SP_GO!(1);
-                            if unlikely(SP_REF!(-1).is_exception()) {
-                                break ExecAction::Exception;
-                            }
-                        }
-                        #[cfg(not(feature = "big_int"))]
-                        {
-                            // `big_int` disabled: the emitter never produces
-                            // this opcode, so reaching it is a bug.
-                            unreachable!("PUSH_BIGINT_I32 not supported");
+                        let a = PC_FETCH!(i32);
+                        let big = engine_ops::bigint_from_i32(realm_scope, a)
+                            .unwrap_or(JSValue::EXCEPTION);
+                        SP_PUT!(0, big);
+                        SP_GO!(1);
+                        if unlikely(SP_REF!(-1).is_exception()) {
+                            break ExecAction::Exception;
                         }
                     }
                     OpCode::NOP => {}

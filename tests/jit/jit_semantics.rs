@@ -364,6 +364,33 @@ const CASES: &[SemCase] = sem_cases! {
         "f()",
         "f()",
         "'gn:' + f()";
+
+    // ── the engine-generated opcodes (S3 2.6) ──
+    // `throw` raises from native code: the caught value, the error class and the
+    // message must be the interpreter's, in a loop that throws on every third
+    // iteration and rethrows from the handler.
+    raise_throw_in_a_loop => Compiles =
+        "var __seed = 0; function f(n){ var __z = 0; var log = ''; for (var i = 0; i < n; i++){ try { if (i % 3 === 0) throw i; if (i % 3 === 1) throw new Error('e' + i); log = log + 'o'; } catch (e) { log = log + '|' + e.name + e.message; } } return log; }",
+        "f(2)",
+        "f(9)",
+        "'rse:' + f(6)";
+    // `throw_error`: the engine's own errors (assignment to a constant binding,
+    // a TDZ read). Their text comes from the shared `engine_ops::throw_error`,
+    // so a JIT run must not name a different message.
+    raise_engine_generated_errors => Compiles =
+        "var __seed = 0; function f(n){ var __z = 0; var log = ''; { const c = n; try { c = 1; } catch (e) { log = e.name + ':' + e.message; } } try { { let a; log = log + '|' + a; } } catch (e) { log = log + '|' + e.name; } return log; }",
+        "f(1)",
+        "f(2)",
+        "'rse:' + f(3)";
+    // `regexp` and `push_bigint_i32` build their value in a helper, so a loop
+    // that creates one per iteration runs natively (no method call, no
+    // conversion: `call_method`/`call` have no lowering yet, todo 2.6 leaves
+    // them to D-6 phase two).
+    raise_regexp_and_bigint_literals => Compiles =
+        "var __seed = 0; function re(n){ var __z = 0; var s = 0; for (var i = 0; i < n; i++){ var r = /a+b/; s = s + r.source.length; } return s; } function big(n){ var __z = 0; var s = 0n; for (var i = 0; i < n; i++){ s = s + 123456789n; } return s === 123456789000n; }",
+        "re(2); big(1)",
+        "re(20); big(1000)",
+        "'reb:' + re(5) + ',' + big(1000)";
 };
 
 /// Feature areas the suite must cover, checked so the list cannot silently
@@ -393,6 +420,7 @@ const FEATURES: &[&str] = &[
     "ref_",
     "with_",
     "cse_",
+    "raise_",
 ];
 #[test]
 fn every_semantic_feature_has_a_case() {

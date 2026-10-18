@@ -58,14 +58,15 @@ use super::{
         HELPER_MAKE_LOC_REF, HELPER_MAKE_VAR_REF, HELPER_MAKE_VAR_REF_REF, HELPER_MOD, HELPER_MUL,
         HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH, HELPER_NOT, HELPER_OBJECT, HELPER_OK, HELPER_OR,
         HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC, HELPER_POW, HELPER_PRIVATE_IN,
-        HELPER_PRIVATE_SYMBOL, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD, HELPER_PUT_PRIVATE_FIELD,
-        HELPER_PUT_REF_VALUE, HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR, HELPER_PUT_VAR_INIT,
-        HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK, HELPER_PUT_VAR_REF_CHECK_INIT,
-        HELPER_SAFEPOINT, HELPER_SAR, HELPER_SET_HOME_OBJECT, HELPER_SET_NAME_COMPUTED,
-        HELPER_SET_PROTO, HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ,
-        HELPER_STRICT_NEQ, HELPER_SUB, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY,
-        HELPER_TYPEOF, HELPER_WITH_DELETE_VAR, HELPER_WITH_GET_REF, HELPER_WITH_GET_VAR,
-        HELPER_WITH_MAKE_REF, HELPER_WITH_MISS, HELPER_WITH_PUT_VAR, HELPER_XOR, JitExecFrame,
+        HELPER_PRIVATE_SYMBOL, HELPER_PUSH_BIGINT_I32, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD,
+        HELPER_PUT_PRIVATE_FIELD, HELPER_PUT_REF_VALUE, HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR,
+        HELPER_PUT_VAR_INIT, HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK,
+        HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_REGEXP, HELPER_SAFEPOINT, HELPER_SAR,
+        HELPER_SET_HOME_OBJECT, HELPER_SET_NAME_COMPUTED, HELPER_SET_PROTO, HELPER_SET_VAR_REF,
+        HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_THROW,
+        HELPER_THROW_ERROR, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY, HELPER_TYPEOF,
+        HELPER_WITH_DELETE_VAR, HELPER_WITH_GET_REF, HELPER_WITH_GET_VAR, HELPER_WITH_MAKE_REF,
+        HELPER_WITH_MISS, HELPER_WITH_PUT_VAR, HELPER_XOR, JitExecFrame,
     },
     bytecode::{
         cfg::ControlFlowGraph, decode::Instruction, stack::SlotKind, verify::VerifiedFunction,
@@ -209,6 +210,13 @@ fn helper_for(name: &str) -> Option<usize> {
         "delete" => HELPER_DELETE,
         // `delete name` on the global object; the fall-through of `with_delete_var`.
         "delete_var" => HELPER_DELETE_VAR,
+        // The engine-generated opcodes (todo 2.6). `throw_error` and
+        // `push_bigint_i32` carry an immediate, so they have explicit arms in
+        // `lower_insn` and are only listed here for `supported()`.
+        "throw" => HELPER_THROW,
+        "throw_error" => HELPER_THROW_ERROR,
+        "regexp" => HELPER_REGEXP,
+        "push_bigint_i32" => HELPER_PUSH_BIGINT_I32,
         "nip_catch" => HELPER_NIP_CATCH,
         // Sync iteration. `for_of_next`/`iterator_close`/`iterator_call` need
         // more than a name→id map (an operand or a stack adjustment), so they
@@ -972,6 +980,34 @@ fn call_stack_helper(
     exit_status(b, fv, status, pc_after, sp);
     b.switch_to_block(ok);
     b.ins().load(types::I64, MemFlags::new(), fv.frame, O_SP)
+}
+
+/// Like [`call_stack_helper`], but for a helper that **always** leaves the
+/// frame: it reports `HELPER_EXCEPTION` (or `HELPER_INTERRUPT`) whatever the
+/// operand was. There is then no continuation to emit, so the instruction is a
+/// `Step::Stop` — which also means a `throw` can be the last instruction of a
+/// function, as it is in real bytecode (`cfg::is_terminal`).
+///
+/// `pc_after` follows the same convention as the helper failure path:
+/// `cur_pc_offset` is post-instruction in both engines.
+fn call_raising_helper(
+    state: &mut State,
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    helper_sig: cranelift_codegen::ir::SigRef,
+    sp: Value,
+    id: usize,
+    pc_after: u32,
+) {
+    state.stack.flush(b, sp);
+    b.ins().store(MemFlags::new(), sp, fv.frame, O_SP);
+    write_cur_sp(b, fv, sp);
+    let callee = b
+        .ins()
+        .load(types::I64, MemFlags::new(), fv.helpers, (id * 8) as i32);
+    let call = b.ins().call_indirect(helper_sig, callee, &[fv.frame]);
+    let status = b.inst_results(call)[0];
+    exit_status(b, fv, status, pc_after, sp);
 }
 
 /// Emit a loop back edge safepoint. Returns the continuation block (not yet
@@ -1821,6 +1857,37 @@ fn lower_insn(
             b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
             let sp =
                 call_stack_helper(state, b, fv, helper_sig, sp, HELPER_MAKE_VAR_REF, pc + size);
+            return Step::Continue(sp);
+        }
+        // `throw_error <atom> <type>`: the atom rides in `imm`, the error kind in
+        // `imm2` (`bytecode::engine_ops::throw_error` names both). It moves
+        // nothing and always raises, so the block ends here.
+        "throw_error" => {
+            let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+            b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
+            let kind = b.ins().iconst(types::I32, i64::from(insn.operand_u8(5)));
+            b.ins().store(MemFlags::new(), kind, fv.frame, O_IMM2);
+            call_raising_helper(state, b, fv, helper_sig, sp, HELPER_THROW_ERROR, pc + size);
+            return Step::Stop;
+        }
+        // `throw`: pops the exception value and always raises.
+        "throw" => {
+            call_raising_helper(state, b, fv, helper_sig, sp, HELPER_THROW, pc + size);
+            return Step::Stop;
+        }
+        // `push_bigint_i32 <value>`: the `i32` immediate rides in `imm`.
+        "push_bigint_i32" => {
+            let value = b.ins().iconst(types::I32, i64::from(insn.operand_i32(1)));
+            b.ins().store(MemFlags::new(), value, fv.frame, O_IMM);
+            let sp = call_stack_helper(
+                state,
+                b,
+                fv,
+                helper_sig,
+                sp,
+                HELPER_PUSH_BIGINT_I32,
+                pc + size,
+            );
             return Step::Continue(sp);
         }
         _ => {}
@@ -3700,6 +3767,24 @@ mod tests {
         ]);
         cases.push(("catch", catch_body, 0, 0));
 
+        // The engine-generated opcodes (todo 2.6). `throw` pops its operand and
+        // ends the block; `throw_error` moves nothing. `regexp` replaces the
+        // slot below its id, `push_bigint_i32` pushes one value.
+        cases.push(("throw", seq(&[&push_i32(1), &[op::OP_throw]]), 0, 0));
+        let mut throw_error = vec![op::OP_throw_error];
+        throw_error.extend_from_slice(&u32b(0));
+        throw_error.push(0);
+        cases.push(("throw_error", seq(&[&throw_error]), 0, 0));
+        cases.push((
+            "regexp",
+            seq(&[&push_i32(0), &push_i32(0), &[op::OP_regexp], &ret]),
+            0,
+            0,
+        ));
+        let mut push_bigint = vec![op::OP_push_bigint_i32];
+        push_bigint.extend_from_slice(&i32b(-7));
+        cases.push(("push_bigint_i32", seq(&[&push_bigint, &ret]), 0, 0));
+
         for (name, bytes, args, vars) in cases {
             compile_bytes(bytes, args, vars)
                 .unwrap_or_else(|e| panic!("opcode {name} failed to lower: {e:?}"));
@@ -3835,6 +3920,43 @@ mod tests {
             missing.is_empty(),
             "Native opcodes with no lowering: {missing:?}"
         );
+    }
+
+    /// `Helper` opcodes the baseline deliberately does **not** lower. They are
+    /// not a gap: each one exits the native frame at every execution, so any
+    /// function containing them still compiles but only runs natively outside
+    /// those instructions. `delete_var` was in this set by accident until 2.6
+    /// lowered it — `every_native_policy_opcode_is_lowered` cannot catch that
+    /// class of mistake because it only guards `Native`.
+    ///
+    /// The list is the todo 2.6 remainder: the four call opcodes. Lowering them
+    /// means passing operands to helpers natively, which is D-6 phase two (the
+    /// helper calling convention), not a missing `lower_insn` arm.
+    #[test]
+    fn every_helper_policy_opcode_is_lowered_or_pinned() {
+        use crate::jit::{JitPolicy, opcode_names, opcode_policies};
+        /// `Helper` policy, no lowering, intentional (sorted).
+        const PINNED: &[&str] = &["apply", "call", "call_constructor", "call_method"];
+        let mut missing: Vec<&str> = opcode_names()
+            .iter()
+            .zip(opcode_policies())
+            .filter(|(name, policy)| **policy == JitPolicy::Helper && !supported(name))
+            .map(|(name, _)| *name)
+            .collect();
+        missing.sort_unstable();
+        assert_eq!(
+            missing, PINNED,
+            "Helper opcodes without a lowering changed: add the lowering, or pin the \
+             name here with the reason it still exits the native frame"
+        );
+        // And the pin itself cannot rot: a name that gained a lowering must come
+        // out of the list, or the guard above starts asserting nothing.
+        for name in PINNED {
+            assert!(
+                !supported(name),
+                "{name} now lowers natively but is still pinned as an intentional Resume"
+            );
+        }
     }
 
     /// Every shuffle's JIT permutation must equal the frontend's model in
@@ -4016,35 +4138,42 @@ mod tests {
     }
 
     #[test]
-    fn entry_opcode_unsupported_fails_closed() {
-        // `push_bigint_i32` is verifier-accepted (0 -> 1) but is one of the
-        // `Helper`s the baseline leaves to the interpreter; a function that
-        // starts with it must not be installed.
-        let result = compile_bytes(
-            seq(&[&[op::OP_push_bigint_i32], &i32b(0), &[op::OP_return_undef]]),
-            0,
-            0,
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn unsupported_op_mid_block_still_compiles_to_a_resume() {
         // First op is supported, so the function is installed; the unsupported
-        // `push_bigint_i32` lowers to a `Resume` exit and the interpreter
-        // finishes it. (`object`/`array_from` were the example here until they
-        // got a lowering.)
+        // `call` lowers to a `Resume` exit and the interpreter finishes it
+        // (`object`/`array_from`/`push_bigint_i32` were the example here until
+        // they got lowerings).
         let result = compile_bytes(
-            seq(&[
-                &push_i32(1),
-                &[op::OP_push_bigint_i32],
-                &i32b(0),
-                &[op::OP_return],
-            ]),
+            seq(&[&push_i32(1), &[op::OP_call], &u16b(0), &[op::OP_return]]),
             0,
             0,
         );
         assert!(result.is_ok());
+    }
+
+    /// Why [`entry_is_translatable`] cannot fire today: the only opcodes the
+    /// baseline refuses are the four pinned call opcodes, and every one of them
+    /// pops an operand, so putting one at pc 0 fails verification (`StackUnderflow`
+    /// at height 0) before the entry check is reached. The check stays as the
+    /// fail-closed net for a future `Helper` with no operands — the pin list
+    /// above is the thing that would have to name it.
+    #[test]
+    fn the_pinned_call_opcodes_cannot_be_a_function_entry() {
+        use crate::bytecode::opcode_info_final;
+        use crate::jit::opcode_names;
+        const PINNED: &[&str] = &["apply", "call", "call_constructor", "call_method"];
+        for name in PINNED {
+            let id = opcode_names()
+                .iter()
+                .position(|n| n == name)
+                .unwrap_or_else(|| panic!("{name} is not in the policy table"))
+                as u8;
+            assert!(
+                opcode_info_final(id).n_pop >= 1,
+                "{name} pops nothing, so it *can* start a verified function — and then \
+                 `entry_is_translatable` would refuse the whole function"
+            );
+        }
     }
 
     // ── Epic F4: the block-local operand-stack cache (unit level) ──

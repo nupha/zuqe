@@ -2068,8 +2068,81 @@ enum WithOp {
     GetRef,
 }
 
+/// `throw`: `[value, ^] -> [^]`, raising `value`. Always `HELPER_EXCEPTION`, so
+/// the native frame leaves with the pc the interpreter would have reported for
+/// this instruction: `cur_pc_offset` is *post*-instruction in both engines (the
+/// interpreter's `PC_FETCH!` already stepped over the opcode) and
+/// `do_build_backtrace` subtracts one byte to find the line, so the exit passes
+/// `pc + size` like every other helper failure.
+///
+/// The value is read before the pop (the frame's `cur_sp_offset` still covers
+/// its slot, so a GC inside the raise sees it) and the pop happens before the
+/// raise, mirroring the interpreter's `SP_GO!(-1)`.
+unsafe extern "C" fn h_throw(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let value = *sp.offset(-1);
+        f.sp = sp.offset(-1);
+        let _ = scope_of(f).throw_value(value);
+        HELPER_EXCEPTION
+    }
+}
+
+/// `throw_error <atom> <type>`: the engine-generated error named by `imm2`.
+/// `0 -> 0`; always raises.
+unsafe extern "C" fn h_throw_error(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let atom = crate::atom::Atom::from_id(f.imm);
+        let type_ = f.imm2 as u8;
+        crate::bytecode::engine_ops::throw_error(scope_of(f), atom, type_);
+        HELPER_EXCEPTION
+    }
+}
+
+/// `regexp`: `[id, ^] -> [regexp, ^]`. A non-integer operand leaves the stack
+/// untouched, exactly like the interpreter's `if let Some` with no else arm.
+///
+/// On failure this reports the error instead of parking the interpreter's
+/// `EXCEPTION` sentinel on the stack and continuing; the two differ only when
+/// allocating the object fails.
+unsafe extern "C" fn h_regexp(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        let Some(re_id) = (*sp.offset(-1)).as_int() else {
+            return HELPER_OK;
+        };
+        match crate::bytecode::engine_ops::make_regexp(scope_of(f), re_id) {
+            Ok(value) => {
+                *sp.offset(-2) = value;
+                f.sp = sp.offset(-1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `push_bigint_i32 <value>`: `[^] -> [bigint, ^]`.
+unsafe extern "C" fn h_push_bigint_i32(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let sp = f.sp;
+        match crate::bytecode::engine_ops::bigint_from_i32(scope_of(f), f.imm as i32) {
+            Ok(value) => {
+                *sp = value;
+                f.sp = sp.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 111;
+pub(crate) const HELPER_COUNT: usize = 115;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -2266,6 +2339,14 @@ pub(crate) const HELPER_WITH_MAKE_REF: usize = 108;
 pub(crate) const HELPER_WITH_GET_REF: usize = 109;
 /// Index of [`h_delete_var`].
 pub(crate) const HELPER_DELETE_VAR: usize = 110;
+/// Index of [`h_throw`].
+pub(crate) const HELPER_THROW: usize = 111;
+/// Index of [`h_throw_error`].
+pub(crate) const HELPER_THROW_ERROR: usize = 112;
+/// Index of [`h_regexp`].
+pub(crate) const HELPER_REGEXP: usize = 113;
+/// Index of [`h_push_bigint_i32`].
+pub(crate) const HELPER_PUSH_BIGINT_I32: usize = 114;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -2385,4 +2466,8 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_with_make_ref as *const (),
     h_with_get_ref as *const (),
     h_delete_var as *const (),
+    h_throw as *const (),
+    h_throw_error as *const (),
+    h_regexp as *const (),
+    h_push_bigint_i32 as *const (),
 ]);
