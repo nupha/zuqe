@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-/// Why `Jit::attach` could not install a JIT on a runtime.
+/// Why `Jit::attach_to` could not install a JIT on a runtime.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JitError {
     /// The runtime already has a JIT attached.

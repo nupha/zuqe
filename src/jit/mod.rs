@@ -296,7 +296,7 @@ fn build_host_isa() -> Result<Arc<dyn TargetIsa>, JitError> {
         .map_err(|e| JitError::Cranelift(e.to_string()))
 }
 
-/// Host handle to a runtime's JIT. Created with [`Jit::attach`]; holds a strong
+/// Host handle to a runtime's JIT. Created with [`Jit::attach_to`]; holds a strong
 /// reference to the runtime so it stays valid as long as the handle does.
 #[repr(transparent)]
 pub struct Jit {

@@ -172,7 +172,7 @@ impl Runtime {
     }
 
     /// Install a JIT state, failing if one is already attached. Host-facing
-    /// entry point is `Jit::attach`. Takes `&self` because the runtime uses
+    /// entry point is `Jit::attach_to`. Takes `&self` because the runtime uses
     /// interior mutability; the host must be single-threaded (it is — the
     /// runtime is `!Send`).
     #[cfg(feature = "jit")]
