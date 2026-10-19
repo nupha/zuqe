@@ -1180,11 +1180,35 @@ fn collect_osr_pcs(verified: &VerifiedFunction) -> Vec<u32> {
         .iter()
         .map(|point| point.pc())
         .collect();
-    for instruction in verified.instructions() {
-        if matches!(
-            instruction.name(),
-            "call" | "call_method" | "call_constructor"
-        ) {
+    let instructions = verified.instructions();
+    let mut budget = OSR_TAIL_BUDGET;
+    let mut seen_call = false;
+    for block in verified.control_flow_graph().blocks() {
+        let range = block.instruction_range();
+        for index in range.start..range.end {
+            let instruction = &instructions[index];
+            if !matches!(
+                instruction.name(),
+                "call" | "call_method" | "call_constructor"
+            ) {
+                continue;
+            }
+            // A mid-block entry is not free: `block_range` hands it the whole
+            // tail of its block and `block_for` gives that tail a block of its
+            // own, so every copy stays in the compiled code. A block with N
+            // calls would then cost O(N x block length) — enough to push a long
+            // straight-line function past Cranelift's `CodeTooLarge` and cost it
+            // native code altogether. The first call in a block always earns an
+            // entry (it hands back the most work); the rest only while the tail
+            // they duplicate fits the per-function budget. A dropped call site
+            // resumes in the interpreter, which `invoke_native` already does for
+            // a pc it has no entry for.
+            let tail = range.end - index - 1;
+            if seen_call && tail > budget {
+                break;
+            }
+            seen_call = true;
+            budget = budget.saturating_sub(tail);
             pcs.push(instruction.pc() + instruction.size() as u32);
         }
     }
@@ -1192,6 +1216,13 @@ fn collect_osr_pcs(verified: &VerifiedFunction) -> Vec<u32> {
     pcs.dedup();
     pcs
 }
+
+/// How many instructions post-call OSR entries may duplicate in one function.
+///
+/// Generous next to what real functions need (a call's tail is usually a handful
+/// of instructions) and small enough that the worst case stays linear in the
+/// function's length.
+const OSR_TAIL_BUDGET: usize = 256;
 
 /// Epic F2: did F1 feedback observe *only* `Int` at this site? Feedback is
 /// sorted by pc, so a binary search answers it. `both` is false for
@@ -4178,6 +4209,46 @@ mod tests {
             compile_bytes(bytes, args, vars)
                 .unwrap_or_else(|e| panic!("opcode {name} failed to lower: {e:?}"));
         }
+
+        // A long straight-line block full of calls must not get one post-call OSR
+        // entry per call.
+        //
+        // `block_range` hands a mid-block entry the whole tail of its block, and
+        // `block_for` gives that tail a Cranelift block of its own, so every copy
+        // stays in the compiled code: a block with N calls costs O(N x length).
+        // Unbounded, that pushed a real test262 function (658-instruction block,
+        // 116 `call_method`s) to 10.5M IR instructions, 31 s of Cranelift, and a
+        // `CodeTooLarge` that cost it native code entirely. Entries are a
+        // performance affordance — a dropped call site resumes in the
+        // interpreter — so they are what gives way.
+        const CALLS: usize = 40;
+        let mut heavy = Vec::new();
+        for _ in 0..CALLS {
+            heavy.extend_from_slice(&push_i32(0)); // func
+            heavy.extend_from_slice(&push_i32(0)); // this
+            heavy.push(op::OP_call_method);
+            heavy.extend_from_slice(&u16b(0)); // argc
+        }
+        heavy.push(op::OP_return_undef);
+
+        let verified = verify(
+            CompileSnapshot::from_raw(heavy, 0, 0, 0, CALLS as u16 + 4),
+            VerifyLimits::default(),
+        )
+        .expect("a straight-line block of calls verifies");
+        let pcs = collect_osr_pcs(&verified);
+        assert!(
+            !pcs.is_empty(),
+            "the first call still hands its tail back to native code"
+        );
+        assert!(
+            pcs.len() <= 8,
+            "{CALLS} calls in one block yielded {} OSR entries",
+            pcs.len()
+        );
+        let isa = crate::jit::build_host_isa().unwrap();
+        compile(&verified, isa.as_ref(), &Cell::new(0))
+            .expect("a call-heavy straight-line block compiles");
 
         // Epic E3: global-variable helpers need a non-zero global-var-ref count,
         // so they use their own snapshot shape.
