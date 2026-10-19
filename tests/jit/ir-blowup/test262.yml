@@ -1,0 +1,18 @@
+# test262 runner config for the IR-blowup repro (memo/bytecode-bugs.md, Bug 3).
+#
+# `base_path` points at THIS directory instead of the test262 checkout: the repro
+# is one hand-written script, and the runner globs `<base_path>/test/**`. It
+# declares no `includes:`, so no harness file is read.
+
+# `base_path` is resolved against the CURRENT directory (not against this file),
+# so check.sh runs it from the repository root.
+base_path: tests/jit/ir-blowup
+preset: plain
+suite: 262
+tests: []
+exclude_tests: []
+
+# The repro declares no features, so it only needs the unconditional baseline.
+# An empty whitelist means "run everything" (see test262.yml's ES5 entry).
+presets:
+  - plain: []
