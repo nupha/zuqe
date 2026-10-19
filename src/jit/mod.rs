@@ -10,8 +10,15 @@
 //!
 //! A hot function is queued by the `runtime::Coordinator`, verified, compiled
 //! by the baseline lowering in `compiler`, and published into the function's
-//! `jit` slot. Verification and codegen run inline in [`Jit::poll`]; the
-//! background worker (epic D3) is a documented deviation for now.
+//! `jit` slot. Two compile models, selected by the `jit_background` feature
+//! (in `default`):
+//!
+//! - **background** (default): `poll` only dispatches an attempt to a worker,
+//!   drains finished ones and installs them — the runtime thread stays the
+//!   single writer of every shared slot and the code cache;
+//! - **inline** (`--no-default-features`, `jit` on): verification and codegen
+//!   run in [`Jit::poll`] on the calling thread, which drains the whole queue
+//!   before returning.
 
 mod abi;
 mod bytecode;
@@ -50,11 +57,18 @@ use {
     snapshot::CompileSnapshot,
 };
 
+#[cfg(feature = "jit_background")]
+use runtime::{BackgroundCompiler, CompileCompletion, JobResult};
+
 use std::{
     cell::{Cell, RefCell},
     sync::Arc,
-    time::Instant,
 };
+
+/// The compile-time budget classification is inline-only; the background poll
+/// measures `dispatched_at` inside the worker bookkeeping instead.
+#[cfg(not(feature = "jit_background"))]
+use std::time::Instant;
 
 use cranelift_codegen::isa::TargetIsa;
 use gc_lite::GcTraceCtx;
@@ -67,6 +81,8 @@ use crate::{
 
 /// State hung off `RuntimeImpl` while a JIT is attached. Single-threaded: the
 /// runtime and its interpreter run on one thread, so `Cell`/`RefCell` suffice.
+/// Under `jit_background` the worker threads hold only `Send` snapshots and
+/// channels; every field here stays on the runtime thread (single writer).
 pub(crate) struct JitState {
     cfg: JitConfig,
     isa: Arc<dyn TargetIsa>,
@@ -75,6 +91,10 @@ pub(crate) struct JitState {
     coordinator: RefCell<Coordinator>,
     /// Published code, bounded by `cfg.max_code_bytes`.
     cache: RefCell<CodeCache>,
+    /// Worker threads and the in-flight attempts they are running
+    /// (`jit_background` only). Single-writer state like the rest of `JitState`.
+    #[cfg(feature = "jit_background")]
+    background: RefCell<BackgroundCompiler>,
     /// Set by a loop back edge when there is queued work; the interpreter's
     /// trampoline polls at its next safe iteration (P6 5.1) so functions hot
     /// inside one `eval` can run natively.
@@ -101,12 +121,16 @@ impl JitState {
             cfg.max_compile_attempts,
             cfg.compile_timeout_ms,
         );
+        #[cfg(feature = "jit_background")]
+        let background = BackgroundCompiler::new(cfg.workers, Arc::clone(&isa))?;
         Ok(Self {
             cache: RefCell::new(CodeCache::new(cfg.max_code_bytes)),
             cfg,
             isa,
             metrics: Cell::new(JitMetrics::default()),
             coordinator: RefCell::new(coordinator),
+            #[cfg(feature = "jit_background")]
+            background: RefCell::new(background),
             poll_requested: Cell::new(false),
             native_depth: Cell::new(0),
             limits,
@@ -282,7 +306,17 @@ impl JitState {
     /// entered from a native callee through the call helpers, and retiring a
     /// mapping then would free running code).
     fn poll_deferred(&self) {
-        if self.cfg.auto_poll && self.native_depth.get() == 0 && self.poll_requested.get() {
+        if !self.cfg.auto_poll || self.native_depth.get() != 0 {
+            return;
+        }
+        // Inline: `poll_requested` is raised by every enqueue. Background: also
+        // poll while an attempt is in flight, so a completion is drained (and
+        // its code entered at the next back edge) without another enqueue.
+        #[cfg(not(feature = "jit_background"))]
+        let pending = self.poll_requested.get();
+        #[cfg(feature = "jit_background")]
+        let pending = self.poll_requested.get() || self.background.borrow().in_flight_len() > 0;
+        if pending {
             self.poll_requested.set(false);
             self.poll();
         }
@@ -290,12 +324,18 @@ impl JitState {
 
     /// Automatic poll at an engine safe point (eval return, event-loop tick).
     /// A cheap no-op unless the host left `auto_poll` on, no native activation
-    /// is in flight, and something is actually queued.
+    /// is in flight, and something is actually queued (inline) or compiling
+    /// (background).
     fn poll_if_queued(&self) {
-        if self.cfg.auto_poll
-            && self.native_depth.get() == 0
-            && self.coordinator.borrow().queue_len() > 0
-        {
+        if !self.cfg.auto_poll || self.native_depth.get() != 0 {
+            return;
+        }
+        #[cfg(not(feature = "jit_background"))]
+        let pending = self.coordinator.borrow().queue_len() > 0;
+        #[cfg(feature = "jit_background")]
+        let pending = self.coordinator.borrow().queue_len() > 0
+            || self.background.borrow().in_flight_len() > 0;
+        if pending {
             self.poll();
         }
     }
@@ -306,6 +346,7 @@ impl JitState {
     /// must not do so while generated code is running. A failed attempt is
     /// retried in the same poll until it installs, is rejected, or runs out of
     /// attempts, so the queue is always drained when this returns.
+    #[cfg(not(feature = "jit_background"))]
     fn poll(&self) {
         let mut m = self.metrics.get();
         let timeout = self.coordinator.borrow().timeout();
@@ -324,50 +365,125 @@ impl JitState {
                 .complete(&mut m, request.function_id, outcome);
         }
 
-        m.polls = m.polls.saturating_add(1);
-        m.queue_len = self.coordinator.borrow().queue_len() as u64;
-        // D-16: reclaim the budget of mappings whose function is already gone,
-        // so a long-running process can keep compiling after churn.
-        self.cache.borrow_mut().reclaim();
-        m.code_bytes = self.cache.borrow().used_bytes();
-        self.metrics.set(m);
-        if let Some(observe) = &self.cfg.metrics_observer {
-            observe(&self.metrics.get());
+        self.finish_poll(&mut m);
+    }
+
+    /// Non-blocking poll (background model): abandon timed-out attempts, drain
+    /// finished ones and install them, then dispatch as many new attempts as
+    /// the workers can take. On return an attempt may still be in flight, so
+    /// `functions_compiling > 0` means "not settled yet".
+    #[cfg(feature = "jit_background")]
+    fn poll(&self) {
+        let mut m = self.metrics.get();
+
+        // Abandon whatever is past the budget before draining, so a result that
+        // only arrived because the host was slow is discarded (plan §12.5.4).
+        // The worker keeps running; its late completion is dropped by attempt
+        // id.
+        //
+        // shortcut: expiry runs before the drain, so a result that arrived
+        // within the budget but was not drained before the deadline is also
+        // discarded. Timestamping a completion on arrival would avoid that; not
+        // needed while the default budget (30 s) is far above a compile.
+        let timeout = self.coordinator.borrow().timeout();
+        let expired = self.background.borrow_mut().expire(timeout);
+        for id in expired {
+            self.coordinator
+                .borrow_mut()
+                .complete(&mut m, id, CompileOutcome::TimedOut);
+        }
+
+        // Install the attempts that finished within the budget.
+        loop {
+            // Bind the borrow before `install_completion` takes it again.
+            let received = self.background.borrow_mut().try_recv();
+            let Some(completion) = received else {
+                break;
+            };
+            self.install_completion(completion, &mut m);
+        }
+
+        self.dispatch();
+        m.functions_compiling = self.background.borrow().in_flight_len() as u64;
+        self.finish_poll(&mut m);
+    }
+
+    /// Hand queued functions to workers while there is capacity. A request that
+    /// cannot be submitted (channel full, workers gone) is rolled back to the
+    /// queue.
+    #[cfg(feature = "jit_background")]
+    fn dispatch(&self) {
+        loop {
+            if !self.background.borrow().has_capacity() {
+                break;
+            }
+            let Some(request) = self.coordinator.borrow_mut().begin_next() else {
+                break;
+            };
+            let snapshot = self.snapshot_for(&request);
+            let submitted =
+                self.background
+                    .borrow_mut()
+                    .submit(request.function_id, snapshot, self.limits);
+            if !submitted {
+                self.coordinator.borrow_mut().rollback(request.function_id);
+                break;
+            }
         }
     }
 
-    /// One attempt: verify → compile → publish. Never panics; any failure just
-    /// leaves the function interpreted. `m` accumulates tier-2 counters.
-    fn run_pipeline(&self, request: &runtime::Request, m: &mut JitMetrics) -> CompileOutcome {
-        // Epic F5 tier selection: forced `Tier2` is a fixed policy and feeds
-        // the compiler every recorded site (gate = 1 sample). `Automatic` is
-        // the production default, so it applies the profitability gate — a
-        // site needs measured evidence before it earns a speculative path.
+    /// Install one finished background attempt. A completion whose attempt was
+    /// abandoned (timed out) or whose function is no longer pinned is dropped.
+    #[cfg(feature = "jit_background")]
+    fn install_completion(&self, completion: CompileCompletion, m: &mut JitMetrics) {
+        let Some(job) = self.background.borrow_mut().resolve(completion.attempt_id) else {
+            return; // stale: already abandoned
+        };
+        if job.timed_out {
+            return;
+        }
+        let id = job.function_id;
+        // Bind the borrow before `install` takes it again (it writes the
+        // coordinator on eviction).
+        let pinned = self.coordinator.borrow().pinned(id);
+        let outcome = match completion.result {
+            JobResult::Compiled { bytes, specialized } => {
+                m.specialized_ops = m.specialized_ops.saturating_add(specialized);
+                // The pin is dropped by `invalidate` (D-16); without it there is
+                // no slot to install into, so the result is discarded as a
+                // failure (and the record is resolved rather than stranded).
+                match pinned {
+                    Some(bytecode) => self.install(id, &bytecode, &bytes),
+                    None => CompileOutcome::Failed,
+                }
+            }
+            JobResult::Rejected => CompileOutcome::Rejected,
+            JobResult::Failed => CompileOutcome::Failed,
+        };
+        self.coordinator.borrow_mut().complete(m, id, outcome);
+    }
+
+    /// Build the pointer-free snapshot of a request: the tier-2 profitability
+    /// gate (epic F5) plus the P7 7.2 tier-down decision. Shared by both models;
+    /// the snapshot is all a worker needs.
+    fn snapshot_for(&self, request: &runtime::Request) -> CompileSnapshot {
+        // Forced `Tier2` feeds the compiler every recorded site (gate = 1
+        // sample); `Automatic` applies the profitability gate.
         let min_samples = match self.cfg.tier_policy {
             JitTierPolicy::Tier2 => 1,
             _ => self.cfg.specialization_min_samples,
         };
         let mut snapshot =
             CompileSnapshot::from_bytecode(request.function_id, &request.bytecode, min_samples);
-        // P7 7.2 tier-down: after too many guard misses, recompile without
-        // speculation so the function stops paying the guards.
         snapshot.speculate = self.coordinator.borrow().speculate(request.function_id);
-        let Ok(verified) = verify(snapshot, self.limits) else {
-            return CompileOutcome::Rejected;
-        };
-        // A function whose entry opcode the baseline cannot lower fails the
-        // same way every attempt; settle it fail-closed instead of retrying.
-        if !compiler::entry_is_translatable(&verified) {
-            return CompileOutcome::Rejected;
-        }
-        let specialized = Cell::new(0);
-        let Ok(bytes) = compiler::compile(&verified, self.isa.as_ref(), &specialized) else {
-            return CompileOutcome::Failed;
-        };
-        m.specialized_ops = m.specialized_ops.saturating_add(specialized.get());
+        snapshot
+    }
+
+    /// Publish `bytes` into the function's slot and reset any mappings the code
+    /// cache retired to fit (D-16). The single writer of the slot and the cache.
+    fn install(&self, id: u64, bytecode: &Bytecode, bytes: &[u8]) -> CompileOutcome {
         let mut cache = self.cache.borrow_mut();
-        let published =
-            runtime::publish(&mut cache, request.function_id, &request.bytecode, &bytes);
+        let published = runtime::publish(&mut cache, id, bytecode, bytes);
         drop(cache);
         match published {
             Some(evicted) => {
@@ -385,10 +501,72 @@ impl JitState {
         }
     }
 
+    /// Count the poll, refresh the cache-derived counters and notify the host.
+    /// The tail both models share.
+    fn finish_poll(&self, m: &mut JitMetrics) {
+        m.polls = m.polls.saturating_add(1);
+        m.queue_len = self.coordinator.borrow().queue_len() as u64;
+        // D-16: reclaim the budget of mappings whose function is already gone,
+        // so a long-running process can keep compiling after churn.
+        self.cache.borrow_mut().reclaim();
+        m.code_bytes = self.cache.borrow().used_bytes();
+        self.metrics.set(*m);
+        if let Some(observe) = &self.cfg.metrics_observer {
+            observe(&self.metrics.get());
+        }
+    }
+
+    /// One attempt: verify → compile → publish, on the calling thread. Never
+    /// panics; any failure just leaves the function interpreted. `m`
+    /// accumulates tier-2 counters.
+    #[cfg(not(feature = "jit_background"))]
+    fn run_pipeline(&self, request: &runtime::Request, m: &mut JitMetrics) -> CompileOutcome {
+        match lower(self.snapshot_for(request), self.limits, self.isa.as_ref()) {
+            Lowered::Compiled { bytes, specialized } => {
+                m.specialized_ops = m.specialized_ops.saturating_add(specialized);
+                self.install(request.function_id, &request.bytecode, &bytes)
+            }
+            Lowered::Rejected => CompileOutcome::Rejected,
+            Lowered::Failed => CompileOutcome::Failed,
+        }
+    }
+
     /// Trace the functions held for an in-flight compile so the GC cannot free
     /// their bytecode (and its `jit` slot) before the result is installed.
     pub(crate) fn trace(&self, gcx: &mut GcTraceCtx) {
         self.coordinator.borrow().trace_pinned(gcx);
+    }
+}
+
+/// How one lowering ended. `Rejected` means the frontend refused the snapshot
+/// (fail-closed); `Compiled` carries owned code bytes for the runtime thread to
+/// publish. Shared by the inline pipeline and the background worker, so the
+/// worker handles only `Send` data.
+pub(crate) enum Lowered {
+    Compiled { bytes: Box<[u8]>, specialized: u64 },
+    Rejected,
+    Failed,
+}
+
+/// Verify and lower one snapshot. `isa` may be borrowed from a worker thread
+/// (`TargetIsa: Send + Sync`); the snapshot and the result are `Send`, so this
+/// is the whole cross-thread contract.
+fn lower(snapshot: CompileSnapshot, limits: VerifyLimits, isa: &dyn TargetIsa) -> Lowered {
+    let Ok(verified) = verify(snapshot, limits) else {
+        return Lowered::Rejected;
+    };
+    // A function whose entry opcode the baseline cannot lower fails the same
+    // way every attempt; the caller settles it fail-closed instead of retrying.
+    if !compiler::entry_is_translatable(&verified) {
+        return Lowered::Rejected;
+    }
+    let specialized = Cell::new(0);
+    match compiler::compile(&verified, isa, &specialized) {
+        Ok(bytes) => Lowered::Compiled {
+            bytes,
+            specialized: specialized.get(),
+        },
+        Err(_) => Lowered::Failed,
     }
 }
 
@@ -424,7 +602,14 @@ impl Jit {
         Ok(Jit { rt: rt.clone() })
     }
 
-    /// Drive the coordinator. Verifies and compiles every queued function.
+    /// Drive the coordinator.
+    ///
+    /// Background (`jit_background`, in `default`): dispatches attempts to
+    /// workers and installs the finished ones; on return an attempt may still be
+    /// in flight (`JitMetrics::functions_compiling > 0`), so call it again until
+    /// the queue and the in-flight count are both zero. Inline
+    /// (`--no-default-features`, `jit` on): verifies and compiles every queued
+    /// function before returning.
     ///
     /// The runtime polls itself at engine safe points (eval return, event-loop
     /// tick), so a host normally does not need to call this. It stays public for
@@ -631,6 +816,32 @@ pub(crate) fn invoke_native(
 mod tests {
     use super::*;
 
+    /// Bring the JIT to rest before asserting on compile results. Inline, one
+    /// `poll` drains everything; background, `poll` is non-blocking, so this
+    /// spins until no attempt is in flight and the queue is empty.
+    fn settle(jit: &Jit) {
+        #[cfg(not(feature = "jit_background"))]
+        jit.poll();
+        #[cfg(feature = "jit_background")]
+        {
+            use std::time::{Duration, Instant};
+            let deadline = Instant::now() + Duration::from_secs(30);
+            loop {
+                jit.poll();
+                let m = jit.metrics();
+                if m.queue_len == 0 && m.functions_compiling == 0 {
+                    return;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "the background compiler never settled: {m:?}"
+                );
+                // The worker compiles in the background; give it the CPU.
+                std::thread::sleep(Duration::from_micros(50));
+            }
+        }
+    }
+
     #[test]
     fn attach_reports_metrics_and_target() {
         let rt = crate::Runtime::create().unwrap();
@@ -718,7 +929,7 @@ mod tests {
         )
         .unwrap();
 
-        jit.poll();
+        settle(&jit);
         let m = jit.metrics();
         assert!(m.functions_queued > 0, "nothing queued");
         assert_eq!(
@@ -802,7 +1013,7 @@ mod tests {
 
         ctx.with_root_scope(|mut cx| cx.rt_mut().gc_collect());
 
-        jit.poll();
+        settle(&jit);
         let m = jit.metrics();
         assert_eq!(m.queue_len, 0, "poll drained the queue");
         assert!(
@@ -815,6 +1026,10 @@ mod tests {
     /// fail, be retried once, settle the function in the interpreter — and the
     /// observable result must not change. This is the fault-injection half of
     /// the hardening gate (generated code cannot run under Miri).
+    ///
+    /// Inline-only: the fault switch (`platform::fault`) is thread-local, so a
+    /// background worker would not see it.
+    #[cfg(not(feature = "jit_background"))]
     #[test]
     fn allocation_failure_falls_back_to_the_interpreter() {
         use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
@@ -909,7 +1124,7 @@ mod tests {
         )
         .unwrap();
 
-        jit.poll();
+        settle(&jit);
         let m = jit.metrics();
         assert_eq!(m.queue_len, 0, "poll drained the queue");
         assert_eq!(m.functions_compiled, 0, "nothing fits the quota");
@@ -922,6 +1137,11 @@ mod tests {
     /// interpreter's trampoline: a hot callee that was just queued is compiled at
     /// the next frame boundary and then runs natively for the rest of the same
     /// `eval`. `auto_poll(false)` is the manual control.
+    ///
+    /// Inline-only: it asserts the compile landed *inside* one `eval`. Under
+    /// `jit_background` completion is asynchronous, so the background suite
+    /// checks the eventual result instead.
+    #[cfg(not(feature = "jit_background"))]
     #[test]
     fn automatic_poll_compiles_without_a_host_call() {
         use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
@@ -971,6 +1191,10 @@ mod tests {
     /// native loop header. The signal is the same as the other native tests —
     /// interpreter back edges — plus the first native entry. `auto_poll(false)`
     /// must leave the whole thing interpreted.
+    ///
+    /// Inline-only: it asserts the back edge compiled the frame *within* one
+    /// `eval`; the background suite covers the eventual back-edge entry.
+    #[cfg(not(feature = "jit_background"))]
     #[test]
     fn a_top_level_loop_runs_native_inside_one_eval() {
         use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
@@ -1018,6 +1242,113 @@ mod tests {
         );
     }
 
+    /// Contention between the runtime thread and the workers: they compile
+    /// while the interpreter keeps running, while the GC traces and collects,
+    /// and while a tight code-cache quota retires live mappings (D-16
+    /// `invalidate`) — with several workers and host polls interleaved.
+    ///
+    /// The design makes a data race impossible (only `Send`, pointer-free
+    /// snapshots cross; the runtime thread is the sole writer), so this test
+    /// checks the *logical* races those rules exist to prevent: a lost pin (the
+    /// GC frees a compiling function), a stale completion installed over a
+    /// retired mapping, or a record stranded in `Compiling`. Any of those shows
+    /// up as a wrong value, a crash, or a `settle` that never reaches quiet.
+    ///
+    /// `auto_poll(false)` is deliberate: `poll` dispatches a batch, then a long
+    /// interpreted loop and a collection run **while** the workers are still
+    /// compiling, so the overlap is real rather than incidental.
+    #[cfg(feature = "jit_background")]
+    #[test]
+    fn background_compilation_races_the_interpreter_gc_and_eviction() {
+        use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
+
+        // A long, allocation-free loop that keeps the interpreter busy while the
+        // workers lower the round's functions.
+        const CHURN: &[u8] =
+            b"var s = 0; for (var i = 0; i < 100000; i++) s = (s + (i & 7)) | 0; s;";
+        const CHURN_SUM: i32 = 12_500 * 28; // (100000 / 8) * (0+1+..+7)
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        // Four workers, eager thresholds, two code pages (installs retire each
+        // other), and no automatic poll so the overlap is explicit.
+        let jit = Jit::attach_to(
+            &rt,
+            JitConfig::builder()
+                .call_threshold(1)
+                .loop_threshold(1)
+                .workers(4)
+                .max_code_bytes(2 * 4096)
+                .auto_poll(false)
+                .build(),
+        )
+        .unwrap();
+        let name = EvalName::Name("jit-race.js".into());
+
+        for round in 0..20i32 {
+            // Six fresh functions per round: the cache must retire the previous
+            // rounds' mappings while this round's compiles are in flight.
+            let mut define = String::new();
+            for k in 0..6 {
+                define.push_str(&format!(
+                    "function f{round}_{k}(n){{ var s = 0; for (var i = 0; i < n; i++) s = (s + i * {} + {k}) | 0; return s; }}",
+                    round + 1
+                ));
+            }
+            define.push_str(&format!("f{round}_0(300); f{round}_1(300);"));
+            ctx.eval(
+                define.as_bytes(),
+                &name,
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .unwrap();
+
+            // Dispatch the batch, then run the long loop and collect **while**
+            // the workers are still lowering.
+            jit.poll();
+            let churn = ctx
+                .eval(CHURN, &name, EvalType::Global, EvalFlags::empty())
+                .unwrap();
+            assert_eq!(
+                churn.as_int(),
+                Some(CHURN_SUM),
+                "round {round}: the interpreter changed under contention"
+            );
+            ctx.with_root_scope(|mut cx| cx.rt_mut().gc_collect());
+            jit.poll();
+
+            let got = ctx
+                .eval(
+                    format!("f{round}_0(300)").as_bytes(),
+                    &name,
+                    EvalType::Global,
+                    EvalFlags::empty(),
+                )
+                .unwrap();
+            let expected: i32 = (0..300).map(|i| i * (round + 1) + 0).sum::<i32>();
+            assert_eq!(
+                got.as_int(),
+                Some(expected),
+                "round {round} diverged while compiles were in flight"
+            );
+        }
+
+        settle(&jit);
+        let m = jit.metrics();
+        assert_eq!(
+            (m.queue_len, m.functions_compiling),
+            (0, 0),
+            "an attempt was stranded by the contention ({m:?})"
+        );
+        assert!(
+            m.code_bytes <= 2 * 4096,
+            "the quota was exceeded under churn ({m:?})"
+        );
+    }
+
     /// D-16 retirement end to end: with a budget of one code page, compiling a
     /// second function retires the first live mapping instead of refusing the
     /// compile. The retired function must fall back to the interpreter and
@@ -1051,7 +1382,7 @@ mod tests {
             EvalFlags::empty(),
         )
         .unwrap();
-        jit.poll();
+        settle(&jit);
         let after_a = jit.metrics();
         assert!(after_a.functions_compiled >= 1, "a was not compiled");
         assert!(after_a.code_bytes <= 4096, "a exceeded the quota");
@@ -1063,7 +1394,7 @@ mod tests {
             EvalFlags::empty(),
         )
         .unwrap();
-        jit.poll();
+        settle(&jit);
         let after_b = jit.metrics();
         assert!(
             after_b.functions_compiled > after_a.functions_compiled,

@@ -68,13 +68,30 @@ impl Mode {
     }
 
     /// Eager thresholds so the single warm-up call in `define` queues the
-    /// function and `poll` installs it before any timing starts.
+    /// function, and [`settle`] installs it before any timing starts.
     fn config(self) -> JitConfig {
         JitConfig::builder()
             .call_threshold(1)
             .loop_threshold(1)
             .tier_policy(self.policy())
             .build()
+    }
+}
+
+/// Poll until the JIT is quiet: `queue_len == 0 && functions_compiling == 0`.
+/// Under `jit_background` (in `default`) `poll` is non-blocking, so a single
+/// call may return with an attempt still in flight; the timed window must start
+/// from installed code. Inline, the first `poll` already drains the queue.
+fn settle(jit: &Jit) {
+    let deadline = Instant::now() + Duration::from_secs(60);
+    loop {
+        jit.poll();
+        let m = jit.metrics();
+        if m.queue_len == 0 && m.functions_compiling == 0 {
+            return;
+        }
+        assert!(Instant::now() < deadline, "jit never settled: {m:?}");
+        std::thread::sleep(Duration::from_micros(50));
     }
 }
 
@@ -529,7 +546,7 @@ fn run_kernel(kernel: &Kernel, mode: Mode) -> Run {
         .unwrap();
     let jit = Jit::attach_to(&rt, mode.config()).unwrap();
     eval(&mut ctx, kernel.define.as_bytes());
-    jit.poll();
+    settle(&jit);
     let compiled = jit.metrics().functions_compiled;
     match mode {
         Mode::Interpreter => assert_eq!(

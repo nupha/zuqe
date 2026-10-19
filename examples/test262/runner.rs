@@ -342,6 +342,26 @@ pub fn js_module_loader(
     }
 }
 
+/// Poll until the JIT has nothing queued and nothing in flight. Under
+/// `jit_background` (in `default`) `poll` is non-blocking, so one call does not
+/// mean "installed"; inline, the first `poll` already drains the queue.
+#[cfg(feature = "jit")]
+fn settle(jit: &zuqe::Jit) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        jit.poll();
+        let m = jit.metrics();
+        if m.queue_len == 0 && m.functions_compiling == 0 {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "jit never settled: {m:?}"
+        );
+        std::thread::sleep(std::time::Duration::from_micros(50));
+    }
+}
+
 /// Side-effect-free warm-up, evaluated once right after the harness is loaded
 /// and before the test script runs — in **every** mode, so a `--jit` run and a
 /// baseline run execute byte-identical JS. It invokes the harness' pure
@@ -597,7 +617,7 @@ pub async fn run_test_file(
         // kept as a hard guarantee before the test body.
         #[cfg(feature = "jit")]
         if let Some(jit) = &jit {
-            jit.poll();
+            settle(jit);
         }
     }
 
@@ -663,7 +683,7 @@ pub async fn run_test_file(
             // eval compiles now, so the next eval enters native code.
             #[cfg(feature = "jit")]
             if let Some(jit) = &jit {
-                jit.poll();
+                settle(jit);
             }
 
             let scenario = if strict { "strict" } else { "default" };
@@ -716,7 +736,7 @@ pub async fn run_test_file(
     // away, and fold the counters into the run total for the end-of-run report.
     #[cfg(feature = "jit")]
     if let Some(jit) = jit {
-        jit.poll();
+        settle(&jit);
         record_jit_metrics(&jit.metrics());
     }
 

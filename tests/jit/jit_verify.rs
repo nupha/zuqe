@@ -8,6 +8,8 @@
 
 #![cfg(feature = "jit")]
 
+use crate::common::settle;
+
 use zuqe::{
     EvalFlags, EvalName, EvalType, JSValue, Jit, JitConfig, JitMetrics, JitTierPolicy, Runtime,
     ScopedContext,
@@ -48,7 +50,7 @@ fn eval_once(source: &[u8], attach: Option<JitConfig>) -> (String, Option<JitMet
     let observed = observe(result);
     let metrics = jit.as_ref().map(|jit| {
         // Outside `with_new_scope`: verify everything the run queued.
-        jit.poll();
+        settle(&jit);
         jit.metrics()
     });
     (observed, metrics)
@@ -176,7 +178,7 @@ fn native_vs_interpreter(define: &[u8], call: &str) -> JitMetrics {
     // Run once to get the function hot, then poll to compile and install it.
     ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
         .unwrap();
-    jit.poll();
+    settle(&jit);
     assert!(
         jit.metrics().functions_compiled > 0,
         "nothing was compiled for {}",
@@ -352,7 +354,7 @@ fn a_native_call_does_not_strand_the_caller_in_the_interpreter() {
                    for (var i = 0; i < n; i++) s = s + i; return s + m; } workload(1);";
     ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
         .unwrap();
-    jit.poll();
+    settle(&jit);
 
     let before = jit.metrics();
     let result = ctx
@@ -406,7 +408,7 @@ fn ref_cells_run_in_native_code() {
                    f(1, [1, 2]); g(1, [1, 2]);";
     ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
         .unwrap();
-    jit.poll();
+    settle(&jit);
     assert!(
         jit.metrics().functions_compiled >= 2,
         "the ref-cell functions were not compiled ({:?})",
@@ -456,7 +458,7 @@ fn dictionary_array_elements_run_in_native_code() {
                    f(1); g(1);";
     ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
         .unwrap();
-    jit.poll();
+    settle(&jit);
     assert!(
         jit.metrics().functions_compiled >= 2,
         "the dictionary-array functions were not compiled ({:?})",
@@ -512,7 +514,7 @@ fn with_opcodes_run_in_native_code() {
                    f(1, WO); g(1, WO); h(1, WO);";
     ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
         .unwrap();
-    jit.poll();
+    settle(&jit);
     assert!(
         jit.metrics().functions_compiled >= 3,
         "the with functions were not compiled ({:?})",
@@ -611,7 +613,7 @@ fn call_opcodes_run_in_native_code() {
                    direct(1); method(1); spread(1); ctor(1); catcher(1);";
     ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
         .unwrap();
-    jit.poll();
+    settle(&jit);
     assert!(
         jit.metrics().functions_compiled >= 6,
         "the call functions were not compiled ({:?})",
@@ -749,7 +751,7 @@ fn native_throws_match_the_interpreter() {
     let name = EvalName::Name("jit-throw-frames.js".into());
     ctx.eval(define_throw, &name, EvalType::Global, EvalFlags::empty())
         .unwrap();
-    jit.poll();
+    settle(&jit);
     assert!(
         jit.metrics().functions_compiled >= 2,
         "the throwing functions were not compiled ({:?})",
@@ -795,7 +797,7 @@ fn regexp_and_bigint_literals_run_in_native_code() {
                   re(1); big(1);";
     ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
         .unwrap();
-    jit.poll();
+    settle(&jit);
     assert!(
         jit.metrics().functions_compiled >= 2,
         "the regexp/bigint functions were not compiled ({:?})",
@@ -823,6 +825,11 @@ fn regexp_and_bigint_literals_run_in_native_code() {
 /// entry during that single `eval` can therefore only be the back edge handing
 /// the frame to the compiled loop header — and the back-edge count must stay
 /// near the threshold instead of growing with the trip count.
+///
+/// Inline-only: it needs the back edge to compile *synchronously*. Under
+/// `jit_background` the worker finishes later, so the eventual entry is checked
+/// by `jit_background::auto_poll_drains_workers_and_the_function_runs_native`.
+#[cfg(not(feature = "jit_background"))]
 #[test]
 fn a_top_level_loop_switches_to_native_mid_run() {
     const SRC: &[u8] = b"var s = 1; for (var i = 1; i < 100000; i++) s = (s + i) | 0; s;";
@@ -884,6 +891,10 @@ fn a_top_level_loop_switches_to_native_mid_run() {
 /// single `eval` with the loop at the top level, run once with the JIT (the
 /// frame switches to native at the loop header through `cur_sp_offset`) and once
 /// interpreted; both must agree exactly.
+///
+/// Inline-only: the assertions need the synchronous back-edge compile (see
+/// `a_top_level_loop_switches_to_native_mid_run`).
+#[cfg(not(feature = "jit_background"))]
 #[test]
 fn top_level_loop_shapes_match_the_interpreter() {
     // `for`/`while`/`do-while` cover the `goto` and `if_*` back edges. The first
@@ -963,7 +974,7 @@ fn native_exception_matches_interpreter() {
     let name = EvalName::Name("jit-throw.js".into());
     ctx.eval(define, &name, EvalType::Global, EvalFlags::empty())
         .unwrap();
-    jit.poll();
+    settle(&jit);
     assert!(jit.metrics().functions_compiled > 0, "t was not compiled");
 
     let native = ctx.eval(b"t(3)", &name, EvalType::Global, EvalFlags::empty());

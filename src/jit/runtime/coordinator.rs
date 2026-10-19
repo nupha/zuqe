@@ -307,6 +307,29 @@ impl Coordinator {
         self.queue.len()
     }
 
+    /// The bytecode a queued/compiling function is pinned by, if any.
+    #[cfg(feature = "jit_background")]
+    pub(crate) fn pinned(&self, id: u64) -> Option<Bytecode> {
+        self.records.get(&id).and_then(|record| record.pinned)
+    }
+
+    /// Undo a `begin_next` whose job could not be handed to a worker (channel
+    /// full or workers gone): put the function back at the head of the queue.
+    #[cfg(feature = "jit_background")]
+    pub(crate) fn rollback(&mut self, id: u64) {
+        let compiling = self
+            .records
+            .get(&id)
+            .is_some_and(|record| matches!(record.lifecycle, Lifecycle::Compiling));
+        if !compiling {
+            return;
+        }
+        if let Some(record) = self.records.get_mut(&id) {
+            record.lifecycle = Lifecycle::Queued;
+        }
+        self.queue.push_front(id);
+    }
+
     /// Trace the functions held for an in-flight compile. Called from the GC
     /// root scan; see the module docs.
     pub(crate) fn trace_pinned(&self, gcx: &mut GcTraceCtx) {

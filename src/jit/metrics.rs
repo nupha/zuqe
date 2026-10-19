@@ -18,6 +18,10 @@ pub struct JitMetrics {
     pub queue_drops: u64,
     /// Functions currently waiting to be compiled.
     pub queue_len: u64,
+    /// Functions handed to a background worker and not yet drained
+    /// (`jit_background` only). Always `0` in the inline model, where `poll`
+    /// compiles the whole queue before returning.
+    pub functions_compiling: u64,
     /// Calls to `Jit::poll`.
     pub polls: u64,
     /// Functions the frontend rejected (fail-closed): they stay in the

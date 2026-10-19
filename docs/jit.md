@@ -216,11 +216,12 @@ is not a preemptive deadline (compilation is inline).
 Implemented: baseline + Tier-2 lowering, type feedback and guarded
 int/float fast paths, tier-down, property/array access helpers with inline
 caches, global-variable helpers, cross-block residency / DCE / CSE, native calls
-(route A), code-cache retirement, metrics/quotas.
+(route A), inline back-edge OSR, code-cache retirement, metrics/quotas, and the
+background compilation thread (`jit_background`, in `default`; `Jit::poll` only
+dispatches, drains and installs).
 
-Not implemented: the background compilation thread (`jit_background`),
-single-shape inline calls (D-6 route B), macOS/Windows executable memory,
-real-hardware aarch64 validation, and ASan runs (blocked by the allocator
-under ASan, not by the JIT). `with`/generator/`async`/`eval`/`import` opcodes
-stay rejected by design. See [`memo/jit_todo.md`](../memo/jit_todo.md) for the
-current list.
+Not implemented: single-shape inline calls (D-6 route B), macOS/Windows
+executable memory, and real-hardware aarch64 validation. ASan is blocked by the
+allocator under ASan, not by the JIT (see `tests/jit/ci-sanitize.sh`); TSan runs
+clean. `with`/generator/`async`/`eval`/`import` opcodes stay rejected by design.
+See [`memo/jit_todo.md`](../memo/jit_todo.md) for the current list.

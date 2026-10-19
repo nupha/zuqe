@@ -9,6 +9,8 @@
 
 #![cfg(feature = "jit")]
 
+use crate::common::settle;
+
 use zuqe::{
     Context, EvalFlags, EvalName, EvalType, JSResult, Jit, JitConfig, JitMetrics, Runtime,
     ScopedContext,
@@ -86,7 +88,7 @@ fn run(with_jit: bool, long_run: &str) -> InterruptRun {
 
     eval(&mut ctx, &name, DEFINE).expect("setup");
     if let Some(jit) = &jit {
-        jit.poll();
+        settle(&jit);
         assert!(
             jit.metrics().functions_compiled > 0,
             "the loop must be compiled for this test to mean anything"

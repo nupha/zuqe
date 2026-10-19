@@ -62,17 +62,16 @@ pub struct JitConfig {
     /// is queued and no native frame is in flight. Turn it off only to keep full
     /// manual control of the compile timing (tests/benchmarks).
     pub(crate) auto_poll: bool,
-    /// Reserved for the §12 background compiler (`jit_background`). The inline
-    /// model compiles on the calling thread between two `poll`s, so this field
-    /// is stored and reported but **not read anywhere yet**: `workers(8)` does
-    /// not currently parallelize anything.
+    /// Number of background compiler workers (`jit_background` only). The
+    /// inline model compiles on the calling thread, so this is stored and
+    /// reported but ignored unless the feature is on.
     pub(crate) workers: usize,
-    /// Compile-time budget in milliseconds. In the inline model this is a
-    /// **failure-reason classification, not a deadline**: `Jit::poll` runs
-    /// verification and compilation synchronously, so it cannot preempt a slow
-    /// compile. The budget only re-labels an already-`Failed` attempt whose
-    /// elapsed time exceeded it as `TimedOut` (see `JitState::poll`); no compile
-    /// is ever abandoned mid-flight.
+    /// Compile-time budget in milliseconds. Inline: a **failure-reason
+    /// classification, not a deadline** — `Jit::poll` verifies and compiles
+    /// synchronously, so it cannot preempt a slow compile; the budget only
+    /// re-labels an already-`Failed` attempt as `TimedOut`. Background: a real
+    /// deadline — an attempt past it is abandoned (counted `TimedOut`) and its
+    /// late completion is discarded by attempt id.
     pub(crate) compile_timeout_ms: u64,
     pub(crate) max_compile_attempts: u32,
     /// Sink for human-readable diagnostics.
@@ -227,16 +226,16 @@ impl JitConfigBuilder {
         self
     }
 
-    /// Reserved for the §12 background compiler: stored, reported, and
-    /// otherwise ignored today (see [`JitConfig::workers`]).
+    /// Number of background compiler workers (`jit_background` only); ignored
+    /// by the inline model (see [`JitConfig::workers`]).
     pub fn workers(mut self, n: usize) -> Self {
         self.0.workers = n.max(1);
         self
     }
 
-    /// Compile-time budget in milliseconds. In the inline model it only
-    /// classifies an already-failed attempt as `TimedOut`; it is not a deadline
-    /// that can preempt a running compile (see [`JitConfig::compile_timeout_ms`]).
+    /// Compile-time budget in milliseconds. Inline it only classifies an
+    /// already-failed attempt as `TimedOut`; under `jit_background` it abandons
+    /// an attempt (see [`JitConfig::compile_timeout_ms`]).
     pub fn compile_timeout_ms(mut self, n: u64) -> Self {
         self.0.compile_timeout_ms = n.max(1);
         self

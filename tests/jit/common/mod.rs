@@ -124,6 +124,33 @@ pub fn eval_src(ctx: &mut Context, name: &EvalName, src: &str) -> JSResult {
     ctx.eval(src.as_bytes(), name, EvalType::Global, EvalFlags::empty())
 }
 
+/// Bring the JIT to rest before the observed run. Inline, one `poll` drains the
+/// queue synchronously; background (`jit_background`), `poll` is non-blocking,
+/// so this spins until no attempt is in flight and the queue is empty. Either
+/// way the case's functions are compiled or rejected when it returns, which is
+/// what makes the differential comparison meaningful.
+pub fn settle(jit: &Jit) {
+    #[cfg(not(feature = "jit_background"))]
+    jit.poll();
+    #[cfg(feature = "jit_background")]
+    {
+        use std::{
+            thread,
+            time::{Duration, Instant},
+        };
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            jit.poll();
+            let m = jit.metrics();
+            if m.queue_len == 0 && m.functions_compiling == 0 {
+                return;
+            }
+            assert!(Instant::now() < deadline, "jit never settled: {m:?}");
+            thread::sleep(Duration::from_micros(50));
+        }
+    }
+}
+
 /// Run one case in one mode. Returns `(main, probe, metrics)`.
 pub fn run_case(mode: Mode, case: &Case) -> (String, String, JitMetrics) {
     let mut rt = Runtime::create().expect("runtime");
@@ -135,7 +162,7 @@ pub fn run_case(mode: Mode, case: &Case) -> (String, String, JitMetrics) {
 
     let setup = eval_src(&mut ctx, &name, case.setup);
     assert!(setup.is_ok(), "setup must not throw: {}", case.name);
-    jit.poll();
+    settle(&jit);
 
     let res = eval_src(&mut ctx, &name, case.main);
     let main = observe(&mut ctx, res);
@@ -175,19 +202,19 @@ pub fn run_case_polled(mode: Mode, case: &Case) -> PolledRun {
     // Definitions only: whatever this script queues is out of the assertions.
     let setup = eval_src(&mut ctx, &name, case.setup);
     assert!(setup.is_ok(), "setup must not throw: {}", case.name);
-    jit.poll();
+    settle(&jit);
     let after_definition = jit.metrics();
 
     if !case.warm.is_empty() {
         let warm = eval_src(&mut ctx, &name, case.warm);
         assert!(warm.is_ok(), "warm-up must not throw: {}", case.name);
     }
-    jit.poll();
+    settle(&jit);
     let after_warm = jit.metrics();
 
     let res = eval_src(&mut ctx, &name, case.main);
     let main = observe(&mut ctx, res);
-    jit.poll();
+    settle(&jit);
     let after_main = jit.metrics();
 
     let res = eval_src(&mut ctx, &name, case.probe);

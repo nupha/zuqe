@@ -23,6 +23,7 @@
 #[cfg(feature = "jit")]
 mod common;
 
+mod jit_background;
 mod jit_differential;
 mod jit_feedback;
 mod jit_interrupt;

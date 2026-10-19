@@ -25,6 +25,8 @@
 
 #![cfg(feature = "jit")]
 
+use crate::common::settle;
+
 use zuqe::{
     Context, EvalFlags, EvalName, EvalType, JSResult, Jit, JitConfig, JitConfigBuilder, JitMetrics,
     JitTierPolicy, Runtime, ScopedContext,
@@ -97,7 +99,7 @@ fn run(policy: JitTierPolicy) -> FeedbackRun {
     let name = EvalName::Name("jit-feedback.js".into());
 
     eval(&mut ctx, &name, DEFINE).expect("setup");
-    jit.poll();
+    settle(&jit);
 
     let res = eval(&mut ctx, &name, RUN);
     let result = describe(&mut ctx, res);
@@ -168,7 +170,7 @@ fn site_count_is_stable_across_repeated_runs() {
     let name = EvalName::Name("jit-feedback-stable.js".into());
 
     eval(&mut ctx, &name, DEFINE).expect("setup");
-    jit.poll();
+    settle(&jit);
     let after_first = jit.metrics().feedback_sites;
     assert!(after_first > 0, "no feedback after first run");
 
@@ -220,7 +222,7 @@ fn run_with(cfg: JitConfig, define: &str, run: &str) -> (String, JitMetrics) {
     let name = EvalName::Name("jit-f2.js".into());
 
     eval(&mut ctx, &name, define).expect("setup");
-    jit.poll();
+    settle(&jit);
 
     let res = eval(&mut ctx, &name, run);
     let out = tag_exact(res);
@@ -405,7 +407,7 @@ fn a_miss_heavy_site_is_recompiled_without_speculation() {
         "function f(n, x){ var i = x; for (var k = 0; k < n; k++){ i++; } return i; } f(3, 1);",
     )
     .expect("setup");
-    jit.poll();
+    settle(&jit);
     let m0 = jit.metrics();
     assert!(
         m0.specialized_ops > 0,
@@ -422,7 +424,7 @@ fn a_miss_heavy_site_is_recompiled_without_speculation() {
     );
     assert!(after.functions_queued > m0.functions_queued, "no requeue");
 
-    jit.poll();
+    settle(&jit);
     let before = jit.metrics().specialized_guard_misses;
     eval(&mut ctx, &name, "f(200, 1.5)").expect("post-tier-down run");
     assert_eq!(

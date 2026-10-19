@@ -53,6 +53,12 @@ jit = [
     "dep:cranelift-object",
 ]
 
+# Background JIT compilation (epic D3 / plan §12). In `default`: verify+codegen
+# move to worker threads and `Jit::poll` only dispatches, drains and installs.
+# Turn it off with `--no-default-features` (keeping `jit`) to compile inline on
+# the calling thread instead, byte-identical to before.
+jit_background = ["jit"]
+
 # Protect temporarily dangling GC objects taken out of traced locations before
 # they are re-anchored. Enable only when gc_alloc may trigger collect (arena
 # full, etc.). If gc_alloc never triggers collect (almost the standard behavior),
@@ -67,6 +73,7 @@ default = [
     "all_unicode",
     "async_support",
     "jit",
+    "jit_background",
 
     "builtin_mapset",
     "builtin_proxy",
