@@ -52,7 +52,6 @@ pub(crate) struct CompileCompletion {
 pub(crate) struct InFlight {
     pub(crate) function_id: u64,
     dispatched_at: Instant,
-    pub(crate) timed_out: bool,
 }
 
 /// Bounded compiler workers plus the in-flight bookkeeping of the runtime side.
@@ -151,7 +150,6 @@ impl BackgroundCompiler {
             InFlight {
                 function_id,
                 dispatched_at: Instant::now(),
-                timed_out: false,
             },
         );
         true
@@ -169,17 +167,26 @@ impl BackgroundCompiler {
         self.in_flight.remove(&attempt_id)
     }
 
-    /// Mark every attempt past `timeout` as abandoned and return their function
-    /// ids. The worker keeps running (Cranelift lowering cannot be preempted);
-    /// its late completion is dropped by attempt id.
+    /// Abandon every attempt past `timeout` and return their function ids.
+    ///
+    /// The abandoned entry is **removed**, not just flagged: `in_flight` is both
+    /// the capacity gate (`has_capacity`) and the `functions_compiling` metric,
+    /// so leaving it would keep the worker slot reserved until the abandoned
+    /// attempt happens to finish — and the retry this abandonment triggers could
+    /// not even be dispatched until then, which defeats the budget. Removing it
+    /// hands the slot back at once; the worker keeps running (Cranelift lowering
+    /// cannot be preempted) and its late completion no longer matches an in-flight
+    /// attempt, so `resolve` reports it stale and the caller drops it.
     pub(crate) fn expire(&mut self, timeout: Duration) -> Vec<u64> {
         let mut expired = Vec::new();
-        for job in self.in_flight.values_mut() {
-            if !job.timed_out && job.dispatched_at.elapsed() > timeout {
-                job.timed_out = true;
+        self.in_flight.retain(|_, job| {
+            if job.dispatched_at.elapsed() > timeout {
                 expired.push(job.function_id);
+                false
+            } else {
+                true
             }
-        }
+        });
         expired
     }
 }
@@ -281,5 +288,43 @@ mod tests {
     fn drop_without_pending_jobs_joins_the_workers() {
         let bg = BackgroundCompiler::new(3, isa()).expect("spawn");
         drop(bg);
+    }
+
+    /// An expired attempt must release its worker slot immediately, so the retry
+    /// it triggers can be dispatched without waiting for the abandoned lowering
+    /// to finish. `in_flight` is both the capacity gate and the
+    /// `functions_compiling` metric, so a leftover entry there parks the retry
+    /// behind a zombie.
+    #[test]
+    fn expiring_an_attempt_frees_its_slot_without_waiting_for_the_worker() {
+        let mut bg = BackgroundCompiler::new(1, isa()).expect("spawn");
+        let snapshot = CompileSnapshot::from_raw(vec![0u8; 4], 0, 0, 0, 8);
+        assert!(bg.submit(7, snapshot.clone(), VerifyLimits::default()));
+        assert_eq!(bg.in_flight_len(), 1);
+        assert!(!bg.has_capacity(), "the single worker is busy");
+
+        // Zero budget: the just-dispatched attempt is instantly over it.
+        let expired = bg.expire(Duration::ZERO);
+        assert_eq!(expired, vec![7], "its function id is reported for retry");
+        assert_eq!(
+            bg.in_flight_len(),
+            0,
+            "the abandoned attempt is not in flight"
+        );
+        assert!(bg.has_capacity(), "the slot is free for the retry");
+
+        // The late completion of the abandoned attempt must not resolve the
+        // retry: attempt ids do not collide.
+        let retry = loop {
+            if let Some(completion) = bg.try_recv() {
+                break completion;
+            }
+            std::thread::yield_now();
+        };
+        let still_in_flight = bg.resolve(retry.attempt_id);
+        assert!(
+            still_in_flight.is_none(),
+            "a drained attempt no longer matches anything in flight"
+        );
     }
 }

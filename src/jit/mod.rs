@@ -437,11 +437,8 @@ impl JitState {
     #[cfg(feature = "jit_background")]
     fn install_completion(&self, completion: CompileCompletion, m: &mut JitMetrics) {
         let Some(job) = self.background.borrow_mut().resolve(completion.attempt_id) else {
-            return; // stale: already abandoned
+            return; // stale: the attempt was abandoned by `expire`, or already resolved
         };
-        if job.timed_out {
-            return;
-        }
         let id = job.function_id;
         // Bind the borrow before `install` takes it again (it writes the
         // coordinator on eviction).
