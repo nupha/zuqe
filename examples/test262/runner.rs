@@ -76,8 +76,29 @@ fn eager_jit_config() -> zuqe::JitConfig {
     zuqe::JitConfig::builder()
         .call_threshold(1)
         .loop_threshold(1)
+        .compile_timeout_ms(COMPILE_TIMEOUT_MS)
+        .max_compile_attempts(MAX_COMPILE_ATTEMPTS)
         .build()
 }
+
+/// Budget for one verify + Cranelift lowering attempt.
+#[cfg(feature = "jit")]
+const COMPILE_TIMEOUT_MS: u64 = 30_000;
+
+/// Attempts the coordinator makes before giving a function up.
+#[cfg(feature = "jit")]
+const MAX_COMPILE_ATTEMPTS: u32 = 4;
+
+/// How long [`settle`] waits for the JIT to go quiet.
+///
+/// Derived, not an independent number: an attempt that trips
+/// `COMPILE_TIMEOUT_MS` is abandoned and retried up to `MAX_COMPILE_ATTEMPTS`
+/// times, and with one worker a retry cannot start until the abandoned lowering
+/// releases it. The worst case is therefore every attempt burning the full
+/// budget plus the one that finally lands. A budget shorter than that aborts the
+/// whole run on its own arithmetic instead of reporting the slow function.
+#[cfg(feature = "jit")]
+const SETTLE_BUDGET_MS: u64 = (MAX_COMPILE_ATTEMPTS as u64 + 1) * COMPILE_TIMEOUT_MS + 30_000;
 
 /// Fold one runtime's final metrics into the run total. Only counters are
 /// summed; `queue_len` / `code_bytes` describe a single live runtime.
@@ -347,7 +368,7 @@ pub fn js_module_loader(
 /// mean "installed"; inline, the first `poll` already drains the queue.
 #[cfg(feature = "jit")]
 fn settle(jit: &zuqe::Jit) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(SETTLE_BUDGET_MS);
     loop {
         jit.poll();
         let m = jit.metrics();
