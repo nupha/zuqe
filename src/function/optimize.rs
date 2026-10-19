@@ -457,14 +457,21 @@ impl FunctionDef {
             return true;
         }
 
-        if let Some(cc) = self.code_match(
-            *pos_next,
-            &[
-                OpCode::PERM4 as _,
-                OpCode::PUT_ARRAY_EL as _,
-                OpCode::DROP as _,
-            ],
-        ) {
+        // `put_array_el` carries a u16 inline-cache operand, which `code_match`
+        // consumes as a pattern slot of its own (`-1` = any value). Without it
+        // the index is compared against the `drop` pattern element, so the
+        // pattern only matches when the two happen to be equal.
+        #[cfg(feature = "inline_cache")]
+        let pat: &[i32] = &[
+            OpCode::PERM4 as _,
+            OpCode::PUT_ARRAY_EL as _,
+            -1,
+            OpCode::DROP as _,
+        ];
+        #[cfg(not(feature = "inline_cache"))]
+        let pat: &[i32] = &[OpCode::PERM4 as _, OpCode::PUT_ARRAY_EL as _, OpCode::DROP as _];
+
+        if let Some(cc) = self.code_match(*pos_next, pat) {
             if cc.line_num >= 0 {
                 *line_num = cc.line_num as _;
             }

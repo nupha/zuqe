@@ -262,20 +262,42 @@ impl FunctionDef {
                 opcodes::OP_insert3 => {
                     // Optimize transformation:
                     // insert3 put_array_el|put_ref_value drop -> put_array_el|put_ref_value
-                    if OPTIMIZE
-                        && let Some(cc) = self.code_match(
-                            pos_next,
-                            &[
-                                M2(OpCode::PUT_ARRAY_EL as i32, OpCode::PUT_REF_VALUE as i32),
-                                OpCode::DROP as i32,
-                            ],
-                        )
-                    {
-                        push_vec_u8(&mut bc_out, cc.op as u8);
+                    //
+                    // `put_array_el` carries a u16 inline-cache operand, which
+                    // `code_match` consumes as a pattern slot of its own (`-1` =
+                    // any value); `put_ref_value` has no operand, so the two
+                    // alternatives cannot share one pattern. Without the `-1`,
+                    // the inline-cache index is compared against the `drop`
+                    // pattern element: a site whose index happens to equal
+                    // `OP_drop` deletes the `insert3` that keeps the assigned
+                    // value on the stack (and emits index 0), producing a stack
+                    // underflow at the following call.
+                    #[cfg(feature = "inline_cache")]
+                    let put_array_el_pat: &[i32] =
+                        &[OpCode::PUT_ARRAY_EL as i32, -1, OpCode::DROP as i32];
+                    #[cfg(not(feature = "inline_cache"))]
+                    let put_array_el_pat: &[i32] =
+                        &[OpCode::PUT_ARRAY_EL as i32, OpCode::DROP as i32];
+
+                    let m = if OPTIMIZE {
+                        self.code_match(pos_next, put_array_el_pat)
+                            .map(|cc| (OpCode::PUT_ARRAY_EL as u8, cc))
+                            .or_else(|| {
+                                self.code_match(
+                                    pos_next,
+                                    &[OpCode::PUT_REF_VALUE as i32, OpCode::DROP as i32],
+                                )
+                                .map(|cc| (OpCode::PUT_REF_VALUE as u8, cc))
+                            })
+                    } else {
+                        None
+                    };
+                    if let Some((put_op, cc)) = m {
+                        push_vec_u8(&mut bc_out, put_op);
                         // `put_array_el` carries its inline-cache index; it must
                         // be preserved or the following opcodes shift.
                         #[cfg(feature = "inline_cache")]
-                        if cc.op as u8 == opcodes::OP_put_array_el {
+                        if put_op == opcodes::OP_put_array_el {
                             push_vec_u16(&mut bc_out, cc.idx as u16);
                         }
                         pos_next = cc.pos;
