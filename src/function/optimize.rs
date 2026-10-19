@@ -11,7 +11,123 @@ use crate::{
     utils::{M2, M3, read_from_ptr, write_to_ptr},
 };
 
+use Pat::{Any, Op, Val};
+
 pub const OPTIMIZE: bool = true;
+
+/// One element of a [`FunctionDef::code_match`] pattern.
+///
+/// A pattern element is either an opcode or one operand slot. How many operand
+/// slots an opcode owns is a property of its *format*
+/// (`opcode_info_intermediate(...).fmt`), not of the pattern, so the pattern
+/// has to spell them out to stay in sync with the opcode table.
+///
+/// This used to be a plain `&[i32]` where `-1` meant both "end of pattern" and
+/// "any operand", so an operand slot and a small opcode value shared one
+/// namespace: a pattern that forgot a slot silently compared the operand
+/// against the opcode meant to follow it, and matched *wrongly* when the two
+/// happened to be equal. `inline_cache` gave `put_array_el` a `u16` operand
+/// that way, which corrupted `insert3 put_array_el drop` (memo/bytecode-bugs.md
+/// §2.6). With the typed pattern a stale pattern is a structural error instead:
+/// `code_match` reports no match (and debug-asserts), so it loses an
+/// optimization rather than emitting wrong bytecode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Pat {
+    /// An opcode, or a set of alternatives packed with `M2`/`M3`/`M4`.
+    Op(i32),
+    /// One operand slot, any value.
+    Any,
+    /// One operand slot that must hold exactly this value.
+    Val(i32),
+}
+
+/// Operand slots carried by `op`'s format.
+fn slots_of(op: u8) -> usize {
+    match opcode_info_intermediate(op).fmt {
+        OpcodeFormat::LOC8
+        | OpcodeFormat::U8
+        | OpcodeFormat::U16
+        | OpcodeFormat::NPOP
+        | OpcodeFormat::LOC
+        | OpcodeFormat::ARG
+        | OpcodeFormat::VAR_REF => 1,
+        _ => 0,
+    }
+}
+
+/// Operand slots carried by a pattern opcode, unpacking `M2`/`M3`/`M4`
+/// alternatives. `None` when the alternatives disagree on the count (then the
+/// pattern cannot be written unambiguously) or when `op` is not an opcode.
+fn pat_slot_count(packed: i32) -> Option<usize> {
+    let packed = packed as u32;
+    let mut slots = None;
+    for shift in [0, 8, 16, 24] {
+        let alt = (packed >> shift) as u8;
+        // Opcodes are never 0, so a zero byte ends a packed set.
+        if shift != 0 && alt == 0 {
+            break;
+        }
+        let n = slots_of(alt);
+        match slots {
+            None => slots = Some(n),
+            Some(prev) if prev != n => return None,
+            _ => {}
+        }
+        if packed >> 8 == 0 {
+            break;
+        }
+    }
+    slots
+}
+
+/// Whether every operand slot `pattern` spells out holds an operand.
+///
+/// A pattern may end in the middle of the last opcode's operand slots (the rest
+/// are wildcards), but it must never put an opcode where a slot belongs — that
+/// is the shape that silently compared an operand against the opcode meant to
+/// follow it. See `Pat`.
+///
+/// The check is not `const` because patterns carry runtime operand values
+/// (`Pat::Val(idx)`), so `code_match` debug-asserts it; CI's debug test runs
+/// turn a stale pattern into a loud failure, and in release a malformed pattern
+/// simply never matches.
+fn pattern_is_well_formed(pattern: &[Pat]) -> bool {
+    let mut i = 0;
+    while i < pattern.len() {
+        let Pat::Op(packed) = pattern[i] else {
+            return false;
+        };
+        i += 1;
+        let Some(slots) = pat_slot_count(packed) else {
+            return false;
+        };
+        for _ in 0..slots {
+            if i == pattern.len() {
+                break;
+            }
+            if !matches!(pattern[i], Pat::Any | Pat::Val(_)) {
+                return false;
+            }
+            i += 1;
+        }
+    }
+    true
+}
+
+/// Match one operand slot: `Any` accepts anything (`Some(true)` tells the caller
+/// to record the value), `Val(n)` must equal `val`. A pattern that ends here
+/// accepts anything too, as an implicit wildcard.
+///
+/// Anything else — a different value, or an opcode where an operand belongs —
+/// mismatches, so a stale pattern loses its optimization instead of matching
+/// wrongly.
+fn take_operand(it: &mut std::slice::Iter<'_, Pat>, val: i32) -> Option<bool> {
+    match it.next() {
+        Some(Pat::Any) | None => Some(true),
+        Some(Pat::Val(n)) if *n == val => Some(false),
+        _ => None,
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(super) struct CodeMatchState {
@@ -43,7 +159,12 @@ impl Default for CodeMatchState {
 
 impl FunctionDef {
     /// match in bytecodes for specified `pattern`, starting since `pos`.
-    pub(super) fn code_match(&self, mut pos: usize, pattern: &[i32]) -> Option<CodeMatchState> {
+    pub(super) fn code_match(&self, mut pos: usize, pattern: &[Pat]) -> Option<CodeMatchState> {
+        debug_assert!(
+            pattern_is_well_formed(pattern),
+            "code_match pattern does not line up with the opcode formats: {pattern:?}"
+        );
+
         let bc_ptr = self.byte_code.as_ptr();
         let bc_len = self.byte_code.len();
 
@@ -54,13 +175,19 @@ impl FunctionDef {
 
         let mut it = pattern.iter();
         loop {
-            let op_arg = it.next().copied().unwrap_or(-1);
-            if op_arg == -1 {
+            let Some(&pat) = it.next() else {
                 state.pos = pos;
                 state.line_num = line_num;
                 found = true;
                 break;
-            }
+            };
+
+            // An operand slot where an opcode belongs means the pattern does not
+            // line up with the opcode formats. Refuse it rather than compare the
+            // slot against the opcode and match by accident.
+            let Pat::Op(op_arg) = pat else {
+                return None;
+            };
 
             let op = loop {
                 if pos >= bc_len {
@@ -99,12 +226,9 @@ impl FunctionDef {
             unsafe {
                 match opcode_info_intermediate(op).fmt {
                     OpcodeFormat::LOC8 | OpcodeFormat::U8 => {
-                        let idx = *bc_ptr.add(pos);
-                        let arg = it.next().copied().unwrap_or(-1);
-                        if arg == -1 {
-                            state.idx = idx as i32;
-                        } else if arg != idx as i32 {
-                            return None;
+                        let idx = *bc_ptr.add(pos) as i32;
+                        if take_operand(&mut it, idx)? {
+                            state.idx = idx;
                         }
                     }
                     OpcodeFormat::U16
@@ -113,11 +237,8 @@ impl FunctionDef {
                     | OpcodeFormat::ARG
                     | OpcodeFormat::VAR_REF => {
                         let idx = read_from_ptr::<u16>(bc_ptr.add(pos)) as i32;
-                        let arg = it.next().copied().unwrap_or(-1);
-                        if arg == -1 {
+                        if take_operand(&mut it, idx)? {
                             state.idx = idx;
-                        } else if arg != idx {
-                            return None;
                         }
                     }
                     OpcodeFormat::I32
@@ -180,21 +301,21 @@ impl FunctionDef {
                 .code_match(
                     *pos_next,
                     &[
-                        M2(opcodes::OP_post_dec as _, opcodes::OP_post_inc as _),
-                        opcodes::OP_put_loc as _,
-                        idx as _,
-                        opcodes::OP_drop as _,
+                        Op(M2(opcodes::OP_post_dec as _, opcodes::OP_post_inc as _)),
+                        Op(opcodes::OP_put_loc as _),
+                        Val(idx as _),
+                        Op(opcodes::OP_drop as _),
                     ],
                 )
                 .or_else(|| {
                     self.code_match(
                         *pos_next,
                         &[
-                            M2(opcodes::OP_dec as _, opcodes::OP_inc as _),
-                            opcodes::OP_dup as _,
-                            opcodes::OP_put_loc as _,
-                            idx as _,
-                            opcodes::OP_drop as _,
+                            Op(M2(opcodes::OP_dec as _, opcodes::OP_inc as _)),
+                            Op(opcodes::OP_dup as _),
+                            Op(opcodes::OP_put_loc as _),
+                            Val(idx as _),
+                            Op(opcodes::OP_drop as _),
                         ],
                     )
                 })
@@ -216,12 +337,12 @@ impl FunctionDef {
             } else if let Some(cc) = self.code_match(
                 *pos_next,
                 &[
-                    opcodes::OP_push_atom_value as _,
-                    opcodes::OP_add as _,
-                    opcodes::OP_dup as _,
-                    opcodes::OP_put_loc as _,
-                    idx as _,
-                    opcodes::OP_drop as _,
+                    Op(opcodes::OP_push_atom_value as _),
+                    Op(opcodes::OP_add as _),
+                    Op(opcodes::OP_dup as _),
+                    Op(opcodes::OP_put_loc as _),
+                    Val(idx as _),
+                    Op(opcodes::OP_drop as _),
                 ],
             ) {
                 // transformation:
@@ -253,12 +374,12 @@ impl FunctionDef {
             } else if let Some(cc) = self.code_match(
                 *pos_next,
                 &[
-                    opcodes::OP_push_i32 as _,
-                    opcodes::OP_add as _,
-                    opcodes::OP_dup as _,
-                    opcodes::OP_put_loc as _,
-                    idx as _,
-                    opcodes::OP_drop as _,
+                    Op(opcodes::OP_push_i32 as _),
+                    Op(opcodes::OP_add as _),
+                    Op(opcodes::OP_dup as _),
+                    Op(opcodes::OP_put_loc as _),
+                    Val(idx as _),
+                    Op(opcodes::OP_drop as _),
                 ],
             ) {
                 // transformation:
@@ -274,18 +395,17 @@ impl FunctionDef {
             } else if let Some(cc) = self.code_match(
                 *pos_next,
                 &[
-                    M3(
+                    Op(M3(
                         opcodes::OP_get_loc as _,
                         opcodes::OP_get_arg as _,
                         opcodes::OP_get_var_ref as _,
-                    ),
-                    -1,
-                    opcodes::OP_add as _,
-                    opcodes::OP_dup as _,
-                    opcodes::OP_put_loc as _,
-                    idx as _,
-                    opcodes::OP_drop as _,
-                    -1,
+                    )),
+                    Any,
+                    Op(opcodes::OP_add as _),
+                    Op(opcodes::OP_dup as _),
+                    Op(opcodes::OP_put_loc as _),
+                    Val(idx as _),
+                    Op(opcodes::OP_drop as _),
                 ],
             ) {
                 // transformation: XXX: also do these:
@@ -334,7 +454,7 @@ impl FunctionDef {
             opcodes::OP_put_var_ref => opcodes::OP_get_var_ref as i32,
             _ => unreachable!(),
         };
-        if let Some(cc) = self.code_match(*pos_next, &[get_op, idx as _]) {
+        if let Some(cc) = self.code_match(*pos_next, &[Op(get_op), Val(idx as _)]) {
             if cc.line_num >= 0 {
                 *line_num = cc.line_num;
             }
@@ -376,13 +496,13 @@ impl FunctionDef {
         if let Some(cc) = self.code_match(
             *pos_next,
             &[
-                M3(
+                Op(M3(
                     OpCode::PUT_LOC as _,
                     OpCode::PUT_ARG as _,
                     OpCode::PUT_VAR_REF as _,
-                ),
-                -1,
-                OpCode::DROP as _,
+                )),
+                Any,
+                Op(OpCode::DROP as _),
             ],
         ) {
             if cc.line_num >= 0 {
@@ -405,7 +525,7 @@ impl FunctionDef {
                 _ => unreachable!(),
             };
             let mut final_op = put_op;
-            if let Some(m) = self.code_match(cc.pos, &[get_op, idx]) {
+            if let Some(m) = self.code_match(cc.pos, &[Op(get_op), Val(idx)]) {
                 if m.line_num >= 0 {
                     *line_num = m.line_num as _;
                 }
@@ -426,9 +546,9 @@ impl FunctionDef {
         if let Some(cc) = self.code_match(
             *pos_next,
             &[
-                OpCode::PERM3 as _,
-                OpCode::PUT_FIELD as _,
-                OpCode::DROP as _,
+                Op(OpCode::PERM3 as _),
+                Op(OpCode::PUT_FIELD as _),
+                Op(OpCode::DROP as _),
             ],
         ) {
             if cc.line_num >= 0 {
@@ -457,19 +577,22 @@ impl FunctionDef {
             return true;
         }
 
-        // `put_array_el` carries a u16 inline-cache operand, which `code_match`
-        // consumes as a pattern slot of its own (`-1` = any value). Without it
-        // the index is compared against the `drop` pattern element, so the
-        // pattern only matches when the two happen to be equal.
+        // `put_array_el` carries a u16 inline-cache operand when the feature is
+        // on, so it owns a pattern slot. `code_match` refuses a pattern that
+        // leaves the slot out (see `Pat`).
         #[cfg(feature = "inline_cache")]
-        let pat: &[i32] = &[
-            OpCode::PERM4 as _,
-            OpCode::PUT_ARRAY_EL as _,
-            -1,
-            OpCode::DROP as _,
+        let pat: &[Pat] = &[
+            Op(OpCode::PERM4 as _),
+            Op(OpCode::PUT_ARRAY_EL as _),
+            Any,
+            Op(OpCode::DROP as _),
         ];
         #[cfg(not(feature = "inline_cache"))]
-        let pat: &[i32] = &[OpCode::PERM4 as _, OpCode::PUT_ARRAY_EL as _, OpCode::DROP as _];
+        let pat: &[Pat] = &[
+            Op(OpCode::PERM4 as _),
+            Op(OpCode::PUT_ARRAY_EL as _),
+            Op(OpCode::DROP as _),
+        ];
 
         if let Some(cc) = self.code_match(*pos_next, pat) {
             if cc.line_num >= 0 {
@@ -518,7 +641,7 @@ impl FunctionDef {
         }
 
         // transform if_false(l1) goto(l2) label(l1) -> if_false(l2) label(l1)
-        if let Some(cc) = self.code_match(*pos_next, &[OpCode::GOTO as i32]) {
+        if let Some(cc) = self.code_match(*pos_next, &[Op(OpCode::GOTO as _)]) {
             let pos1 = cc.pos;
             let line1 = cc.line_num;
             if self.code_has_label(pos1, label) {
@@ -554,11 +677,11 @@ impl FunctionDef {
 
         if let Some(cc) = self.code_match(
             *pos_next,
-            &[M3(
+            &[Op(M3(
                 OpCode::PUT_LOC as _,
                 OpCode::PUT_ARG as _,
                 OpCode::PUT_VAR_REF as _,
-            )],
+            )), Any],
         ) {
             if cc.line_num >= 0 {
                 *line_num = cc.line_num;
@@ -581,14 +704,14 @@ impl FunctionDef {
             };
             let mut final_op = set_op;
 
-            if let Some(cc1) = self.code_match(cc.pos, &[OpCode::DROP as i32]) {
+            if let Some(cc1) = self.code_match(cc.pos, &[Op(OpCode::DROP as _)]) {
                 if cc1.line_num >= 0 {
                     *line_num = cc1.line_num;
                 }
                 final_op = put_op; // set_x drop -> put_x
                 *pos_next = cc1.pos;
 
-                if let Some(cc2) = self.code_match(cc1.pos, &[get_op, idx]) {
+                if let Some(cc2) = self.code_match(cc1.pos, &[Op(get_op), Val(idx)]) {
                     line2 = cc2.line_num; // delay line number update
                     final_op = set_op; // put_x(n) get_x(n) -> set_x(n)
                     *pos_next = cc2.pos;
@@ -754,4 +877,74 @@ pub(super) fn optimize_scope_make_ref(
     }
 
     pos_next
+}
+
+#[cfg(test)]
+mod tests {
+    //! Guards for the peephole patterns in this module and in `resolve_vars`.
+
+    use crate::{EvalFlags, EvalName, EvalType, Runtime, ScopedContext};
+
+    /// Run a global script and return its completion value as an int.
+    fn eval_int(src: &str) -> i32 {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        ctx.eval(
+            src.as_bytes(),
+            &EvalName::Name("peephole-probe.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap()
+        .as_int()
+        .expect("the probe scripts all evaluate to an int")
+    }
+
+    /// `n` statement-position element reads, to advance the function's
+    /// inline-cache index by `n` before the site under test.
+    fn filler(n: usize) -> String {
+        (0..n).map(|i| format!("a[{i}];")).collect()
+    }
+
+    const SETUP: &str = "var a = []; for (var i = 0; i < 8; i++) a[i] = i; var k = 3; \
+                         function id(x) { return x; }\n";
+
+    /// A computed-element store **used as a value** must keep the result on the
+    /// stack, whatever the site's inline-cache index is.
+    ///
+    /// `resolve_variables` folds `insert3 put_array_el drop` into `put_array_el`.
+    /// Its pattern did not account for the `u16` inline-cache operand that
+    /// `inline_cache` added to `put_array_el`, so the operand slot was compared
+    /// against the `drop` element instead. When the index happened to equal
+    /// `OP_drop`'s opcode the fold fired on the *value* form too, deleting the
+    /// `insert3` and underflowing the stack at the next call (memo/bytecode-bugs.md
+    /// §2.6). The index is per function and counts every element access, so
+    /// sweep the filler length across the range where small operand values and
+    /// opcodes overlap.
+    #[test]
+    fn element_store_used_as_a_value_survives_every_inline_cache_index() {
+        for n in 0..64 {
+            let src = format!(
+                "{SETUP}{}\nvar r = id(a[k + 0] = 7);\nr === 7 && a[3] === 7 ? 1 : 0;",
+                filler(n)
+            );
+            assert_eq!(eval_int(&src), 1, "value-form store, filler={n}");
+        }
+    }
+
+    /// The same sweep for `optimize_post_dec_inc`: `a[i]++` folds
+    /// `perm4 put_array_el drop` into `inc put_array_el` and carries the same
+    /// operand slot, and it must keep the index intact.
+    #[test]
+    fn element_postfix_increment_survives_every_inline_cache_index() {
+        for n in 0..64 {
+            let src = format!(
+                "{SETUP}{}\na[k + 0]++;\na[3] === 4 ? 1 : 0;",
+                filler(n)
+            );
+            assert_eq!(eval_int(&src), 1, "postfix increment, filler={n}");
+        }
+    }
 }

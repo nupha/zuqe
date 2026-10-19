@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use crate::{
+    atom::Atom,
     bytecode::{OP_COUNT_FINAL, OpCode, OpcodeFormat, opcode_info_final, opcodes},
     config::VM_STACK_LEN_MAX,
     context::ScopedContext,
@@ -17,6 +18,29 @@ struct StackSizeState {
     catch_pos_tab: Vec<i32>, // -1 for unknown
     stack_len_max: u16,
     pc_stack: Vec<usize>,
+    /// Identity of the function being checked, resolved only when an error is
+    /// reported. A bare `(op, pc)` pair is not actionable without re-running a
+    /// `dump_bytecode` build to find out which function it came from.
+    func_name: Atom,
+    filename: Atom,
+}
+
+/// `func=<name>, file=<name>` for the error messages below.
+fn who(ctx: &mut ScopedContext, s: &StackSizeState) -> String {
+    format!(
+        "func={}, file={}",
+        s.func_name.to_utf8(ctx.rt()),
+        s.filename.to_utf8(ctx.rt())
+    )
+}
+
+/// Raise `msg` as an internal error, with the function identity appended.
+///
+/// The message is built before the throw so the two borrows of `ctx` stay
+/// sequential.
+fn stack_error(ctx: &mut ScopedContext, s: &StackSizeState, msg: &str) -> i32 {
+    let text = format!("{msg}, {}", who(ctx, s));
+    ctx.throw_internal_error(&text)
 }
 
 // 'op' is only used for error indication
@@ -29,30 +53,44 @@ fn ss_check(
     catch_pos: i32,
 ) -> Result<(), i32> {
     if pos >= s.bc_len {
-        return Err(
-            ctx.throw_internal_error(&format!("bytecode buffer overflow 1 (op={op}, pc={pos})"))
-        );
+        return Err(stack_error(
+            ctx,
+            s,
+            &format!("bytecode buffer overflow 1 (op={op}, pc={pos})"),
+        ));
     }
 
     if stack_len > s.stack_len_max {
         s.stack_len_max = stack_len;
         if s.stack_len_max > VM_STACK_LEN_MAX {
-            return Err(ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})\0")));
+            return Err(stack_error(
+                ctx,
+                s,
+                &format!("stack overflow (op={op}, pc={pos})\0"),
+            ));
         }
     }
 
     if s.stack_level_tab[pos] != 0xffff {
         // already explored: check that the stack size is consistent
         return if s.stack_level_tab[pos] != stack_len {
-            Err(ctx.throw_internal_error(&format!(
-                "inconsistent stack size: {} {} (pc={pos})",
-                s.stack_level_tab[pos], stack_len
-            )))
+            Err(stack_error(
+                ctx,
+                s,
+                &format!(
+                    "inconsistent stack size: {} {} (pc={pos})",
+                    s.stack_level_tab[pos], stack_len
+                ),
+            ))
         } else if s.catch_pos_tab[pos] != catch_pos {
-            Err(ctx.throw_internal_error(&format!(
-                "inconsistent catch position: {} {} (pc={pos})",
-                s.catch_pos_tab[pos], catch_pos
-            )))
+            Err(stack_error(
+                ctx,
+                s,
+                &format!(
+                    "inconsistent catch position: {} {} (pc={pos})",
+                    s.catch_pos_tab[pos], catch_pos
+                ),
+            ))
         } else {
             Ok(())
         };
@@ -82,6 +120,8 @@ impl FunctionDef {
             catch_pos_tab: vec![0; bc_len],   // FIXME: alloc fail handle
             stack_level_tab: vec![0xffff; bc_len], // FIXME: alloc fail handle
             stack_len_max: 0,
+            func_name: self.func_name,
+            filename: self.filename,
         };
         let s = &mut s_s;
 
@@ -101,9 +141,11 @@ impl FunctionDef {
             let op = self.byte_code[pos];
 
             if op == 0 || op >= OP_COUNT_FINAL {
-                return Err(
-                    ctx.throw_internal_error(&format!("invalid opcode (op={op}, pc={pos})"))
-                );
+                return Err(stack_error(
+                    ctx,
+                    s,
+                    &format!("invalid opcode (op={op}, pc={pos})"),
+                ));
             }
 
             let oi = opcode_info_final(op);
@@ -113,9 +155,11 @@ impl FunctionDef {
 
             let mut pos_next = pos + oi.size as usize;
             if pos_next > s.bc_len {
-                return Err(ctx.throw_internal_error(&format!(
-                    "bytecode buffer overflow 2 (op={op}, pc={pos})"
-                )));
+                return Err(stack_error(
+                    ctx,
+                    s,
+                    &format!("bytecode buffer overflow 2 (op={op}, pc={pos})"),
+                ));
             }
 
             let mut n_pop = oi.n_pop as u16;
@@ -131,9 +175,11 @@ impl FunctionDef {
             }
 
             if stack_len < n_pop {
-                return Err(ctx.throw_internal_error(&format!(
-                    "bytecode buffer overflow 3 (op={op}, pc={pos})"
-                )));
+                return Err(stack_error(
+                    ctx,
+                    s,
+                    &format!("bytecode buffer overflow 3 (op={op}, pc={pos})"),
+                ));
             }
 
             stack_len = stack_len + oi.n_push as u16 - n_pop;
@@ -141,9 +187,11 @@ impl FunctionDef {
             if stack_len > s.stack_len_max {
                 s.stack_len_max = stack_len;
                 if s.stack_len_max > VM_STACK_LEN_MAX {
-                    return Err(
-                        ctx.throw_internal_error(&format!("stack overflow (op={op}, pc={pos})"))
-                    );
+                    return Err(stack_error(
+                        ctx,
+                        s,
+                        &format!("stack overflow (op={op}, pc={pos})"),
+                    ));
                 }
             }
 
@@ -285,9 +333,11 @@ impl FunctionDef {
                 }
                 opcodes::OP_nip_catch => {
                     if catch_pos < 0 {
-                        return Err(
-                            ctx.throw_internal_error(&format!("nip_catch: no catch op (pc={pos})"))
-                        );
+                        return Err(stack_error(
+                            ctx,
+                            s,
+                            &format!("nip_catch: no catch op (pc={pos})"),
+                        ));
                     }
                     stack_len = s.stack_level_tab[catch_pos as usize];
                     if self.byte_code[catch_pos as usize] != opcodes::OP_catch {
@@ -304,5 +354,41 @@ impl FunctionDef {
         }
 
         Ok(s.stack_len_max)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Runtime, ScopedContext};
+
+    /// Every stack-size error must name the function it came from. A bare
+    /// `(op, pc)` pair is not actionable: finding the function that produced it
+    /// used to require re-running with `dump_bytecode`.
+    #[test]
+    fn stack_errors_name_the_function() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        // An empty bytecode buffer makes the very first `ss_check` overflow.
+        let mut s = StackSizeState {
+            bc_len: 0,
+            stack_level_tab: Vec::new(),
+            catch_pos_tab: Vec::new(),
+            stack_len_max: 0,
+            pc_stack: Vec::new(),
+            func_name: Atom::CONST_arguments,
+            filename: Atom::CONST_eval,
+        };
+
+        let mut scope = ctx.root_scope();
+        assert_eq!(ss_check(&mut scope, &mut s, 0, 7, 0, -1), Err(-1));
+
+        let text = scope.take_exception().to_text(&mut scope).message;
+        assert!(text.contains("func=arguments"), "no function name: {text}");
+        assert!(text.contains("file=eval"), "no filename: {text}");
+        assert!(text.contains("pc=0"), "no pc: {text}");
     }
 }

@@ -11,7 +11,8 @@ use crate::{
 };
 
 use super::{
-    FunctionDef, JSVarKindEnum, get_label_pos, instantiate_hoisted_definitions, optimize::OPTIMIZE,
+    FunctionDef, JSVarKindEnum, get_label_pos, instantiate_hoisted_definitions,
+    optimize::{OPTIMIZE, Pat, Pat::{Any, Op}},
     push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,
 };
 
@@ -107,7 +108,7 @@ impl FunctionDef {
                                     if self
                                         .code_match(
                                             self.label_slots[label_id as usize].pos as _,
-                                            &[OpCode::RET as i32],
+                                            &[Op(OpCode::RET as _)],
                                         )
                                         .is_some()
                                     {
@@ -244,7 +245,7 @@ impl FunctionDef {
                         if self
                             .code_match(
                                 self.label_slots[label_id as usize].pos as _,
-                                &[OpCode::RET as i32],
+                                &[Op(OpCode::RET as _)],
                             )
                             .is_some()
                         {
@@ -263,21 +264,16 @@ impl FunctionDef {
                     // Optimize transformation:
                     // insert3 put_array_el|put_ref_value drop -> put_array_el|put_ref_value
                     //
-                    // `put_array_el` carries a u16 inline-cache operand, which
-                    // `code_match` consumes as a pattern slot of its own (`-1` =
-                    // any value); `put_ref_value` has no operand, so the two
-                    // alternatives cannot share one pattern. Without the `-1`,
-                    // the inline-cache index is compared against the `drop`
-                    // pattern element: a site whose index happens to equal
-                    // `OP_drop` deletes the `insert3` that keeps the assigned
-                    // value on the stack (and emits index 0), producing a stack
-                    // underflow at the following call.
+                    // `put_array_el` carries a u16 inline-cache operand when the
+                    // `inline_cache` feature is on, so it owns a pattern slot
+                    // (`Any`); `put_ref_value` has no operand, so the two
+                    // alternatives cannot share one pattern. See `Pat`.
                     #[cfg(feature = "inline_cache")]
-                    let put_array_el_pat: &[i32] =
-                        &[OpCode::PUT_ARRAY_EL as i32, -1, OpCode::DROP as i32];
+                    let put_array_el_pat: &[Pat] =
+                        &[Op(OpCode::PUT_ARRAY_EL as _), Any, Op(OpCode::DROP as _)];
                     #[cfg(not(feature = "inline_cache"))]
-                    let put_array_el_pat: &[i32] =
-                        &[OpCode::PUT_ARRAY_EL as i32, OpCode::DROP as i32];
+                    let put_array_el_pat: &[Pat] =
+                        &[Op(OpCode::PUT_ARRAY_EL as _), Op(OpCode::DROP as _)];
 
                     let m = if OPTIMIZE {
                         self.code_match(pos_next, put_array_el_pat)
@@ -285,7 +281,7 @@ impl FunctionDef {
                             .or_else(|| {
                                 self.code_match(
                                     pos_next,
-                                    &[OpCode::PUT_REF_VALUE as i32, OpCode::DROP as i32],
+                                    &[Op(OpCode::PUT_REF_VALUE as _), Op(OpCode::DROP as _)],
                                 )
                                 .map(|cc| (OpCode::PUT_REF_VALUE as u8, cc))
                             })
@@ -442,8 +438,8 @@ impl FunctionDef {
                         && let Some(cc) = self.code_match(
                             pos_next,
                             &[
-                                M2(opcodes::OP_if_false as i32, opcodes::OP_if_true as i32),
-                                opcodes::OP_drop as i32,
+                                Op(M2(opcodes::OP_if_false as _, opcodes::OP_if_true as _)),
+                                Op(opcodes::OP_drop as _),
                             ],
                         )
                     {
@@ -460,12 +456,12 @@ impl FunctionDef {
                                 pos2 = get_label_pos(self, lab1) as _;
                                 pos2
                             },
-                            &[OpCode::DUP as i32, op1, OpCode::DROP as i32],
+                            &[Op(OpCode::DUP as _), Op(op1), Op(OpCode::DROP as _)],
                         ) {
                             lab1 = cc.label;
                         }
 
-                        if let Some(cc) = self.code_match(pos2, &[op1]) {
+                        if let Some(cc) = self.code_match(pos2, &[Op(op1)]) {
                             #[cfg(feature = "short_opcode")]
                             {
                                 self.jump_slots_cap += 1;
@@ -507,10 +503,10 @@ impl FunctionDef {
                         let mut tco_ok = false;
                         if let Some(cc) = self.code_match(
                             pos_next,
-                            &[M2(
-                                opcodes::OP_return as i32,
-                                opcodes::OP_return_undef as i32,
-                            )],
+                            &[Op(M2(
+                                opcodes::OP_return as _,
+                                opcodes::OP_return_undef as _,
+                            ))],
                         ) {
                             if cc.line_num >= 0 && cc.line_num != line_num {
                                 line_num = cc.line_num;
@@ -575,7 +571,7 @@ impl FunctionDef {
                                         if self
                                             .code_match(
                                                 self.label_slots[label_id as usize].pos as _,
-                                                &[OpCode::RET as i32],
+                                                &[Op(OpCode::RET as _)],
                                             )
                                             .is_some()
                                         {
