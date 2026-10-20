@@ -73,6 +73,45 @@ const CASES: &[(&str, &str)] = &[
         "typed_int32_negative",
         "var t = new Int32Array(4); t[1] = -5; t[1];",
     ),
+    // Every width the guard inlines, with the value the interpreter would
+    // produce (the sign rules and the clamping are the interpreter's).
+    ("typed_int8", "var t = new Int8Array(4); t[1] = -5; t[1];"),
+    (
+        "typed_int8_max",
+        "var t = new Int8Array(4); t[1] = 127; t[1];",
+    ),
+    (
+        "typed_int16",
+        "var t = new Int16Array(4); t[1] = -300; t[1];",
+    ),
+    (
+        "typed_uint8",
+        "var t = new Uint8Array(4); t[1] = 250; t[1];",
+    ),
+    (
+        "typed_uint8c",
+        "var t = new Uint8ClampedArray(4); t[1] = 250; t[1];",
+    ),
+    (
+        "typed_uint16",
+        "var t = new Uint16Array(4); t[1] = 65000; t[1];",
+    ),
+    (
+        "typed_uint32",
+        "var t = new Uint32Array(4); t[1] = 4294967295; t[1];",
+    ),
+    (
+        "typed_uint32_small",
+        "var t = new Uint32Array(4); t[1] = 7; t[1];",
+    ),
+    (
+        "typed_float32",
+        "var t = new Float32Array(4); t[1] = 1.5; t[1];",
+    ),
+    (
+        "typed_float32_frac",
+        "var t = new Float32Array(4); t[1] = 0.1; t[1];",
+    ),
     // Out of range: the typed array answers `undefined`.
     ("typed_out_of_range", "var t = new Int32Array(4); t[10];"),
     // A view with a byte offset: the guard has to add it.

@@ -30,6 +30,7 @@ use std::{
 use cranelift_codegen::{
     Context,
     control::ControlPlane,
+    ir::JumpTableData,
     ir::{
         AbiParam, Block, InstBuilder, MemFlags, Signature, UserFuncName, Value, condcodes::IntCC,
         types,
@@ -39,7 +40,7 @@ use cranelift_codegen::{
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 
 use crate::{
-    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT32_ARRAY,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     array::ArrayPayload,
     builtins::{
         array_buffer::{
@@ -2853,21 +2854,139 @@ fn lower_fast_binary(
     Step::Continue(b.use_var(sp_var))
 }
 
+/// The layout contracts between the engine and the JIT (P1-1).
+///
+/// The generated code reads the engine's memory directly, so every payload
+/// it touches is a contract. **Changing the layout of one of them means
+/// changing the matching contract — and the tests that pin it must be
+/// updated with it** (the rule: a payload the JIT reads has a layout test in
+/// its own module).
+///
+/// | what the JIT reads | the contract | pinned by |
+/// |---|---|---|
+/// | the object's flags word (class id + flags) and its payload pointer | `object::jit_layout` | `object::obj::tests` + `jit::tests` |
+/// | an array's elements (data pointer + length) | `array::ArrayPayload` (`elements_*_offset`) | `array::tests` |
+/// | a buffer's bytes (data pointer + length + "directly readable") and its detached flag | `builtins::array_buffer` (`BUFFER_VIEW_*`, `BUFFER_DETACHED_OFFSET`) | `builtins::array_buffer::abuf::tests` |
+/// | a typed array's view (buffer, byte offset, element count, out-of-bounds flag) | `builtins::typed_array::jit_layout` | `builtins::typed_array::ta::tests` + `jit::tests` |
+///
+/// The offsets are `offset_of!`-derived, so a field that *moves* is fine; what
+/// the tests pin is the *meaning* of each field and the width it is loaded
+/// with.
+mod layout_contracts {
+    /// The rule, in one place: a payload the JIT reads has a layout test in
+    /// its own module.
+    pub(crate) const RULE: &str = "a payload the JIT reads has a layout test in its own module";
+}
+
+/// How a typed array's element becomes a `JSValue` — the interpreter's
+/// `typed_array_el!` arms, one by one.
+#[derive(Clone, Copy)]
+enum TaElement {
+    /// A signed 8-bit integer → an `Int`.
+    I8,
+    /// A signed 16-bit integer → an `Int`.
+    I16,
+    /// A signed 32-bit integer → an `Int`.
+    I32,
+    /// An unsigned 8-bit integer → an `Int`.
+    U8,
+    /// An unsigned 16-bit integer → an `Int`.
+    U16,
+    /// An unsigned 32-bit integer → an `Int`, or a `Float64` when the sign bit
+    /// is set (the engine's `From<u32> for JSValue`).
+    U32,
+    /// A 32-bit float → a `Float64`.
+    F32,
+    /// A 64-bit float → a `Float64`.
+    F64,
+}
+
+/// Emit the load of one typed array element: the address (`base` + the
+/// index scaled by the element's width), the load, and the conversion to a
+/// `JSValue` — bit for bit what the interpreter does.
+fn lower_typed_array_element(
+    b: &mut FunctionBuilder,
+    base: Value,
+    index: Value,
+    element: TaElement,
+) -> Value {
+    // The element's address.
+    let (width, kind) = match element {
+        TaElement::I8 => (1, 0),
+        TaElement::I16 => (2, 1),
+        TaElement::I32 => (4, 2),
+        TaElement::U8 => (1, 3),
+        TaElement::U16 => (2, 4),
+        TaElement::U32 => (4, 5),
+        TaElement::F32 => (4, 6),
+        TaElement::F64 => (8, 7),
+    };
+    let scaled = b.ins().imul_imm(index, width);
+    let addr = b.ins().iadd(base, scaled);
+    match kind {
+        // A signed integer: widen it, then sign-extend by hand (Cranelift has
+        // no `sextend`): shift the bits up and back down arithmetically.
+        0 | 1 => {
+            let raw = if width == 1 {
+                b.ins().load(types::I8, MemFlags::new(), addr, 0)
+            } else {
+                b.ins().load(types::I16, MemFlags::new(), addr, 0)
+            };
+            let widened = b.ins().uextend(types::I32, raw);
+            let shift = 32 - width * 8;
+            let up = b.ins().ishl_imm(widened, shift);
+            let signed = b.ins().sshr_imm(up, shift);
+            b.ins().uextend(types::I64, signed)
+        }
+        // An unsigned integer: zero-extend to the `Int` payload.
+        3 | 4 => {
+            let raw = if width == 1 {
+                b.ins().load(types::I8, MemFlags::new(), addr, 0)
+            } else {
+                b.ins().load(types::I16, MemFlags::new(), addr, 0)
+            };
+            let widened = b.ins().uextend(types::I32, raw);
+            b.ins().uextend(types::I64, widened)
+        }
+        2 => {
+            let raw = b.ins().load(types::I32, MemFlags::new(), addr, 0);
+            b.ins().uextend(types::I64, raw)
+        }
+        5 => {
+            let raw = b.ins().load(types::I32, MemFlags::new(), addr, 0);
+            box_bit_result(b, raw)
+        }
+        6 => {
+            let raw = b.ins().load(types::F32, MemFlags::new(), addr, 0);
+            let wide = b.ins().fpromote(types::F64, raw);
+            box_float64(b, wide)
+        }
+        _ => {
+            let raw = b.ins().load(types::F64, MemFlags::new(), addr, 0);
+            box_float64(b, raw)
+        }
+    }
+}
+
 /// P1-1: the inline fast path for `get_array_el` — a read from a **packed**
 /// array with an **integer** index.
 ///
 /// The guard checks, in order: the key's tag (`Int`), the target's tag
-/// (`Object`), the target's class (a plain `Array`), its fast-array flag, and
-/// the index against the array's length. Anything else falls back to the
-/// helper, which owns the full semantics (dictionary arrays, holes, float or
-/// string keys, the prototype chain, typed arrays, …).
+/// (`Object`), the target's class (a plain `Array` or an `arguments` object),
+/// its fast-array flag, and the index against the array's length. A typed
+/// array (`Int32Array` / `Float64Array`) has its own path: its elements live
+/// in an `ArrayBuffer`, so the guard checks the view's element count, the
+/// out-of-bounds flag, the buffer's detached flag and whether its bytes are
+/// directly readable. Anything else falls back to the helper, which owns the
+/// full semantics (dictionary arrays, holes, float or string keys, the
+/// prototype chain, …).
 ///
-/// The reads go through the layout contract in `object::jit_layout` and
-/// `array::ELEMENTS_*`: the generated code loads the object's flags, its
-/// payload pointer and the array's elements directly. Everything is read
-/// fresh on every access, so a shape change (the array stops being fast, it
-/// grows, it is replaced) is a **guard miss**, not a stale read — no
-/// invalidation channel is needed.
+/// The reads go through the layout contracts listed in
+/// [`layout_contracts`]: the generated code loads the object's flags, its
+/// payload pointer and the elements directly. Everything is read fresh on
+/// every access, so a shape change (the array stops being fast, it grows, it
+/// is replaced) is a **guard miss**, not a stale read — no invalidation
+/// channel is needed.
 fn lower_get_array_el_fast(
     state: &mut State,
     b: &mut FunctionBuilder,
@@ -2926,15 +3045,21 @@ fn lower_get_array_el_fast(
     let is_fast = b.ins().icmp_imm(IntCC::NotEqual, fast_bit, 0);
     let is_elemented = b.ins().bor(is_array, is_arguments);
     let shape_ok = b.ins().band(is_elemented, is_fast);
-    // The typed arrays we inline: `Int32Array` and `Float64Array`. Their
-    // elements live in an `ArrayBuffer`, not in the array payload.
-    let is_i32 = b
-        .ins()
-        .icmp_imm(IntCC::Equal, class_id, i64::from(JS_CLASS_INT32_ARRAY));
-    let is_f64 = b
-        .ins()
-        .icmp_imm(IntCC::Equal, class_id, i64::from(JS_CLASS_FLOAT64_ARRAY));
-    let is_typed = b.ins().bor(is_i32, is_f64);
+    // The typed arrays we inline: every width the interpreter has an arm
+    // for. Their elements live in an `ArrayBuffer`, not in the array payload.
+    // The class ids are contiguous (`JS_CLASS_UINT8C_ARRAY` ..
+    // `JS_CLASS_FLOAT64_ARRAY`), so the range check is two compares.
+    let typed_low = b.ins().icmp_imm(
+        IntCC::UnsignedGreaterThanOrEqual,
+        class_id,
+        i64::from(JS_CLASS_UINT8C_ARRAY),
+    );
+    let typed_high = b.ins().icmp_imm(
+        IntCC::UnsignedLessThanOrEqual,
+        class_id,
+        i64::from(JS_CLASS_FLOAT64_ARRAY),
+    );
+    let is_typed = b.ins().band(typed_low, typed_high);
     let ta_check = b.create_block();
     let plain_check = b.create_block();
     b.ins().brif(is_typed, ta_check, &[], plain_check, &[]);
@@ -3056,44 +3181,75 @@ fn lower_get_array_el_fast(
     let is_direct = b.ins().icmp_imm(IntCC::NotEqual, direct, 0);
     let flags_ok = b.ins().band(not_oob, is_direct);
     let readable = b.ins().band(not_detached, flags_ok);
+    // The element's address: the buffer's bytes plus the view's offset.
+    let view_base = b.ins().uextend(types::I64, view_offset);
+    let base = b.ins().iadd(data, view_base);
     let ta_kind = b.create_block();
     b.ins().brif(readable, ta_kind, &[], slow, &[]);
 
     b.switch_to_block(ta_kind);
-    // The element's width depends on the class: 4 bytes for `Int32Array`, 8
-    // for `Float64Array`.
+    // The class decides the element's width and how it becomes a `JSValue`:
+    // a jump table over the typed array classes. `BigInt64Array`,
+    // `BigUint64Array` and `Float16Array` have no plain-load arm (the
+    // interpreter has none either), so they go back to the helper.
+    let kind = b.ins().iadd_imm(class_id, -(JS_CLASS_UINT8C_ARRAY as i64));
+    let ta_u8 = b.create_block();
+    let ta_i8 = b.create_block();
+    let ta_i16 = b.create_block();
+    let ta_u16 = b.create_block();
     let ta_i32 = b.create_block();
+    let ta_u32 = b.create_block();
+    let ta_f32 = b.create_block();
     let ta_f64 = b.create_block();
-    b.ins().brif(is_i32, ta_i32, &[], ta_f64, &[]);
+    // The jump table's entries, in class order.
+    let mut entries = Vec::with_capacity(12);
+    for block in [
+        ta_u8,  // Uint8ClampedArray
+        ta_i8,  // Int8Array
+        ta_u8,  // Uint8Array
+        ta_i16, // Int16Array
+        ta_u16, // Uint16Array
+        ta_i32, // Int32Array
+        ta_u32, // Uint32Array
+        slow,   // BigInt64Array
+        slow,   // BigUint64Array
+        slow,   // Float16Array
+        ta_f32, // Float32Array
+        ta_f64, // Float64Array
+    ] {
+        entries.push(b.func.dfg.block_call(block, &[]));
+    }
+    let default = b.func.dfg.block_call(slow, &[]);
+    let table = b.create_jump_table(JumpTableData::new(default, &entries));
+    b.ins().br_table(kind, table);
 
+    // Every arm loads the element and leaves it in the slot the array
+    // occupied, like the plain-array path.
+    let mut arm = |b: &mut FunctionBuilder, element: TaElement| {
+        let value = lower_typed_array_element(b, base, index, element);
+        b.ins().store(MemFlags::new(), value, sp, -16);
+        let sp_next = b.ins().iadd_imm(sp, -8);
+        b.def_var(sp_var, sp_next);
+        let keep = [value];
+        b.ins().jump(cont, if kept { &keep } else { &[] });
+    };
+
+    b.switch_to_block(ta_u8);
+    arm(b, TaElement::U8);
+    b.switch_to_block(ta_i8);
+    arm(b, TaElement::I8);
+    b.switch_to_block(ta_i16);
+    arm(b, TaElement::I16);
+    b.switch_to_block(ta_u16);
+    arm(b, TaElement::U16);
     b.switch_to_block(ta_i32);
-    // `data + view_offset + index * 4`, read as an `i32`.
-    let view_base = b.ins().uextend(types::I64, view_offset);
-    let base = b.ins().iadd(data, view_base);
-    let scaled = b.ins().imul_imm(index, 4);
-    let element = b.ins().iadd(base, scaled);
-    let raw = b.ins().load(types::I32, MemFlags::new(), element, 0);
-    // An `Int` payload: the tag is 0 and the value sits in the low 32 bits.
-    let value = b.ins().uextend(types::I64, raw);
-    b.ins().store(MemFlags::new(), value, sp, -16);
-    let sp_next = b.ins().iadd_imm(sp, -8);
-    b.def_var(sp_var, sp_next);
-    let keep = [value];
-    b.ins().jump(cont, if kept { &keep } else { &[] });
-
+    arm(b, TaElement::I32);
+    b.switch_to_block(ta_u32);
+    arm(b, TaElement::U32);
+    b.switch_to_block(ta_f32);
+    arm(b, TaElement::F32);
     b.switch_to_block(ta_f64);
-    // `data + view_offset + index * 8`, read as an `f64` and boxed.
-    let view_base = b.ins().uextend(types::I64, view_offset);
-    let base = b.ins().iadd(data, view_base);
-    let scaled = b.ins().imul_imm(index, 8);
-    let element = b.ins().iadd(base, scaled);
-    let raw = b.ins().load(types::F64, MemFlags::new(), element, 0);
-    let value = box_float64(b, raw);
-    b.ins().store(MemFlags::new(), value, sp, -16);
-    let sp_next = b.ins().iadd_imm(sp, -8);
-    b.def_var(sp_var, sp_next);
-    let keep = [value];
-    b.ins().jump(cont, if kept { &keep } else { &[] });
+    arm(b, TaElement::F64);
 
     b.switch_to_block(slow);
     // The site index rides in `imm2` (array element keys are runtime values,

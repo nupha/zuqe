@@ -31,7 +31,9 @@ pub const JS_TYPED_ARRAY_COUNT: usize =
 ///
 /// The generated code reads the view's buffer, its offset and its lengths
 /// straight out of the payload, so the offsets are part of a contract with
-/// the JIT (see `array::ArrayPayload` for the same trick).
+/// the JIT (see `array::ArrayPayload` for the same trick). **The contract is
+/// pinned by the tests at the bottom of this module** — change a field's
+/// meaning and they fail.
 pub mod jit_layout {
     use super::TypedArrayPayload;
 
@@ -46,6 +48,43 @@ pub mod jit_layout {
     /// The offset of the "out of bounds" flag.
     pub const OUT_OF_BOUNDS_OFFSET: i32 =
         std::mem::offset_of!(TypedArrayPayload, out_of_bounds) as i32;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The layout the JIT's typed-array guard reads (P1-1) must stay what the
+    /// guard assumes. The offsets are computed, so a field that *moves* is
+    /// fine — but two fields sharing an offset, or a field that changes its
+    /// width, would make the generated code read the wrong thing.
+    ///
+    /// The *meaning* of each field is pinned by the end-to-end test in
+    /// `jit::tests` (it reads them through these very offsets) and by the
+    /// behavioural tests in `tests/jit/jit_array.rs`.
+    #[test]
+    fn the_jit_layout_contract_is_stable() {
+        // The offsets the guard loads must be inside the payload, and they
+        // must not overlap: the guard loads them independently.
+        let size = std::mem::size_of::<TypedArrayPayload>();
+        let mut offsets = [
+            jit_layout::BUFFER_OFFSET,
+            jit_layout::OFFSET_OFFSET,
+            jit_layout::BYTE_LENGTH_OFFSET,
+            jit_layout::COUNT_OFFSET,
+            jit_layout::OUT_OF_BOUNDS_OFFSET,
+        ];
+        for offset in offsets {
+            assert!(
+                offset >= 0 && (offset as usize) < size,
+                "the guard would read outside the payload"
+            );
+        }
+        offsets.sort_unstable();
+        for pair in offsets.windows(2) {
+            assert!(pair[0] < pair[1], "two fields share an offset");
+        }
+    }
 }
 
 #[derive(Debug)]

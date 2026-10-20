@@ -201,11 +201,23 @@ mod tests {
     /// The layout the JIT's typed-array guard reads (P1-1): the data pointer
     /// first, the length second, the "directly readable" flag third. The
     /// generated code loads them in that order and with those widths.
+    ///
+    /// The `detached` flag is read too (a detached buffer's bytes are gone),
+    /// so its offset is part of the contract as well.
     #[test]
     fn the_view_layout_is_stable() {
         assert_eq!(BUFFER_VIEW_DATA_OFFSET, 0);
         assert_eq!(BUFFER_VIEW_LEN_OFFSET, 8);
         assert_eq!(BUFFER_VIEW_DIRECT_OFFSET, 12);
+        // The detached flag is a byte, and it must not share an offset with
+        // the view (the guard loads them independently).
+        assert_eq!(std::mem::size_of::<bool>(), 1);
+        let mut offsets = [BUFFER_VIEW_OFFSET, BUFFER_DETACHED_OFFSET];
+        offsets.sort_unstable();
+        assert!(
+            offsets[0] < offsets[1],
+            "the detached flag overlaps the view"
+        );
     }
 
     /// The mirror must follow every change of the buffer's data — the JIT
