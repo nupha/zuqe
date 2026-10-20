@@ -25,10 +25,42 @@ use crate::{
 
 pub use crate::object::Array;
 
-#[repr(transparent)]
-#[derive(Debug, Default)]
+/// The elements of a fast array, in the layout the JIT reads (P1-1).
+///
+/// The JIT's inline guard loads the data pointer and the length at fixed
+/// offsets, so this is `#[repr(C)]` and the offsets are published below.
+/// It is a *mirror* of the payload's vector: [`ArrayPayload::sync_view`]
+/// keeps it in step, and the read path asserts it in debug builds.
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct ElementsView {
+    /// The first element (the vector's data pointer).
+    pub(crate) data: *const JSValue,
+    /// The number of elements.
+    pub(crate) len: u32,
+}
+
+/// The offset of the elements' data pointer inside [`ElementsView`].
+pub(crate) const ELEMENTS_DATA_OFFSET: i32 = std::mem::offset_of!(ElementsView, data) as i32;
+/// The offset of the elements' length inside [`ElementsView`].
+pub(crate) const ELEMENTS_LEN_OFFSET: i32 = std::mem::offset_of!(ElementsView, len) as i32;
+/// The offset of the elements' view inside [`ArrayPayload`].
+pub(crate) const ELEMENTS_VIEW_OFFSET: i32 = std::mem::offset_of!(ArrayPayload, view) as i32;
+
+#[repr(C)]
+#[derive(Debug)]
 pub struct ArrayPayload {
+    /// The elements, as the JIT sees them (P1-1). A mirror of `values`; the
+    /// JIT reads it instead of walking the vector's internals.
+    view: ElementsView,
+    /// The elements themselves.
     values: Vec<JSValue>,
+}
+
+impl Default for ArrayPayload {
+    fn default() -> Self {
+        Self::new(Vec::new())
+    }
 }
 
 impl GcTrace for ArrayPayload {
@@ -41,7 +73,32 @@ impl GcTrace for ArrayPayload {
 
 impl ArrayPayload {
     pub const fn new(values: Vec<JSValue>) -> Self {
-        Self { values }
+        Self {
+            view: ElementsView {
+                data: values.as_ptr(),
+                len: values.len() as u32,
+            },
+            values,
+        }
+    }
+
+    /// Refresh the mirror the JIT reads (P1-1). Every method that changes the
+    /// vector's length or its buffer must call this.
+    const fn sync_view(&mut self) {
+        self.view = ElementsView {
+            data: self.values.as_ptr(),
+            len: self.values.len() as u32,
+        };
+    }
+
+    /// The offset of the elements' data pointer, from the payload's start.
+    pub(crate) const fn elements_data_offset() -> i32 {
+        ELEMENTS_VIEW_OFFSET + ELEMENTS_DATA_OFFSET
+    }
+
+    /// The offset of the elements' length, from the payload's start.
+    pub(crate) const fn elements_len_offset() -> i32 {
+        ELEMENTS_VIEW_OFFSET + ELEMENTS_LEN_OFFSET
     }
 
     pub const fn len(&self) -> usize {
@@ -53,11 +110,18 @@ impl ArrayPayload {
     }
 
     pub fn reserve(&mut self, extra: usize) -> Result<(), TryReserveError> {
-        self.values.try_reserve(extra)
+        let r = self.values.try_reserve(extra);
+        self.sync_view();
+        r
     }
 
     #[inline(always)]
     pub fn values(&self) -> &[JSValue] {
+        // The JIT reads the mirror directly, so a mutation that forgot to
+        // refresh it would be a wild read in the generated code. Every read
+        // through the engine checks it (debug builds).
+        debug_assert_eq!(self.view.data, self.values.as_ptr(), "stale view");
+        debug_assert_eq!(self.view.len as usize, self.values.len(), "stale view");
         &self.values
     }
 
@@ -68,22 +132,29 @@ impl ArrayPayload {
 
     #[inline(always)]
     pub(crate) fn push(&mut self, val: JSValue) -> Result<(), TryReserveError> {
-        self.values.try_push(val)
+        let r = self.values.try_push(val);
+        self.sync_view();
+        r
     }
 
     #[inline(always)]
     pub(crate) fn pop(&mut self) -> Option<JSValue> {
-        self.values.pop()
+        let r = self.values.pop();
+        self.sync_view();
+        r
     }
 
     #[inline(always)]
     pub(crate) fn extend(&mut self, vals: impl Iterator<Item = JSValue>) {
         self.values.extend(vals);
+        self.sync_view();
     }
 
     #[inline(always)]
     pub(crate) fn remove(&mut self, index: usize) -> JSValue {
-        self.values.remove(index)
+        let r = self.values.remove(index);
+        self.sync_view();
+        r
     }
 
     /// # Note
@@ -96,6 +167,40 @@ impl ArrayPayload {
     #[inline(always)]
     pub(crate) fn replace_values(&mut self, values: Vec<JSValue>) {
         self.values = values;
+        self.sync_view();
+    }
+
+    /// Drop the elements from `from` on (P1-1: the mirror follows).
+    #[inline(always)]
+    pub(crate) fn drain_tail(&mut self, from: usize) {
+        self.values.drain(from..);
+        self.sync_view();
+    }
+
+    /// Replace the elements with `values`, padded with `JSValue::UNDEFINED`
+    /// to `length` (P1-1: the mirror follows).
+    ///
+    /// No write barrier needed: all elements come from the array itself,
+    /// their reference relations were already established on initial insertion.
+    #[inline(always)]
+    pub(crate) fn rebuild(&mut self, values: impl Iterator<Item = JSValue>, length: usize) {
+        self.values.clear();
+        self.values.extend(
+            values
+                .chain(std::iter::repeat(JSValue::UNDEFINED))
+                .take(length),
+        );
+        self.sync_view();
+    }
+
+    /// Take the elements out of the payload (the caller owns them now). The
+    /// payload is left empty, and the mirror follows (P1-1) so the JIT's
+    /// bounds check rejects the array until it is filled again.
+    #[inline(always)]
+    pub(crate) fn take_values(&mut self) -> Vec<JSValue> {
+        let taken = std::mem::take(&mut self.values);
+        self.sync_view();
+        taken
     }
 }
 
@@ -167,7 +272,7 @@ impl Array {
             let arr_data = self.as_Array_mut().unwrap().payload_mut();
             let old_len = arr_data.len() as u32;
             if length < old_len {
-                arr_data.values.drain(length as usize..old_len as usize);
+                arr_data.drain_tail(length as usize);
             }
 
             self.set_prop_slot_non_gc(0, JSProperty::Normal(JSValue::from(length)));
@@ -366,22 +471,6 @@ impl Array {
             let length = arr_data.len();
             debug_assert!(length <= arr_len as usize);
 
-            /// Rebuild internal storage with sorted elements, padding with `JSValue::UNDEFINED` to `length`.
-            /// No write barrier needed: all elements come from the array itself,
-            /// their reference relations were already established on initial insertion.
-            fn rebuild(
-                lst: &mut Vec<JSValue>,
-                sorted: impl Iterator<Item = JSValue>,
-                length: usize,
-            ) {
-                lst.clear();
-                lst.extend(
-                    sorted
-                        .chain(std::iter::repeat(JSValue::UNDEFINED))
-                        .take(length),
-                );
-            }
-
             if let Some(cmp) = cmp {
                 let mut slots = arr_data
                     .values()
@@ -392,7 +481,7 @@ impl Array {
                     .map_err(|_| ctx.throw_out_of_memory())?;
 
                 sort_values_by(ctx, &mut slots, cmp)?;
-                rebuild(&mut arr_data.values, slots.into_iter(), length);
+                arr_data.rebuild(slots.into_iter(), length);
             } else {
                 let mut slots = Vec::<(JSValue, StringData)>::new();
                 slots
@@ -404,11 +493,7 @@ impl Array {
                 }
 
                 sort_values_default(&mut slots);
-                rebuild(
-                    &mut arr_data.values,
-                    slots.into_iter().map(|(v, _)| v),
-                    length,
-                );
+                arr_data.rebuild(slots.into_iter().map(|(v, _)| v), length);
             }
 
             return Ok(()); // early exit for fast array
@@ -582,7 +667,7 @@ impl ObjectImpl {
 
         if self.is_fast_array() {
             // take array list out
-            let mut items = std::mem::take(&mut self.payload_array_mut().unwrap().values);
+            let mut items = self.payload_array_mut().unwrap().take_values();
             let mut arr_obj = Object::from_ref(self);
 
             // Protect remaining elements from GC during the loop. After

@@ -252,6 +252,34 @@ impl std::fmt::Display for ObjectImpl {
     }
 }
 
+/// The layout contract the JIT's inline guards rely on (P1-1).
+///
+/// The generated code loads an object's flags word and its payload pointer
+/// directly, so these offsets and masks are a contract between the engine and
+/// the JIT. They are `offset_of!`-derived: a layout change moves them with
+/// the code instead of silently breaking the guards. The masks mirror
+/// [`ObjectFlags`]' own, so they cannot drift from it either.
+pub(crate) mod jit_layout {
+    use super::ObjectImpl;
+
+    /// The distance from a **GC node pointer** to the object's fields. A
+    /// `JSValue` holds the *node* pointer (the object's payload follows the
+    /// node header), so the offsets the generated code uses are relative to
+    /// the node — not to the `ObjectImpl`.
+    const NODE_TO_OBJECT: usize = gc_lite::gctype::payload_offset_of::<ObjectImpl>();
+
+    /// The offset of the flags word (the class id + the object flags).
+    pub(crate) const FLAGS_OFFSET: i32 =
+        (NODE_TO_OBJECT + std::mem::offset_of!(ObjectImpl, obj_flags)) as i32;
+    /// The offset of the type-erased payload pointer.
+    pub(crate) const PAYLOAD_OFFSET: i32 =
+        (NODE_TO_OBJECT + std::mem::offset_of!(ObjectImpl, payload)) as i32;
+    /// The class id lives in the low 16 bits of the flags word.
+    pub(crate) const CLASS_ID_MASK: i64 = 0x0000_FFFF;
+    /// The fast-array flag (bit 28 of the flags word).
+    pub(crate) const FAST_ARRAY_MASK: i64 = 0x1000_0000;
+}
+
 impl ObjectImpl {
     /// Create an instance object with `shape` and `payload`.
     ///

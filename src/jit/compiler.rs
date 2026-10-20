@@ -38,7 +38,13 @@ use cranelift_codegen::{
 };
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 
-use crate::{jit::snapshot::ConstMeta, vm_stack::ExecMode};
+use crate::{
+    JS_CLASS_ARRAY,
+    array::ArrayPayload,
+    jit::snapshot::ConstMeta,
+    object::jit_layout,
+    vm_stack::ExecMode,
+};
 
 use super::{
     abi::{
@@ -2183,6 +2189,12 @@ fn lower_insn(
             Step::Continue(sp)
         }
         "get_array_el" | "get_array_el2" | "get_array_el3" | "put_array_el" => {
+            // P1-1: the read from a packed array with an integer index is
+            // inlined (the guard + the load). The write and the other two
+            // read shapes keep the helper.
+            if name == "get_array_el" {
+                return lower_get_array_el_fast(state, b, fv, helper_sig, sp_var, sp, insn);
+            }
             // The site index rides in `imm2` (array element keys are runtime
             // values, so the cached property atom lives in the cache entry).
             #[cfg(feature = "inline_cache")]
@@ -2830,6 +2842,140 @@ fn lower_fast_binary(
         let sp_next = b.use_var(sp_var);
         let v = b.ins().load(types::I64, MemFlags::new(), sp_next, -8);
         return Step::Continue(state.stack.result_int(sp_next, v));
+    }
+    Step::Continue(b.use_var(sp_var))
+}
+
+/// P1-1: the inline fast path for `get_array_el` — a read from a **packed**
+/// array with an **integer** index.
+///
+/// The guard checks, in order: the key's tag (`Int`), the target's tag
+/// (`Object`), the target's class (a plain `Array`), its fast-array flag, and
+/// the index against the array's length. Anything else falls back to the
+/// helper, which owns the full semantics (dictionary arrays, holes, float or
+/// string keys, the prototype chain, typed arrays, …).
+///
+/// The reads go through the layout contract in `object::jit_layout` and
+/// `array::ELEMENTS_*`: the generated code loads the object's flags, its
+/// payload pointer and the array's elements directly. Everything is read
+/// fresh on every access, so a shape change (the array stops being fast, it
+/// grows, it is replaced) is a **guard miss**, not a stale read — no
+/// invalidation channel is needed.
+fn lower_get_array_el_fast(
+    state: &mut State,
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    helper_sig: cranelift_codegen::ir::SigRef,
+    sp_var: Variable,
+    sp: Value,
+    insn: &Instruction,
+) -> Step {
+    let pc_after = insn.pc() + insn.size() as u32;
+    let top = state.stack.height;
+    let array = state.stack.read(b, sp, top - 1);
+    let prop = state.stack.read(b, sp, top);
+
+    // The key must be an `Int`: the tag is 0 in the high 16 bits.
+    let prop_tag = b.ins().ushr_imm(prop, 48);
+    let prop_is_int = b.ins().icmp_imm(IntCC::Equal, prop_tag, 0);
+    // The target must be an object: the tag is -1, i.e. 0xffff. The checks
+    // come before any load, so a non-object value is never dereferenced.
+    let array_tag = b.ins().ushr_imm(array, 48);
+    let array_is_object = b.ins().icmp_imm(IntCC::Equal, array_tag, 0xffff);
+    let guard = b.ins().band(prop_is_int, array_is_object);
+
+    let fast = b.create_block();
+    let slow = b.create_block();
+    let cont = b.create_block();
+    // A later instruction may reuse this one's result, so it has to leave
+    // this instruction in a register (`cont` carries it as a parameter).
+    let keep_id = state.cse_keep(insn.pc());
+    let kept = keep_id.is_some();
+    if kept {
+        b.append_block_param(cont, types::I64);
+    }
+    // The operands stay in registers on the fast path; the helper's own
+    // preamble flushes them on the slow path.
+    state.stack.flush_except(b, sp, &[top - 1, top]);
+    b.ins().brif(guard, fast, &[], slow, &[]);
+
+    b.switch_to_block(fast);
+    // The object's pointer: the low 48 bits of the tagged value.
+    let obj = b.ins().band_imm(array, 0x0000_ffff_ffff_ffff);
+    // Its flags word: the class id and the fast-array bit.
+    let flags = b
+        .ins()
+        .load(types::I32, MemFlags::new(), obj, jit_layout::FLAGS_OFFSET);
+    let class_id = b.ins().band_imm(flags, jit_layout::CLASS_ID_MASK);
+    let is_array = b
+        .ins()
+        .icmp_imm(IntCC::Equal, class_id, i64::from(JS_CLASS_ARRAY));
+    let fast_bit = b.ins().band_imm(flags, jit_layout::FAST_ARRAY_MASK);
+    let is_fast = b.ins().icmp_imm(IntCC::NotEqual, fast_bit, 0);
+    let shape_ok = b.ins().band(is_array, is_fast);
+    // The payload is only read once the class says it is an array: a plain
+    // object has no payload, and reading it would be a wild load.
+    let load = b.create_block();
+    b.ins().brif(shape_ok, load, &[], slow, &[]);
+
+    b.switch_to_block(load);
+    // The payload and the elements it holds.
+    let payload = b
+        .ins()
+        .load(types::I64, MemFlags::new(), obj, jit_layout::PAYLOAD_OFFSET);
+    let data = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        payload,
+        ArrayPayload::elements_data_offset(),
+    );
+    let len = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        payload,
+        ArrayPayload::elements_len_offset(),
+    );
+    // The index: an `Int` payload is the low 32 bits. A negative index
+    // becomes a huge unsigned value and fails the bounds check.
+    let index = b.ins().band_imm(prop, 0xffff_ffff);
+    let len64 = b.ins().uextend(types::I64, len);
+    let in_bounds = b.ins().icmp(IntCC::UnsignedLessThan, index, len64);
+    let hit = b.create_block();
+    b.ins().brif(in_bounds, hit, &[], slow, &[]);
+
+    b.switch_to_block(hit);
+    // The element itself: `data + index * 8`.
+    let offset = b.ins().imul_imm(index, 8);
+    let addr = b.ins().iadd(data, offset);
+    let value = b.ins().load(types::I64, MemFlags::new(), addr, 0);
+    // Both paths leave the result in the slot the array occupied.
+    b.ins().store(MemFlags::new(), value, sp, -16);
+    let sp_next = b.ins().iadd_imm(sp, -8);
+    b.def_var(sp_var, sp_next);
+    let keep = [value];
+    b.ins().jump(cont, if kept { &keep } else { &[] });
+
+    b.switch_to_block(slow);
+    // The site index rides in `imm2` (array element keys are runtime values,
+    // so the cached property atom lives in the cache entry).
+    #[cfg(feature = "inline_cache")]
+    {
+        let ic = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
+        b.ins().store(MemFlags::new(), ic, fv.frame, O_IMM2);
+    }
+    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_GET_ARRAY_EL, pc_after);
+    b.def_var(sp_var, sp_slow);
+    let mut slow_result = [sp_slow];
+    if kept {
+        slow_result[0] = b.ins().load(types::I64, MemFlags::new(), sp_slow, -8);
+    }
+    b.ins().jump(cont, if kept { &slow_result } else { &[] });
+
+    b.switch_to_block(cont);
+    // The operand entries are stale now (a flush would overwrite the result).
+    state.stack.consumed_binary();
+    if let (Some(keep_id), Some(&value)) = (keep_id, b.block_params(cont).first()) {
+        state.cse_regs.insert(keep_id, value);
     }
     Step::Continue(b.use_var(sp_var))
 }
