@@ -27,6 +27,27 @@ use super::{
 pub const JS_TYPED_ARRAY_COUNT: usize =
     JS_CLASS_FLOAT64_ARRAY as usize - JS_CLASS_UINT8C_ARRAY as usize + 1;
 
+/// The layout the JIT's typed-array guard reads (P1-1).
+///
+/// The generated code reads the view's buffer, its offset and its lengths
+/// straight out of the payload, so the offsets are part of a contract with
+/// the JIT (see `array::ArrayPayload` for the same trick).
+pub mod jit_layout {
+    use super::TypedArrayPayload;
+
+    /// The offset of the underlying buffer (a GC node pointer).
+    pub const BUFFER_OFFSET: i32 = std::mem::offset_of!(TypedArrayPayload, array_buffer) as i32;
+    /// The offset of the view's start offset, in bytes.
+    pub const OFFSET_OFFSET: i32 = std::mem::offset_of!(TypedArrayPayload, offset) as i32;
+    /// The offset of the view's byte length.
+    pub const BYTE_LENGTH_OFFSET: i32 = std::mem::offset_of!(TypedArrayPayload, byte_length) as i32;
+    /// The offset of the view's element count.
+    pub const COUNT_OFFSET: i32 = std::mem::offset_of!(TypedArrayPayload, count) as i32;
+    /// The offset of the "out of bounds" flag.
+    pub const OUT_OF_BOUNDS_OFFSET: i32 =
+        std::mem::offset_of!(TypedArrayPayload, out_of_bounds) as i32;
+}
+
 #[derive(Debug)]
 pub struct TypedArrayPayload {
     /// underlaying array buffer object.

@@ -63,6 +63,33 @@ const CASES: &[(&str, &str)] = &[
         "prototype_getter",
         "var a = [1, 2]; Object.defineProperty(Object.getPrototypeOf(a), '9', { get: function(){ return 42; } }); a[9];",
     ),
+    // The typed arrays the guard inlines.
+    ("typed_int32", "var t = new Int32Array(4); t[1] = 5; t[1];"),
+    (
+        "typed_float64",
+        "var t = new Float64Array(4); t[1] = 1.5; t[1];",
+    ),
+    (
+        "typed_int32_negative",
+        "var t = new Int32Array(4); t[1] = -5; t[1];",
+    ),
+    // Out of range: the typed array answers `undefined`.
+    ("typed_out_of_range", "var t = new Int32Array(4); t[10];"),
+    // A view with a byte offset: the guard has to add it.
+    (
+        "typed_byte_offset",
+        "var b = new ArrayBuffer(32); var t = new Int32Array(b, 8); t[1] = 77; t[1]; t[0];",
+    ),
+    // A detached buffer: the elements are gone.
+    (
+        "typed_detached",
+        "var b = new ArrayBuffer(16); var t = new Int32Array(b); t[0] = 3; b.transfer(); t[0];",
+    ),
+    // A resizable buffer that shrank below the view's end.
+    (
+        "typed_resizable_shrunk",
+        "var b = new ArrayBuffer(16, { maxByteLength: 32 }); var t = new Int32Array(b); t[0] = 9; b.resize(0); t[0];",
+    ),
 ];
 
 fn eval(ctx: &mut Context, name: &EvalName, src: &str) -> JSResult {
@@ -118,10 +145,7 @@ fn the_arguments_object_is_covered() {
         let (got, metrics) = run(mode, setup, main);
         assert_eq!(got, expected, "{mode:?} disagrees with the interpreter");
         if mode != Mode::Interpreter {
-            assert!(
-                metrics.functions_compiled > 0,
-                "{mode:?} compiled nothing"
-            );
+            assert!(metrics.functions_compiled > 0, "{mode:?} compiled nothing");
         }
     }
 }

@@ -39,9 +39,15 @@ use cranelift_codegen::{
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 
 use crate::{
-    JS_CLASS_ARGUMENTS,
-    JS_CLASS_ARRAY,
+    JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_INT32_ARRAY,
     array::ArrayPayload,
+    builtins::{
+        array_buffer::{
+            BUFFER_DETACHED_OFFSET, BUFFER_VIEW_DATA_OFFSET, BUFFER_VIEW_DIRECT_OFFSET,
+            BUFFER_VIEW_OFFSET,
+        },
+        typed_array::jit_layout as ta_layout,
+    },
     jit::snapshot::ConstMeta,
     object::jit_layout,
     vm_stack::ExecMode,
@@ -2920,6 +2926,20 @@ fn lower_get_array_el_fast(
     let is_fast = b.ins().icmp_imm(IntCC::NotEqual, fast_bit, 0);
     let is_elemented = b.ins().bor(is_array, is_arguments);
     let shape_ok = b.ins().band(is_elemented, is_fast);
+    // The typed arrays we inline: `Int32Array` and `Float64Array`. Their
+    // elements live in an `ArrayBuffer`, not in the array payload.
+    let is_i32 = b
+        .ins()
+        .icmp_imm(IntCC::Equal, class_id, i64::from(JS_CLASS_INT32_ARRAY));
+    let is_f64 = b
+        .ins()
+        .icmp_imm(IntCC::Equal, class_id, i64::from(JS_CLASS_FLOAT64_ARRAY));
+    let is_typed = b.ins().bor(is_i32, is_f64);
+    let ta_check = b.create_block();
+    let plain_check = b.create_block();
+    b.ins().brif(is_typed, ta_check, &[], plain_check, &[]);
+
+    b.switch_to_block(plain_check);
     // The payload is only read once the class says it is an array: a plain
     // object has no payload, and reading it would be a wild load.
     let load = b.create_block();
@@ -2956,6 +2976,119 @@ fn lower_get_array_el_fast(
     let addr = b.ins().iadd(data, offset);
     let value = b.ins().load(types::I64, MemFlags::new(), addr, 0);
     // Both paths leave the result in the slot the array occupied.
+    b.ins().store(MemFlags::new(), value, sp, -16);
+    let sp_next = b.ins().iadd_imm(sp, -8);
+    b.def_var(sp_var, sp_next);
+    let keep = [value];
+    b.ins().jump(cont, if kept { &keep } else { &[] });
+
+    // ── The typed arrays ──────────────────────────────────────────────
+    //
+    // Their elements live in an `ArrayBuffer`: the view (offset, byte length,
+    // element count) is in the typed array's payload, the bytes are in the
+    // buffer's payload. Everything is read fresh, so a resize, a detach or a
+    // view that went out of bounds is a guard miss, not a stale read.
+    b.switch_to_block(ta_check);
+    let ta_payload = b
+        .ins()
+        .load(types::I64, MemFlags::new(), obj, jit_layout::PAYLOAD_OFFSET);
+    let buffer = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        ta_payload,
+        ta_layout::BUFFER_OFFSET,
+    );
+    let view_offset = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        ta_payload,
+        ta_layout::OFFSET_OFFSET,
+    );
+    let count = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        ta_payload,
+        ta_layout::COUNT_OFFSET,
+    );
+    let out_of_bounds = b.ins().load(
+        types::I8,
+        MemFlags::new(),
+        ta_payload,
+        ta_layout::OUT_OF_BOUNDS_OFFSET,
+    );
+    // The index must be inside the view's elements.
+    let index = b.ins().band_imm(prop, 0xffff_ffff);
+    let count64 = b.ins().uextend(types::I64, count);
+    let in_count = b.ins().icmp(IntCC::UnsignedLessThan, index, count64);
+    let ta_buffer = b.create_block();
+    b.ins().brif(in_count, ta_buffer, &[], slow, &[]);
+
+    b.switch_to_block(ta_buffer);
+    // The buffer's payload and the view of its bytes.
+    let buf_payload = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        buffer,
+        jit_layout::PAYLOAD_OFFSET,
+    );
+    let data = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        buf_payload,
+        BUFFER_VIEW_OFFSET + BUFFER_VIEW_DATA_OFFSET,
+    );
+    let direct = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        buf_payload,
+        BUFFER_VIEW_OFFSET + BUFFER_VIEW_DIRECT_OFFSET,
+    );
+    let detached = b.ins().load(
+        types::I8,
+        MemFlags::new(),
+        buf_payload,
+        BUFFER_DETACHED_OFFSET,
+    );
+    // A detached buffer, a view out of bounds and a shared buffer (whose
+    // bytes live behind a lock) all go back to the helper.
+    let not_detached = b.ins().icmp_imm(IntCC::Equal, detached, 0);
+    let not_oob = b.ins().icmp_imm(IntCC::Equal, out_of_bounds, 0);
+    let is_direct = b.ins().icmp_imm(IntCC::NotEqual, direct, 0);
+    let flags_ok = b.ins().band(not_oob, is_direct);
+    let readable = b.ins().band(not_detached, flags_ok);
+    let ta_kind = b.create_block();
+    b.ins().brif(readable, ta_kind, &[], slow, &[]);
+
+    b.switch_to_block(ta_kind);
+    // The element's width depends on the class: 4 bytes for `Int32Array`, 8
+    // for `Float64Array`.
+    let ta_i32 = b.create_block();
+    let ta_f64 = b.create_block();
+    b.ins().brif(is_i32, ta_i32, &[], ta_f64, &[]);
+
+    b.switch_to_block(ta_i32);
+    // `data + view_offset + index * 4`, read as an `i32`.
+    let view_base = b.ins().uextend(types::I64, view_offset);
+    let base = b.ins().iadd(data, view_base);
+    let scaled = b.ins().imul_imm(index, 4);
+    let element = b.ins().iadd(base, scaled);
+    let raw = b.ins().load(types::I32, MemFlags::new(), element, 0);
+    // An `Int` payload: the tag is 0 and the value sits in the low 32 bits.
+    let value = b.ins().uextend(types::I64, raw);
+    b.ins().store(MemFlags::new(), value, sp, -16);
+    let sp_next = b.ins().iadd_imm(sp, -8);
+    b.def_var(sp_var, sp_next);
+    let keep = [value];
+    b.ins().jump(cont, if kept { &keep } else { &[] });
+
+    b.switch_to_block(ta_f64);
+    // `data + view_offset + index * 8`, read as an `f64` and boxed.
+    let view_base = b.ins().uextend(types::I64, view_offset);
+    let base = b.ins().iadd(data, view_base);
+    let scaled = b.ins().imul_imm(index, 8);
+    let element = b.ins().iadd(base, scaled);
+    let raw = b.ins().load(types::F64, MemFlags::new(), element, 0);
+    let value = box_float64(b, raw);
     b.ins().store(MemFlags::new(), value, sp, -16);
     let sp_next = b.ins().iadd_imm(sp, -8);
     b.def_var(sp_var, sp_next);

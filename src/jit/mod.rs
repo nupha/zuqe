@@ -960,7 +960,16 @@ mod tests {
     /// like "the inline guard bought nothing").
     #[test]
     fn the_array_layout_contract_holds_from_a_js_value() {
-        use crate::{EvalFlags, EvalName, EvalType, ScopedContext, object::jit_layout};
+        use crate::{
+            EvalFlags, EvalName, EvalType, ScopedContext,
+            builtins::{
+                array_buffer::{
+                    BUFFER_VIEW_DATA_OFFSET, BUFFER_VIEW_DIRECT_OFFSET, BUFFER_VIEW_OFFSET,
+                },
+                typed_array::jit_layout as ta_layout,
+            },
+            object::jit_layout,
+        };
 
         let mut rt = crate::Runtime::create().unwrap();
         let mut ctx = rt
@@ -1018,6 +1027,74 @@ mod tests {
         let third = unsafe { *((data as *const u8).add(16) as *const u64) };
         assert_eq!(second, object.payload_array().unwrap().values()[1].0);
         assert_eq!(third, object.payload_array().unwrap().values()[2].0);
+    }
+
+    /// The typed array's layout contract, end to end (P1-1): the view's
+    /// buffer, the element count and the buffer's bytes must be where the
+    /// generated code reads them.
+    #[test]
+    fn the_typed_array_layout_contract_holds_from_a_js_value() {
+        use crate::{
+            EvalFlags, EvalName, EvalType, ScopedContext,
+            builtins::{
+                array_buffer::{
+                    BUFFER_VIEW_DATA_OFFSET, BUFFER_VIEW_DIRECT_OFFSET, BUFFER_VIEW_OFFSET,
+                },
+                typed_array::jit_layout as ta_layout,
+            },
+            object::jit_layout,
+        };
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let name = EvalName::Name("jit-layout-ta.js".into());
+        let value = ctx
+            .eval(
+                b"globalThis.ta = new Int32Array([7, 8, 9]); ta;",
+                &name,
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .unwrap();
+        let object = value.as_object().expect("a typed array");
+        let node = value.as_gc_node().expect("a GC node").as_ptr() as usize;
+
+        // The typed array's payload: the buffer and the element count.
+        let payload = unsafe {
+            *((node as *const u8).add(jit_layout::PAYLOAD_OFFSET as usize) as *const u64)
+        };
+        let buffer = unsafe {
+            *((payload as *const u8).add(ta_layout::BUFFER_OFFSET as usize) as *const u64)
+        };
+        let count = unsafe {
+            *((payload as *const u8).add(ta_layout::COUNT_OFFSET as usize) as *const u32)
+        };
+        assert_eq!(
+            count, 3,
+            "the element count is not where the JIT expects it"
+        );
+
+        // The buffer's payload and the view of its bytes.
+        let buf_payload = unsafe {
+            *((buffer as *const u8).add(jit_layout::PAYLOAD_OFFSET as usize) as *const u64)
+        };
+        let data = unsafe {
+            *((buf_payload as *const u8)
+                .add((BUFFER_VIEW_OFFSET + BUFFER_VIEW_DATA_OFFSET) as usize)
+                as *const u64)
+        };
+        let direct = unsafe {
+            *((buf_payload as *const u8)
+                .add((BUFFER_VIEW_OFFSET + BUFFER_VIEW_DIRECT_OFFSET) as usize)
+                as *const u32)
+        };
+        assert_eq!(direct, 1, "the bytes are not directly readable");
+        // The first element: an `i32` in the buffer.
+        let first = unsafe { *((data as *const u8).cast::<i32>()) };
+        assert_eq!(first, 7);
+        assert_eq!(object.payload_typed_array().unwrap().count(), 3);
     }
 
     /// Bring the JIT to rest before asserting on compile results. Inline, one

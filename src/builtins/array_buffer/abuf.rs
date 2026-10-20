@@ -39,6 +39,61 @@ pub(crate) enum ABufData {
     Raw(NonNull<u8>, usize, Option<JSFreeArrayBufferDataFunc>),
 }
 
+/// The buffer's bytes, in the layout the JIT reads (P1-1).
+///
+/// `ABufData` is an enum, so where its payload sits is not portable: the JIT
+/// cannot read a data pointer out of it. The payload therefore keeps a
+/// *mirror* of the bytes in a `#[repr(C)]` header it can read at fixed
+/// offsets — the same trick the array payload uses for its elements.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct BufferView {
+    /// The first readable byte (null when there is none).
+    pub data: *const u8,
+    /// The number of readable bytes.
+    pub len: u32,
+    /// 1 when the bytes are directly readable (an owned or a raw buffer), 0
+    /// otherwise: an empty buffer, or a **shared** one, whose bytes live
+    /// behind a lock the JIT must not bypass.
+    pub direct: u32,
+}
+
+/// The offset of the bytes' data pointer inside [`BufferView`].
+pub const BUFFER_VIEW_DATA_OFFSET: i32 = std::mem::offset_of!(BufferView, data) as i32;
+/// The offset of the bytes' length inside [`BufferView`].
+pub const BUFFER_VIEW_LEN_OFFSET: i32 = std::mem::offset_of!(BufferView, len) as i32;
+/// The offset of the "directly readable" flag inside [`BufferView`].
+pub const BUFFER_VIEW_DIRECT_OFFSET: i32 = std::mem::offset_of!(BufferView, direct) as i32;
+
+impl ABufData {
+    /// The bytes as the JIT sees them: a shared buffer is not directly
+    /// readable (its bytes are behind a lock), so it is reported as such.
+    fn view(&self) -> BufferView {
+        match self {
+            Self::Empty => BufferView {
+                data: std::ptr::null(),
+                len: 0,
+                direct: 0,
+            },
+            Self::Owned(b) => BufferView {
+                data: b.as_ptr(),
+                len: b.len() as u32,
+                direct: 1,
+            },
+            Self::Raw(p, len, _) => BufferView {
+                data: p.as_ptr(),
+                len: *len as u32,
+                direct: 1,
+            },
+            Self::Shared(_) => BufferView {
+                data: std::ptr::null(),
+                len: 0,
+                direct: 0,
+            },
+        }
+    }
+}
+
 impl ABufData {
     /// byte length
     pub fn len(&self) -> usize {
@@ -107,6 +162,8 @@ impl ABufData {
 
 #[derive(Debug)]
 pub struct ArrayBufferPayload {
+    /// The bytes as the JIT sees them (P1-1) — a mirror of `data`.
+    view: BufferView,
     data: ABufData,
     /// if is shared, the array buffer cannot be detached
     detached: bool,
@@ -117,6 +174,72 @@ pub struct ArrayBufferPayload {
     /// maximum byte length for a resizable buffer; 0 if not resizable.
     max_byte_length: usize,
     opaque: *mut c_void,
+}
+
+/// The offset of the "detached" flag inside [`ArrayBufferPayload`].
+pub const BUFFER_DETACHED_OFFSET: i32 = std::mem::offset_of!(ArrayBufferPayload, detached) as i32;
+/// The offset of the bytes' view inside [`ArrayBufferPayload`].
+pub const BUFFER_VIEW_OFFSET: i32 = std::mem::offset_of!(ArrayBufferPayload, view) as i32;
+
+impl ArrayBufferPayload {
+    /// The bytes as the JIT sees them.
+    pub(crate) fn view(&self) -> BufferView {
+        self.view
+    }
+
+    /// Refresh the mirror the JIT reads (P1-1). Every mutation of the
+    /// buffer's data must call this.
+    fn sync_view(&mut self) {
+        self.view = self.data.view();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The layout the JIT's typed-array guard reads (P1-1): the data pointer
+    /// first, the length second, the "directly readable" flag third. The
+    /// generated code loads them in that order and with those widths.
+    #[test]
+    fn the_view_layout_is_stable() {
+        assert_eq!(BUFFER_VIEW_DATA_OFFSET, 0);
+        assert_eq!(BUFFER_VIEW_LEN_OFFSET, 8);
+        assert_eq!(BUFFER_VIEW_DIRECT_OFFSET, 12);
+    }
+
+    /// The mirror must follow every change of the buffer's data — the JIT
+    /// reads it to find the elements.
+    #[test]
+    fn the_view_follows_the_data() {
+        let mut payload = ArrayBufferPayload {
+            view: ABufData::Empty.view(),
+            data: ABufData::Empty,
+            detached: false,
+            typed_array_list: Vec::new(),
+            resizable: false,
+            max_byte_length: 0,
+            opaque: std::ptr::null_mut(),
+        };
+        assert_eq!(payload.view.direct, 0, "an empty buffer is not readable");
+
+        let bytes = vec![1u8, 2, 3, 4].into_boxed_slice();
+        payload.replace(ABufData::Owned(bytes));
+        assert_eq!(payload.view.direct, 1);
+        assert_eq!(payload.view.len, 4);
+        // SAFETY: the view points at the buffer's own bytes (checked above).
+        let read =
+            unsafe { std::slice::from_raw_parts(payload.view.data, payload.view.len as usize) };
+        assert_eq!(read, &[1, 2, 3, 4]);
+
+        // A shared buffer's bytes live behind a lock: the JIT must not read
+        // them without it, so the view says "not directly readable".
+        payload.replace(ABufData::Shared(std::sync::Arc::new(
+            std::sync::RwLock::new(vec![0u8; 2].into_boxed_slice()),
+        )));
+        assert_eq!(payload.view.direct, 0);
+        assert_eq!(payload.view.len, 0);
+    }
 }
 
 impl GcTrace for ArrayBufferPayload {
@@ -173,9 +296,11 @@ impl ArrayBufferPayload {
     }
 
     /// replace buffer data, returns old data
-    pub(crate) const fn replace(&mut self, data: ABufData) -> ABufData {
+    pub(crate) fn replace(&mut self, data: ABufData) -> ABufData {
         self.detached = false;
-        std::mem::replace(&mut self.data, data)
+        let old = std::mem::replace(&mut self.data, data);
+        self.sync_view();
+        old
     }
 
     #[inline(always)]
@@ -235,7 +360,8 @@ impl ArrayBuffer {
         let shared = matches!(data, ABufData::Shared(_));
 
         // make ArrayBuffer payload
-        let ab = Box::new(ArrayBufferPayload {
+        let mut ab = Box::new(ArrayBufferPayload {
+            view: data.view(),
             data,
             detached: false,
             typed_array_list: Vec::new(),
@@ -243,6 +369,7 @@ impl ArrayBuffer {
             max_byte_length: 0,
             opaque,
         });
+        ab.sync_view();
 
         // create array buffer or shared array buffer instance
         ctx.ordinary_create_from_constructor_payload(
@@ -292,6 +419,7 @@ impl ArrayBuffer {
         // 1. create ArrayBuffer instance
         let resizable = max_byte_length > 0;
         let isa = Box::new(ArrayBufferPayload {
+            view: ABufData::Empty.view(),
             data: ABufData::Empty,
             detached: false,
             typed_array_list: Vec::new(),
