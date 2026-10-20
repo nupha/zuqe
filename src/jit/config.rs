@@ -12,6 +12,19 @@ pub(crate) type MetricsSink = Box<dyn Fn(&JitMetrics)>;
 
 const DEFAULT_CALL_THRESHOLD: u32 = 32;
 const DEFAULT_LOOP_THRESHOLD: u32 = 56;
+/// Second gate: the invocation count that promotes an already-compiled
+/// function to the optimizing tier (plan §13.6.5 item 1). The first gate
+/// compiles the baseline; this one recompiles it with the tier-2
+/// specialization. 1024 sits in the mainstream band (V8 Maglev 400/1000,
+/// SpiderMonkey Ion 1500, JSC DFG 1000).
+const DEFAULT_TIER2_CALL_THRESHOLD: u32 = 1024;
+/// The back-edge counterpart of [`DEFAULT_TIER2_CALL_THRESHOLD`], keeping the
+/// same 1:2 ratio the first gate has (32 calls / 56 back edges).
+const DEFAULT_TIER2_LOOP_THRESHOLD: u32 = 2048;
+/// How many invocations a demoted function must see before it may be
+/// promoted again (V8's `minimum_invocations_after_ic_update = 500`). It
+/// stops the promotion and the tier-down from chasing each other.
+const DEFAULT_TIER2_MIN_INVOCATIONS: u32 = 500;
 /// Evidence a site must show before `Automatic` pays for a speculative fast
 /// path (epic F5). Default 8 matches the reference's "at least 8 executions
 /// before a trial": with the stock thresholds (32 calls / 56 backedges) a
@@ -33,11 +46,16 @@ pub enum JitTierPolicy {
     /// Baseline translation only.
     Tier1,
     /// Optimizing tier only. Fixed policy: every int-monomorphic site F1
-    /// recorded is specialized, regardless of the profitability gate.
+    /// recorded is specialized, regardless of the profitability gate. There
+    /// is no tiering: the function is compiled at the first gate.
     Tier2,
-    /// Pick the tier automatically from the hotness feedback, and apply the
-    /// profitability gate (`JitConfig::specialization_min_samples`): a site is
-    /// only specialized once the interpreter measured enough samples there.
+    /// Pick the tier automatically from the hotness feedback: the first gate
+    /// (`call_threshold` / `loop_threshold`) compiles the **baseline** tier,
+    /// the second one (`tier2_call_threshold` / `tier2_loop_threshold`)
+    /// promotes the function to the **optimizing** tier. The profitability
+    /// gate (`JitConfig::specialization_min_samples`) applies to the
+    /// optimizing tier: a site is only specialized once the interpreter
+    /// measured enough samples there.
     #[default]
     Automatic,
 }
@@ -47,6 +65,15 @@ pub enum JitTierPolicy {
 pub struct JitConfig {
     pub(crate) call_threshold: u32,
     pub(crate) loop_threshold: u32,
+    /// Second gate: the invocation count that promotes a compiled function to
+    /// the optimizing tier (plan §13.6.5 item 1). Only the `Automatic` policy
+    /// promotes; the forced policies compile their tier right away.
+    pub(crate) tier2_call_threshold: u32,
+    /// The back-edge counterpart of [`Self::tier2_call_threshold`].
+    pub(crate) tier2_loop_threshold: u32,
+    /// Invocations a demoted function must see before it may be promoted
+    /// again (V8's `minimum_invocations_after_ic_update`).
+    pub(crate) tier2_min_invocations: u32,
     pub(crate) tier_policy: JitTierPolicy,
     /// Minimum feedback samples a site needs before `Automatic` specializes
     /// it (epic F5). Forced `Tier2` ignores it.
@@ -85,6 +112,9 @@ impl std::fmt::Debug for JitConfig {
         f.debug_struct("JitConfig")
             .field("call_threshold", &self.call_threshold)
             .field("loop_threshold", &self.loop_threshold)
+            .field("tier2_call_threshold", &self.tier2_call_threshold)
+            .field("tier2_loop_threshold", &self.tier2_loop_threshold)
+            .field("tier2_min_invocations", &self.tier2_min_invocations)
             .field("tier_policy", &self.tier_policy)
             .field(
                 "specialization_min_samples",
@@ -106,6 +136,9 @@ impl Default for JitConfig {
         Self {
             call_threshold: DEFAULT_CALL_THRESHOLD,
             loop_threshold: DEFAULT_LOOP_THRESHOLD,
+            tier2_call_threshold: DEFAULT_TIER2_CALL_THRESHOLD,
+            tier2_loop_threshold: DEFAULT_TIER2_LOOP_THRESHOLD,
+            tier2_min_invocations: DEFAULT_TIER2_MIN_INVOCATIONS,
             tier_policy: JitTierPolicy::default(),
             specialization_min_samples: DEFAULT_SPECIALIZATION_MIN_SAMPLES,
             max_code_bytes: DEFAULT_MAX_CODE_BYTES,
@@ -132,6 +165,23 @@ impl JitConfig {
 
     pub const fn loop_threshold(&self) -> u32 {
         self.loop_threshold
+    }
+
+    /// Second gate: the invocation count that promotes a compiled function to
+    /// the optimizing tier (plan §13.6.5 item 1).
+    pub const fn tier2_call_threshold(&self) -> u32 {
+        self.tier2_call_threshold
+    }
+
+    /// The back-edge counterpart of [`Self::tier2_call_threshold`].
+    pub const fn tier2_loop_threshold(&self) -> u32 {
+        self.tier2_loop_threshold
+    }
+
+    /// Invocations a demoted function must see before it may be promoted
+    /// again.
+    pub const fn tier2_min_invocations(&self) -> u32 {
+        self.tier2_min_invocations
     }
 
     pub const fn tier_policy(&self) -> JitTierPolicy {
@@ -188,6 +238,27 @@ impl JitConfigBuilder {
 
     pub fn loop_threshold(mut self, n: u32) -> Self {
         self.0.loop_threshold = n.max(1);
+        self
+    }
+
+    /// Second gate: the invocation count that promotes a compiled function to
+    /// the optimizing tier. Clamped to `>= 1`; the forced `Tier1`/`Tier2`
+    /// policies ignore it (they compile their tier right away).
+    pub fn tier2_call_threshold(mut self, n: u32) -> Self {
+        self.0.tier2_call_threshold = n.max(1);
+        self
+    }
+
+    /// The back-edge counterpart of [`Self::tier2_call_threshold`].
+    pub fn tier2_loop_threshold(mut self, n: u32) -> Self {
+        self.0.tier2_loop_threshold = n.max(1);
+        self
+    }
+
+    /// Invocations a demoted function must see before it may be promoted
+    /// again (V8's `minimum_invocations_after_ic_update`).
+    pub fn tier2_min_invocations(mut self, n: u32) -> Self {
+        self.0.tier2_min_invocations = n.max(1);
         self
     }
 

@@ -500,3 +500,143 @@ fn f5_gate_is_host_tunable() {
         "specialization_min_samples(2) should accept three samples (metrics: {m:?})"
     );
 }
+
+// ── TH2: the two gates (plan §13.6.5 item 1) ──
+
+/// A kernel with a hot int loop: the shape the tier-2 specialization pays
+/// off on.
+const TIERED: &str =
+    "function f(n){ var s = 0; for (var i = 0; i < n; i++) s += i; return s; } f(50);";
+
+/// The two gates, end to end.
+///
+/// The first gate compiles the **baseline** tier: native code without the
+/// tier-2 specialization. The second gate promotes the function to the
+/// **optimizing** tier. The promotion is driven by the work the *native* tier
+/// reports back — the interpreter stops counting a function's entries and back
+/// edges once its code is installed, so without that report the second gate
+/// could never be crossed.
+#[test]
+fn the_second_gate_promotes_a_hot_function() {
+    let mut rt = Runtime::create().expect("runtime");
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .expect("context");
+    let cfg = JitConfig::builder()
+        .call_threshold(2)
+        .loop_threshold(4)
+        .tier2_call_threshold(4)
+        .tier2_loop_threshold(8)
+        .auto_poll(false)
+        .tier_policy(JitTierPolicy::Automatic)
+        .build();
+    let jit = Jit::attach_to(&rt, cfg).expect("attach");
+    let name = EvalName::Name("jit-tiering.js".into());
+
+    eval(&mut ctx, &name, TIERED).expect("setup");
+    settle(&jit);
+    let first = jit.metrics();
+    assert!(
+        first.functions_compiled > 0,
+        "the first gate did not compile the function (metrics: {first:?})"
+    );
+    assert_eq!(
+        first.specialized_ops, 0,
+        "the first gate compiles the baseline tier (metrics: {first:?})"
+    );
+    assert_eq!(
+        first.tier2_promotions, 0,
+        "the promotion belongs to the second gate (metrics: {first:?})"
+    );
+
+    // The function now runs natively; its work feeds the second gate.
+    let reference = tag_exact(eval(&mut ctx, &name, "f(500)"));
+    settle(&jit);
+    let second = jit.metrics();
+    assert_eq!(
+        second.tier2_promotions, 1,
+        "the second gate did not promote the function (metrics: {second:?})"
+    );
+    assert!(
+        second.specialized_ops > 0,
+        "the optimizing tier must specialize (metrics: {second:?})"
+    );
+    assert_eq!(
+        second.functions_recompiled, 1,
+        "the promotion is a recompile (metrics: {second:?})"
+    );
+
+    // The promotion must not change the answer.
+    let out = tag_exact(eval(&mut ctx, &name, "f(500)"));
+    assert_eq!(out, reference, "the promotion changed the result");
+    assert_eq!(
+        tag_exact(eval(&mut ctx, &name, "f(500)")),
+        reference,
+        "the second run must agree too"
+    );
+}
+
+/// The tier-2 gate is a host-tunable knob, like the first one.
+#[test]
+fn the_second_gate_is_host_tunable() {
+    let mut rt = Runtime::create().expect("runtime");
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .expect("context");
+    // A tier-2 gate no function can reach: the promotion never happens.
+    let cfg = JitConfig::builder()
+        .call_threshold(2)
+        .loop_threshold(4)
+        .tier2_call_threshold(1_000_000)
+        .tier2_loop_threshold(1_000_000)
+        .auto_poll(false)
+        .tier_policy(JitTierPolicy::Automatic)
+        .build();
+    let jit = Jit::attach_to(&rt, cfg).expect("attach");
+    let name = EvalName::Name("jit-tiering-unreachable.js".into());
+
+    eval(&mut ctx, &name, TIERED).expect("setup");
+    settle(&jit);
+    eval(&mut ctx, &name, "f(5000)").expect("run");
+    settle(&jit);
+    let m = jit.metrics();
+    assert!(m.functions_compiled > 0, "the first gate compiled");
+    assert_eq!(
+        m.tier2_promotions, 0,
+        "an unreachable second gate must not promote (metrics: {m:?})"
+    );
+    assert_eq!(m.specialized_ops, 0, "the baseline tier never specializes");
+}
+
+/// The forced policies ask for a fixed tier, so there is only one gate: the
+/// `Tier1` policy never specializes and the `Tier2` policy specializes right
+/// away, whatever the thresholds say.
+#[test]
+fn the_forced_policies_ignore_the_gates() {
+    let mut rt = Runtime::create().expect("runtime");
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .expect("context");
+    let cfg = JitConfig::builder()
+        .call_threshold(2)
+        .loop_threshold(4)
+        .tier2_call_threshold(1_000_000)
+        .tier2_loop_threshold(1_000_000)
+        .auto_poll(false)
+        .tier_policy(JitTierPolicy::Tier2)
+        .build();
+    let jit = Jit::attach_to(&rt, cfg).expect("attach");
+    let name = EvalName::Name("jit-forced-tier.js".into());
+
+    eval(&mut ctx, &name, TIERED).expect("setup");
+    settle(&jit);
+    let m = jit.metrics();
+    assert!(
+        m.specialized_ops > 0,
+        "the forced tier-2 policy specializes"
+    );
+    assert_eq!(
+        m.tier2_promotions, 0,
+        "a single-tier policy has no promotion (metrics: {m:?})"
+    );
+}

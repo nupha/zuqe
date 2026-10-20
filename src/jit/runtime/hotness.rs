@@ -8,6 +8,13 @@
 //! start from the configured base. The function's static shape (bytecode size,
 //! helper density) can raise them on any tier; measured work — the Tier 2
 //! feedback table (epic F1) supplies it — can lower them further.
+//!
+//! Two gates, two tiers (plan §13.6.5 item 1): the first gate compiles the
+//! **baseline** tier, the second one promotes the function to the **optimizing**
+//! tier. The counters behind both gates are the same, but the second gate must
+//! also see the work a function does *after* it was compiled — the interpreter
+//! stops counting then, so the native tier reports its own activations and back
+//! edges back into the same counters.
 
 use crate::{
     bytecode::{OP_COUNT_FINAL, opcode_info_final},
@@ -23,19 +30,41 @@ pub(crate) enum HotReason {
     HelperDensity,
 }
 
+/// The tier a function's code is at (plan §13.6.5 item 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Tier {
+    /// Not compiled yet.
+    Cold,
+    /// Baseline: compiled without the tier-2 specialization.
+    Tier1,
+    /// Optimizing: compiled with the tier-2 specialization.
+    Tier2,
+}
+
 /// Entry/backedge counts a function must reach before it is queued.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HotThresholds {
     pub(crate) calls: u32,
     pub(crate) loops: u32,
+    /// The second gate: the counts that promote an already-compiled function
+    /// to the optimizing tier.
+    pub(crate) tier2_calls: u32,
+    pub(crate) tier2_loops: u32,
     pub(crate) reason: HotReason,
 }
 
 impl HotThresholds {
-    pub(crate) const fn neutral(calls: u32, loops: u32) -> Self {
+    pub(crate) const fn neutral(
+        calls: u32,
+        loops: u32,
+        tier2_calls: u32,
+        tier2_loops: u32,
+    ) -> Self {
         Self {
             calls,
             loops,
+            tier2_calls,
+            tier2_loops,
             reason: HotReason::NeutralBase,
         }
     }
@@ -98,9 +127,20 @@ impl AdaptiveInputs {
     /// An eager base (both thresholds 1) is left alone: the host asked for
     /// "compile on the first event", and doubling that would silently defeat
     /// the diagnostic/test harnesses that rely on it.
-    pub(crate) fn thresholds(&self, base_calls: u32, base_loops: u32) -> HotThresholds {
+    pub(crate) fn thresholds(
+        &self,
+        base_calls: u32,
+        base_loops: u32,
+        base_tier2_calls: u32,
+        base_tier2_loops: u32,
+    ) -> HotThresholds {
         if base_calls <= 1 && base_loops <= 1 {
-            return HotThresholds::neutral(base_calls, base_loops);
+            return HotThresholds::neutral(
+                base_calls,
+                base_loops,
+                base_tier2_calls,
+                base_tier2_loops,
+            );
         }
         // Proven work outranks the static shape: a function observed doing a lot
         // of interpreter work is worth compiling even if it is large.
@@ -108,6 +148,8 @@ impl AdaptiveInputs {
             return HotThresholds {
                 calls: base_calls / 2,
                 loops: base_loops / 2,
+                tier2_calls: base_tier2_calls / 2,
+                tier2_loops: base_tier2_loops / 2,
                 reason: HotReason::MeasuredWork,
             };
         }
@@ -117,6 +159,8 @@ impl AdaptiveInputs {
             return HotThresholds {
                 calls: base_calls.saturating_mul(2),
                 loops: base_loops.saturating_mul(2),
+                tier2_calls: base_tier2_calls.saturating_mul(2),
+                tier2_loops: base_tier2_loops.saturating_mul(2),
                 reason: HotReason::HelperDensity,
             };
         }
@@ -124,48 +168,66 @@ impl AdaptiveInputs {
             return HotThresholds {
                 calls: base_calls.saturating_mul(2),
                 loops: base_loops.saturating_mul(2),
+                tier2_calls: base_tier2_calls.saturating_mul(2),
+                tier2_loops: base_tier2_loops.saturating_mul(2),
                 reason: HotReason::BytecodeScale,
             };
         }
-        HotThresholds::neutral(base_calls, base_loops)
+        HotThresholds::neutral(base_calls, base_loops, base_tier2_calls, base_tier2_loops)
     }
 }
 
-/// Per-function hotness counters. `queued` makes the "queue exactly once"
-/// invariant explicit: once set, additional hot events are ignored until the
-/// coordinator clears it (retry, invalidation).
+/// Per-function hotness counters.
+///
+/// The counters keep running after the function was compiled: the interpreter
+/// stops seeing its entries and back edges, so the native tier reports its
+/// own (see [`Self::record_native_calls`] / [`Self::record_native_loops`]).
+/// That is what lets the second gate be crossed at all.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct HotnessState {
     calls: u32,
     loops: u32,
-    queued: bool,
 }
 
 impl HotnessState {
-    /// Count one function entry; returns true when this is the event that makes
-    /// the function hot and it should be enqueued.
-    pub(crate) fn record_call(&mut self, thresholds: &HotThresholds) -> bool {
+    /// Count one function entry.
+    pub(crate) const fn record_call(&mut self) {
         self.calls = self.calls.saturating_add(1);
-        self.decide(self.calls >= thresholds.calls)
     }
 
     /// Count one taken backward branch.
-    pub(crate) fn record_loop(&mut self, thresholds: &HotThresholds) -> bool {
+    pub(crate) const fn record_loop(&mut self) {
         self.loops = self.loops.saturating_add(1);
-        self.decide(self.loops >= thresholds.loops)
     }
 
-    fn decide(&mut self, hot: bool) -> bool {
-        if hot && !self.queued {
-            self.queued = true;
-            true
-        } else {
-            false
-        }
+    /// Count the activations the native tier ran for this function.
+    pub(crate) const fn record_native_calls(&mut self, n: u32) {
+        self.calls = self.calls.saturating_add(n);
     }
 
-    pub(crate) fn clear_queued(&mut self) {
-        self.queued = false;
+    /// Count the back edges the native tier ran for this function.
+    pub(crate) const fn record_native_loops(&mut self, n: u32) {
+        self.loops = self.loops.saturating_add(n);
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn calls(&self) -> u32 {
+        self.calls
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn loops(&self) -> u32 {
+        self.loops
+    }
+
+    /// Whether the first gate is crossed.
+    pub(crate) const fn crossed_first_gate(&self, th: &HotThresholds) -> bool {
+        self.calls >= th.calls || self.loops >= th.loops
+    }
+
+    /// Whether the second gate is crossed.
+    pub(crate) const fn crossed_second_gate(&self, th: &HotThresholds) -> bool {
+        self.calls >= th.tier2_calls || self.loops >= th.tier2_loops
     }
 }
 
@@ -173,11 +235,15 @@ impl HotnessState {
 mod tests {
     use super::*;
 
+    /// The production base plus the second gate (plan §13.6.5 item 1).
+    const BASE: (u32, u32, u32, u32) = (32, 56, 1024, 2048);
+
     #[test]
     fn without_measurements_the_base_is_unchanged() {
-        let th = AdaptiveInputs::default().thresholds(32, 56);
+        let th = AdaptiveInputs::default().thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
         assert_eq!(th.calls, 32);
         assert_eq!(th.loops, 56);
+        assert_eq!((th.tier2_calls, th.tier2_loops), (1024, 2048));
         assert_eq!(th.reason, HotReason::NeutralBase);
     }
 
@@ -192,8 +258,9 @@ mod tests {
             measured_work: None,
             ..AdaptiveInputs::default()
         };
-        let th = inputs.thresholds(32, 56);
+        let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
         assert_eq!((th.calls, th.loops), (64, 112));
+        assert_eq!((th.tier2_calls, th.tier2_loops), (2048, 4096));
         assert_eq!(th.reason, HotReason::HelperDensity);
     }
 
@@ -203,8 +270,9 @@ mod tests {
             measured_work: Some(4096),
             ..AdaptiveInputs::default()
         };
-        let th = inputs.thresholds(32, 56);
+        let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
         assert_eq!(th.calls, 16);
+        assert_eq!(th.tier2_calls, 512);
         assert_eq!(th.reason, HotReason::MeasuredWork);
     }
 
@@ -216,7 +284,7 @@ mod tests {
             measured_work: Some(1),
             ..AdaptiveInputs::default()
         };
-        let th = inputs.thresholds(32, 56);
+        let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
         assert_eq!(th.calls, 64);
         assert_eq!(th.reason, HotReason::HelperDensity);
     }
@@ -229,7 +297,10 @@ mod tests {
             bytecode_bytes: 4096,
             measured_work: Some(1),
         };
-        assert_eq!(inputs.thresholds(32, 56).reason, HotReason::BytecodeScale);
+        assert_eq!(
+            inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3).reason,
+            HotReason::BytecodeScale
+        );
     }
 
     #[test]
@@ -240,7 +311,7 @@ mod tests {
             bytecode_bytes: 8192,
             measured_work: Some(4096),
         };
-        let th = inputs.thresholds(1, 1);
+        let th = inputs.thresholds(1, 1, BASE.2, BASE.3);
         assert_eq!((th.calls, th.loops), (1, 1), "the host asked for eager");
         assert_eq!(th.reason, HotReason::NeutralBase);
     }
@@ -265,16 +336,24 @@ mod tests {
         assert!(inputs.measured_work.is_none());
     }
 
+    /// The two gates are independent: the first one is crossed by the counts
+    /// the interpreter sees, the second one by the counts the *native* tier
+    /// reports back (the interpreter stops counting once the code is
+    /// installed).
     #[test]
-    fn crosses_each_threshold_exactly_once() {
-        let th = HotThresholds::neutral(2, 2);
+    fn the_two_gates_are_counted_separately() {
+        let th = HotThresholds::neutral(2, 2, 10, 10);
         let mut state = HotnessState::default();
-        assert!(!state.record_call(&th));
-        assert!(state.record_call(&th), "second entry crosses");
-        assert!(!state.record_call(&th), "already queued");
-        assert!(!state.record_loop(&th), "below the loop threshold");
-        state.clear_queued();
-        assert!(state.record_loop(&th), "loop threshold after clear");
-        assert!(!state.record_loop(&th), "queued again");
+        state.record_call();
+        assert!(!state.crossed_first_gate(&th));
+        state.record_call();
+        assert!(state.crossed_first_gate(&th), "the second entry crosses");
+        assert!(!state.crossed_second_gate(&th));
+
+        // The native tier reports its own work into the same counters.
+        state.record_native_loops(10);
+        assert!(state.crossed_second_gate(&th), "the native back edges do");
+        assert_eq!(state.loops(), 10);
+        assert_eq!(state.calls(), 2);
     }
 }

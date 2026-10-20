@@ -44,8 +44,10 @@ let mut rt = zuqe::Runtime::create()?;
 let mut ctx = rt.create_context(zuqe::ScopedContext::ECMA_CONTEXT_SETUP)?;
 let jit = Jit::attach_to(&rt, JitConfig::builder()
     .tier_policy(JitTierPolicy::Automatic)   // production default
-    .call_threshold(32)                      // limit before a function is queued
-    .loop_threshold(56)                      // limit before a back edge queues it
+    .call_threshold(32)                      // gate 1: queue the function
+    .loop_threshold(56)                      // gate 1: a back edge queues it
+    .tier2_call_threshold(1024)              // gate 2: promote to the optimizing tier
+    .tier2_loop_threshold(2048)              // gate 2: …or this many back edges
     .build())?;
 
 ctx.eval("for (var i = 0, s = 0; i < 1e6; i++) s += i;".as_bytes(),
@@ -74,10 +76,12 @@ println!("{:?}", jit.metrics());
   must be fully manual.
 - `JitMetrics` — function entries, back edges, queue length/drops,
   verified/rejected/compiled counts, native entries, interrupts, compile
-  failures/timeouts, speculative fast-path counts, code bytes.
+  failures/timeouts, speculative fast-path counts, code bytes, and the tiering
+  counters (`tier2_promotions`, `functions_recompiled`, `tier_downs`).
 - Tiers: `Interpreter` (hooks inert), `Tier1` (baseline only), `Tier2` (always
-  specialize what feedback recorded), `Automatic` (default; tier chosen from
-  hotness, specialization gated on evidence).
+  specialize what feedback recorded), `Automatic` (default; two gates — the
+  first compiles the baseline tier, the second promotes the function to the
+  optimizing tier, and the specialization is gated on evidence).
 
 ## How it works
 
@@ -209,6 +213,7 @@ is not a preemptive deadline (compilation is inline).
 | Native vs interpreter, exceptions, interrupts | `tests/jit/jit_verify.rs`, `jit_interrupt.rs` | `cargo test --features jit --test jit` |
 | Tier feedback / speculation | `tests/jit/jit_feedback.rs` | `cargo test --features jit --test jit jit_feedback` |
 | Bench matrix (35 kernels × 4 modes) | `examples/jit-bench.rs`, `tests/jit/jit-bench-matrix.sh` | `./tests/jit/jit-bench-matrix.sh --protocol process` |
+| Compile-threshold sweep | `tests/jit/jit-threshold-grid.sh` | `./tests/jit/jit-threshold-grid.sh` |
 | Feature-gating / hardening gates | `tests/jit/ci-gate.sh`, `tests/jit/ci-sanitize.sh`, `.github/workflows/ci.yml` | `./tests/jit/ci-gate.sh` |
 
 ## Current status
@@ -216,9 +221,13 @@ is not a preemptive deadline (compilation is inline).
 Implemented: baseline + Tier-2 lowering, type feedback and guarded
 int/float fast paths, tier-down, property/array access helpers with inline
 caches, global-variable helpers, cross-block residency / DCE / CSE, native calls
-(route A), inline back-edge OSR, code-cache retirement, metrics/quotas, and the
+(route A), inline back-edge OSR, code-cache retirement, metrics/quotas, the
 background compilation thread (`jit_background`, in `default`; `Jit::poll` only
-dispatches, drains and installs).
+dispatches, drains and installs), and the two-gate tiering (a first gate
+compiles the baseline tier, a second gate promotes the function to the
+optimizing tier; the native tier reports its own activations and back edges
+back into the hotness counters, and a demoted function waits out a cooldown
+before it is promoted again).
 
 Not implemented: single-shape inline calls (D-6 route B), macOS/Windows
 executable memory, and real-hardware aarch64 validation. ASan is blocked by the

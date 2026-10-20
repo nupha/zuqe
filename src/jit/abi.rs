@@ -133,6 +133,12 @@ pub(crate) struct JitExecFrame {
     /// per activation (not per function) keeps recursive calls from
     /// double-counting.
     pub guard_misses: u32,
+    /// Loop back edges this activation ran. The safepoint helper counts them
+    /// (it runs on every back edge), and `invoke_native` folds the count into
+    /// the function's hotness counters: the interpreter stops counting once
+    /// the code is installed, so the second gate (plan §13.6.5 item 1) needs
+    /// the native tier's own back-edge count.
+    pub backedges: u32,
 }
 
 /// The compiled entry. Returns a [`JitExitKind`] as a `u32`.
@@ -154,12 +160,18 @@ pub(crate) const SPEC_MISS_IMM2: u32 = u32::MAX;
 /// [`CodeSlot`]: crate::jit::code_cache::CodeSlot
 pub(crate) struct FunctionSlot {
     slot: std::cell::UnsafeCell<Option<std::rc::Rc<crate::jit::code_cache::CodeSlot>>>,
+    /// Whether the installed code is at the **baseline** tier, i.e. whether
+    /// it may still be promoted to the optimizing tier (TH2's second gate).
+    /// Only such a function needs the native tier's per-call bookkeeping —
+    /// the flag sits next to the entry pointer, so the check is a cache hit.
+    promotable: std::cell::Cell<bool>,
 }
 
 impl Default for FunctionSlot {
     fn default() -> Self {
         Self {
             slot: std::cell::UnsafeCell::new(None),
+            promotable: std::cell::Cell::new(false),
         }
     }
 }
@@ -185,6 +197,19 @@ impl FunctionSlot {
     pub(crate) fn install(&self, slot: std::rc::Rc<crate::jit::code_cache::CodeSlot>) {
         // SAFETY: single-threaded; see the type's note.
         unsafe { *self.slot.get() = Some(slot) };
+    }
+
+    /// Whether the installed code may still be promoted to the optimizing
+    /// tier (TH2's second gate).
+    #[inline]
+    pub(crate) fn promotable(&self) -> bool {
+        self.promotable.get()
+    }
+
+    /// Record whether the installed code may still be promoted.
+    #[inline]
+    pub(crate) fn set_promotable(&self, promotable: bool) {
+        self.promotable.set(promotable);
     }
 }
 
@@ -1268,6 +1293,10 @@ unsafe extern "C" fn h_put_var_ref_check_init(f: *mut JitExecFrame) -> u32 {
 unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
+        // The back edge is the native tier's hotness signal: the interpreter
+        // stops counting them once the code is installed, and the second
+        // gate (plan §13.6.5 item 1) needs them.
+        f.backedges = f.backedges.saturating_add(1);
         let scope = scope_of(f);
         if scope.poll_interrupts() {
             return HELPER_INTERRUPT;

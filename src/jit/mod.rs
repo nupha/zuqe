@@ -53,7 +53,7 @@ use {
     abi::{HELPERS, JitExecFrame},
     bytecode::{VerifyLimits, verify},
     code_cache::CodeCache,
-    runtime::{CompileOutcome, Coordinator},
+    runtime::{CompileOutcome, Coordinator, Tier, Tiering},
     snapshot::CompileSnapshot,
 };
 
@@ -78,6 +78,26 @@ use crate::{
     function::Bytecode,
     runtime::{Runtime, RuntimeImpl},
 };
+
+/// How the two gates map onto the two tiers (plan §13.6.5 item 1).
+///
+/// The forced policies ask for a fixed tier, so there is only one gate. The
+/// `Automatic` policy runs the two gates — unless the host asked for an eager
+/// compile (thresholds 1/1): "give me the code at the first event" is not a
+/// request for a tiering experiment, so the top tier is compiled right away.
+const fn tiering_for(cfg: &JitConfig) -> Tiering {
+    match cfg.tier_policy {
+        JitTierPolicy::Tier1 => Tiering::Single(Tier::Tier1),
+        JitTierPolicy::Tier2 => Tiering::Single(Tier::Tier2),
+        _ => {
+            if cfg.call_threshold <= 1 && cfg.loop_threshold <= 1 {
+                Tiering::Single(Tier::Tier2)
+            } else {
+                Tiering::TwoTier
+            }
+        }
+    }
+}
 
 /// State hung off `RuntimeImpl` while a JIT is attached. Single-threaded: the
 /// runtime and its interpreter run on one thread, so `Cell`/`RefCell` suffice.
@@ -117,6 +137,10 @@ impl JitState {
         let coordinator = Coordinator::new(
             cfg.call_threshold,
             cfg.loop_threshold,
+            cfg.tier2_call_threshold,
+            cfg.tier2_loop_threshold,
+            tiering_for(&cfg),
+            cfg.tier2_min_invocations,
             cfg.max_queue_len,
             cfg.max_compile_attempts,
             cfg.compile_timeout_ms,
@@ -218,8 +242,8 @@ impl JitState {
         m.function_entries = m.function_entries.saturating_add(1);
         let measured = bc.feedback_samples();
         let mut coordinator = self.coordinator.borrow_mut();
-        if coordinator.record_call(&mut m, id, bc.opcodes(), measured) {
-            coordinator.enqueue(&mut m, id, Some(*bc));
+        if let Some(tier) = coordinator.record_call(&mut m, id, bc.opcodes(), measured) {
+            coordinator.enqueue(&mut m, id, Some(*bc), tier);
         }
         // Enqueueing here (a call-count hot function) must also ask for a poll:
         // the trampoline polls at its next frame boundary, so the callee can run
@@ -230,6 +254,52 @@ impl JitState {
         }
         drop(coordinator);
         self.metrics.set(m);
+    }
+
+    /// The native tier reports its own work back into the hotness counters.
+    ///
+    /// The interpreter only counts entries and back edges of *interpreted*
+    /// frames, so a compiled function's counters would freeze at the moment
+    /// its code was installed — and the second gate (plan §13.6.5 item 1)
+    /// would never be crossed. The native tier therefore reports the
+    /// activations it ran and the back edges its loops took.
+    ///
+    /// Only a function that may still be promoted reports at all: an
+    /// optimizing-tier function has nothing left to cross, and the lookup
+    /// would cost more than the call it rides on.
+    fn note_native_work(&self, bc: &Bytecode, activation: bool, backedges: u32) {
+        if self.disabled() {
+            return;
+        }
+        let id = function_id(bc);
+        let mut coordinator = self.coordinator.borrow_mut();
+        let mut tier = None;
+        if activation {
+            tier = coordinator.record_native_call(id, 1);
+        }
+        if let Some(promoted) = coordinator.record_native_loops(id, backedges) {
+            tier = tier.or(Some(promoted));
+        }
+        // The metrics are only touched when a promotion is queued: copying
+        // the counter block on every native call would cost more than the
+        // call itself.
+        if let Some(tier) = tier {
+            let mut m = self.metrics.get();
+            coordinator.enqueue(&mut m, id, Some(*bc), tier);
+            drop(coordinator);
+            self.poll_requested.set(true);
+            self.metrics.set(m);
+            return;
+        }
+        drop(coordinator);
+    }
+
+    /// Keep the function's "may still be promoted" flag in step with its tier:
+    /// only a baseline-tier function can be promoted, so only it needs the
+    /// native tier's per-call bookkeeping.
+    fn sync_promotable(&self, bytecode: &Bytecode, id: u64) {
+        let promotable = self.coordinator.borrow().tier(id) == Tier::Tier1;
+        bytecode.jit_slot().set_promotable(promotable);
     }
 
     /// P7 7.2: fold one activation's speculative guard misses into the
@@ -246,7 +316,9 @@ impl JitState {
         let mut coordinator = self.coordinator.borrow_mut();
         coordinator.note_guard_misses(id, misses);
         if coordinator.needs_tier_down_requeue(id) {
-            coordinator.enqueue(&mut m, id, Some(*bc));
+            // The demotion compiles the baseline tier, whatever the function's
+            // tier was.
+            coordinator.enqueue(&mut m, id, Some(*bc), Tier::Tier1);
             self.poll_requested.set(true);
         }
         drop(coordinator);
@@ -278,8 +350,8 @@ impl JitState {
         m.backedges = m.backedges.saturating_add(1);
         let measured = bc.feedback_samples();
         let mut coordinator = self.coordinator.borrow_mut();
-        if coordinator.record_loop(&mut m, id, bc.opcodes(), measured) {
-            coordinator.enqueue(&mut m, id, Some(*bc));
+        if let Some(tier) = coordinator.record_loop(&mut m, id, bc.opcodes(), measured) {
+            coordinator.enqueue(&mut m, id, Some(*bc), tier);
         }
         // P6 5.1: there is work for the compiler; ask the trampoline to poll at
         // its next safe iteration (a no-op unless the host opted in).
@@ -363,6 +435,7 @@ impl JitState {
             self.coordinator
                 .borrow_mut()
                 .complete(&mut m, request.function_id, outcome);
+            self.sync_promotable(&request.bytecode, request.function_id);
         }
 
         self.finish_poll(&mut m);
@@ -458,6 +531,9 @@ impl JitState {
             JobResult::Failed => CompileOutcome::Failed,
         };
         self.coordinator.borrow_mut().complete(m, id, outcome);
+        if let Some(bytecode) = pinned {
+            self.sync_promotable(&bytecode, id);
+        }
     }
 
     /// Build the pointer-free snapshot of a request: the tier-2 profitability
@@ -472,7 +548,13 @@ impl JitState {
         };
         let mut snapshot =
             CompileSnapshot::from_bytecode(request.function_id, &request.bytecode, min_samples);
-        snapshot.speculate = self.coordinator.borrow().speculate(request.function_id);
+        // Only the optimizing tier specializes; a pending tier-down forbids it
+        // even if the request asked for the optimizing tier.
+        snapshot.speculate = request.tier == Tier::Tier2
+            && !self
+                .coordinator
+                .borrow()
+                .tier_down_pending(request.function_id);
         snapshot
     }
 
@@ -772,6 +854,7 @@ pub(crate) fn invoke_native(
         new_target,
         home_obj,
         guard_misses: 0,
+        backedges: 0,
     };
     // SAFETY: `entry` was produced by `compile` for this exact bytecode layout
     // and ABI, and the slot is only populated while the code cache keeps the
@@ -805,6 +888,14 @@ pub(crate) fn invoke_native(
     // P7 7.2: feed the same count to the function's record so a function whose
     // guards miss too often is recompiled without speculation.
     state.note_guard_misses(bc, frame.guard_misses);
+    // The native tier's own work: the interpreter stopped counting this
+    // function's entries and back edges when the code was installed, so the
+    // second gate (plan §13.6.5 item 1) is fed from here. Only a function
+    // that may still be promoted reports at all, so the check is a load next
+    // to the entry pointer.
+    if bc.jit_slot().promotable() {
+        state.note_native_work(bc, pc == 0, frame.backedges);
+    }
 
     Some((kind, frame))
 }

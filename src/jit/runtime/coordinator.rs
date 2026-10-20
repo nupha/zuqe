@@ -23,7 +23,7 @@ use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{function::Bytecode, jit::metrics::JitMetrics};
 
-use super::hotness::{AdaptiveInputs, HotThresholds, HotnessState};
+use super::hotness::{AdaptiveInputs, HotThresholds, HotnessState, Tier};
 
 /// Where a function is in its compile lifecycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +38,18 @@ pub(crate) enum Lifecycle {
     Installed,
     /// Never compiled again: rejected by the frontend, or out of attempts.
     Settled,
+}
+
+/// How the two gates map onto the two tiers (plan §13.6.5 item 1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Tiering {
+    /// One tier only: every compile produces it. The forced policies ask for
+    /// a fixed tier, and an eager host (thresholds 1/1) asks for the code at
+    /// the first event — there is no room for a tiering experiment.
+    Single(Tier),
+    /// Two gates: the first compiles the baseline tier, the second one
+    /// promotes the function to the optimizing tier.
+    TwoTier,
 }
 
 /// How one compile attempt ended. `Installed`/`Failed`/`TimedOut` all imply the
@@ -55,12 +67,22 @@ pub(crate) enum CompileOutcome {
 pub(crate) struct Request {
     pub(crate) function_id: u64,
     pub(crate) bytecode: Bytecode,
+    /// The tier this attempt must produce.
+    pub(crate) tier: Tier,
 }
 
 struct FunctionRecord {
     hotness: HotnessState,
     thresholds: HotThresholds,
     lifecycle: Lifecycle,
+    /// The tier of the installed code (`Cold` while there is none).
+    tier: Tier,
+    /// The tier the queued attempt must produce.
+    pending_tier: Tier,
+    /// A compile is already queued: the "queue exactly once" invariant. It is
+    /// cleared when the attempt lands (so the second gate can queue the
+    /// promotion) and when the function is invalidated.
+    queued: bool,
     attempts: u32,
     /// Whether `functions_verified`/`functions_rejected` already counted this
     /// function. Verification is deterministic, so it is counted once even
@@ -74,9 +96,10 @@ struct FunctionRecord {
     guard_misses: u64,
     /// Tier-down requested: the next compile must not speculate.
     tier_down: bool,
-    /// Whether the *currently installed* code may speculate. Cleared once a
-    /// tier-down recompile installs, so the function is not re-queued forever.
-    speculate: bool,
+    /// Invocations still required before the function may be promoted again
+    /// (V8's `minimum_invocations_after_ic_update`). It keeps the promotion
+    /// and the tier-down from chasing each other.
+    cooldown: u32,
 }
 
 /// P7 7.2: how many speculative guard misses one function may take before it is
@@ -91,15 +114,24 @@ pub(crate) struct Coordinator {
     queue: VecDeque<u64>,
     base_calls: u32,
     base_loops: u32,
+    base_tier2_calls: u32,
+    base_tier2_loops: u32,
+    tiering: Tiering,
+    tier2_min_invocations: u32,
     max_queue_len: usize,
     max_attempts: u32,
     timeout: Duration,
 }
 
 impl Coordinator {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         base_calls: u32,
         base_loops: u32,
+        base_tier2_calls: u32,
+        base_tier2_loops: u32,
+        tiering: Tiering,
+        tier2_min_invocations: u32,
         max_queue_len: usize,
         max_attempts: u32,
         compile_timeout_ms: u64,
@@ -109,6 +141,10 @@ impl Coordinator {
             queue: VecDeque::new(),
             base_calls,
             base_loops,
+            base_tier2_calls,
+            base_tier2_loops,
+            tiering,
+            tier2_min_invocations,
             max_queue_len,
             max_attempts,
             timeout: Duration::from_millis(compile_timeout_ms),
@@ -119,21 +155,32 @@ impl Coordinator {
         self.timeout
     }
 
-    /// Count a function entry. Returns true when it just became hot and the
-    /// caller should [`Self::enqueue`] it.
+    /// The tier the first gate produces.
+    const fn first_tier(&self) -> Tier {
+        match self.tiering {
+            Tiering::Single(tier) => tier,
+            Tiering::TwoTier => Tier::Tier1,
+        }
+    }
+
+    /// Count a function entry. Returns the tier to compile when this event
+    /// makes the function hot.
     pub(crate) fn record_call(
         &mut self,
         m: &mut JitMetrics,
         id: u64,
         opcodes: &[u8],
         measured_work: u32,
-    ) -> bool {
+    ) -> Option<Tier> {
         let first = !self.records.contains_key(&id);
         if first {
             m.distinct_functions = m.distinct_functions.saturating_add(1);
         }
+        let tier = self.first_tier();
         let record = self.record_mut(id, opcodes, measured_work);
-        record.hotness.record_call(&record.thresholds)
+        record.hotness.record_call();
+        record.cooldown = record.cooldown.saturating_sub(1);
+        Self::crossed_first_gate(record, tier)
     }
 
     /// Count a taken backward branch; same contract as `record_call`.
@@ -143,27 +190,88 @@ impl Coordinator {
         id: u64,
         opcodes: &[u8],
         measured_work: u32,
-    ) -> bool {
+    ) -> Option<Tier> {
+        let tier = self.first_tier();
         let record = self.record_mut(id, opcodes, measured_work);
-        record.hotness.record_loop(&record.thresholds)
+        record.hotness.record_loop();
+        Self::crossed_first_gate(record, tier)
+    }
+
+    /// Count the activations the native tier ran for a function. The
+    /// interpreter stops counting once the code is installed, so without this
+    /// the second gate could never be crossed.
+    pub(crate) fn record_native_call(&mut self, id: u64, activations: u32) -> Option<Tier> {
+        if activations == 0 {
+            return None;
+        }
+        let two_tier = matches!(self.tiering, Tiering::TwoTier);
+        let record = self.records.get_mut(&id)?;
+        record.hotness.record_native_calls(activations);
+        record.cooldown = record.cooldown.saturating_sub(activations);
+        Self::crossed_second_gate(record, two_tier)
+    }
+
+    /// Count the back edges the native tier ran for a function.
+    pub(crate) fn record_native_loops(&mut self, id: u64, backedges: u32) -> Option<Tier> {
+        if backedges == 0 {
+            return None;
+        }
+        let two_tier = matches!(self.tiering, Tiering::TwoTier);
+        let record = self.records.get_mut(&id)?;
+        record.hotness.record_native_loops(backedges);
+        Self::crossed_second_gate(record, two_tier)
+    }
+
+    /// The first gate: a function that has no code yet is compiled as soon as
+    /// it is hot. Returns the tier to compile.
+    fn crossed_first_gate(record: &mut FunctionRecord, tier: Tier) -> Option<Tier> {
+        if record.queued
+            || !matches!(record.lifecycle, Lifecycle::Cold)
+            || !record.hotness.crossed_first_gate(&record.thresholds)
+        {
+            return None;
+        }
+        record.queued = true;
+        Some(tier)
+    }
+
+    /// The second gate: a function that already runs natively is promoted to
+    /// the optimizing tier once it is hot enough. The tier-down's cooldown
+    /// blocks it, so a demoted function is not promoted right back.
+    fn crossed_second_gate(record: &mut FunctionRecord, two_tier: bool) -> Option<Tier> {
+        if !two_tier
+            || record.queued
+            || record.cooldown > 0
+            || record.tier != Tier::Tier1
+            || !matches!(record.lifecycle, Lifecycle::Installed)
+            || !record.hotness.crossed_second_gate(&record.thresholds)
+        {
+            return None;
+        }
+        record.queued = true;
+        Some(Tier::Tier2)
     }
 
     fn record_mut(&mut self, id: u64, opcodes: &[u8], measured_work: u32) -> &mut FunctionRecord {
         let (base_calls, base_loops) = (self.base_calls, self.base_loops);
+        let (base_tier2_calls, base_tier2_loops) = (self.base_tier2_calls, self.base_tier2_loops);
         self.records.entry(id).or_insert_with(|| {
             let thresholds = AdaptiveInputs::from_opcodes(opcodes)
                 .with_measured_work(measured_work)
-                .thresholds(base_calls, base_loops);
+                .thresholds(base_calls, base_loops, base_tier2_calls, base_tier2_loops);
             FunctionRecord {
                 hotness: HotnessState::default(),
                 thresholds,
                 lifecycle: Lifecycle::Cold,
+                tier: Tier::Cold,
+                pending_tier: Tier::Tier1,
+                queued: false,
                 attempts: 0,
                 verify_counted: false,
                 pinned: None,
                 guard_misses: 0,
                 tier_down: false,
-                speculate: true,
+                cooldown: 0,
             }
         })
     }
@@ -171,7 +279,13 @@ impl Coordinator {
     /// Move a now-hot function into the queue. A full queue drops the request
     /// but leaves the function marked queued, so it is not re-snapshotted on
     /// every subsequent entry. `bytecode` is `None` only in unit tests.
-    pub(crate) fn enqueue(&mut self, m: &mut JitMetrics, id: u64, bytecode: Option<Bytecode>) {
+    pub(crate) fn enqueue(
+        &mut self,
+        m: &mut JitMetrics,
+        id: u64,
+        bytecode: Option<Bytecode>,
+        tier: Tier,
+    ) {
         if self.queue.len() >= self.max_queue_len {
             m.queue_drops = m.queue_drops.saturating_add(1);
             return;
@@ -181,6 +295,7 @@ impl Coordinator {
         };
         record.pinned = bytecode;
         record.lifecycle = Lifecycle::Queued;
+        record.pending_tier = tier;
         self.queue.push_back(id);
         m.functions_queued = m.functions_queued.saturating_add(1);
         m.queue_len = self.queue.len() as u64;
@@ -199,15 +314,28 @@ impl Coordinator {
                 continue;
             };
             record.lifecycle = Lifecycle::Compiling;
+            // A pending tier-down demotes the attempt to the baseline tier,
+            // whatever was requested. The effective tier stays with the record
+            // until the attempt lands, so the background model can report it
+            // without carrying it through the worker.
+            let tier = if record.tier_down {
+                Tier::Tier1
+            } else {
+                record.pending_tier
+            };
+            record.pending_tier = tier;
             return Some(Request {
                 function_id: id,
                 bytecode,
+                tier,
             });
         }
         None
     }
 
     /// Record the result of one attempt, retrying or settling as configured.
+    /// The tier comes from the record: the attempt's own tier, unless a
+    /// tier-down demoted it.
     pub(crate) fn complete(&mut self, m: &mut JitMetrics, id: u64, outcome: CompileOutcome) {
         let mut requeue = false;
         {
@@ -217,12 +345,27 @@ impl Coordinator {
             match outcome {
                 CompileOutcome::Installed => {
                     count_verified(m, record);
+                    let previous = record.tier;
+                    let tier = record.pending_tier;
                     record.lifecycle = Lifecycle::Installed;
                     record.pinned = None;
-                    // A tier-down recompile has landed: the installed code no
-                    // longer speculates, so stop re-queueing it.
+                    record.queued = false;
                     if record.tier_down {
-                        record.speculate = false;
+                        // A tier-down landed: the installed code no longer
+                        // speculates, and the promotion waits for a while
+                        // (V8's `minimum_invocations_after_ic_update`).
+                        record.tier = Tier::Tier1;
+                        record.tier_down = false;
+                        record.cooldown = self.tier2_min_invocations;
+                        m.tier_downs = m.tier_downs.saturating_add(1);
+                    } else {
+                        record.tier = tier;
+                        if tier == Tier::Tier2 && previous == Tier::Tier1 {
+                            m.tier2_promotions = m.tier2_promotions.saturating_add(1);
+                        }
+                    }
+                    if previous != Tier::Cold {
+                        m.functions_recompiled = m.functions_recompiled.saturating_add(1);
                     }
                     m.functions_compiled = m.functions_compiled.saturating_add(1);
                 }
@@ -261,14 +404,17 @@ impl Coordinator {
 
     /// Return a function to `Cold` after its code was discarded, so it can be
     /// compiled again if it becomes hot. Called when the code cache retires a
-    /// live mapping (D-16).
+    /// live mapping (D-16). The hotness counters go with it: the code is
+    /// gone, so the function has to become hot again from scratch.
     pub(crate) fn invalidate(&mut self, id: u64) {
         if let Some(record) = self.records.get_mut(&id) {
             record.lifecycle = Lifecycle::Cold;
             record.pinned = None;
             record.attempts = 0;
             record.verify_counted = false;
-            record.hotness.clear_queued();
+            record.queued = false;
+            record.tier = Tier::Cold;
+            record.hotness = HotnessState::default();
         }
     }
 
@@ -287,20 +433,27 @@ impl Coordinator {
         }
     }
 
-    /// Whether the compiler may specialize this function (P7 7.2: false once
-    /// tier-down asked for a non-speculative compile).
-    pub(crate) fn speculate(&self, id: u64) -> bool {
-        self.records
-            .get(&id)
-            .is_none_or(|record| record.speculate && !record.tier_down)
+    /// Whether a tier-down is pending for this function: the next compile
+    /// must not speculate, whatever tier it asks for.
+    pub(crate) fn tier_down_pending(&self, id: u64) -> bool {
+        self.records.get(&id).is_some_and(|record| record.tier_down)
     }
 
     /// Whether an installed function should be re-queued for a non-speculative
     /// recompile (P7 7.2).
     pub(crate) fn needs_tier_down_requeue(&self, id: u64) -> bool {
         self.records.get(&id).is_some_and(|record| {
-            record.tier_down && record.speculate && matches!(record.lifecycle, Lifecycle::Installed)
+            record.tier_down
+                && record.tier == Tier::Tier2
+                && matches!(record.lifecycle, Lifecycle::Installed)
         })
+    }
+
+    /// The tier of a function's installed code (`Cold` when it has none).
+    pub(crate) fn tier(&self, id: u64) -> Tier {
+        self.records
+            .get(&id)
+            .map_or(Tier::Cold, |record| record.tier)
     }
 
     pub(crate) fn queue_len(&self) -> usize {
@@ -352,15 +505,49 @@ fn count_verified(m: &mut JitMetrics, record: &mut FunctionRecord) {
 mod tests {
     use super::*;
 
+    /// A coordinator with the two gates: the first at `calls`/`loops`, the
+    /// second at `tier2_calls`/`tier2_loops`.
+    fn two_tier(
+        calls: u32,
+        loops: u32,
+        tier2_calls: u32,
+        tier2_loops: u32,
+        max_attempts: u32,
+    ) -> Coordinator {
+        Coordinator::new(
+            calls,
+            loops,
+            tier2_calls,
+            tier2_loops,
+            Tiering::TwoTier,
+            500,
+            8,
+            max_attempts,
+            30_000,
+        )
+    }
+
     fn coordinator(max_attempts: u32) -> Coordinator {
-        Coordinator::new(1, 1, 8, max_attempts, 30_000)
+        Coordinator::new(
+            1,
+            1,
+            1024,
+            2048,
+            Tiering::Single(Tier::Tier2),
+            500,
+            8,
+            max_attempts,
+            30_000,
+        )
     }
 
     /// Drive a function to hot and queue it (no bytecode pin in tests).
     fn make_hot(c: &mut Coordinator, m: &mut JitMetrics, id: u64) {
         let opcodes = [crate::bytecode::opcodes::OP_return_undef];
-        assert!(c.record_call(m, id, &opcodes, 0), "should become hot");
-        c.enqueue(m, id, None);
+        let tier = c
+            .record_call(m, id, &opcodes, 0)
+            .expect("should become hot");
+        c.enqueue(m, id, None, tier);
     }
 
     /// Simulate `poll` taking the next request off the queue.
@@ -380,55 +567,71 @@ mod tests {
 
         // Production base (32/56) + a little measured work: helper density
         // doubles it, so 64 calls are needed instead of 32.
-        let mut c = Coordinator::new(32, 56, 8, 4, 30_000);
+        let mut c = two_tier(32, 56, 1024, 2048, 4);
         for _ in 0..63 {
             assert!(
-                !c.record_call(&mut m, 1, &helper_dense, 8),
+                c.record_call(&mut m, 1, &helper_dense, 8).is_none(),
                 "64 calls are needed"
             );
         }
         assert!(
-            c.record_call(&mut m, 1, &helper_dense, 8),
+            c.record_call(&mut m, 1, &helper_dense, 8).is_some(),
             "the 64th call is hot"
         );
 
         // Proven work (4096 observations) halves the base instead: the 16th.
-        let mut c = Coordinator::new(32, 56, 8, 4, 30_000);
+        let mut c = two_tier(32, 56, 1024, 2048, 4);
         for _ in 0..15 {
-            assert!(!c.record_call(&mut m, 4, &helper_dense, 4096));
+            assert!(c.record_call(&mut m, 4, &helper_dense, 4096).is_none());
         }
-        assert!(c.record_call(&mut m, 4, &helper_dense, 4096), "16th call");
+        assert!(
+            c.record_call(&mut m, 4, &helper_dense, 4096).is_some(),
+            "16th call"
+        );
 
         // Same function, no measurement (a baseline tier): the *static* helper
         // density still doubles the base, so 64 calls are needed.
-        let mut c = Coordinator::new(32, 56, 8, 4, 30_000);
+        let mut c = two_tier(32, 56, 1024, 2048, 4);
         for _ in 0..63 {
-            assert!(!c.record_call(&mut m, 2, &helper_dense, 0));
+            assert!(c.record_call(&mut m, 2, &helper_dense, 0).is_none());
         }
         assert!(
-            c.record_call(&mut m, 2, &helper_dense, 0),
+            c.record_call(&mut m, 2, &helper_dense, 0).is_some(),
             "the static shape applies without a measurement"
         );
 
         // Eager base: adaptation is skipped, so the first call queues it.
-        let mut c = Coordinator::new(1, 1, 8, 4, 30_000);
-        assert!(c.record_call(&mut m, 3, &helper_dense, 4096));
+        let mut c = coordinator(4);
+        assert!(c.record_call(&mut m, 3, &helper_dense, 4096).is_some());
     }
 
     #[test]
     fn entry_crosses_threshold_once() {
-        let mut c = Coordinator::new(2, 2, 8, 4, 30_000);
+        let mut c = two_tier(2, 2, 1024, 2048, 4);
         let mut m = JitMetrics::default();
         let opcodes = [crate::bytecode::opcodes::OP_return_undef];
-        assert!(!c.record_call(&mut m, 7, &opcodes, 0));
-        assert!(c.record_call(&mut m, 7, &opcodes, 0));
-        assert!(!c.record_call(&mut m, 7, &opcodes, 0), "already queued");
+        assert!(c.record_call(&mut m, 7, &opcodes, 0).is_none());
+        assert!(c.record_call(&mut m, 7, &opcodes, 0).is_some());
+        assert!(
+            c.record_call(&mut m, 7, &opcodes, 0).is_none(),
+            "already queued"
+        );
         assert_eq!(m.distinct_functions, 1);
     }
 
     #[test]
     fn full_queue_drops_without_queueing() {
-        let mut c = Coordinator::new(1, 1, 1, 4, 30_000);
+        let mut c = Coordinator::new(
+            1,
+            1,
+            1024,
+            2048,
+            Tiering::Single(Tier::Tier2),
+            500,
+            1,
+            4,
+            30_000,
+        );
         let mut m = JitMetrics::default();
         make_hot(&mut c, &mut m, 1);
         // Second hot function: the queue is full, so it is dropped.
@@ -483,5 +686,82 @@ mod tests {
             m.functions_verified + m.functions_rejected,
             m.functions_queued
         );
+    }
+
+    /// TH2: the first gate compiles the baseline tier, the second one
+    /// promotes the function to the optimizing tier. The promotion is driven
+    /// by the counts the *native* tier reports back, because the interpreter
+    /// stops counting once the code is installed.
+    #[test]
+    fn the_second_gate_promotes_a_compiled_function() {
+        let mut c = two_tier(2, 2, 4, 8, 4);
+        let mut m = JitMetrics::default();
+        let opcodes = [crate::bytecode::opcodes::OP_return_undef];
+
+        // Two calls cross the first gate: the baseline tier.
+        assert!(c.record_call(&mut m, 1, &opcodes, 0).is_none());
+        let tier = c.record_call(&mut m, 1, &opcodes, 0).expect("hot");
+        assert_eq!(tier, Tier::Tier1);
+        c.enqueue(&mut m, 1, None, tier);
+        dispatch(&mut c);
+        c.complete(&mut m, 1, CompileOutcome::Installed);
+        assert_eq!(
+            c.tier(1),
+            Tier::Tier1,
+            "the baseline tier does not speculate"
+        );
+
+        // The native tier reports one more activation: still below the
+        // second gate (4 calls).
+        assert!(c.record_native_call(1, 1).is_none());
+        // ... and the back edges of a hot loop cross it.
+        let tier = c.record_native_loops(1, 8).expect("promoted");
+        assert_eq!(tier, Tier::Tier2);
+        c.enqueue(&mut m, 1, None, tier);
+        dispatch(&mut c);
+        c.complete(&mut m, 1, CompileOutcome::Installed);
+        assert_eq!(c.tier(1), Tier::Tier2, "the optimizing tier speculates");
+        assert_eq!(m.tier2_promotions, 1);
+        assert_eq!(m.functions_recompiled, 1);
+        assert_eq!(m.functions_compiled, 2);
+    }
+
+    /// TH2: a demoted function (P7 7.2 tier-down) must not be promoted right
+    /// back — the cooldown keeps the two recompiles from chasing each other.
+    #[test]
+    fn a_demoted_function_waits_before_it_is_promoted_again() {
+        let mut c = two_tier(1, 1, 2, 2, 4);
+        let mut m = JitMetrics::default();
+        let opcodes = [crate::bytecode::opcodes::OP_return_undef];
+
+        // First gate: the baseline tier.
+        let tier = c.record_call(&mut m, 1, &opcodes, 0).expect("hot");
+        assert_eq!(tier, Tier::Tier1);
+        c.enqueue(&mut m, 1, None, tier);
+        dispatch(&mut c);
+        c.complete(&mut m, 1, CompileOutcome::Installed);
+        assert_eq!(c.tier(1), Tier::Tier1);
+
+        // Second gate: the optimizing tier.
+        let tier = c.record_native_call(1, 2).expect("promoted");
+        assert_eq!(tier, Tier::Tier2);
+        c.enqueue(&mut m, 1, None, tier);
+        dispatch(&mut c);
+        c.complete(&mut m, 1, CompileOutcome::Installed);
+        assert_eq!(c.tier(1), Tier::Tier2);
+
+        // The guards miss too often: the function is demoted.
+        c.note_guard_misses(1, TIER_DOWN_MISSES as u32);
+        assert!(c.needs_tier_down_requeue(1));
+        c.enqueue(&mut m, 1, None, Tier::Tier1);
+        dispatch(&mut c);
+        c.complete(&mut m, 1, CompileOutcome::Installed);
+        assert_eq!(c.tier(1), Tier::Tier1);
+        assert_eq!(m.tier_downs, 1);
+
+        // The second gate is crossed, but the cooldown blocks the promotion.
+        assert!(c.record_native_call(1, 100).is_none());
+        // ... until enough new invocations have passed.
+        assert!(c.record_native_call(1, 500).is_some(), "cooldown over");
     }
 }

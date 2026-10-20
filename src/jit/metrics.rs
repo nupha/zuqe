@@ -31,6 +31,17 @@ pub struct JitMetrics {
     pub functions_verified: u64,
     /// Functions successfully compiled and installed.
     pub functions_compiled: u64,
+    /// Functions that were compiled again over existing code (a promotion to
+    /// the optimizing tier, or a tier-down). The compile count minus this is
+    /// the number of functions that got native code for the first time.
+    pub functions_recompiled: u64,
+    /// Functions promoted to the optimizing tier (plan §13.6.5 item 1): the
+    /// second gate fired and the function was recompiled with the tier-2
+    /// specialization.
+    pub tier2_promotions: u64,
+    /// Functions demoted by the tier-down (P7 7.2): their speculative fast
+    /// paths missed too often, so they were recompiled without speculation.
+    pub tier_downs: u64,
     /// Times a compiled entry was invoked.
     pub native_entries: u64,
     /// Native entries that exited through `JitExitKind::Interrupt` (a safepoint

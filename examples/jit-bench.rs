@@ -67,14 +67,40 @@ impl Mode {
         }
     }
 
-    /// Eager thresholds so the single warm-up call in `define` queues the
-    /// function, and [`settle`] installs it before any timing starts.
-    fn config(self) -> JitConfig {
+    /// The thresholds this run uses. The default is eager, so the single
+    /// warm-up call in `define` queues the function and [`settle`] installs it
+    /// before any timing starts; `--call-threshold` / `--loop-threshold` (and
+    /// their tier-2 twins) turn the run into a production-threshold sweep.
+    fn config(self, th: &Thresholds) -> JitConfig {
         JitConfig::builder()
-            .call_threshold(1)
-            .loop_threshold(1)
+            .call_threshold(th.call_threshold)
+            .loop_threshold(th.loop_threshold)
+            .tier2_call_threshold(th.tier2_call_threshold)
+            .tier2_loop_threshold(th.tier2_loop_threshold)
             .tier_policy(self.policy())
             .build()
+    }
+}
+
+/// The compile thresholds of one bench run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Thresholds {
+    call_threshold: u32,
+    loop_threshold: u32,
+    tier2_call_threshold: u32,
+    tier2_loop_threshold: u32,
+}
+
+impl Default for Thresholds {
+    /// Eager (1/1): the bench measures the *code*, not the tiering. A
+    /// production-threshold run passes `--call-threshold` / `--loop-threshold`.
+    fn default() -> Self {
+        Self {
+            call_threshold: 1,
+            loop_threshold: 1,
+            tier2_call_threshold: 1024,
+            tier2_loop_threshold: 2048,
+        }
     }
 }
 
@@ -511,6 +537,48 @@ fn eval(ctx: &mut Context, src: &[u8]) -> JSValue {
     .unwrap()
 }
 
+/// Parse the compile thresholds: `--call-threshold N`, `--loop-threshold N`,
+/// `--tier2-call-threshold N`, `--tier2-loop-threshold N`. Unset flags keep
+/// the default (eager 1/1 for the first gate).
+fn parse_thresholds(args: &[String]) -> Thresholds {
+    let mut th = Thresholds::default();
+    let mut set = |flag: &str, slot: &mut u32| {
+        let Some(i) = args.iter().position(|a| a == flag) else {
+            return;
+        };
+        let Some(value) = args.get(i + 1).and_then(|v| v.parse::<u32>().ok()) else {
+            eprintln!("{flag} needs a number");
+            std::process::exit(2);
+        };
+        *slot = value.max(1);
+    };
+    set("--call-threshold", &mut th.call_threshold);
+    set("--loop-threshold", &mut th.loop_threshold);
+    set("--tier2-call-threshold", &mut th.tier2_call_threshold);
+    set("--tier2-loop-threshold", &mut th.tier2_loop_threshold);
+    th
+}
+
+/// The kernels to run: `--kernel <name>` picks one (for a focused
+/// measurement); without it every kernel runs.
+fn parse_kernels(args: &[String]) -> Vec<&'static Kernel> {
+    let Some(i) = args.iter().position(|a| a == "--kernel") else {
+        return KERNELS.iter().collect();
+    };
+    let Some(name) = args.get(i + 1) else {
+        eprintln!("--kernel needs a kernel name");
+        std::process::exit(2);
+    };
+    let kernel = KERNELS
+        .iter()
+        .find(|k| k.name == name.as_str())
+        .unwrap_or_else(|| {
+            eprintln!("unknown kernel {name:?}");
+            std::process::exit(2);
+        });
+    vec![kernel]
+}
+
 /// Result digest used for the cross-mode equality check. Kernels may return a
 /// number or a string (many reference kernels build a report string), so a
 /// number keeps its exact bit pattern and a string is folded into a 64-bit FNV
@@ -537,17 +605,29 @@ struct Run {
     result: u64,
     median: Duration,
     compiled: u64,
+    /// Functions promoted to the optimizing tier (TH2's second gate).
+    promotions: u64,
+    /// Sites that got a tier-2 speculative fast path.
+    specialized: u64,
 }
 
-fn run_kernel(kernel: &Kernel, mode: Mode) -> Run {
+fn run_kernel(kernel: &Kernel, mode: Mode, th: &Thresholds) -> Run {
     let mut rt = Runtime::create().unwrap();
     let mut ctx = rt
         .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
         .unwrap();
-    let jit = Jit::attach_to(&rt, mode.config()).unwrap();
+    let jit = Jit::attach_to(&rt, mode.config(th)).unwrap();
     eval(&mut ctx, kernel.define.as_bytes());
     settle(&jit);
-    let compiled = jit.metrics().functions_compiled;
+
+    // Verify run first, then warm-up (discarded), then timed rounds. The
+    // verify run is where a production-threshold run crosses the hotness
+    // gate, so the JIT is settled again before the timed window: the rounds
+    // must measure installed code, not a compile.
+    let result = digest(&eval(&mut ctx, kernel.work.as_bytes()));
+    settle(&jit);
+    let metrics = jit.metrics();
+    let compiled = metrics.functions_compiled;
     match mode {
         Mode::Interpreter => assert_eq!(
             compiled, 0,
@@ -561,33 +641,31 @@ fn run_kernel(kernel: &Kernel, mode: Mode) -> Run {
             mode.label()
         ),
     }
-
-    // Verify run first, then warm-up (discarded), then timed rounds.
-    let result = digest(&eval(&mut ctx, kernel.work.as_bytes()));
     for _ in 0..WARMUP {
         std::hint::black_box(eval(&mut ctx, kernel.work.as_bytes()));
     }
-    let mut samples: Vec<Duration> = (0..ROUNDS)
-        .map(|_| {
-            let start = Instant::now();
-            let r = eval(&mut ctx, kernel.work.as_bytes());
-            let elapsed = start.elapsed();
-            // Every timed round must still produce the verified result.
-            assert_eq!(
-                digest(&r),
-                result,
-                "{}: {} timed round drifted",
-                kernel.name,
-                mode.label()
-            );
-            elapsed
-        })
-        .collect();
+    let mut samples: Vec<Duration> = Vec::with_capacity(ROUNDS);
+    for _ in 0..ROUNDS {
+        let start = Instant::now();
+        let r = eval(&mut ctx, kernel.work.as_bytes());
+        let elapsed = start.elapsed();
+        // Every timed round must still produce the verified result.
+        assert_eq!(
+            digest(&r),
+            result,
+            "{}: {} timed round drifted",
+            kernel.name,
+            mode.label()
+        );
+        samples.push(elapsed);
+    }
     samples.sort_unstable();
     Run {
         result,
         median: samples[ROUNDS / 2],
         compiled,
+        promotions: metrics.tier2_promotions,
+        specialized: metrics.specialized_ops,
     }
 }
 
@@ -626,12 +704,14 @@ fn run_one(args: &[String]) -> bool {
         eprintln!("unknown kernel {name:?}");
         std::process::exit(2);
     });
-    let run = run_kernel(kernel, mode);
+    let run = run_kernel(kernel, mode, &parse_thresholds(args));
     println!(
-        "ms={} result={:016x} compiled={}",
+        "ms={} result={:016x} compiled={} promoted={} specialized={}",
         run.median.as_secs_f64() * 1e3,
         run.result,
-        run.compiled
+        run.compiled,
+        run.promotions,
+        run.specialized
     );
     true
 }
@@ -685,7 +765,7 @@ fn bootstrap_speedup(base: &[f64], candidate: &[f64], iterations: usize) -> (f64
 }
 
 /// `--protocol process`: spawn one child per (mode, round), interleaved.
-fn run_process_protocol(show: &[Mode], rounds: usize) {
+fn run_process_protocol(show: &[Mode], rounds: usize, th: &Thresholds, kernels: &[&Kernel]) {
     let exe = std::env::current_exe().expect("current_exe");
     println!(
         "jit-bench matrix (process protocol): {rounds} fresh processes per mode, interleaved; \
@@ -697,14 +777,27 @@ fn run_process_protocol(show: &[Mode], rounds: usize) {
         run.insert(0, Mode::Interpreter);
     }
     let mut compiled: Vec<(Mode, u64)> = run.iter().map(|&m| (m, 0)).collect();
+    // The child re-parses the thresholds, so a sweep runs the same
+    // configuration in every fresh process.
+    let th_args: Vec<String> = vec![
+        "--call-threshold".into(),
+        th.call_threshold.to_string(),
+        "--loop-threshold".into(),
+        th.loop_threshold.to_string(),
+        "--tier2-call-threshold".into(),
+        th.tier2_call_threshold.to_string(),
+        "--tier2-loop-threshold".into(),
+        th.tier2_loop_threshold.to_string(),
+    ];
 
-    for kernel in KERNELS {
+    for kernel in kernels {
         let mut samples: Vec<(Mode, Vec<f64>)> = run.iter().map(|&m| (m, Vec::new())).collect();
         let mut result: Option<u64> = None;
         for _ in 0..rounds {
             for mode in &run {
                 let out = std::process::Command::new(&exe)
                     .args(["--one", mode.label(), kernel.name])
+                    .args(&th_args)
                     .output()
                     .expect("spawn bench child");
                 let text = String::from_utf8_lossy(&out.stdout);
@@ -783,6 +876,8 @@ fn main() {
     if run_one(&args) {
         return;
     }
+    let thresholds = parse_thresholds(&args);
+    let kernels = parse_kernels(&args);
     let rounds = args
         .iter()
         .position(|a| a == "--rounds")
@@ -796,7 +891,7 @@ fn main() {
             .and_then(|i| args.get(i + 1))
             .map(String::as_str);
         if protocol == Some("process") {
-            run_process_protocol(&parse_modes(&args), rounds);
+            run_process_protocol(&parse_modes(&args), rounds, &thresholds, &kernels);
             return;
         } else if protocol != Some("inproc") && protocol.is_some() {
             eprintln!(
@@ -834,8 +929,13 @@ fn main() {
     println!("{:<24}{}", "kernel", header);
 
     let mut compiled: Vec<(Mode, u64)> = run.iter().map(|&m| (m, 0)).collect();
-    for kernel in KERNELS {
-        let runs: Vec<(Mode, Run)> = run.iter().map(|&m| (m, run_kernel(kernel, m))).collect();
+    let mut promotions: Vec<(Mode, u64)> = run.iter().map(|&m| (m, 0)).collect();
+    let mut specialized: Vec<(Mode, u64)> = run.iter().map(|&m| (m, 0)).collect();
+    for kernel in &kernels {
+        let runs: Vec<(Mode, Run)> = run
+            .iter()
+            .map(|&m| (m, run_kernel(kernel, m, &thresholds)))
+            .collect();
         let base = runs
             .iter()
             .find(|(m, _)| *m == Mode::Interpreter)
@@ -876,6 +976,10 @@ fn main() {
         for (m, r) in &runs {
             let slot = compiled.iter_mut().find(|(cm, _)| cm == m).unwrap();
             slot.1 += r.compiled;
+            let promo = promotions.iter_mut().find(|(pm, _)| pm == m).unwrap();
+            promo.1 += r.promotions;
+            let spec = specialized.iter_mut().find(|(sm, _)| sm == m).unwrap();
+            spec.1 += r.specialized;
         }
     }
 
@@ -886,4 +990,20 @@ fn main() {
         .collect::<Vec<_>>()
         .join(" ");
     println!("functions_compiled: {summary}");
+    println!(
+        "tier2_promotions: {}",
+        promotions
+            .iter()
+            .map(|(m, p)| format!("{}={p}", m.label()))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
+    println!(
+        "specialized_ops: {}",
+        specialized
+            .iter()
+            .map(|(m, s)| format!("{}={s}", m.label()))
+            .collect::<Vec<_>>()
+            .join(" ")
+    );
 }
