@@ -65,9 +65,9 @@ use std::{
     sync::Arc,
 };
 
-/// The compile-time budget classification is inline-only; the background poll
-/// measures `dispatched_at` inside the worker bookkeeping instead.
-#[cfg(not(feature = "jit_background"))]
+// The compile-time budget classification is inline-only; the background poll
+// measures `dispatched_at` inside the worker bookkeeping instead. `Instant` is
+// used by both models: it times the compile attempt itself.
 use std::time::Instant;
 
 use cranelift_codegen::isa::TargetIsa;
@@ -513,6 +513,9 @@ impl JitState {
             return; // stale: the attempt was abandoned by `expire`, or already resolved
         };
         let id = job.function_id;
+        // The compile cost is accounted here: the worker measured it, the
+        // runtime thread owns the counters.
+        m.note_compile(completion.nanos);
         // Bind the borrow before `install` takes it again (it writes the
         // coordinator on eviction).
         let pinned = self.coordinator.borrow().pinned(id);
@@ -600,14 +603,22 @@ impl JitState {
     /// accumulates tier-2 counters.
     #[cfg(not(feature = "jit_background"))]
     fn run_pipeline(&self, request: &runtime::Request, m: &mut JitMetrics) -> CompileOutcome {
-        match lower(self.snapshot_for(request), self.limits, self.isa.as_ref()) {
+        let elapsed = Cell::new(0);
+        let outcome = match lower(
+            self.snapshot_for(request),
+            self.limits,
+            self.isa.as_ref(),
+            &elapsed,
+        ) {
             Lowered::Compiled { bytes, specialized } => {
                 m.specialized_ops = m.specialized_ops.saturating_add(specialized);
                 self.install(request.function_id, &request.bytecode, &bytes)
             }
             Lowered::Rejected => CompileOutcome::Rejected,
             Lowered::Failed => CompileOutcome::Failed,
-        }
+        };
+        m.note_compile(elapsed.get());
+        outcome
     }
 
     /// Trace the functions held for an in-flight compile so the GC cannot free
@@ -630,7 +641,22 @@ pub(crate) enum Lowered {
 /// Verify and lower one snapshot. `isa` may be borrowed from a worker thread
 /// (`TargetIsa: Send + Sync`); the snapshot and the result are `Send`, so this
 /// is the whole cross-thread contract.
-fn lower(snapshot: CompileSnapshot, limits: VerifyLimits, isa: &dyn TargetIsa) -> Lowered {
+///
+/// `elapsed_ns` receives the time the attempt took (verification + codegen),
+/// so the caller can account for the compile cost (IMP-2).
+fn lower(
+    snapshot: CompileSnapshot,
+    limits: VerifyLimits,
+    isa: &dyn TargetIsa,
+    elapsed_ns: &Cell<u64>,
+) -> Lowered {
+    let started = Instant::now();
+    let result = lower_inner(snapshot, limits, isa);
+    elapsed_ns.set(started.elapsed().as_nanos() as u64);
+    result
+}
+
+fn lower_inner(snapshot: CompileSnapshot, limits: VerifyLimits, isa: &dyn TargetIsa) -> Lowered {
     let Ok(verified) = verify(snapshot, limits) else {
         return Lowered::Rejected;
     };

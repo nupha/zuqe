@@ -100,6 +100,21 @@ struct FunctionRecord {
     /// (V8's `minimum_invocations_after_ic_update`). It keeps the promotion
     /// and the tier-down from chasing each other.
     cooldown: u32,
+    /// Work the function did since it was queued (entries + back edges). Zero
+    /// means it has not run since: it is idle, and the queue may drop it for
+    /// a hotter newcomer (plan §13.6.5 item 4).
+    work_since_queue: u32,
+}
+
+impl FunctionRecord {
+    /// Count the work done since the function was queued. Only a queued
+    /// function accumulates it: a function that is not waiting for a compile
+    /// has no place in the queue to be dropped from.
+    const fn note_work(&mut self) {
+        if self.queued {
+            self.work_since_queue = self.work_since_queue.saturating_add(1);
+        }
+    }
 }
 
 /// P7 7.2: how many speculative guard misses one function may take before it is
@@ -180,6 +195,9 @@ impl Coordinator {
         let record = self.record_mut(id, opcodes, measured_work);
         record.hotness.record_call();
         record.cooldown = record.cooldown.saturating_sub(1);
+        // The work that crosses the gate happened *before* the function was
+        // queued, so it is not counted as "work since queued".
+        record.note_work();
         Self::crossed_first_gate(record, tier)
     }
 
@@ -194,6 +212,7 @@ impl Coordinator {
         let tier = self.first_tier();
         let record = self.record_mut(id, opcodes, measured_work);
         record.hotness.record_loop();
+        record.note_work();
         Self::crossed_first_gate(record, tier)
     }
 
@@ -208,6 +227,7 @@ impl Coordinator {
         let record = self.records.get_mut(&id)?;
         record.hotness.record_native_calls(activations);
         record.cooldown = record.cooldown.saturating_sub(activations);
+        record.note_work();
         Self::crossed_second_gate(record, two_tier)
     }
 
@@ -219,6 +239,7 @@ impl Coordinator {
         let two_tier = matches!(self.tiering, Tiering::TwoTier);
         let record = self.records.get_mut(&id)?;
         record.hotness.record_native_loops(backedges);
+        record.note_work();
         Self::crossed_second_gate(record, two_tier)
     }
 
@@ -272,13 +293,23 @@ impl Coordinator {
                 guard_misses: 0,
                 tier_down: false,
                 cooldown: 0,
+                work_since_queue: 0,
             }
         })
     }
 
-    /// Move a now-hot function into the queue. A full queue drops the request
-    /// but leaves the function marked queued, so it is not re-snapshotted on
-    /// every subsequent entry. `bytecode` is `None` only in unit tests.
+    /// Move a now-hot function into the queue. When the queue is full a
+    /// request is dropped either way, but **not** always the newcomer:
+    ///
+    /// - a queued function that has **stopped running** (no calls since it
+    ///   was queued) is dropped instead, so the compile budget goes to the
+    ///   function that is still hot — dropping a function that is no longer
+    ///   called buys nothing, dropping a live one does (plan §13.6.5 item 4);
+    /// - when every queued function is still running, the newcomer is the
+    ///   coldest one and is dropped itself.
+    ///
+    /// A dropped request is counted in `queue_drops`; the queue keeps its
+    /// length either way. `bytecode` is `None` only in unit tests.
     pub(crate) fn enqueue(
         &mut self,
         m: &mut JitMetrics,
@@ -288,7 +319,9 @@ impl Coordinator {
     ) {
         if self.queue.len() >= self.max_queue_len {
             m.queue_drops = m.queue_drops.saturating_add(1);
-            return;
+            if !self.evict_idle() {
+                return;
+            }
         }
         let Some(record) = self.records.get_mut(&id) else {
             return;
@@ -296,9 +329,47 @@ impl Coordinator {
         record.pinned = bytecode;
         record.lifecycle = Lifecycle::Queued;
         record.pending_tier = tier;
+        record.work_since_queue = 0;
         self.queue.push_back(id);
         m.functions_queued = m.functions_queued.saturating_add(1);
         m.queue_len = self.queue.len() as u64;
+    }
+
+    /// Drop a queued function that has stopped running, so a hotter newcomer
+    /// can take its place. Returns `false` when every queued function is
+    /// still being called — then the newcomer is the coldest one and is
+    /// dropped instead.
+    ///
+    /// The evicted function keeps its hotness counters, so its next call
+    /// queues it again. A function that is already installed keeps its code:
+    /// only the pending promotion is dropped, and the second gate fires again
+    /// on the next activation.
+    fn evict_idle(&mut self) -> bool {
+        let idle = self.queue.iter().copied().find(|id| {
+            self.records
+                .get(id)
+                .is_some_and(|record| record.work_since_queue == 0)
+        });
+        let Some(id) = idle else {
+            return false;
+        };
+        self.queue.retain(|queued| *queued != id);
+        if let Some(record) = self.records.get_mut(&id) {
+            record.queued = false;
+            record.pinned = None;
+            record.work_since_queue = 0;
+            if record.tier == Tier::Cold {
+                // No code yet: the function goes back to cold and its next
+                // call queues it again.
+                record.lifecycle = Lifecycle::Cold;
+            } else {
+                // The code is installed: only the pending attempt is dropped
+                // (a first compile or a tier-2 promotion), and the gate that
+                // asked for it fires again.
+                record.lifecycle = Lifecycle::Installed;
+            }
+        }
+        true
     }
 
     /// Take the next queued function. `None` when the queue is empty.
@@ -415,6 +486,7 @@ impl Coordinator {
             record.queued = false;
             record.tier = Tier::Cold;
             record.hotness = HotnessState::default();
+            record.work_since_queue = 0;
         }
     }
 
@@ -619,8 +691,11 @@ mod tests {
         assert_eq!(m.distinct_functions, 1);
     }
 
+    /// A queue of one: the newcomer takes the place of the queued function,
+    /// which has not run since it was queued. The queue keeps its length and
+    /// the dropped request is counted.
     #[test]
-    fn full_queue_drops_without_queueing() {
+    fn a_full_queue_drops_the_idle_function() {
         let mut c = Coordinator::new(
             1,
             1,
@@ -634,11 +709,111 @@ mod tests {
         );
         let mut m = JitMetrics::default();
         make_hot(&mut c, &mut m, 1);
-        // Second hot function: the queue is full, so it is dropped.
+        // Second hot function: the queue is full, so the idle one is dropped.
         make_hot(&mut c, &mut m, 2);
         assert_eq!(m.queue_drops, 1);
-        assert_eq!(m.functions_queued, 1);
+        assert_eq!(m.functions_queued, 2);
         assert_eq!(c.queue_len(), 1);
+    }
+
+    /// P0-3 (plan §13.6.5 item 4): a full queue does not drop the newcomer
+    /// blindly. A queued function that has **stopped running** is dropped
+    /// instead, so the compile budget goes to the function that is still hot.
+    #[test]
+    fn a_full_queue_drops_an_idle_function_for_the_newcomer() {
+        let mut c = Coordinator::new(
+            1,
+            1,
+            1024,
+            2048,
+            Tiering::Single(Tier::Tier2),
+            500,
+            2,
+            4,
+            30_000,
+        );
+        let mut m = JitMetrics::default();
+        make_hot(&mut c, &mut m, 1);
+        make_hot(&mut c, &mut m, 2);
+        assert_eq!(c.queue_len(), 2, "the queue is full");
+
+        // The third function is hot and takes the place of the first queued
+        // one, which has not run since it was queued.
+        make_hot(&mut c, &mut m, 3);
+        assert_eq!(m.queue_drops, 1, "the idle function was dropped");
+        assert_eq!(c.queue_len(), 2, "the queue keeps its length");
+        assert_eq!(m.functions_queued, 3);
+
+        // The evicted function is queued again by its next call: it keeps its
+        // hotness counters.
+        let tier = c
+            .record_call(&mut m, 1, &[crate::bytecode::opcodes::OP_return_undef], 0)
+            .expect("still hot");
+        c.enqueue(&mut m, 1, None, tier);
+        assert_eq!(m.functions_queued, 4);
+    }
+
+    /// When every queued function is still running, the newcomer is the
+    /// coldest one and is dropped — the live functions are kept.
+    #[test]
+    fn a_full_queue_keeps_the_functions_that_are_still_running() {
+        let mut c = Coordinator::new(
+            1,
+            1,
+            1024,
+            2048,
+            Tiering::Single(Tier::Tier2),
+            500,
+            2,
+            4,
+            30_000,
+        );
+        let mut m = JitMetrics::default();
+        let opcodes = [crate::bytecode::opcodes::OP_return_undef];
+        make_hot(&mut c, &mut m, 1);
+        make_hot(&mut c, &mut m, 2);
+        // Both queued functions run again: they are not idle any more.
+        c.record_call(&mut m, 1, &opcodes, 0);
+        c.record_call(&mut m, 2, &opcodes, 0);
+
+        make_hot(&mut c, &mut m, 3);
+        assert_eq!(m.queue_drops, 1, "the newcomer was dropped");
+        assert_eq!(c.queue_len(), 2);
+        assert_eq!(m.functions_queued, 2, "the newcomer did not get in");
+    }
+
+    /// A pending tier-2 promotion that is evicted keeps the installed code:
+    /// only the promotion request is dropped, and the second gate fires again
+    /// on the next activation.
+    #[test]
+    fn evicting_a_pending_promotion_keeps_the_installed_code() {
+        let mut c = Coordinator::new(1, 1, 2, 2, Tiering::TwoTier, 500, 1, 4, 30_000);
+        let mut m = JitMetrics::default();
+        let opcodes = [crate::bytecode::opcodes::OP_return_undef];
+
+        // The baseline tier is installed.
+        let tier = c.record_call(&mut m, 1, &opcodes, 0).expect("hot");
+        c.enqueue(&mut m, 1, None, tier);
+        dispatch(&mut c);
+        c.complete(&mut m, 1, CompileOutcome::Installed);
+        assert_eq!(c.tier(1), Tier::Tier1);
+
+        // The second gate queues the promotion.
+        let tier = c.record_native_call(1, 2).expect("promoted");
+        c.enqueue(&mut m, 1, None, tier);
+        assert_eq!(c.queue_len(), 1, "the queue is full");
+
+        // A newcomer takes the place of the idle promotion.
+        make_hot(&mut c, &mut m, 2);
+        assert_eq!(m.queue_drops, 1);
+        assert_eq!(c.queue_len(), 1);
+        assert_eq!(c.tier(1), Tier::Tier1, "the installed code is still there");
+
+        // The second gate fires again on the next activation.
+        assert!(
+            c.record_native_call(1, 2).is_some(),
+            "the promotion is queued again"
+        );
     }
 
     #[test]

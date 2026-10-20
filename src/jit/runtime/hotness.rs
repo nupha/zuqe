@@ -53,6 +53,12 @@ pub(crate) struct HotThresholds {
     pub(crate) reason: HotReason,
 }
 
+/// The size factor's fixed-point scale: the factor is kept in 1/16ths so the
+/// thresholds stay exact integers.
+const SIZE_SCALE: u32 = 16;
+/// The cap of the size factor: 4x the base (plan §13.6.5 item 2).
+const SIZE_FACTOR_MAX: u32 = 4 * SIZE_SCALE;
+
 impl HotThresholds {
     pub(crate) const fn neutral(
         calls: u32,
@@ -118,11 +124,32 @@ impl AdaptiveInputs {
         self
     }
 
+    /// The continuous size factor (plan §13.6.5 item 2): `1 + bytes/1024`,
+    /// capped at 4x, in 1/16ths. A 500-byte function and a 4000-byte one no
+    /// longer get the same treatment — the compile cost grows with the size,
+    /// the benefit does not.
+    pub(crate) fn size_factor(&self) -> u32 {
+        let extra = self.bytecode_bytes.saturating_mul(SIZE_SCALE) / 1024;
+        (SIZE_SCALE + extra).min(SIZE_FACTOR_MAX)
+    }
+
+    /// Whether the function's opcodes are mostly helper calls. A helper-dominated
+    /// function is expensive to compile relative to its size, so it waits
+    /// longer.
+    pub(crate) const fn helper_dense(&self) -> bool {
+        self.instruction_count != 0 && self.helper_ops.saturating_mul(4) >= self.instruction_count
+    }
+
     /// Larger and helper-dominated functions need more evidence before we
     /// spend compile time on them; functions already shown to do a lot of work
     /// can be compiled sooner. The static shape (bytecode size / helper
     /// density) is read unconditionally, so it also guides a tier that records
     /// no measurements; the measured work only lowers the base.
+    ///
+    /// The size is a **continuous** factor (`× (1 + bytes/1024)`, capped at
+    /// 4x) instead of the old one-shot `bytes >= 4096 → ×2` step, and a
+    /// helper-dominated function doubles that factor on top (the total stays
+    /// capped at 4x).
     ///
     /// An eager base (both thresholds 1) is left alone: the host asked for
     /// "compile on the first event", and doubling that would silently defeat
@@ -153,27 +180,32 @@ impl AdaptiveInputs {
                 reason: HotReason::MeasuredWork,
             };
         }
-        if self.instruction_count != 0
-            && self.helper_ops.saturating_mul(4) >= self.instruction_count
-        {
-            return HotThresholds {
-                calls: base_calls.saturating_mul(2),
-                loops: base_loops.saturating_mul(2),
-                tier2_calls: base_tier2_calls.saturating_mul(2),
-                tier2_loops: base_tier2_loops.saturating_mul(2),
-                reason: HotReason::HelperDensity,
-            };
+        let helper_dense = self.helper_dense();
+        let size = self.size_factor();
+        let factor = if helper_dense {
+            size.saturating_mul(2).min(SIZE_FACTOR_MAX)
+        } else {
+            size
+        };
+        if factor == SIZE_SCALE {
+            return HotThresholds::neutral(
+                base_calls,
+                base_loops,
+                base_tier2_calls,
+                base_tier2_loops,
+            );
         }
-        if self.bytecode_bytes >= 4096 {
-            return HotThresholds {
-                calls: base_calls.saturating_mul(2),
-                loops: base_loops.saturating_mul(2),
-                tier2_calls: base_tier2_calls.saturating_mul(2),
-                tier2_loops: base_tier2_loops.saturating_mul(2),
-                reason: HotReason::BytecodeScale,
-            };
+        HotThresholds {
+            calls: base_calls.saturating_mul(factor) / SIZE_SCALE,
+            loops: base_loops.saturating_mul(factor) / SIZE_SCALE,
+            tier2_calls: base_tier2_calls.saturating_mul(factor) / SIZE_SCALE,
+            tier2_loops: base_tier2_loops.saturating_mul(factor) / SIZE_SCALE,
+            reason: if helper_dense {
+                HotReason::HelperDensity
+            } else {
+                HotReason::BytecodeScale
+            },
         }
-        HotThresholds::neutral(base_calls, base_loops, base_tier2_calls, base_tier2_loops)
     }
 }
 
@@ -301,6 +333,65 @@ mod tests {
             inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3).reason,
             HotReason::BytecodeScale
         );
+    }
+
+    /// The size factor is **continuous** (plan §13.6.5 item 2): `1 + bytes/1024`,
+    /// capped at 4x. The old rule was a one-shot `bytes >= 4096 → ×2`, so a
+    /// 500-byte and a 4000-byte function got the same treatment.
+    #[test]
+    fn the_size_factor_scales_continuously() {
+        let factor = |bytes: u32| {
+            AdaptiveInputs {
+                bytecode_bytes: bytes,
+                ..AdaptiveInputs::default()
+            }
+            .size_factor()
+        };
+        assert_eq!(factor(0), 16, "1.0x");
+        assert_eq!(factor(512), 24, "1.5x");
+        assert_eq!(factor(1024), 32, "2.0x");
+        assert_eq!(factor(2048), 48, "3.0x");
+        assert_eq!(factor(3072), 64, "4.0x — the cap");
+        assert_eq!(factor(8192), 64, "still the cap");
+    }
+
+    #[test]
+    fn a_bigger_function_waits_longer() {
+        let inputs = |bytes| AdaptiveInputs {
+            instruction_count: 100,
+            helper_ops: 0,
+            bytecode_bytes: bytes,
+            measured_work: Some(1),
+        };
+        // 1 KiB → 2x: 64 calls / 112 back edges.
+        let th = inputs(1024).thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        assert_eq!((th.calls, th.loops), (64, 112));
+        assert_eq!((th.tier2_calls, th.tier2_loops), (2048, 4096));
+        // 2 KiB → 3x.
+        let th = inputs(2048).thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        assert_eq!((th.calls, th.loops), (96, 168));
+        // 4 KiB → the 4x cap.
+        let th = inputs(4096).thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        assert_eq!((th.calls, th.loops), (128, 224));
+    }
+
+    /// A helper-dominated function doubles the size factor on top, and the
+    /// total stays capped at 4x.
+    #[test]
+    fn a_helper_dense_function_doubles_the_size_factor() {
+        let inputs = |bytes| AdaptiveInputs {
+            instruction_count: 100,
+            helper_ops: 25,
+            bytecode_bytes: bytes,
+            measured_work: Some(1),
+        };
+        // 1 KiB → 2x size → 4x total.
+        let th = inputs(1024).thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        assert_eq!((th.calls, th.loops), (128, 224));
+        assert_eq!(th.reason, HotReason::HelperDensity);
+        // 2 KiB → 3x size → 6x, capped at 4x.
+        let th = inputs(2048).thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        assert_eq!((th.calls, th.loops), (128, 224));
     }
 
     #[test]

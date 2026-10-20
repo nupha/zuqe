@@ -28,6 +28,7 @@ mod jit_differential;
 mod jit_feedback;
 mod jit_interrupt;
 mod jit_opcodes;
+mod jit_queue;
 mod jit_semantics;
 mod jit_verify;
 mod sanitizer_probe;

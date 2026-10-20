@@ -15,6 +15,7 @@
 //! of blocking the runtime thread.
 
 use std::{
+    cell::Cell,
     collections::HashMap,
     sync::{Arc, Mutex, mpsc},
     thread::{self, JoinHandle},
@@ -46,6 +47,10 @@ pub(crate) enum JobResult {
 pub(crate) struct CompileCompletion {
     pub(crate) attempt_id: u64,
     pub(crate) result: JobResult,
+    /// How long the attempt took (verification + codegen), in nanoseconds.
+    /// The worker measures it; the runtime thread folds it into the metrics
+    /// (it stays the single writer of the counters).
+    pub(crate) nanos: u64,
 }
 
 /// Per-attempt bookkeeping the runtime thread keeps until the worker finishes.
@@ -230,15 +235,23 @@ fn worker_loop(
         // panic; under `panic = "unwind"` this contains it. Under
         // `panic = "abort"` it is a no-op and the process aborts, which is why
         // the worker path itself must not panic.
+        let elapsed = Cell::new(0);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            lower(snapshot, limits, isa.as_ref())
+            lower(snapshot, limits, isa.as_ref(), &elapsed)
         }))
         .map_or(JobResult::Failed, |lowered| match lowered {
             Lowered::Compiled { bytes, specialized } => JobResult::Compiled { bytes, specialized },
             Lowered::Rejected => JobResult::Rejected,
             Lowered::Failed => JobResult::Failed,
         });
-        if tx.send(CompileCompletion { attempt_id, result }).is_err() {
+        if tx
+            .send(CompileCompletion {
+                attempt_id,
+                result,
+                nanos: elapsed.get(),
+            })
+            .is_err()
+        {
             break;
         }
     }

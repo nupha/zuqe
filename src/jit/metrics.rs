@@ -3,6 +3,24 @@
 
 //! Observable counters for a running JIT.
 
+/// The upper edges of the compile-time histogram, in nanoseconds. Bucket `i`
+/// counts the attempts that took **less** than `COMPILE_BUCKET_EDGES_NS[i]`;
+/// the last bucket counts the rest (the overflow bucket).
+///
+/// The edges straddle the measured compile cost (1.0–1.4 ms per function,
+/// plan §13.6.4), so a run shows whether the cost is dominated by a few slow
+/// functions or is spread out.
+pub const COMPILE_BUCKET_EDGES_NS: [u64; 5] = [
+    100_000,    // < 0.1 ms
+    300_000,    // < 0.3 ms
+    1_000_000,  // < 1 ms
+    3_000_000,  // < 3 ms
+    10_000_000, // < 10 ms
+];
+
+/// The number of histogram buckets: one per edge plus the overflow bucket.
+pub const COMPILE_BUCKETS: usize = COMPILE_BUCKET_EDGES_NS.len() + 1;
+
 /// A point-in-time snapshot of the JIT's counters.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct JitMetrics {
@@ -78,4 +96,67 @@ pub struct JitMetrics {
     /// means the tier-2 specialization is paying more guards than it saves,
     /// which is the evidence `tier-down` would need.
     pub specialized_guard_misses: u64,
+    /// Nanoseconds spent compiling (verification + codegen), summed over every
+    /// attempt. The publish step (mmap / mprotect) is *not* included: it is
+    /// not a compile.
+    pub compile_nanos: u64,
+    /// Compile attempts that were measured. An attempt that the frontend
+    /// rejected counts too — it cost a verification.
+    pub compile_attempts: u64,
+    /// Histogram of the per-attempt compile time: bucket `i` counts the
+    /// attempts shorter than `COMPILE_BUCKET_EDGES_NS[i]`, the last one the
+    /// rest.
+    pub compile_histogram: [u64; COMPILE_BUCKETS],
+}
+
+impl JitMetrics {
+    /// Account for one compile attempt that took `nanos`.
+    pub(crate) fn note_compile(&mut self, nanos: u64) {
+        self.compile_nanos = self.compile_nanos.saturating_add(nanos);
+        self.compile_attempts = self.compile_attempts.saturating_add(1);
+        let bucket = COMPILE_BUCKET_EDGES_NS
+            .iter()
+            .position(|edge| nanos < *edge)
+            .unwrap_or(COMPILE_BUCKETS - 1);
+        self.compile_histogram[bucket] = self.compile_histogram[bucket].saturating_add(1);
+    }
+
+    /// The mean compile time per attempt, in nanoseconds. `0` when nothing
+    /// was compiled.
+    pub const fn avg_compile_nanos(&self) -> u64 {
+        if self.compile_attempts == 0 {
+            return 0;
+        }
+        self.compile_nanos / self.compile_attempts
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_histogram_buckets_by_duration() {
+        let mut m = JitMetrics::default();
+        m.note_compile(1_000); // < 0.1 ms
+        m.note_compile(200_000); // < 0.3 ms
+        m.note_compile(900_000); // < 1 ms
+        m.note_compile(2_000_000); // < 3 ms
+        m.note_compile(9_000_000); // < 10 ms
+        m.note_compile(90_000_000); // overflow
+        assert_eq!(m.compile_histogram, [1, 1, 1, 1, 1, 1]);
+        assert_eq!(m.compile_attempts, 6);
+        assert_eq!(
+            m.compile_nanos,
+            1_000 + 200_000 + 900_000 + 2_000_000 + 9_000_000 + 90_000_000
+        );
+    }
+
+    #[test]
+    fn the_average_is_zero_without_a_compile() {
+        let mut m = JitMetrics::default();
+        assert_eq!(m.avg_compile_nanos(), 0);
+        m.note_compile(1_000_000);
+        assert_eq!(m.avg_compile_nanos(), 1_000_000);
+    }
 }

@@ -609,6 +609,10 @@ struct Run {
     promotions: u64,
     /// Sites that got a tier-2 speculative fast path.
     specialized: u64,
+    /// Nanoseconds spent compiling (verification + codegen).
+    compile_nanos: u64,
+    /// Compile attempts that were measured.
+    compile_attempts: u64,
 }
 
 fn run_kernel(kernel: &Kernel, mode: Mode, th: &Thresholds) -> Run {
@@ -666,6 +670,8 @@ fn run_kernel(kernel: &Kernel, mode: Mode, th: &Thresholds) -> Run {
         compiled,
         promotions: metrics.tier2_promotions,
         specialized: metrics.specialized_ops,
+        compile_nanos: metrics.compile_nanos,
+        compile_attempts: metrics.compile_attempts,
     }
 }
 
@@ -706,12 +712,14 @@ fn run_one(args: &[String]) -> bool {
     });
     let run = run_kernel(kernel, mode, &parse_thresholds(args));
     println!(
-        "ms={} result={:016x} compiled={} promoted={} specialized={}",
+        "ms={} result={:016x} compiled={} promoted={} specialized={} compile_ns={} compile_attempts={}",
         run.median.as_secs_f64() * 1e3,
         run.result,
         run.compiled,
         run.promotions,
-        run.specialized
+        run.specialized,
+        run.compile_nanos,
+        run.compile_attempts
     );
     true
 }
@@ -777,6 +785,8 @@ fn run_process_protocol(show: &[Mode], rounds: usize, th: &Thresholds, kernels: 
         run.insert(0, Mode::Interpreter);
     }
     let mut compiled: Vec<(Mode, u64)> = run.iter().map(|&m| (m, 0)).collect();
+    // The compile cost of every child, summed per mode (P0-1).
+    let mut compile: Vec<(Mode, u64, u64)> = run.iter().map(|&m| (m, 0, 0)).collect();
     // The child re-parses the thresholds, so a sweep runs the same
     // configuration in every fresh process.
     let th_args: Vec<String> = vec![
@@ -826,6 +836,11 @@ fn run_process_protocol(show: &[Mode], rounds: usize, th: &Thresholds, kernels: 
                 }
                 let slot = compiled.iter_mut().find(|(m, _)| m == mode).unwrap();
                 slot.1 += fields["compiled"].parse::<u64>().expect("compiled");
+                let cslot = compile.iter_mut().find(|(m, _, _)| m == mode).unwrap();
+                cslot.1 += fields["compile_ns"].parse::<u64>().expect("compile_ns");
+                cslot.2 += fields["compile_attempts"]
+                    .parse::<u64>()
+                    .expect("compile_attempts");
                 samples
                     .iter_mut()
                     .find(|(m, _)| m == mode)
@@ -869,6 +884,31 @@ fn run_process_protocol(show: &[Mode], rounds: usize, th: &Thresholds, kernels: 
         .collect::<Vec<_>>()
         .join(" ");
     println!("functions_compiled: {summary}");
+    println!("{}", compile_summary_line(&compile));
+}
+
+/// The compile cost per mode: total time, number of attempts, mean per
+/// attempt (P0-1). The unit is milliseconds.
+fn compile_summary_line(entries: &[(Mode, u64, u64)]) -> String {
+    let summary: String = entries
+        .iter()
+        .map(|(m, nanos, attempts)| {
+            let avg = if *attempts == 0 {
+                0.0
+            } else {
+                *nanos as f64 / *attempts as f64
+            };
+            format!(
+                "{}={:.1}ms/{}/avg {:.2}ms",
+                m.label(),
+                *nanos as f64 / 1e6,
+                attempts,
+                avg / 1e6
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("compile_time (total/attempts/avg): {summary}")
 }
 
 fn main() {
@@ -931,6 +971,8 @@ fn main() {
     let mut compiled: Vec<(Mode, u64)> = run.iter().map(|&m| (m, 0)).collect();
     let mut promotions: Vec<(Mode, u64)> = run.iter().map(|&m| (m, 0)).collect();
     let mut specialized: Vec<(Mode, u64)> = run.iter().map(|&m| (m, 0)).collect();
+    // The compile cost per mode (P0-1): nanoseconds and attempts.
+    let mut compile: Vec<(Mode, u64, u64)> = run.iter().map(|&m| (m, 0, 0)).collect();
     for kernel in &kernels {
         let runs: Vec<(Mode, Run)> = run
             .iter()
@@ -980,6 +1022,9 @@ fn main() {
             promo.1 += r.promotions;
             let spec = specialized.iter_mut().find(|(sm, _)| sm == m).unwrap();
             spec.1 += r.specialized;
+            let cost = compile.iter_mut().find(|(cm, _, _)| cm == m).unwrap();
+            cost.1 += r.compile_nanos;
+            cost.2 += r.compile_attempts;
         }
     }
 
@@ -1006,4 +1051,5 @@ fn main() {
             .collect::<Vec<_>>()
             .join(" ")
     );
+    println!("{}", compile_summary_line(&compile));
 }

@@ -124,6 +124,11 @@ fn record_jit_metrics(m: &zuqe::JitMetrics) {
     t.functions_retried += m.functions_retried;
     t.functions_settled += m.functions_settled;
     t.deopts += m.deopts;
+    t.compile_nanos += m.compile_nanos;
+    t.compile_attempts += m.compile_attempts;
+    for (bucket, count) in m.compile_histogram.iter().enumerate() {
+        t.compile_histogram[bucket] = t.compile_histogram[bucket].saturating_add(*count);
+    }
 }
 
 /// The summed metrics of every JIT-attached runtime, `None` when `--jit` was

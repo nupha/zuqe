@@ -660,11 +660,12 @@ async fn main_impl() {
     // End-of-run JIT metrics (summed over every per-test runtime).
     #[cfg(feature = "jit")]
     if args.jit {
-        match runner::jit_metrics_total() {
+        let total = runner::jit_metrics_total();
+        match total {
             Some(m) => eprintln!(
                 "JIT metrics: functions_queued={} functions_verified={} functions_rejected={} \
                  functions_compiled={} native_entries={} function_entries={} \
-                 compile_failures={} polls={}",
+                 compile_failures={} polls={} queue_drops={}",
                 m.functions_queued,
                 m.functions_verified,
                 m.functions_rejected,
@@ -673,8 +674,25 @@ async fn main_impl() {
                 m.function_entries,
                 m.compile_failures,
                 m.polls,
+                m.queue_drops,
             ),
             None => eprintln!("JIT metrics: none recorded (no tests ran)"),
+        }
+        // The compile cost (P0-1): the total, the number of attempts, the mean
+        // per attempt, and the histogram of the per-attempt durations.
+        if let Some(m) = total {
+            let histogram: Vec<String> = m
+                .compile_histogram
+                .iter()
+                .map(|count| count.to_string())
+                .collect();
+            eprintln!(
+                "JIT compile time: total={:.1}ms attempts={} avg={:.2}ms histogram=[{}]",
+                m.compile_nanos as f64 / 1e6,
+                m.compile_attempts,
+                m.avg_compile_nanos() as f64 / 1e6,
+                histogram.join(",")
+            );
         }
     }
 
