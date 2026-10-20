@@ -942,6 +942,50 @@ unsafe fn field_get(f: *mut JitExecFrame, push: bool) -> u32 {
                             );
                         }
                     }
+                    // The typed array's `length` (P1-1's tail): the property
+                    // lives on the prototype, so the ordinary slot cache
+                    // cannot serve it. The site records the instance's shape
+                    // and the shape that owns `length` in the chain; the
+                    // generated code re-checks both on every access, so a
+                    // patched prototype (or an own `length`) is a miss.
+                    if atom.id() == crate::atom::Atom::CONST_length.id()
+                        && let Some(o) = target.as_object()
+                        && (crate::JS_CLASS_UINT8C_ARRAY..=crate::JS_CLASS_FLOAT64_ARRAY)
+                            .contains(&o.class_id())
+                        && let Some((owner, depth)) = o.proto_chain_owner_of(atom)
+                        // The owner must sit where the generated code looks
+                        // for it: two levels up (the typed array's own
+                        // prototype is in between). Anything else is served
+                        // by the helper.
+                        && depth == 2
+                        && let Some((idx, _)) = owner.find_shape_property(atom)
+                        // ... and it must still carry the intrinsic getter: a
+                        // patched prototype has another one, and the guard
+                        // would answer the count instead of the getter's
+                        // value.
+                        && let crate::object::JSProperty::GetSet {
+                            getter: Some(getter),
+                            ..
+                        } = owner.prop_slot(idx)
+                        && getter.match_native_callback(
+                            crate::function::Callback::Getter(
+                                crate::builtins::typed_array::js_typed_array_get_length
+                                    as crate::function::GetterFn,
+                            ),
+                            0,
+                        )
+                        && let Some(owner_shape) = owner.shape()
+                        && let Some(instance_shape) = o.shape()
+                    {
+                        let cache = &mut *(*f.bytecode).inline_cache.get();
+                        if ic_idx < cache.len() {
+                            cache[ic_idx].insert_typed_array_length(
+                                instance_shape.gc_ref().as_ptr().as_ptr(),
+                                instance_shape.uid,
+                                owner_shape.uid,
+                            );
+                        }
+                    }
                 }
                 finish_field_get(f, value, push)
             }

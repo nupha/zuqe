@@ -103,6 +103,41 @@ const CASES: &[(&str, &str, &str)] = &[
         "var t = new Int32Array(4);",
         "var s = 0; for (var i = 0; i < t.length; i++) s += t[i]; s;",
     ),
+    // A typed array with an **own** `length`: the ordinary slot cache serves
+    // it (it is an own property), so the value is the own one.
+    (
+        "typed_array_own_length",
+        "var t = new Int32Array(4); Object.defineProperty(t, 'length', { value: 7, configurable: true });",
+        "var s = 0; for (var i = 0; i < 10; i++) s += t.length; s;",
+    ),
+    // A **patched** `%TypedArray%.prototype`: the getter is not the intrinsic
+    // one any more, so the guard must not answer with the element count.
+    (
+        "typed_array_patched_prototype",
+        "var t = new Int32Array(4); Object.defineProperty(Object.getPrototypeOf(Object.getPrototypeOf(t)), 'length', { get: function(){ return 99; }, configurable: true });",
+        "var s = 0; for (var i = 0; i < 10; i++) s += t.length; s;",
+    ),
+    // A **detached** buffer: the length is 0.
+    (
+        "typed_array_detached",
+        "var t = new Int32Array(4); t.buffer.transfer();",
+        "var s = 0; for (var i = 0; i < 10; i++) s += t.length; s;",
+    ),
+    // A view that went **out of bounds** (its resizable buffer was shrunk
+    // past its end): the length is 0.
+    (
+        "typed_array_out_of_bounds",
+        "var buf = new ArrayBuffer(16, { maxByteLength: 32 }); var t = new Int32Array(buf); buf.resize(0);",
+        "var s = 0; for (var i = 0; i < 10; i++) s += t.length; s;",
+    ),
+    // A **plain object** with the typed array's prototype: it is not a view,
+    // so the getter throws (a TypeError) — the guard must not answer with an
+    // element count.
+    (
+        "typed_array_prototype_on_a_plain_object",
+        "var o = Object.setPrototypeOf({}, Object.getPrototypeOf(new Int32Array(1)));",
+        "var s = 0; for (var i = 0; i < 10; i++) s += o.length; s;",
+    ),
     // A string target: not an object at all.
     (
         "string_target",
@@ -203,21 +238,21 @@ fn run(mode: Mode, setup: &str, main: &str) -> (String, JitMetrics) {
 
 /// The property guard's counters of the **native** run: `(hits, misses)`.
 ///
-/// `main` runs twice: the first run is interpreted (or partly interpreted —
-/// the inline compiler may take over a loop mid-run), so only the second one
-/// exercises the guard. The counters are the guard's own instrumentation, so
-/// they say *which* path a read took — the results alone cannot (the helper
-/// would answer the same).
+/// `main` runs three times: the first run is interpreted (or partly
+/// interpreted — the inline compiler may take over a loop mid-run), so only
+/// the later ones exercise the guard. The counters of the last run are
+/// reported, so the first run's leftovers (how much of it ran natively
+/// depends on the compiler mode) do not leak into the observation, and the
+/// inline cache is warm (the second run is the one that fills it).
 ///
-/// The counters of the two runs are subtracted, so the first run's leftovers
-/// (how much of it ran natively depends on the compiler mode) do not leak
-/// into the observation.
+/// The counters are the guard's own instrumentation, so they say *which* path
+/// a read took — the results alone cannot (the helper would answer the same).
 ///
 /// The work lives in a **named function** (defined by the setup): a top-level
 /// `eval` builds a fresh function every time, and under production thresholds
 /// such a function is never compiled (todo §2's "每次 eval 新建的顶层脚本永远
 /// 编译不上"). A named function is compiled at its first call ✓, so the
-/// second run is native from its first instruction ✓.
+/// later runs are native from their first instruction ✓.
 fn guard_counters(setup: &str, main: &str) -> (u64, u64) {
     let mut rt = Runtime::create().expect("runtime");
     let mut ctx = rt
@@ -231,7 +266,10 @@ fn guard_counters(setup: &str, main: &str) -> (u64, u64) {
     assert!(eval(&mut ctx, &name, main).is_ok(), "main threw");
     settle(&jit);
     let before = jit.metrics();
-    // The second run: the function is compiled by now, so this one is native.
+    assert!(eval(&mut ctx, &name, main).is_ok(), "main threw");
+    settle(&jit);
+    let before = jit.metrics();
+    // The third run: the function is compiled and its inline cache is warm.
     assert!(eval(&mut ctx, &name, main).is_ok(), "main threw");
     settle(&jit);
 
@@ -311,9 +349,9 @@ fn the_inline_guard_keeps_every_result() {
 /// into an accessor stops being served: the reads before the change are hits,
 /// the reads after it are misses (the helper runs the getter).
 ///
-/// The change is made in the **second** run only (`phase > 1`): the setup's
-/// object is shared by both runs, so an accessor defined in the first (the
-/// interpreted) run would still be there in the native one.
+/// The change is made in the **third** run only (`phase > 2`): the setup's
+/// object is shared by all the runs, so an accessor defined in an earlier
+/// (the interpreted) run would still be there in the observed one.
 #[test]
 fn the_guard_re_checks_the_shape_on_every_access() {
     let (hits, misses) = guard_counters(
@@ -322,7 +360,7 @@ fn the_guard_re_checks_the_shape_on_every_access() {
            phase++; \
            var s = 0; \
            for (var i = 0; i < 5; i++) s += o.x; \
-           if (phase > 1) Object.defineProperty(o, 'x', { get: function(){ return 100; } }); \
+           if (phase > 2) Object.defineProperty(o, 'x', { get: function(){ return 100; } }); \
            for (var i = 0; i < 5; i++) s += o.x; \
            return s; \
          }",
@@ -330,6 +368,54 @@ fn the_guard_re_checks_the_shape_on_every_access() {
     );
     assert_eq!(hits, 5, "the guard served the accessor: {hits} hits");
     assert_eq!(misses, 5, "the accessor never reached the helper: {misses} misses");
+}
+
+/// The typed array's `length` (P1-1's tail): the property lives on
+/// `%TypedArray%.prototype`, so the ordinary slot cache cannot serve it — the
+/// site records the shape that owns it in the chain instead, and the guard
+/// answers the read inline.
+#[test]
+fn the_typed_array_length_is_served_inline() {
+    let (hits, misses) = guard_counters(
+        "var t = new Int32Array(4); \
+         function work(){ var s = 0; for (var i = 0; i < 10; i++) s += t.length; return s; }",
+        "work();",
+    );
+    assert_eq!(hits, 10, "the guard did not serve the typed array's length");
+    assert_eq!(misses, 0, "the typed array's length reached the helper");
+}
+
+/// The typed array's `length` guard is only valid while the prototype chain
+/// is untouched: a patched prototype must send the read back to the helper
+/// (the getter's value is not the element count).
+///
+/// The **own** `length` case is the opposite: the ordinary slot cache serves
+/// it (it *is* an own property) ✓ — the differential suite checks its value ✓.
+#[test]
+fn the_typed_array_length_guard_declines_a_changed_chain() {
+    // A **patched** `%TypedArray%.prototype`: the shape that owns `length`
+    // changes, so the recorded id no longer matches.
+    let (hits, misses) = guard_counters(
+        "var t = new Int32Array(4); \
+         Object.defineProperty(Object.getPrototypeOf(Object.getPrototypeOf(t)), 'length', \
+           { get: function(){ return 99; }, configurable: true }); \
+         function work(){ var s = 0; for (var i = 0; i < 10; i++) s += t.length; return s; }",
+        "work();",
+    );
+    assert_eq!(hits, 0, "the guard served a patched prototype: {hits} hits");
+    assert_eq!(misses, 10, "the patched prototype never reached the helper");
+
+    // A **patched** `%Int32Array%.prototype`: the owner of `length` moves one
+    // level up, where the guard does not look.
+    let (hits, misses) = guard_counters(
+        "var t = new Int32Array(4); \
+         Object.defineProperty(Object.getPrototypeOf(t), 'length', \
+           { get: function(){ return 99; }, configurable: true }); \
+         function work(){ var s = 0; for (var i = 0; i < 10; i++) s += t.length; return s; }",
+        "work();",
+    );
+    assert_eq!(hits, 0, "the guard served a patched class prototype: {hits} hits");
+    assert_eq!(misses, 10, "the patched class prototype never reached the helper");
 }
 
 /// The slots' mirror must follow every mutation that moves them: adding a

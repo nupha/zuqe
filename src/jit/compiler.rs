@@ -3403,6 +3403,106 @@ fn lower_get_field_fast(
     // matched a recorded one, so it is a live shape and the id is safe to read.
     let shape_uid = b.ins().load(types::I32, MemFlags::new(), shape_node, jit_layout::SHAPE_UID_OFFSET);
     let same_uid = b.ins().icmp(IntCC::Equal, way_uid, shape_uid);
+
+    // ── The typed array's `length` ────────────────────────────────────
+    //
+    // The property lives on `%TypedArray%.prototype`, so the ordinary slot
+    // cache cannot serve it. The entry holds the instance's shape (an own
+    // `length` changes it) and the id of the shape that owns `length` in the
+    // chain (a patched prototype changes that one) — the guard re-checks both
+    // on every access, so a change is a miss, never a stale read.
+    //
+    // Only a `length` read can hit it, and the atom is known at compile time,
+    // so the extra loads and the kind check exist only there.
+    let ordinary = if insn.operand_u32(1) == crate::atom::Atom::CONST_length.id() {
+        // The entry's kind: an ordinary one (an own property, cached by its
+        // slot) or a typed array's `length` (the property lives on the
+        // prototype, so the entry caches the shape that owns it instead).
+        let ordinary = b.create_block();
+        let way_flags = b.ins().load(types::I8, MemFlags::new(), site, ic_layout::FLAGS_OFFSET);
+        let is_ta_length = {
+            let kind_bit = b.ins().band_imm(
+                way_flags,
+                i64::from(crate::function::IC_FLAG_TYPED_ARRAY_LENGTH),
+            );
+            b.ins().icmp_imm(IntCC::NotEqual, kind_bit, 0)
+        };
+        // The target must really be a typed array: a plain object can be given
+        // the typed array's prototype, and its payload is not a view.
+        let flags = b
+            .ins()
+            .load(types::I32, MemFlags::new(), obj, jit_layout::FLAGS_OFFSET);
+        let class_id = b.ins().band_imm(flags, jit_layout::CLASS_ID_MASK);
+        let is_ta_class = {
+            let lower = b.ins().icmp_imm(
+                IntCC::SignedGreaterThanOrEqual,
+                class_id,
+                i64::from(JS_CLASS_UINT8C_ARRAY),
+            );
+            let upper = b.ins().icmp_imm(
+                IntCC::SignedLessThanOrEqual,
+                class_id,
+                i64::from(JS_CLASS_FLOAT64_ARRAY),
+            );
+            b.ins().band(lower, upper)
+        };
+        // The shape's id has to match too: the recorded pointer alone could be
+        // a shape that was freed and whose memory another shape took.
+        let ta_ok = {
+            let both = b.ins().band(is_ta_length, is_ta_class);
+            b.ins().band(both, same_uid)
+        };
+        let kind_block = b.create_block();
+        b.ins().brif(ta_ok, kind_block, &[], ordinary, &[]);
+
+        b.switch_to_block(kind_block);
+        // The id of the shape that owns `length` in the chain.
+        let way_owner = b.ins().load(types::I32, MemFlags::new(), site, ic_layout::PROP_OFFSET);
+        // The chain: the instance's shape's prototype (the typed array's own
+        // prototype) and its prototype's prototype (`%TypedArray%.prototype`),
+        // which owns the `length` getter.
+        let proto1 = b.ins().load(types::I64, MemFlags::new(), shape_node, jit_layout::SHAPE_PROTO_OFFSET);
+        let proto1_shape = b.ins().load(types::I64, MemFlags::new(), proto1, jit_layout::SHAPE_OFFSET);
+        let proto2 = b.ins().load(types::I64, MemFlags::new(), proto1_shape, jit_layout::SHAPE_PROTO_OFFSET);
+        let proto2_shape = b.ins().load(types::I64, MemFlags::new(), proto2, jit_layout::SHAPE_OFFSET);
+        let owner_uid = b.ins().load(types::I32, MemFlags::new(), proto2_shape, jit_layout::SHAPE_UID_OFFSET);
+        let same_owner = b.ins().icmp(IntCC::Equal, way_owner, owner_uid);
+        let chain_ok = b.create_block();
+        b.ins().brif(same_owner, chain_ok, &[], slow, &[]);
+
+        b.switch_to_block(chain_ok);
+        // The view's element count, and the "out of bounds" flag: a view whose
+        // resizable buffer was shrunk past its end reports a length of 0 (the
+        // same rule the engine's getter uses).
+        let payload = b.ins().load(types::I64, MemFlags::new(), obj, jit_layout::PAYLOAD_OFFSET);
+        let count = b.ins().load(types::I32, MemFlags::new(), payload, ta_layout::COUNT_OFFSET);
+        let out_of_bounds = b.ins().load(
+            types::I8,
+            MemFlags::new(),
+            payload,
+            ta_layout::OUT_OF_BOUNDS_OFFSET,
+        );
+        let is_oob = b.ins().icmp_imm(IntCC::NotEqual, out_of_bounds, 0);
+        let zero = b.ins().iconst(types::I32, 0);
+        let len = b.ins().select(is_oob, zero, count);
+        // The value is an `Int`: its payload is the count in the low 32 bits.
+        let value = b.ins().uextend(types::I64, len);
+        b.ins().store(MemFlags::new(), value, sp, -8);
+        // P1-1 instrumentation: the guard answered this read on its own.
+        let hits = b.ins().load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_HITS);
+        let hits = b.ins().iadd_imm(hits, 1);
+        b.ins().store(MemFlags::new(), hits, fv.frame, O_PROPERTY_HITS);
+        b.def_var(sp_var, sp);
+        b.ins().jump(cont, &[]);
+        Some(ordinary)
+    } else {
+        None
+    };
+
+    // ── The ordinary own data property ─────────────────────────────────
+    if let Some(ordinary) = ordinary {
+        b.switch_to_block(ordinary);
+    }
     // The slot the way recorded must be inside the object's slots.
     let slot = b.ins().uextend(types::I64, way_slot);
     let count = b.ins().load(types::I32, MemFlags::new(), obj, jit_layout::PROP_LEN_OFFSET);

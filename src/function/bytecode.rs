@@ -51,6 +51,18 @@ pub(crate) struct InlineCacheEntry {
     pub(crate) flags: u8,
 }
 
+/// The kind of an inline-cache entry (P1-1's tail): the ordinary one (an own
+/// property, cached by its slot) or a typed array's `length`.
+///
+/// The typed array's `length` lives on the prototype, so the ordinary slot
+/// cache cannot serve it: the entry keeps the instance's shape and the shape
+/// that *owns* `length` in the prototype chain instead (see
+/// [`InlineCacheSite::insert_typed_array_length`]).
+///
+/// The property flags use the low 6 bits, so the top bit is free for the kind.
+#[cfg(feature = "inline_cache")]
+pub(crate) const IC_FLAG_TYPED_ARRAY_LENGTH: u8 = 0x80;
+
 /// Distinct shapes one inline-cache site may hold before it starts evicting
 /// (epic F3). 4 keeps a monomorphic site a single compare on `ways[0]` while
 /// covering the small polymorphic loops real code produces; past it a site
@@ -90,6 +102,11 @@ pub(crate) mod jit_layout {
     pub(crate) const SHAPE_UID_OFFSET: i32 = std::mem::offset_of!(InlineCacheEntry, shape_uid) as i32;
     /// The offset of a way's cached slot index.
     pub(crate) const SLOT_OFFSET: i32 = std::mem::offset_of!(InlineCacheEntry, slot) as i32;
+    /// The offset of a way's cached property id (the atom — or, for a typed
+    /// array's `length`, the id of the shape that owns it in the chain).
+    pub(crate) const PROP_OFFSET: i32 = std::mem::offset_of!(InlineCacheEntry, prop) as i32;
+    /// The offset of a way's flags (the property flags, plus the kind bit).
+    pub(crate) const FLAGS_OFFSET: i32 = std::mem::offset_of!(InlineCacheEntry, flags) as i32;
 }
 
 #[cfg(feature = "inline_cache")]
@@ -167,6 +184,53 @@ impl InlineCacheSite {
                 flags,
             };
         }
+    }
+
+    /// Record a typed array's `length` read (P1-1's tail).
+    ///
+    /// The property lives on the prototype, so the ordinary slot cache cannot
+    /// serve it. The entry keeps two tokens instead:
+    ///
+    /// - the instance's shape (`shape_ptr` + `shape_uid`): an own `length`
+    ///   changes the instance's shape, so the entry goes stale and the guard
+    ///   declines;
+    /// - the id of the shape that *owns* `length` in the prototype chain
+    ///   (`owner_uid`): a patched prototype changes that shape, so the entry
+    ///   goes stale the same way.
+    ///
+    /// `slot` is left at `u32::MAX`, which the ordinary guard's range check
+    /// always rejects — so an entry of this kind can never be mistaken for a
+    /// cached slot.
+    pub(crate) fn insert_typed_array_length(
+        &mut self,
+        shape_ptr: *const crate::object::ShapeImpl,
+        shape_uid: u32,
+        owner_uid: u32,
+    ) {
+        let way = match self
+            .ways
+            .iter()
+            .position(|w| w.shape_ptr == shape_ptr && w.shape_uid == shape_uid)
+        {
+            Some(i) => i,
+            None => match self.ways.iter().position(|w| w.shape_ptr.is_null()) {
+                Some(i) => i,
+                None => {
+                    let i = self.cursor as usize % IC_WAYS;
+                    self.cursor = self.cursor.wrapping_add(1);
+                    i
+                }
+            },
+        };
+        self.ways[way] = InlineCacheEntry {
+            shape_ptr,
+            shape_uid,
+            slot: u32::MAX,
+            // The atom is known at compile time, so the field is free: it
+            // holds the owner's shape id instead.
+            prop: owner_uid,
+            flags: IC_FLAG_TYPED_ARRAY_LENGTH,
+        };
     }
 }
 

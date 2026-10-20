@@ -6,6 +6,7 @@ use std::marker::PhantomData;
 use gc_lite::GcNode;
 
 use crate::{
+    atom::Atom,
     context::ScopedContext,
     error::JSResult,
     object::{Object, ObjectImpl},
@@ -53,6 +54,21 @@ impl ObjectImpl {
             },
             _mark: PhantomData,
         }
+    }
+
+    /// The object in the prototype chain that *owns* `prop` (the one whose own
+    /// property it is), and how far up the chain it was found.
+    ///
+    /// The depth counts the instance as 0, its prototype as 1, and so on. The
+    /// typed array's `length` is owned by `%TypedArray%.prototype`, which sits
+    /// two levels up (the typed array's own prototype is in between).
+    pub(crate) fn proto_chain_owner_of(&self, prop: Atom) -> Option<(Object, usize)> {
+        for (depth, cur) in self.shape_proto_iter(true).enumerate() {
+            if cur.find_shape_property(prop).is_some() {
+                return Some((cur, depth));
+            }
+        }
+        None
     }
 
     /// Get prototype object of `self`, both shape and proxy are considered.

@@ -298,7 +298,10 @@ mod tests {
             .create_context(crate::ScopedContext::ECMA_CONTEXT_SETUP)
             .unwrap();
         ctx.with_new_scope(|scope| {
-            let shape = Shape::create_internal(scope, None, HashList::new()).unwrap();
+            // A shape with a prototype, so the chain link is a real object.
+            let proto = scope.create_base_object().unwrap();
+            let shape =
+                Shape::create_internal(scope, Some(proto.clone()), HashList::new()).unwrap();
 
             // The node pointer: what an object holds in its `shape` field.
             let node = shape.gc_ref().node_ptr().as_ptr() as usize;
@@ -317,6 +320,21 @@ mod tests {
             assert_eq!(
                 uid, shape.uid,
                 "the shape's id is not where the JIT reads it"
+            );
+
+            // The prototype, read the way the typed array's `length` guard
+            // walks the chain: the shape's prototype is an object (a GC node
+            // pointer), and *its* shape is the next link.
+            let proto = unsafe {
+                *((node as *const u8).add(jit_layout::SHAPE_PROTO_OFFSET as usize) as *const u64)
+            };
+            assert_eq!(
+                proto,
+                shape
+                    .proto()
+                    .map(|p| p.gc_node_ptr().as_ptr() as u64)
+                    .unwrap_or(0),
+                "the shape's prototype is not where the JIT reads it"
             );
         });
     }

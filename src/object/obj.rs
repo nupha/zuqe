@@ -346,6 +346,15 @@ pub(crate) mod jit_layout {
     pub(crate) const SHAPE_UID_OFFSET: i32 =
         (gc_lite::gctype::payload_offset_of::<ShapeImpl>()
             + std::mem::offset_of!(ShapeImpl, uid)) as i32;
+    /// The offset of a shape's prototype (a GC node pointer; null when the
+    /// shape has no prototype).
+    ///
+    /// The typed array's `length` lives on the prototype, so the guard walks
+    /// the chain from the shape to check that the prototype that owns
+    /// `length` is still the one the inline cache recorded.
+    pub(crate) const SHAPE_PROTO_OFFSET: i32 =
+        (gc_lite::gctype::payload_offset_of::<ShapeImpl>()
+            + std::mem::offset_of!(ShapeImpl, proto)) as i32;
 }
 
 impl ObjectImpl {
