@@ -151,8 +151,14 @@ impl AdaptiveInputs {
     /// helper-dominated function doubles that factor on top (the total stays
     /// capped at 4x).
     ///
+    /// `payback` is the **cost gate** (P1-3): the number of activations a
+    /// function must be observed at before its compile can pay for itself,
+    /// derived from the measured cost of a compile and the host's estimate of
+    /// what native execution saves. It is a floor under the thresholds, so a
+    /// function that is called a handful of times is not compiled at all.
+    ///
     /// An eager base (both thresholds 1) is left alone: the host asked for
-    /// "compile on the first event", and doubling that would silently defeat
+    /// "compile on the first event", and raising that would silently defeat
     /// the diagnostic/test harnesses that rely on it.
     pub(crate) fn thresholds(
         &self,
@@ -160,6 +166,7 @@ impl AdaptiveInputs {
         base_loops: u32,
         base_tier2_calls: u32,
         base_tier2_loops: u32,
+        payback: u32,
     ) -> HotThresholds {
         if base_calls <= 1 && base_loops <= 1 {
             return HotThresholds::neutral(
@@ -187,25 +194,36 @@ impl AdaptiveInputs {
         } else {
             size
         };
-        if factor == SIZE_SCALE {
-            return HotThresholds::neutral(
-                base_calls,
-                base_loops,
-                base_tier2_calls,
-                base_tier2_loops,
-            );
+        let mut thresholds = if factor == SIZE_SCALE {
+            HotThresholds::neutral(base_calls, base_loops, base_tier2_calls, base_tier2_loops)
+        } else {
+            HotThresholds {
+                calls: base_calls.saturating_mul(factor) / SIZE_SCALE,
+                loops: base_loops.saturating_mul(factor) / SIZE_SCALE,
+                tier2_calls: base_tier2_calls.saturating_mul(factor) / SIZE_SCALE,
+                tier2_loops: base_tier2_loops.saturating_mul(factor) / SIZE_SCALE,
+                reason: if helper_dense {
+                    HotReason::HelperDensity
+                } else {
+                    HotReason::BytecodeScale
+                },
+            }
+        };
+        // The cost gate: a floor under the first gate (the compile has to pay
+        // for itself) and under the second one (the promotion is a second
+        // compile). The back-edge gate keeps the configured ratio to the call
+        // gate: a back edge is a smaller unit of work than a call.
+        if payback > 0 {
+            thresholds.calls = thresholds.calls.max(payback);
+            thresholds.loops = thresholds
+                .loops
+                .max(payback.saturating_mul(base_loops) / base_calls.max(1));
+            thresholds.tier2_calls = thresholds.tier2_calls.max(payback);
+            thresholds.tier2_loops = thresholds
+                .tier2_loops
+                .max(payback.saturating_mul(base_tier2_loops) / base_tier2_calls.max(1));
         }
-        HotThresholds {
-            calls: base_calls.saturating_mul(factor) / SIZE_SCALE,
-            loops: base_loops.saturating_mul(factor) / SIZE_SCALE,
-            tier2_calls: base_tier2_calls.saturating_mul(factor) / SIZE_SCALE,
-            tier2_loops: base_tier2_loops.saturating_mul(factor) / SIZE_SCALE,
-            reason: if helper_dense {
-                HotReason::HelperDensity
-            } else {
-                HotReason::BytecodeScale
-            },
-        }
+        thresholds
     }
 }
 
@@ -272,7 +290,7 @@ mod tests {
 
     #[test]
     fn without_measurements_the_base_is_unchanged() {
-        let th = AdaptiveInputs::default().thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        let th = AdaptiveInputs::default().thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
         assert_eq!(th.calls, 32);
         assert_eq!(th.loops, 56);
         assert_eq!((th.tier2_calls, th.tier2_loops), (1024, 2048));
@@ -290,7 +308,7 @@ mod tests {
             measured_work: None,
             ..AdaptiveInputs::default()
         };
-        let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
         assert_eq!((th.calls, th.loops), (64, 112));
         assert_eq!((th.tier2_calls, th.tier2_loops), (2048, 4096));
         assert_eq!(th.reason, HotReason::HelperDensity);
@@ -302,7 +320,7 @@ mod tests {
             measured_work: Some(4096),
             ..AdaptiveInputs::default()
         };
-        let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
         assert_eq!(th.calls, 16);
         assert_eq!(th.tier2_calls, 512);
         assert_eq!(th.reason, HotReason::MeasuredWork);
@@ -316,7 +334,7 @@ mod tests {
             measured_work: Some(1),
             ..AdaptiveInputs::default()
         };
-        let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
         assert_eq!(th.calls, 64);
         assert_eq!(th.reason, HotReason::HelperDensity);
     }
@@ -330,7 +348,7 @@ mod tests {
             measured_work: Some(1),
         };
         assert_eq!(
-            inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3).reason,
+            inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0).reason,
             HotReason::BytecodeScale
         );
     }
@@ -364,14 +382,14 @@ mod tests {
             measured_work: Some(1),
         };
         // 1 KiB → 2x: 64 calls / 112 back edges.
-        let th = inputs(1024).thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        let th = inputs(1024).thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
         assert_eq!((th.calls, th.loops), (64, 112));
         assert_eq!((th.tier2_calls, th.tier2_loops), (2048, 4096));
         // 2 KiB → 3x.
-        let th = inputs(2048).thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        let th = inputs(2048).thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
         assert_eq!((th.calls, th.loops), (96, 168));
         // 4 KiB → the 4x cap.
-        let th = inputs(4096).thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        let th = inputs(4096).thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
         assert_eq!((th.calls, th.loops), (128, 224));
     }
 
@@ -386,11 +404,11 @@ mod tests {
             measured_work: Some(1),
         };
         // 1 KiB → 2x size → 4x total.
-        let th = inputs(1024).thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        let th = inputs(1024).thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
         assert_eq!((th.calls, th.loops), (128, 224));
         assert_eq!(th.reason, HotReason::HelperDensity);
         // 2 KiB → 3x size → 6x, capped at 4x.
-        let th = inputs(2048).thresholds(BASE.0, BASE.1, BASE.2, BASE.3);
+        let th = inputs(2048).thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
         assert_eq!((th.calls, th.loops), (128, 224));
     }
 
@@ -402,9 +420,46 @@ mod tests {
             bytecode_bytes: 8192,
             measured_work: Some(4096),
         };
-        let th = inputs.thresholds(1, 1, BASE.2, BASE.3);
+        let th = inputs.thresholds(1, 1, BASE.2, BASE.3, 0);
         assert_eq!((th.calls, th.loops), (1, 1), "the host asked for eager");
         assert_eq!(th.reason, HotReason::NeutralBase);
+    }
+
+    /// P1-3: the cost gate is a **floor** under the thresholds. A function
+    /// that is called a handful of times cannot pay for a compile, so it is
+    /// not compiled at all — whatever the configured thresholds say.
+    #[test]
+    fn the_cost_gate_raises_the_thresholds_to_the_payback() {
+        let inputs = AdaptiveInputs {
+            instruction_count: 10,
+            helper_ops: 0,
+            bytecode_bytes: 0,
+            measured_work: Some(1),
+        };
+        // No gate: the configured base.
+        let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
+        assert_eq!((th.calls, th.loops), (32, 56));
+
+        // A gate of 300 activations: the call gate moves to 300, the back
+        // edge gate keeps the configured 56/32 ratio (525).
+        let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 300);
+        assert_eq!((th.calls, th.loops), (300, 525));
+        // The second gate is a second compile: it gets the same floor.
+        assert_eq!((th.tier2_calls, th.tier2_loops), (1024, 2048));
+    }
+
+    /// The eager base is exempt: the host asked for the code at the first
+    /// event, and the cost gate would silently defeat that.
+    #[test]
+    fn the_cost_gate_does_not_touch_an_eager_base() {
+        let inputs = AdaptiveInputs {
+            instruction_count: 10,
+            helper_ops: 0,
+            bytecode_bytes: 100,
+            measured_work: Some(1),
+        };
+        let th = inputs.thresholds(1, 1, BASE.2, BASE.3, 300);
+        assert_eq!((th.calls, th.loops), (1, 1));
     }
 
     #[test]

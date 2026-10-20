@@ -529,6 +529,10 @@ fn the_second_gate_promotes_a_hot_function() {
         .tier2_loop_threshold(8)
         .auto_poll(false)
         .tier_policy(JitTierPolicy::Automatic)
+        // This test exercises the *mechanics* of the two gates, not the
+        // economics: the cost gate (P1-3) would hold the function back,
+        // because it is not called often enough to pay for a compile.
+        .native_saving_ns_per_bytecode(0)
         .build();
     let jit = Jit::attach_to(&rt, cfg).expect("attach");
     let name = EvalName::Name("jit-tiering.js".into());
@@ -591,6 +595,9 @@ fn the_second_gate_is_host_tunable() {
         .tier2_loop_threshold(1_000_000)
         .auto_poll(false)
         .tier_policy(JitTierPolicy::Automatic)
+        // The cost gate (P1-3) is off here: this test is about the gates'
+        // mechanics, not about whether a compile pays for itself.
+        .native_saving_ns_per_bytecode(0)
         .build();
     let jit = Jit::attach_to(&rt, cfg).expect("attach");
     let name = EvalName::Name("jit-tiering-unreachable.js".into());
@@ -624,6 +631,9 @@ fn the_forced_policies_ignore_the_gates() {
         .tier2_loop_threshold(1_000_000)
         .auto_poll(false)
         .tier_policy(JitTierPolicy::Tier2)
+        // The cost gate (P1-3) is off here: this test is about the forced
+        // policies, not about whether a compile pays for itself.
+        .native_saving_ns_per_bytecode(0)
         .build();
     let jit = Jit::attach_to(&rt, cfg).expect("attach");
     let name = EvalName::Name("jit-forced-tier.js".into());

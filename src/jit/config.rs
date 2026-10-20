@@ -37,6 +37,11 @@ const DEFAULT_MAX_QUEUE_LEN: usize = 256;
 const DEFAULT_WORKERS: usize = 1;
 const DEFAULT_COMPILE_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_MAX_COMPILE_ATTEMPTS: u32 = 4;
+/// The default estimate of what one bytecode of native execution saves
+/// (plan §13.6.4: the interpreter spends ~20–50 ns per bytecode, the machine
+/// code ~10–30 ns of that is saved). It is the benefit side of the cost
+/// gate; the cost side is measured at run time.
+const DEFAULT_NATIVE_SAVING_NS_PER_BYTECODE: u64 = 20;
 
 /// Which tier the JIT is allowed to reach.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -101,6 +106,17 @@ pub struct JitConfig {
     /// late completion is discarded by attempt id.
     pub(crate) compile_timeout_ms: u64,
     pub(crate) max_compile_attempts: u32,
+    /// The host's estimate of how many nanoseconds one bytecode of native
+    /// execution saves over running it in the interpreter (plan §13.6.4:
+    /// the interpreter runs a bytecode in ~20–50 ns, the machine code saves
+    /// ~10–30 ns of that).
+    ///
+    /// It is the *benefit* side of the cost gate: with the **measured** cost
+    /// side (how long a compile takes, `jit::rate`), the JIT can tell whether
+    /// a compile can pay for itself and hold back the ones that cannot
+    /// (IMP-2, P1-3). `0` turns the gate off: every function that crosses
+    /// the configured thresholds is compiled.
+    pub(crate) native_saving_ns_per_bytecode: u64,
     /// Sink for human-readable diagnostics.
     pub(crate) diagnostic_callback: Option<DiagnosticSink>,
     /// Called with a snapshot after each `Jit::poll`.
@@ -148,6 +164,7 @@ impl Default for JitConfig {
             workers: DEFAULT_WORKERS,
             compile_timeout_ms: DEFAULT_COMPILE_TIMEOUT_MS,
             max_compile_attempts: DEFAULT_MAX_COMPILE_ATTEMPTS,
+            native_saving_ns_per_bytecode: DEFAULT_NATIVE_SAVING_NS_PER_BYTECODE,
             diagnostic_callback: None,
             metrics_observer: None,
         }
@@ -222,6 +239,12 @@ impl JitConfig {
 
     pub const fn max_compile_attempts(&self) -> u32 {
         self.max_compile_attempts
+    }
+
+    /// The host's estimate of what one bytecode of native execution saves.
+    /// `0` turns the cost gate off.
+    pub const fn native_saving_ns_per_bytecode(&self) -> u64 {
+        self.native_saving_ns_per_bytecode
     }
 }
 
@@ -314,6 +337,16 @@ impl JitConfigBuilder {
 
     pub const fn max_compile_attempts(mut self, n: u32) -> Self {
         self.0.max_compile_attempts = n;
+        self
+    }
+
+    /// The host's estimate of how many nanoseconds one bytecode of native
+    /// execution saves over running it in the interpreter. It is the benefit
+    /// side of the cost gate: the JIT compares it with the **measured** cost
+    /// of a compile and holds back the functions whose compile cannot pay for
+    /// itself. `0` turns the gate off.
+    pub const fn native_saving_ns_per_bytecode(mut self, n: u64) -> Self {
+        self.0.native_saving_ns_per_bytecode = n;
         self
     }
 

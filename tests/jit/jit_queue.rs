@@ -53,6 +53,9 @@ fn config() -> JitConfig {
         .loop_threshold(2)
         .max_queue_len(2)
         .auto_poll(false)
+        // The cost gate (P1-3) is off here: this test is about the queue's
+        // admission policy, not about whether a compile pays for itself.
+        .native_saving_ns_per_bytecode(0)
         .build()
 }
 

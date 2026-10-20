@@ -41,6 +41,7 @@ cargo run --example test262 --features intl402 -- --preset ES2025
 | `--error-file <FILE>` | Re-run only the failures listed in this JSONL file, then rewrite it in place (previous copy saved as `<FILE>-last.jsonl`). All other filtering is ignored. Default when absent: `test262-errors.jsonl` receives current failures. |
 | `--log-file <FILE>` | Writes each script path (flushed) before it runs; after a crash the last line is the culprit. Required for release runs (`panic = "abort"` — the panic hook never fires there); in debug/unwind builds the hook covers Rust panics, but a hard crash (SEGV) still bypasses it. |
 | `--jit` | Attach a JIT to every per-test runtime with eager thresholds (call/loop = 1) so queued functions compile inside the test too (the engine polls automatically at trampoline frame boundaries and ticks). Verdicts must stay identical to a run without the flag. Place it **before** any test glob (the positional arg is trailing). Requires the `jit` cargo feature (on by default). |
+| `--jit-production` | Same, but with the **production** thresholds (32/56) plus the cost gate: a function is compiled only when it runs often enough to pay for its compile. This is what a host runs; the eager thresholds above maximize the *native coverage* of a conformance run, not its speed. The wall-clock difference is large (a full run: ~25 min eager vs ~2 min production). |
 | `--verdict-file <FILE>` | Writes one JSONL line per test (`{"script":…,"status":"pass\|fail\|skip"}`) in run order, for diffing two runs (e.g. ± `--jit`). |
 
 ### Filtering semantics (exact)
@@ -153,6 +154,11 @@ cargo run --release --example test262 --features intl402 -- \
 cargo run --release --example test262 --features intl402 -- \
   --jit --preset ES2017 --verdict-file verdict-jit.jsonl 'language/statements/try/**'
 diff verdict-base.jsonl verdict-jit.jsonl   # expected: no output (0 differences)
+
+# The cost of the JIT: a full run with the production thresholds + the cost
+# gate (what a host runs) vs. the eager ones (maximal native coverage)
+cargo run --release --example test262 --features intl402 -- --jit-production
+cargo run --release --example test262 --features intl402 -- --jit
 ```
 
 Note: the runner's own `--features` flag (test262 feature whitelist) is

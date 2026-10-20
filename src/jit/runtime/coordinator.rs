@@ -21,7 +21,10 @@ use std::{
 
 use gc_lite::{GcTrace, GcTraceCtx};
 
-use crate::{function::Bytecode, jit::metrics::JitMetrics};
+use crate::{
+    function::Bytecode,
+    jit::{metrics::JitMetrics, rate},
+};
 
 use super::hotness::{AdaptiveInputs, HotThresholds, HotnessState, Tier};
 
@@ -104,6 +107,9 @@ struct FunctionRecord {
     /// means it has not run since: it is idle, and the queue may drop it for
     /// a hotter newcomer (plan §13.6.5 item 4).
     work_since_queue: u32,
+    /// The size of the function's bytecode, in bytes. The cost gate needs it
+    /// to weigh a compile against the work the function does (P1-3).
+    bytecode_bytes: u32,
 }
 
 impl FunctionRecord {
@@ -136,6 +142,9 @@ pub(crate) struct Coordinator {
     max_queue_len: usize,
     max_attempts: u32,
     timeout: Duration,
+    /// The host's estimate of what one bytecode of native execution saves;
+    /// the benefit side of the cost gate (P1-3). `0` turns the gate off.
+    native_saving_ns_per_bytecode: u64,
 }
 
 impl Coordinator {
@@ -150,6 +159,7 @@ impl Coordinator {
         max_queue_len: usize,
         max_attempts: u32,
         compile_timeout_ms: u64,
+        native_saving_ns_per_bytecode: u64,
     ) -> Self {
         Self {
             records: HashMap::new(),
@@ -163,11 +173,25 @@ impl Coordinator {
             max_queue_len,
             max_attempts,
             timeout: Duration::from_millis(compile_timeout_ms),
+            native_saving_ns_per_bytecode,
         }
     }
 
     pub(crate) const fn timeout(&self) -> Duration {
         self.timeout
+    }
+
+    /// The cost gate (P1-3): how many activations a function must be observed
+    /// at before its compile can pay for itself. It combines the **measured**
+    /// cost of a compile (`jit::rate`) with the host's estimate of what
+    /// native execution saves. `0` means "no gate".
+    fn payback_activations(&self) -> u32 {
+        if self.native_saving_ns_per_bytecode == 0 {
+            return 0;
+        }
+        rate::ns_per_bytecode()
+            .map(|rate| rate::payback_activations(rate, self.native_saving_ns_per_bytecode))
+            .unwrap_or(0)
     }
 
     /// The tier the first gate produces.
@@ -276,10 +300,16 @@ impl Coordinator {
     fn record_mut(&mut self, id: u64, opcodes: &[u8], measured_work: u32) -> &mut FunctionRecord {
         let (base_calls, base_loops) = (self.base_calls, self.base_loops);
         let (base_tier2_calls, base_tier2_loops) = (self.base_tier2_calls, self.base_tier2_loops);
+        let payback = self.payback_activations();
         self.records.entry(id).or_insert_with(|| {
-            let thresholds = AdaptiveInputs::from_opcodes(opcodes)
-                .with_measured_work(measured_work)
-                .thresholds(base_calls, base_loops, base_tier2_calls, base_tier2_loops);
+            let inputs = AdaptiveInputs::from_opcodes(opcodes).with_measured_work(measured_work);
+            let thresholds = inputs.thresholds(
+                base_calls,
+                base_loops,
+                base_tier2_calls,
+                base_tier2_loops,
+                payback,
+            );
             FunctionRecord {
                 hotness: HotnessState::default(),
                 thresholds,
@@ -294,8 +324,16 @@ impl Coordinator {
                 tier_down: false,
                 cooldown: 0,
                 work_since_queue: 0,
+                bytecode_bytes: inputs.bytecode_bytes,
             }
         })
+    }
+
+    /// The size of a function's bytecode, in bytes (0 when it is unknown).
+    pub(crate) fn bytecode_bytes(&self, id: u64) -> u32 {
+        self.records
+            .get(&id)
+            .map_or(0, |record| record.bytecode_bytes)
     }
 
     /// Move a now-hot function into the queue. When the queue is full a
@@ -596,6 +634,7 @@ mod tests {
             8,
             max_attempts,
             30_000,
+            0,
         )
     }
 
@@ -610,6 +649,7 @@ mod tests {
             8,
             max_attempts,
             30_000,
+            0,
         )
     }
 
@@ -706,6 +746,7 @@ mod tests {
             1,
             4,
             30_000,
+            0,
         );
         let mut m = JitMetrics::default();
         make_hot(&mut c, &mut m, 1);
@@ -731,6 +772,7 @@ mod tests {
             2,
             4,
             30_000,
+            0,
         );
         let mut m = JitMetrics::default();
         make_hot(&mut c, &mut m, 1);
@@ -767,6 +809,7 @@ mod tests {
             2,
             4,
             30_000,
+            0,
         );
         let mut m = JitMetrics::default();
         let opcodes = [crate::bytecode::opcodes::OP_return_undef];
@@ -787,7 +830,7 @@ mod tests {
     /// on the next activation.
     #[test]
     fn evicting_a_pending_promotion_keeps_the_installed_code() {
-        let mut c = Coordinator::new(1, 1, 2, 2, Tiering::TwoTier, 500, 1, 4, 30_000);
+        let mut c = Coordinator::new(1, 1, 2, 2, Tiering::TwoTier, 500, 1, 4, 30_000, 0);
         let mut m = JitMetrics::default();
         let opcodes = [crate::bytecode::opcodes::OP_return_undef];
 

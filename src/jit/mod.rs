@@ -31,6 +31,7 @@ mod ir;
 mod metrics;
 mod platform;
 mod policy;
+mod rate;
 mod runtime;
 mod snapshot;
 
@@ -144,6 +145,7 @@ impl JitState {
             cfg.max_queue_len,
             cfg.max_compile_attempts,
             cfg.compile_timeout_ms,
+            cfg.native_saving_ns_per_bytecode,
         );
         #[cfg(feature = "jit_background")]
         let background = BackgroundCompiler::new(cfg.workers, Arc::clone(&isa))?;
@@ -515,7 +517,7 @@ impl JitState {
         let id = job.function_id;
         // The compile cost is accounted here: the worker measured it, the
         // runtime thread owns the counters.
-        m.note_compile(completion.nanos);
+        self.note_compile_cost(m, id, completion.nanos);
         // Bind the borrow before `install` takes it again (it writes the
         // coordinator on eviction).
         let pinned = self.coordinator.borrow().pinned(id);
@@ -617,8 +619,16 @@ impl JitState {
             Lowered::Rejected => CompileOutcome::Rejected,
             Lowered::Failed => CompileOutcome::Failed,
         };
-        m.note_compile(elapsed.get());
+        self.note_compile_cost(m, request.function_id, elapsed.get());
         outcome
+    }
+
+    /// Account for one compile attempt: the per-runtime metrics and the
+    /// process-wide compile rate (the cost gate's input, P1-3).
+    fn note_compile_cost(&self, m: &mut JitMetrics, id: u64, nanos: u64) {
+        m.note_compile(nanos);
+        let bytes = self.coordinator.borrow().bytecode_bytes(id);
+        rate::record(nanos, u64::from(bytes));
     }
 
     /// Trace the functions held for an in-flight compile so the GC cannot free
@@ -733,6 +743,18 @@ impl Jit {
         self.rt
             .jit()
             .map_or_else(JitMetrics::default, JitState::metrics)
+    }
+
+    /// The measured cost of a compile: nanoseconds per compiled bytecode,
+    /// process-wide. `None` while too few compiles have been measured to
+    /// trust the estimate.
+    ///
+    /// It is the *cost* side of the cost gate (P1-3): with the host's
+    /// estimate of what native execution saves
+    /// ([`JitConfig::native_saving_ns_per_bytecode`]), it says how many
+    /// times a function must run before its compile pays for itself.
+    pub fn compile_rate_ns_per_bytecode(&self) -> Option<u64> {
+        rate::ns_per_bytecode()
     }
 
     /// Name of the Cranelift target ISA selected for this host.

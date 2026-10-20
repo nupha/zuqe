@@ -165,6 +165,13 @@ pub struct Args {
     #[arg(long)]
     pub jit: bool,
 
+    /// Use the production thresholds (32/56) plus the cost gate instead of
+    /// the eager ones: a function is compiled only when it runs often enough
+    /// to pay for its compile. This is what a host runs; the eager thresholds
+    /// maximize the native coverage of a conformance run instead.
+    #[arg(long)]
+    pub jit_production: bool,
+
     /// Write one JSONL verdict (script + pass/fail/skip) per test, so two runs
     /// (e.g. with and without `--jit`) can be diffed line by line
     #[arg(long = "verdict-file", value_name = "FILE")]
@@ -271,9 +278,14 @@ async fn main_impl() {
 
     // `--jit`: attach a JIT to each per-test runtime (see runner). Without the
     // jit cargo feature the flag is still accepted but must fail loudly.
-    if args.jit {
+    if args.jit || args.jit_production {
         #[cfg(feature = "jit")]
-        runner::enable_jit();
+        {
+            runner::enable_jit();
+            if args.jit_production {
+                runner::enable_jit_production();
+            }
+        }
         #[cfg(not(feature = "jit"))]
         {
             eprintln!("error: --jit requires a build with the `jit` cargo feature");
@@ -659,7 +671,7 @@ async fn main_impl() {
 
     // End-of-run JIT metrics (summed over every per-test runtime).
     #[cfg(feature = "jit")]
-    if args.jit {
+    if args.jit || args.jit_production {
         let total = runner::jit_metrics_total();
         match total {
             Some(m) => eprintln!(

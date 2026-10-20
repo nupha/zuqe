@@ -66,6 +66,18 @@ pub fn enable_jit() {
     JIT_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// `--jit-production`: the production thresholds (32/56) plus the cost gate,
+/// instead of the eager ones. The eager thresholds maximize the native
+/// coverage of a conformance run; the production ones are what a host runs
+/// (and what the cost of compiling is measured against).
+#[cfg(feature = "jit")]
+static JIT_PRODUCTION: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(feature = "jit")]
+pub fn enable_jit_production() {
+    JIT_PRODUCTION.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Eager thresholds so a function compiles on its first entry / back edge —
 /// maximizes the share of native code exercised within a short sample run.
 #[cfg(feature = "jit")]
@@ -76,6 +88,20 @@ fn eager_jit_config() -> zuqe::JitConfig {
     zuqe::JitConfig::builder()
         .call_threshold(1)
         .loop_threshold(1)
+        .compile_timeout_ms(COMPILE_TIMEOUT_MS)
+        .max_compile_attempts(MAX_COMPILE_ATTEMPTS)
+        .build()
+}
+
+/// The production thresholds (32 calls / 56 back edges) plus the cost gate:
+/// a function is compiled only when it runs often enough to pay for its
+/// compile. This is the configuration a host would run; the eager one above
+/// maximizes the *native coverage* of a conformance run, not its speed.
+#[cfg(feature = "jit")]
+fn production_jit_config() -> zuqe::JitConfig {
+    zuqe::JitConfig::builder()
+        .call_threshold(32)
+        .loop_threshold(56)
         .compile_timeout_ms(COMPILE_TIMEOUT_MS)
         .max_compile_attempts(MAX_COMPILE_ATTEMPTS)
         .build()
@@ -604,7 +630,14 @@ pub async fn run_test_file(
     #[cfg(feature = "jit")]
     let jit = JIT_ENABLED
         .load(std::sync::atomic::Ordering::Relaxed)
-        .then(|| zuqe::Jit::attach_to(&rt, eager_jit_config()).expect("JIT attach failed"));
+        .then(|| {
+            let config = if JIT_PRODUCTION.load(std::sync::atomic::Ordering::Relaxed) {
+                production_jit_config()
+            } else {
+                eager_jit_config()
+            };
+            zuqe::Jit::attach_to(&rt, config).expect("JIT attach failed")
+        });
 
     let mut has_err = false;
     let mut failed = false;
