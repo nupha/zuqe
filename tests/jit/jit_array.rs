@@ -107,6 +107,25 @@ fn the_inline_guard_keeps_every_result() {
     }
 }
 
+/// The `arguments` object carries its elements in the same array payload, so
+/// the guard covers it too.
+#[test]
+fn the_arguments_object_is_covered() {
+    let setup = "function f(a){ return arguments[0] + arguments[1]; }";
+    let main = "f(20, 22);";
+    let (expected, _) = run(Mode::Interpreter, setup, main);
+    for mode in MODES {
+        let (got, metrics) = run(mode, setup, main);
+        assert_eq!(got, expected, "{mode:?} disagrees with the interpreter");
+        if mode != Mode::Interpreter {
+            assert!(
+                metrics.functions_compiled > 0,
+                "{mode:?} compiled nothing"
+            );
+        }
+    }
+}
+
 /// The elements' mirror must follow every mutation that moves them: growing
 /// the array reallocates its buffer, sorting rewrites it, shrinking drops the
 /// tail, and destructuring takes it away. A stale mirror would read the wrong

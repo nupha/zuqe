@@ -39,6 +39,7 @@ use cranelift_codegen::{
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 
 use crate::{
+    JS_CLASS_ARGUMENTS,
     JS_CLASS_ARRAY,
     array::ArrayPayload,
     jit::snapshot::ConstMeta,
@@ -2907,12 +2908,18 @@ fn lower_get_array_el_fast(
         .ins()
         .load(types::I32, MemFlags::new(), obj, jit_layout::FLAGS_OFFSET);
     let class_id = b.ins().band_imm(flags, jit_layout::CLASS_ID_MASK);
+    // A plain `Array` or an `arguments` object: both carry their elements in
+    // the array payload.
     let is_array = b
         .ins()
         .icmp_imm(IntCC::Equal, class_id, i64::from(JS_CLASS_ARRAY));
+    let is_arguments = b
+        .ins()
+        .icmp_imm(IntCC::Equal, class_id, i64::from(JS_CLASS_ARGUMENTS));
     let fast_bit = b.ins().band_imm(flags, jit_layout::FAST_ARRAY_MASK);
     let is_fast = b.ins().icmp_imm(IntCC::NotEqual, fast_bit, 0);
-    let shape_ok = b.ins().band(is_array, is_fast);
+    let is_elemented = b.ins().bor(is_array, is_arguments);
+    let shape_ok = b.ins().band(is_elemented, is_fast);
     // The payload is only read once the class says it is an array: a plain
     // object has no payload, and reading it would be a wild load.
     let load = b.create_block();
