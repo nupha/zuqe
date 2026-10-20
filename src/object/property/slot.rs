@@ -25,6 +25,15 @@ impl ObjectImpl {
     #[inline(always)]
     pub(crate) fn prop_slot(&self, idx: usize) -> &JSProperty {
         debug_assert!(idx < self.prop_values.len());
+        // The JIT reads the mirror directly, so a mutation that forgot to
+        // refresh it would be a wild read in the generated code. Every read
+        // through the engine checks it (debug builds).
+        debug_assert_eq!(
+            self.prop_view.data,
+            self.prop_values.as_ptr() as *mut JSProperty,
+            "stale property view"
+        );
+        debug_assert_eq!(self.prop_view.len as usize, self.prop_values.len());
         unsafe { self.prop_values.get_unchecked(idx) }
     }
 
@@ -33,6 +42,12 @@ impl ObjectImpl {
     #[inline(always)]
     pub(crate) fn prop_slot_mut(&mut self, idx: usize) -> &mut JSProperty {
         debug_assert!(idx < self.prop_values.len());
+        debug_assert_eq!(
+            self.prop_view.data,
+            self.prop_values.as_ptr() as *mut JSProperty,
+            "stale property view"
+        );
+        debug_assert_eq!(self.prop_view.len as usize, self.prop_values.len());
         unsafe { self.prop_values.get_unchecked_mut(idx) }
     }
 
@@ -40,6 +55,12 @@ impl ObjectImpl {
     #[inline(always)]
     pub(crate) fn set_prop_slot_non_gc(&mut self, idx: usize, p: JSProperty) {
         debug_assert!(idx < self.prop_values.len());
+        debug_assert_eq!(
+            self.prop_view.data,
+            self.prop_values.as_ptr() as *mut JSProperty,
+            "stale property view"
+        );
+        debug_assert_eq!(self.prop_view.len as usize, self.prop_values.len());
 
         #[cfg(debug_assertions)]
         match &p {
@@ -83,6 +104,15 @@ impl ObjectImpl {
     /// set property at slot `idx`, returns the old one
     pub(crate) fn replace_prop_slot(&mut self, idx: usize, p: JSProperty) -> JSProperty {
         debug_assert!(idx < self.prop_values.len());
+        // The JIT reads the mirror directly, so a mutation that forgot to
+        // refresh it would be a wild read in the generated code. Every read
+        // through the engine checks it (debug builds).
+        debug_assert_eq!(
+            self.prop_view.data,
+            self.prop_values.as_ptr() as *mut JSProperty,
+            "stale property view"
+        );
+        debug_assert_eq!(self.prop_view.len as usize, self.prop_values.len());
 
         let old = unsafe { std::ptr::replace(self.prop_values.get_unchecked_mut(idx), p) };
 
@@ -94,6 +124,15 @@ impl ObjectImpl {
     /// set property at slot `idx`
     pub(crate) fn set_prop_slot(&mut self, idx: usize, p: JSProperty) {
         debug_assert!(idx < self.prop_values.len());
+        // The JIT reads the mirror directly, so a mutation that forgot to
+        // refresh it would be a wild read in the generated code. Every read
+        // through the engine checks it (debug builds).
+        debug_assert_eq!(
+            self.prop_view.data,
+            self.prop_values.as_ptr() as *mut JSProperty,
+            "stale property view"
+        );
+        debug_assert_eq!(self.prop_view.len as usize, self.prop_values.len());
 
         unsafe {
             *self.prop_values.get_unchecked_mut(idx) = p;
@@ -107,6 +146,8 @@ impl ObjectImpl {
     pub(crate) fn extend_prop_slot(&mut self, extra: usize) {
         self.prop_values
             .extend(std::iter::from_fn(|| Some(JSProperty::default())).take(extra));
+        // P1-1: the mirror the JIT reads follows the slots.
+        self.sync_prop_view();
     }
 
     /// extend property slot.

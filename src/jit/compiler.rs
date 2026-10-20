@@ -54,6 +54,14 @@ use crate::{
     vm_stack::ExecMode,
 };
 
+/// The inline-cache site's layout (P1-1): the inline property guard reads
+/// the site's first way.
+#[cfg(feature = "inline_cache")]
+use crate::{
+    function::jit_layout as ic_layout,
+    object::{JSProperty, PROP_TAG_NORMAL},
+};
+
 use super::{
     abi::{
         HELPER_ADD, HELPER_ADD_BRAND, HELPER_ADD_LOC, HELPER_AND, HELPER_APPEND, HELPER_APPLY,
@@ -125,6 +133,15 @@ const O_PC: i32 = offset_of!(JitExecFrame, pc) as i32;
 const O_OUT_VALUE: i32 = offset_of!(JitExecFrame, out_value) as i32;
 const O_OUT_PC: i32 = offset_of!(JitExecFrame, out_pc) as i32;
 const O_OUT_SP: i32 = offset_of!(JitExecFrame, out_sp) as i32;
+/// The inline-cache sites (P1-1). Only with the `inline_cache` feature.
+#[cfg(feature = "inline_cache")]
+const O_IC_SITES: i32 = offset_of!(JitExecFrame, ic_sites) as i32;
+/// The property guard's hit counter (P1-1 instrumentation).
+#[cfg(feature = "inline_cache")]
+const O_PROPERTY_HITS: i32 = offset_of!(JitExecFrame, property_guard_hits) as i32;
+/// The property guard's miss counter (P1-1 instrumentation).
+#[cfg(feature = "inline_cache")]
+const O_PROPERTY_MISSES: i32 = offset_of!(JitExecFrame, property_guard_misses) as i32;
 
 /// Whether the baseline can translate this opcode. Everything else is a
 /// `Resume` exit: the interpreter runs that instruction and continues.
@@ -429,6 +446,12 @@ struct State<'a> {
     blocks: HashMap<u32, Block>,
     pending: Vec<u32>,
     feedback: &'a [(u32, SiteFeedback)],
+    /// The number of inline-cache sites the function has (P1-1). The inline
+    /// property guard reads a site's first way, so it may only be emitted for
+    /// a site that exists — a function restored from a persistent blob has no
+    /// inline cache at all (its sites are not restored), and its reads then
+    /// keep the helper.
+    ic_count: u32,
     specialized: &'a Cell<u64>,
     /// Whether tier-2 specialization is allowed (epic 7.2 tier-down). False
     /// after a function's speculative sites missed too often: the recompile
@@ -720,6 +743,12 @@ impl StackCache {
         self.tracked = true;
         self.entries.remove(&top);
         self.entries.remove(&(top - 1));
+    }
+
+    /// The top slot was overwritten in place (a property read replaces its
+    /// target): the slot keeps its height, but its register copy is stale.
+    fn replace_top(&mut self) {
+        self.entries.remove(&self.height);
     }
 
     /// Record that the current top slot (key `height`) is a known `Int`,
@@ -1517,6 +1546,7 @@ fn lower(
         blocks: HashMap::new(),
         pending: Vec::new(),
         feedback: &verified.snapshot().feedback,
+        ic_count: verified.snapshot().ic_count,
         specialized: specialized_ops,
         speculate: verified.snapshot().speculate,
         stack: StackCache::default(),
@@ -2220,6 +2250,12 @@ fn lower_insn(
             Step::Continue(sp)
         }
         "get_field" | "get_field2" | "put_field" => {
+            // P1-1: the read of an own data property is inlined (the guard +
+            // the load). The write and the other read shape keep the helper.
+            #[cfg(feature = "inline_cache")]
+            if name == "get_field" && ic_index(insn) < state.ic_count {
+                return lower_get_field_fast(state, b, fv, helper_sig, sp_var, sp, insn);
+            }
             let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
             b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
             let ic = b.ins().iconst(types::I32, i64::from(ic_index(insn)));
@@ -2856,15 +2892,18 @@ fn lower_fast_binary(
 
 /// The layout contracts between the engine and the JIT (P1-1).
 ///
-/// The generated code reads the engine's memory directly, so every payload
-/// it touches is a contract. **Changing the layout of one of them means
-/// changing the matching contract — and the tests that pin it must be
-/// updated with it** (the rule: a payload the JIT reads has a layout test in
-/// its own module).
+/// The generated code reads the engine's memory directly, so every field it
+/// touches is a contract between the engine and the JIT. **Changing the layout
+/// of one of them means changing the matching contract — and the tests that
+/// pin it must be updated with it** (the rule: a payload the JIT reads has a
+/// layout test in its own module).
 ///
 /// | what the JIT reads | the contract | pinned by |
 /// |---|---|---|
 /// | the object's flags word (class id + flags) and its payload pointer | `object::jit_layout` | `object::obj::tests` + `jit::tests` |
+/// | the object's shape pointer, its property slots (data pointer + count) and the shape's id | `object::jit_layout` | `object::shape::tests` + `object::obj::tests` + `jit::tests` |
+/// | a property slot's tag and the value it holds | `object::JSProperty` (`tag_offset`, `normal_value_offset`, `slot_size`) | `object::property::prop::tests` |
+/// | the inline-cache site's first way (shape pointer, shape id, slot) | `function::jit_layout` | `function::bytecode::inline_cache_site_tests` |
 /// | an array's elements (data pointer + length) | `array::ArrayPayload` (`elements_*_offset`) | `array::tests` |
 /// | a buffer's bytes (data pointer + length + "directly readable") and its detached flag | `builtins::array_buffer` (`BUFFER_VIEW_*`, `BUFFER_DETACHED_OFFSET`) | `builtins::array_buffer::abuf::tests` |
 /// | a typed array's view (buffer, byte offset, element count, out-of-bounds flag) | `builtins::typed_array::jit_layout` | `builtins::typed_array::ta::tests` + `jit::tests` |
@@ -3273,6 +3312,159 @@ fn lower_get_array_el_fast(
     if let (Some(keep_id), Some(&value)) = (keep_id, b.block_params(cont).first()) {
         state.cse_regs.insert(keep_id, value);
     }
+    Step::Continue(b.use_var(sp_var))
+}
+
+/// P1-1 (the property half): the inline fast path for `get_field` — the read
+/// of an own **data** property.
+///
+/// The guard checks, in order: the target's tag (`Object`), the object's shape
+/// against the shape the inline-cache site recorded (the site's first way
+/// holds that shape, its id and the slot the property was in — the id is the
+/// second half of the cache key and tells a shape from another one that took
+/// its place), the slot's range, and the slot's kind (a plain data property —
+/// not an accessor, a variable reference, a lazy initializer or a tombstone).
+/// Anything else falls back to the helper, which owns the full semantics (the
+/// prototype chain, getters, string and number targets, …).
+///
+/// Only the site's **first** way is read: it is the monomorphic case, and a
+/// miss must stay cheap (the helper call it guards against is only a few
+/// dozen cycles). A site that sees several shapes is served by the helper —
+/// the same behaviour as before the inline guard existed.
+///
+/// Everything is read fresh on every access, so a shape change (the object
+/// grows a property, the property becomes an accessor, the object is
+/// replaced) is a **guard miss**, not a stale read — no invalidation channel
+/// is needed.
+///
+/// The reads go through the layout contracts listed in
+/// [`layout_contracts`]: the object's shape pointer and its property slots,
+/// the shape's id, and the inline-cache site's first way.
+#[cfg(feature = "inline_cache")]
+fn lower_get_field_fast(
+    state: &mut State,
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    helper_sig: cranelift_codegen::ir::SigRef,
+    sp_var: Variable,
+    sp: Value,
+    insn: &Instruction,
+) -> Step {
+    let pc_after = insn.pc() + insn.size() as u32;
+    let top = state.stack.height;
+    let target = state.stack.read(b, sp, top);
+
+    // The target must be an object: the tag is -1, i.e. 0xffff. The check
+    // comes before any load, so a non-object value is never dereferenced — and
+    // it is the *only* check a miss pays for (everything else lives in the
+    // fast path, so a site that never hits costs one compare and a branch).
+    let tag = b.ins().ushr_imm(target, 48);
+    let is_object = b.ins().icmp_imm(IntCC::Equal, tag, 0xffff);
+
+    let fast = b.create_block();
+    let slow = b.create_block();
+    let cont = b.create_block();
+    // The target stays in a register on the fast path; the helper's own
+    // preamble flushes it on the slow path.
+    state.stack.flush_except(b, sp, &[top]);
+    b.ins().brif(is_object, fast, &[], slow, &[]);
+
+    b.switch_to_block(fast);
+    // The inline-cache site: its first way holds the shape the site saw last
+    // and the slot the property was in. The sites live in the frame: the guard
+    // reads them per access, so the load stays out of the entry block (which
+    // every compiled function pays for).
+    let ic_sites = b.ins().load(types::I64, MemFlags::new(), fv.frame, O_IC_SITES);
+    let site = b.ins().iadd_imm(
+        ic_sites,
+        i64::from(ic_index(insn)) * ic_layout::SITE_SIZE,
+    );
+    let way_shape = b.ins().load(types::I64, MemFlags::new(), site, ic_layout::SHAPE_PTR_OFFSET);
+    let way_uid = b.ins().load(types::I32, MemFlags::new(), site, ic_layout::SHAPE_UID_OFFSET);
+    let way_slot = b.ins().load(types::I32, MemFlags::new(), site, ic_layout::SLOT_OFFSET);
+    // The object's pointer: the low 48 bits of the tagged value.
+    let obj = b.ins().band_imm(target, 0x0000_ffff_ffff_ffff);
+    // The object's shape: the GC node pointer. An object without a shape has
+    // no own properties, so it cannot match a recorded shape.
+    let shape_node = b.ins().load(types::I64, MemFlags::new(), obj, jit_layout::SHAPE_OFFSET);
+    // The inline cache records the shape's *payload* pointer.
+    let shape_payload = b.ins().iadd_imm(shape_node, i64::from(jit_layout::SHAPE_PAYLOAD_OFFSET));
+    // The way must have seen a shape (an empty way holds a null pointer), and
+    // it must be the object's shape.
+    let used = b.ins().icmp_imm(IntCC::NotEqual, way_shape, 0);
+    let same_shape = b.ins().icmp(IntCC::Equal, way_shape, shape_payload);
+    let shape_ok = b.ins().band(used, same_shape);
+    let matched = b.create_block();
+    b.ins().brif(shape_ok, matched, &[], slow, &[]);
+
+    b.switch_to_block(matched);
+    // The shape's id: the second half of the cache key. A shape's memory can
+    // be reused by another shape, and only the id tells them apart. The shape
+    // matched a recorded one, so it is a live shape and the id is safe to read.
+    let shape_uid = b.ins().load(types::I32, MemFlags::new(), shape_node, jit_layout::SHAPE_UID_OFFSET);
+    let same_uid = b.ins().icmp(IntCC::Equal, way_uid, shape_uid);
+    // The slot the way recorded must be inside the object's slots.
+    let slot = b.ins().uextend(types::I64, way_slot);
+    let count = b.ins().load(types::I32, MemFlags::new(), obj, jit_layout::PROP_LEN_OFFSET);
+    let count64 = b.ins().uextend(types::I64, count);
+    let in_range = b.ins().icmp(IntCC::UnsignedLessThan, slot, count64);
+    // Both must hold before the slot is read: the shape says *which* slot, the
+    // range says the slot is there at all.
+    let ok = b.ins().band(same_uid, in_range);
+    let value_ok = b.create_block();
+    b.ins().brif(ok, value_ok, &[], slow, &[]);
+
+    b.switch_to_block(value_ok);
+    // The property slots themselves.
+    let slots = b.ins().load(types::I64, MemFlags::new(), obj, jit_layout::PROP_DATA_OFFSET);
+    // The slot: its tag first, then the value it holds.
+    let addr = {
+        let offset = b.ins().imul_imm(slot, JSProperty::slot_size());
+        b.ins().iadd(slots, offset)
+    };
+    let slot_tag = b.ins().load(types::I8, MemFlags::new(), addr, JSProperty::tag_offset());
+    let is_data = b.ins().icmp_imm(IntCC::Equal, slot_tag, i64::from(PROP_TAG_NORMAL));
+    let read_ok = b.create_block();
+    b.ins().brif(is_data, read_ok, &[], slow, &[]);
+
+    b.switch_to_block(read_ok);
+    let value = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        addr,
+        JSProperty::normal_value_offset(),
+    );
+    // The result takes the target's place.
+    b.ins().store(MemFlags::new(), value, sp, -8);
+    // P1-1 instrumentation: the guard answered this read on its own.
+    let hits = b.ins().load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_HITS);
+    let hits = b.ins().iadd_imm(hits, 1);
+    b.ins().store(MemFlags::new(), hits, fv.frame, O_PROPERTY_HITS);
+    // The stack height does not change, but the variable must be defined on
+    // *both* paths: the merge block takes it from there, and a path that left
+    // it undefined would hand the merge a stale pointer.
+    b.def_var(sp_var, sp);
+    b.ins().jump(cont, &[]);
+
+    b.switch_to_block(slow);
+    // P1-1 instrumentation: the guard handed this read back to the helper.
+    let misses = b.ins().load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_MISSES);
+    let misses = b.ins().iadd_imm(misses, 1);
+    b.ins().store(MemFlags::new(), misses, fv.frame, O_PROPERTY_MISSES);
+    // The helper does the full lookup: the atom rides in `imm`, the site
+    // index in `imm2`.
+    let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+    b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
+    let ic = b.ins().iconst(types::I32, i64::from(ic_index(insn)));
+    b.ins().store(MemFlags::new(), ic, fv.frame, O_IMM2);
+    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_GET_FIELD, pc_after);
+    b.def_var(sp_var, sp_slow);
+    b.ins().jump(cont, &[]);
+
+    b.switch_to_block(cont);
+    // The slot now holds the property's value, not the target: the register
+    // copy of the target is stale.
+    state.stack.replace_top();
     Step::Continue(b.use_var(sp_var))
 }
 

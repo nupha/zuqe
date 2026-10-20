@@ -278,3 +278,46 @@ pub(crate) const fn shape_initial_hash(proto_id: usize) -> u32 {
     }
     h
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The layout the JIT's inline property guard reads (P1-1): the shape's
+    /// unique id, and the payload pointer the inline cache records.
+    ///
+    /// The guard reads the id from the shape's **GC node** pointer (what an
+    /// object holds) and compares the shape's *payload* pointer with the one
+    /// the cache recorded — so both offsets have to hold at once.
+    #[test]
+    fn the_shape_layout_is_stable() {
+        use crate::object::jit_layout;
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(crate::ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        ctx.with_new_scope(|scope| {
+            let shape = Shape::create_internal(scope, None, HashList::new()).unwrap();
+
+            // The node pointer: what an object holds in its `shape` field.
+            let node = shape.gc_ref().node_ptr().as_ptr() as usize;
+            // The payload pointer: what the inline cache records.
+            let payload = unsafe { shape.gc_ref().as_ptr().as_ptr() as usize };
+            assert_eq!(
+                payload,
+                node + jit_layout::SHAPE_PAYLOAD_OFFSET as usize,
+                "the shape's payload is not where the JIT expects it"
+            );
+
+            // The id, read the way the guard reads it.
+            let uid = unsafe {
+                *((node as *const u8).add(jit_layout::SHAPE_UID_OFFSET as usize) as *const u32)
+            };
+            assert_eq!(
+                uid, shape.uid,
+                "the shape's id is not where the JIT reads it"
+            );
+        });
+    }
+}

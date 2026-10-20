@@ -64,11 +64,32 @@ pub(crate) const IC_WAYS: usize = 4;
 /// can never drift apart.
 #[cfg(feature = "inline_cache")]
 #[derive(Clone, Copy, Default)]
+#[repr(C)]
 pub(crate) struct InlineCacheSite {
     ways: [InlineCacheEntry; IC_WAYS],
     /// Round-robin victim index, advanced only when a new shape arrives at an
     /// already-full site.
     cursor: u8,
+}
+
+/// The layout the JIT's inline property guard reads (P1-1).
+///
+/// The guard reads a site's **first way** — the shape the site saw last — to
+/// learn in which slot the property lives, so it needs the offsets of that
+/// way's fields and the size of a site. The site and its entries are
+/// `#[repr(C)]`, so the offsets are the same on every target.
+#[cfg(feature = "inline_cache")]
+pub(crate) mod jit_layout {
+    use super::{InlineCacheEntry, InlineCacheSite};
+
+    /// The size of one inline-cache site.
+    pub(crate) const SITE_SIZE: i64 = std::mem::size_of::<InlineCacheSite>() as i64;
+    /// The offset of a way's cached shape pointer.
+    pub(crate) const SHAPE_PTR_OFFSET: i32 = std::mem::offset_of!(InlineCacheEntry, shape_ptr) as i32;
+    /// The offset of a way's cached shape id.
+    pub(crate) const SHAPE_UID_OFFSET: i32 = std::mem::offset_of!(InlineCacheEntry, shape_uid) as i32;
+    /// The offset of a way's cached slot index.
+    pub(crate) const SLOT_OFFSET: i32 = std::mem::offset_of!(InlineCacheEntry, slot) as i32;
 }
 
 #[cfg(feature = "inline_cache")]
@@ -463,6 +484,17 @@ impl BytecodeImpl {
         &self.jit
     }
 
+    /// The inline-cache sites, for the JIT's inline property guard (P1-1).
+    ///
+    /// The array never moves (the sites are allocated once, with the
+    /// function), so the pointer stays valid for the function's life.
+    #[cfg(all(feature = "jit", feature = "inline_cache"))]
+    #[inline(always)]
+    pub(crate) fn inline_cache_sites(&self) -> *const InlineCacheSite {
+        // SAFETY: single-threaded; the sites live as long as the function.
+        unsafe { (*self.inline_cache.get()).as_ptr() }
+    }
+
     #[inline(always)]
     pub const fn need_home_object(&self) -> bool {
         self.attrs.need_home_object
@@ -830,6 +862,46 @@ mod inline_cache_site_tests {
     /// Insert with `prop == seed` for the shape-only tests.
     fn insert(site: &mut InlineCacheSite, seed: u32, slot: u32) {
         site.insert(shape_at(seed as usize), seed, seed, slot, 0);
+    }
+
+    /// The layout the JIT's inline property guard reads (P1-1): the first
+    /// way's shape pointer, shape id and slot index.
+    ///
+    /// The guard reads a site's first way to learn in which slot the property
+    /// lives — so the offsets and the widths are a contract: reading the
+    /// wrong one would make the guard miss (or read the wrong slot).
+    #[test]
+    fn the_inline_cache_site_layout_is_stable() {
+        let mut site = InlineCacheSite::default();
+        site.insert(shape_at(1), 7, 9, 3, 0);
+
+        // The shape pointer: 8 bytes, at the site's start.
+        assert_eq!(jit_layout::SHAPE_PTR_OFFSET, 0);
+        assert_eq!(std::mem::size_of::<*const crate::object::ShapeImpl>(), 8);
+        // The shape id and the slot: 4 bytes each, right after it.
+        assert_eq!(jit_layout::SHAPE_UID_OFFSET, 8);
+        assert_eq!(jit_layout::SLOT_OFFSET, 12);
+
+        let base = &site as *const InlineCacheSite as *const u8;
+        let shape_ptr = unsafe {
+            *base
+                .add(jit_layout::SHAPE_PTR_OFFSET as usize)
+                .cast::<*const crate::object::ShapeImpl>()
+        };
+        let shape_uid =
+            unsafe { *base.add(jit_layout::SHAPE_UID_OFFSET as usize).cast::<u32>() };
+        let slot = unsafe { *base.add(jit_layout::SLOT_OFFSET as usize).cast::<u32>() };
+        assert_eq!(shape_ptr, shape_at(1));
+        assert_eq!(shape_uid, 7);
+        assert_eq!(slot, 3);
+
+        // A site is a whole number of entries: the next site starts right
+        // after this one.
+        assert_eq!(
+            jit_layout::SITE_SIZE,
+            std::mem::size_of::<InlineCacheSite>() as i64
+        );
+        assert!(jit_layout::SITE_SIZE >= 4 * 24);
     }
 
     #[test]

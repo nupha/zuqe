@@ -106,6 +106,11 @@ pub(crate) struct JitExecFrame {
     /// scalar (global-variable names; the inline cache). Valid for the whole
     /// call: the frame's `func_obj` keeps it reachable.
     pub bytecode: *const crate::function::BytecodeImpl,
+    /// The running function's inline-cache sites (P1-1). The inline property
+    /// guard reads the site's first way to learn in which slot the property
+    /// lives.
+    #[cfg(feature = "inline_cache")]
+    pub ic_sites: *const crate::function::InlineCacheSite,
     /// Return value for `Done`.
     pub out_value: JSValue,
     /// Byte offset into the opcode stream for `Resume`/`Exception`.
@@ -133,6 +138,18 @@ pub(crate) struct JitExecFrame {
     /// per activation (not per function) keeps recursive calls from
     /// double-counting.
     pub guard_misses: u32,
+    /// P1-1 instrumentation: property reads that the inline guard answered
+    /// directly (an own data property in the shape the site recorded).
+    /// `invoke_native` folds it into `JitMetrics::property_guard_hits`.
+    pub property_guard_hits: u32,
+    /// P1-1 instrumentation: property reads the inline guard handed back to
+    /// the helper (a prototype-chain property, an accessor, a non-object
+    /// target, …). `invoke_native` folds it into
+    /// `JitMetrics::property_guard_misses`.
+    ///
+    /// These two are *observability only*: a miss is expected (and common),
+    /// so it must never feed the tier-down (that is `guard_misses`' job).
+    pub property_guard_misses: u32,
     /// Loop back edges this activation ran. The safepoint helper counts them
     /// (it runs on every back edge), and `invoke_native` folds the count into
     /// the function's hotness counters: the interpreter stops counting once

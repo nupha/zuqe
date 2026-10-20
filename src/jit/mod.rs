@@ -893,6 +893,8 @@ pub(crate) fn invoke_native(
         imm2: 0,
         pc,
         bytecode: &**bc,
+        #[cfg(feature = "inline_cache")]
+        ic_sites: bc.inline_cache_sites(),
         out_value: JSValue::UNDEFINED,
         out_pc: 0,
         out_sp: 0,
@@ -902,6 +904,8 @@ pub(crate) fn invoke_native(
         new_target,
         home_obj,
         guard_misses: 0,
+        property_guard_hits: 0,
+        property_guard_misses: 0,
         backedges: 0,
     };
     // SAFETY: `entry` was produced by `compile` for this exact bytecode layout
@@ -931,6 +935,15 @@ pub(crate) fn invoke_native(
         specialized_guard_misses: m
             .specialized_guard_misses
             .saturating_add(u64::from(frame.guard_misses)),
+        // P1-1: this activation's property-guard hits and misses. They are
+        // observability only — a property-guard miss never feeds the
+        // tier-down (it is expected, not a defect).
+        property_guard_hits: m
+            .property_guard_hits
+            .saturating_add(u64::from(frame.property_guard_hits)),
+        property_guard_misses: m
+            .property_guard_misses
+            .saturating_add(u64::from(frame.property_guard_misses)),
         ..m
     });
     // P7 7.2: feed the same count to the function's record so a function whose
@@ -1095,6 +1108,81 @@ mod tests {
         let first = unsafe { *((data as *const u8).cast::<i32>()) };
         assert_eq!(first, 7);
         assert_eq!(object.payload_typed_array().unwrap().count(), 3);
+    }
+
+    /// The layout contract the inline property guard reads (P1-1), end to
+    /// end: the object's shape pointer, the shape's id, and the property
+    /// slots — read exactly the way the generated code reads them.
+    #[test]
+    fn the_property_layout_contract_holds_from_a_js_value() {
+        use crate::{
+            EvalFlags, EvalName, EvalType, ScopedContext,
+            object::{JSProperty, PROP_TAG_NORMAL, jit_layout},
+        };
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let name = EvalName::Name("jit-layout-prop.js".into());
+        let value = ctx
+            .eval(
+                b"globalThis.o = { x: 42, y: 'hi' }; o;",
+                &name,
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .unwrap();
+        let object = value.as_object().expect("an object");
+        // The node pointer: what a `JSValue` actually holds.
+        let node = value.as_gc_node().expect("a GC node").as_ptr() as usize;
+
+        // The shape: the node pointer the object holds.
+        let shape_node =
+            unsafe { *((node as *const u8).add(jit_layout::SHAPE_OFFSET as usize) as *const u64) };
+        let shape = object.shape().expect("a shape");
+        assert_eq!(
+            shape_node,
+            shape.gc_ref().node_ptr().as_ptr() as u64,
+            "the shape is not where the JIT expects it"
+        );
+        // The shape's payload pointer: what the inline cache records.
+        let shape_payload = shape_node + jit_layout::SHAPE_PAYLOAD_OFFSET as u64;
+        assert_eq!(
+            shape_payload,
+            unsafe { shape.gc_ref().as_ptr().as_ptr() as u64 },
+            "the shape's payload is not where the JIT expects it"
+        );
+        // The shape's id.
+        let uid = unsafe {
+            *((shape_node as *const u8).add(jit_layout::SHAPE_UID_OFFSET as usize) as *const u32)
+        };
+        assert_eq!(uid, shape.uid, "the shape's id is not where the JIT reads it");
+
+        // The property slots.
+        let count =
+            unsafe { *((node as *const u8).add(jit_layout::PROP_LEN_OFFSET as usize) as *const u32) };
+        assert_eq!(count as usize, shape.len(), "the slot count is not the shape's");
+        let slots =
+            unsafe { *((node as *const u8).add(jit_layout::PROP_DATA_OFFSET as usize) as *const u64) };
+        // The first slot: the tag and the value it holds.
+        let slot = unsafe { slots as *const u8 };
+        let tag = unsafe { *slot.add(JSProperty::tag_offset() as usize) };
+        assert_eq!(
+            tag,
+            PROP_TAG_NORMAL,
+            "the slot's tag is not where the JIT reads it"
+        );
+        let raw = unsafe {
+            *slot
+                .add(JSProperty::normal_value_offset() as usize)
+                .cast::<u64>()
+        };
+        assert_eq!(
+            raw,
+            object.prop_slot(0).value(&mut ctx.root_scope(), value).unwrap().0,
+            "the slot's value is not where the JIT reads it"
+        );
     }
 
     /// Bring the JIT to rest before asserting on compile results. Inline, one

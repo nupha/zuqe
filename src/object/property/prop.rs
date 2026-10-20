@@ -274,26 +274,47 @@ impl JSPropertyDescriptor {
     }
 }
 
+/// The variant tags of [`JSProperty`] — the contract with the JIT (P1-1).
+///
+/// The inline property guard reads the tag byte of a slot and compares it
+/// with [`PROP_TAG_NORMAL`]: a slot that carries anything else is not a data
+/// property (it is an accessor, a variable reference, a lazy initializer or a
+/// tombstone) and the guard must decline it. The enum's discriminants *are*
+/// these constants, so the two cannot drift apart.
+pub(crate) const PROP_TAG_NORMAL: u8 = 0;
+pub(crate) const PROP_TAG_VARREF: u8 = 1;
+pub(crate) const PROP_TAG_GETSET: u8 = 2;
+pub(crate) const PROP_TAG_LAZYINIT: u8 = 3;
+pub(crate) const PROP_TAG_DELETED: u8 = 4;
+
 /// Property content
-#[repr(u8)]
+///
+/// The layout is a contract with the JIT (P1-1): the inline property guard
+/// reads the variant's tag and, for a `Normal` slot, the value — at fixed
+/// offsets. `#[repr(C, u8)]` puts the tag in a byte at offset 0 and the
+/// variant's payload right after it (at the union's alignment), so the
+/// offsets are the same on every target. The offsets are published by
+/// [`JSProperty::tag_offset`], [`JSProperty::normal_value_offset`] and
+/// [`JSProperty::slot_size`], and pinned by this module's tests.
+#[repr(C, u8)]
 #[derive(Debug)]
 pub enum JSProperty {
-    Normal(JSValue),
-    VarRef(VarRef),
+    Normal(JSValue) = PROP_TAG_NORMAL,
+    VarRef(VarRef) = PROP_TAG_VARREF,
 
     /// TODO: use Box<PropertyGetSet>
     GetSet {
         getter: Option<Object>,
         setter: Option<Object>,
-    },
+    } = PROP_TAG_GETSET,
 
     /// TODO: use Box<PropertyLazy>
     LazyInit {
         realm: ContextPtr,
         init: LazyInit,
-    },
+    } = PROP_TAG_LAZYINIT,
 
-    Deleted,
+    Deleted = PROP_TAG_DELETED,
 }
 
 impl GcTrace for JSProperty {
@@ -332,6 +353,24 @@ impl Default for JSProperty {
 }
 
 impl JSProperty {
+    /// The offset of the variant's tag (P1-1: the JIT's inline property guard
+    /// reads it to tell a data property from an accessor or a tombstone).
+    pub(crate) const fn tag_offset() -> i32 {
+        0
+    }
+
+    /// The offset of the `JSValue` inside a `Normal` slot.
+    ///
+    /// The tag is a byte, the payload follows at the union's alignment (8).
+    pub(crate) const fn normal_value_offset() -> i32 {
+        8
+    }
+
+    /// The size of one slot.
+    pub(crate) const fn slot_size() -> i64 {
+        std::mem::size_of::<Self>() as i64
+    }
+
     /// retrive property value
     pub(crate) fn value(&self, ctx: &mut ScopedContext, this_obj: JSValue) -> JSResult {
         match self {
@@ -573,4 +612,103 @@ pub(crate) const fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The layout the JIT's inline property guard reads (P1-1): the variant's
+    /// tag, and the value inside a `Normal` slot.
+    ///
+    /// The offsets are fixed by `#[repr(C, u8)]`, but *which* variant carries
+    /// which tag is the engine's business — so it is pinned here, for every
+    /// variant: a guard that reads the wrong tag would treat an accessor as a
+    /// data property (and return the getter's slot instead of calling it).
+    #[test]
+    fn the_property_slot_layout_is_stable() {
+        // The tag is a byte at the slot's start.
+        assert_eq!(JSProperty::tag_offset(), 0);
+
+        // The published tags: the guard compares the tag byte against
+        // `PROP_TAG_NORMAL`, so the values are part of the contract.
+        assert_eq!(PROP_TAG_NORMAL, 0);
+        assert_eq!(PROP_TAG_VARREF, 1);
+        assert_eq!(PROP_TAG_GETSET, 2);
+        assert_eq!(PROP_TAG_LAZYINIT, 3);
+        assert_eq!(PROP_TAG_DELETED, 4);
+
+        // The tag byte of a slot, read the way the guard reads it.
+        let tag_of = |prop: &JSProperty| unsafe {
+            *((prop as *const JSProperty).cast::<u8>()).add(JSProperty::tag_offset() as usize)
+        };
+
+        // A `Normal` slot's value: the `JSValue`, 8 bytes in, 8 bytes wide.
+        let value = JSValue::from(42i32);
+        let prop = JSProperty::Normal(value);
+        let raw = unsafe {
+            *((&prop as *const JSProperty).cast::<u8>())
+                .add(JSProperty::normal_value_offset() as usize)
+                .cast::<u64>()
+        };
+        assert_eq!(raw, value.0, "the value is not where the JIT reads it");
+
+        // The widths the generated code assumes: a byte of tag, the value
+        // 8 bytes in, and a slot the size the guard's stride assumes.
+        assert_eq!(JSProperty::normal_value_offset(), 8);
+        assert_eq!(std::mem::size_of::<JSValue>(), 8);
+        assert_eq!(std::mem::size_of::<JSProperty>(), 48);
+        assert_eq!(std::mem::align_of::<JSProperty>(), 8);
+        assert_eq!(JSProperty::slot_size(), 48);
+        assert!(
+            (JSProperty::normal_value_offset() as usize + std::mem::size_of::<JSValue>())
+                <= std::mem::size_of::<JSProperty>(),
+            "the value does not fit in the slot"
+        );
+
+        // Every variant's tag, read from a real slot. The `VarRef` and the
+        // `LazyInit` need a runtime to exist, so one is built here (and the
+        // checks stay inside the scope: a `VarRef` is a GC node and may not
+        // leave it).
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(crate::ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        ctx.with_new_scope(|scope| {
+            let var_ref = VarRef::create(scope, JSValue::from(1i32)).unwrap();
+            let lazy_init = JSProperty::LazyInit {
+                realm: scope.ctx_ptr,
+                init: LazyInit::Prototype,
+            };
+            assert_eq!(
+                tag_of(&JSProperty::VarRef(var_ref)),
+                PROP_TAG_VARREF,
+                "a variable reference must not look like a data property"
+            );
+            assert_eq!(
+                tag_of(&lazy_init),
+                PROP_TAG_LAZYINIT,
+                "a lazy initializer must not look like a data property"
+            );
+        });
+
+        assert_eq!(
+            tag_of(&JSProperty::Normal(JSValue::UNDEFINED)),
+            PROP_TAG_NORMAL,
+            "the data property's tag is not where the JIT expects it"
+        );
+        assert_eq!(
+            tag_of(&JSProperty::GetSet {
+                getter: None,
+                setter: None,
+            }),
+            PROP_TAG_GETSET,
+            "an accessor must not look like a data property"
+        );
+        assert_eq!(
+            tag_of(&JSProperty::Deleted),
+            PROP_TAG_DELETED,
+            "a tombstone must not look like a data property"
+        );
+    }
 }

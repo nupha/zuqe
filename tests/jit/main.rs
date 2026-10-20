@@ -28,6 +28,7 @@ mod jit_background;
 mod jit_cost;
 mod jit_differential;
 mod jit_feedback;
+mod jit_field;
 mod jit_interrupt;
 mod jit_opcodes;
 mod jit_queue;

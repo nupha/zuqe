@@ -189,6 +189,27 @@ impl ObjectFlags {
     }
 }
 
+/// The property slots, as the JIT sees them (P1-1).
+///
+/// The JIT's inline property guard loads the slots' data pointer and their
+/// count at fixed offsets, so this is `#[repr(C)]` and the offsets are
+/// published below. It is a *mirror* of the object's `prop_values` vector:
+/// [`ObjectImpl::sync_prop_view`] keeps it in step, and the read path asserts
+/// it in debug builds.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PropView {
+    /// The first slot (the vector's data pointer).
+    pub(crate) data: *mut JSProperty,
+    /// The number of slots.
+    pub(crate) len: u32,
+}
+
+/// The offset of the slots' data pointer inside [`PropView`].
+pub(crate) const PROP_VIEW_DATA_OFFSET: usize = std::mem::offset_of!(PropView, data);
+/// The offset of the slots' count inside [`PropView`].
+pub(crate) const PROP_VIEW_LEN_OFFSET: usize = std::mem::offset_of!(PropView, len);
+
 pub struct ObjectImpl {
     rt: RuntimePtr,
 
@@ -200,6 +221,9 @@ pub struct ObjectImpl {
 
     /// property value slots
     pub(super) prop_values: Vec<JSProperty>,
+
+    /// The slots, as the JIT sees them (P1-1): a mirror of `prop_values`.
+    pub(super) prop_view: PropView,
 
     /// Number of slots marked as JSProperty::Deleted.
     /// Batch compact is triggered when (deleted_slot_count << 3) >= prop_values.len().
@@ -282,6 +306,7 @@ impl std::fmt::Display for ObjectImpl {
 /// [`ObjectFlags`]' own, so they cannot drift from it either.
 pub(crate) mod jit_layout {
     use super::ObjectImpl;
+    use crate::object::ShapeImpl;
 
     /// The distance from a **GC node pointer** to the object's fields. A
     /// `JSValue` holds the *node* pointer (the object's payload follows the
@@ -295,10 +320,32 @@ pub(crate) mod jit_layout {
     /// The offset of the type-erased payload pointer.
     pub(crate) const PAYLOAD_OFFSET: i32 =
         (NODE_TO_OBJECT + std::mem::offset_of!(ObjectImpl, payload)) as i32;
+    /// The offset of the object's shape pointer (`None` is a null pointer).
+    pub(crate) const SHAPE_OFFSET: i32 =
+        (NODE_TO_OBJECT + std::mem::offset_of!(ObjectImpl, shape)) as i32;
     /// The class id lives in the low 16 bits of the flags word.
     pub(crate) const CLASS_ID_MASK: i64 = 0x0000_FFFF;
     /// The fast-array flag (bit 28 of the flags word).
     pub(crate) const FAST_ARRAY_MASK: i64 = 0x1000_0000;
+    /// The offset of the property slots' data pointer.
+    pub(crate) const PROP_DATA_OFFSET: i32 = (NODE_TO_OBJECT
+        + std::mem::offset_of!(ObjectImpl, prop_view)
+        + super::PROP_VIEW_DATA_OFFSET) as i32;
+    /// The offset of the property slots' count.
+    pub(crate) const PROP_LEN_OFFSET: i32 = (NODE_TO_OBJECT
+        + std::mem::offset_of!(ObjectImpl, prop_view)
+        + super::PROP_VIEW_LEN_OFFSET) as i32;
+    /// The offset of a shape's payload, from the shape's GC node pointer.
+    ///
+    /// The inline cache records a shape's *payload* pointer (what
+    /// `GcRef::as_ptr` returns), while an object holds the shape's *node*
+    /// pointer — so the guard adds this before comparing.
+    pub(crate) const SHAPE_PAYLOAD_OFFSET: i32 =
+        gc_lite::gctype::payload_offset_of::<ShapeImpl>() as i32;
+    /// The offset of a shape's unique id, from the shape's GC node pointer.
+    pub(crate) const SHAPE_UID_OFFSET: i32 =
+        (gc_lite::gctype::payload_offset_of::<ShapeImpl>()
+            + std::mem::offset_of!(ShapeImpl, uid)) as i32;
 }
 
 impl ObjectImpl {
@@ -429,12 +476,19 @@ impl ObjectImpl {
         // `ObjectImpl::class_id()` is an O(1) field load (no payload match).
         flags.set_class_id(class_id);
 
+        // The mirror the JIT reads (P1-1): the slots as they are now.
+        let prop_view = PropView {
+            data: prop_values.as_ptr() as *mut JSProperty,
+            len: prop_values.len() as u32,
+        };
+
         let mut obj = ctx
             .alloc_local(Self {
                 rt: ctx.rt_ptr(),
                 obj_flags: flags,
                 shape,
                 prop_values,
+                prop_view,
                 deleted_slot_count: 0,
                 payload: payload.as_ptr(),
                 #[cfg(feature = "builtin_mapset")]
@@ -463,6 +517,20 @@ impl ObjectImpl {
     #[inline(always)]
     pub fn id(&self) -> usize {
         self as *const Self as usize
+    }
+
+    /// Refresh the mirror the JIT reads (P1-1). Every method that changes the
+    /// slots' length or their buffer must call this.
+    ///
+    /// Inlined on purpose: it is a cold path, and a separate symbol would
+    /// shuffle the binary's code layout (which the benchmarks are sensitive
+    /// to).
+    #[inline(always)]
+    pub(crate) fn sync_prop_view(&mut self) {
+        self.prop_view = PropView {
+            data: self.prop_values.as_ptr() as *mut JSProperty,
+            len: self.prop_values.len() as u32,
+        };
     }
 
     #[inline(always)]
