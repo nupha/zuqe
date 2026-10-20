@@ -204,6 +204,87 @@ impl ArrayPayload {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The layout the JIT's inline guard reads (P1-1). The offsets are
+    /// computed, so a field moving does not break the JIT — but the *order*
+    /// and the *widths* are a contract: the generated code loads the data
+    /// pointer as a 64-bit pointer and the length as a 32-bit count, in that
+    /// order. Swapping them would read garbage.
+    #[test]
+    fn the_layout_contract_is_stable() {
+        // The view is the payload's first field...
+        assert_eq!(ELEMENTS_VIEW_OFFSET, 0);
+        // ...and holds the data pointer first, the length second.
+        assert_eq!(ELEMENTS_DATA_OFFSET, 0);
+        assert_eq!(ELEMENTS_LEN_OFFSET, 8);
+        // The two widths the generated code assumes.
+        assert_eq!(std::mem::size_of::<*const JSValue>(), 8);
+        assert_eq!(std::mem::size_of::<u32>(), 4);
+    }
+
+    /// The mirror must follow **every** mutation that moves the elements: a
+    /// stale mirror is a wild read in the generated code (and a wrong value
+    /// even when it does not fault).
+    #[test]
+    fn the_mirror_follows_every_mutation() {
+        fn check(p: &ArrayPayload) {
+            assert_eq!(
+                p.view.data,
+                p.values.as_ptr(),
+                "the mirror's data pointer is stale"
+            );
+            assert_eq!(
+                p.view.len as usize,
+                p.values.len(),
+                "the mirror's length is stale"
+            );
+        }
+
+        let mut p = ArrayPayload::new(vec![JSValue::from(1), JSValue::from(2)]);
+        check(&p);
+
+        p.push(JSValue::from(3)).unwrap();
+        check(&p);
+        p.pop();
+        check(&p);
+        p.extend([JSValue::from(4), JSValue::from(5)].into_iter());
+        check(&p);
+        p.remove(0);
+        check(&p);
+        p.reserve(64).unwrap();
+        check(&p);
+        p.replace_values(vec![JSValue::from(9)]);
+        check(&p);
+        p.drain_tail(0);
+        check(&p);
+        p.rebuild([JSValue::from(7), JSValue::from(8)].into_iter(), 4);
+        check(&p);
+        let taken = p.take_values();
+        check(&p);
+        assert_eq!(taken.len(), 4, "the taken elements are the payload's");
+        assert!(p.values.is_empty());
+    }
+
+    /// The element the JIT reads through the mirror is the element the engine
+    /// sees — the mirror is not just consistent, it points at the same
+    /// memory.
+    #[test]
+    fn the_mirror_points_at_the_elements() {
+        let p = ArrayPayload::new(vec![JSValue::from(11), JSValue::from(22)]);
+        // SAFETY: the mirror is the vector's own data pointer, and the length
+        // is the vector's length (checked above).
+        let through_the_mirror: Vec<JSValue> = unsafe {
+            (0..p.view.len as usize)
+                .map(|i| *p.view.data.add(i))
+                .collect()
+        };
+        assert_eq!(through_the_mirror, p.values().to_vec());
+    }
+}
+
 impl Array {
     #[inline(always)]
     pub fn is_fast_array(&self) -> bool {

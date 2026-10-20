@@ -44,6 +44,27 @@ pub struct ObjectFlags {
     bitfield: u32,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The JIT's masks must be **the engine's** masks (P1-1): the generated
+    /// code reads the class id and the fast-array flag out of the flags word
+    /// with them. A change on either side without the other would make the
+    /// guard read the wrong bits — silently (a wrong guard, not a crash).
+    #[test]
+    fn the_jit_masks_match_the_engine() {
+        assert_eq!(
+            jit_layout::CLASS_ID_MASK,
+            i64::from(ObjectFlags::MASK_CLASS_ID)
+        );
+        assert_eq!(
+            jit_layout::FAST_ARRAY_MASK,
+            i64::from(ObjectFlags::MASK_FAST_ARRAY)
+        );
+    }
+}
+
 impl ObjectFlags {
     const MASK_EXTENSIBLE: u32 = 0x8000_0000;
     const MASK_FREE_MARK: u32 = 0x4000_0000;

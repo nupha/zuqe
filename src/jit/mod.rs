@@ -952,6 +952,74 @@ pub(crate) fn invoke_native(
 mod tests {
     use super::*;
 
+    /// The layout contract the array guard reads (P1-1), end to end: a
+    /// `JSValue` holds the **GC node** pointer, and the offsets in
+    /// `object::jit_layout` are relative to *that*. Reading the fields at the
+    /// node pointer must land on the flags word and the payload — the mistake
+    /// here does not fault, it just makes the guard miss forever (which looks
+    /// like "the inline guard bought nothing").
+    #[test]
+    fn the_array_layout_contract_holds_from_a_js_value() {
+        use crate::{EvalFlags, EvalName, EvalType, ScopedContext, object::jit_layout};
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let name = EvalName::Name("jit-layout.js".into());
+        let value = ctx
+            .eval(
+                b"globalThis.arr = [11, 22, 33]; arr;",
+                &name,
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .unwrap();
+        let object = value.as_object().expect("an array");
+        // The node pointer: what a `JSValue` actually holds.
+        let node = value.as_gc_node().expect("a GC node").as_ptr() as usize;
+
+        // The flags word: the class id and the fast-array flag.
+        let flags =
+            unsafe { *((node as *const u8).add(jit_layout::FLAGS_OFFSET as usize) as *const u32) };
+        assert_eq!(
+            flags as i64 & jit_layout::CLASS_ID_MASK,
+            i64::from(crate::JS_CLASS_ARRAY),
+            "the flags word is not where the JIT expects it"
+        );
+        assert_ne!(
+            flags as i64 & jit_layout::FAST_ARRAY_MASK,
+            0,
+            "the fast-array flag is not where the JIT expects it"
+        );
+
+        // The payload and the elements it holds.
+        let payload = unsafe {
+            *((node as *const u8).add(jit_layout::PAYLOAD_OFFSET as usize) as *const u64)
+        };
+        assert_ne!(
+            payload, 0,
+            "the payload pointer is not where the JIT expects it"
+        );
+        let data = unsafe {
+            *((payload as *const u8)
+                .add(crate::array::ArrayPayload::elements_data_offset() as usize)
+                as *const u64)
+        };
+        let len = unsafe {
+            *((payload as *const u8).add(crate::array::ArrayPayload::elements_len_offset() as usize)
+                as *const u32)
+        };
+        assert_eq!(
+            len, 3,
+            "the elements' length is not where the JIT expects it"
+        );
+        let second = unsafe { *((data as *const u8).add(8) as *const u64) };
+        let third = unsafe { *((data as *const u8).add(16) as *const u64) };
+        assert_eq!(second, object.payload_array().unwrap().values()[1].0);
+        assert_eq!(third, object.payload_array().unwrap().values()[2].0);
+    }
+
     /// Bring the JIT to rest before asserting on compile results. Inline, one
     /// `poll` drains everything; background, `poll` is non-blocking, so this
     /// spins until no attempt is in flight and the queue is empty.
