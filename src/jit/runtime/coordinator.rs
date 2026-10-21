@@ -16,6 +16,7 @@
 
 use std::{
     collections::{HashMap, VecDeque},
+    hash::{BuildHasher, Hasher},
     time::Duration,
 };
 
@@ -27,6 +28,57 @@ use crate::{
 };
 
 use super::hotness::{AdaptiveInputs, HotThresholds, HotnessState, Tier};
+
+/// The hash the coordinator's map uses.
+///
+/// Its keys are bytecode node addresses (`function_id`), so the hash only has
+/// to spread pointers over the buckets - and the pointers are not something
+/// JavaScript can control, so the randomised SipHash of `RandomState` buys no
+/// protection here, only cost: hashing the key is on the path of every
+/// function entry and every loop back edge.
+///
+/// The mixing is splitmix64's finalizer. It has to avalanche, not just
+/// multiply: a node address is aligned, so its low bits are zero, and the
+/// map picks its bucket from exactly those bits. A plain multiply would
+/// keep them zero and file every function under one bucket.
+#[derive(Default, Clone, Copy)]
+struct PtrHasher(u64);
+
+impl Hasher for PtrHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        let mut z = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        self.0 = z ^ (z >> 31);
+    }
+
+    /// The map only holds u64 keys, so this is never reached; the loop keeps
+    /// the hasher correct for any other key type.
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.write_u64(byte as u64);
+        }
+    }
+}
+
+#[derive(Default, Clone, Copy)]
+struct PtrHasherBuilder;
+
+impl BuildHasher for PtrHasherBuilder {
+    type Hasher = PtrHasher;
+
+    #[inline]
+    fn build_hasher(&self) -> PtrHasher {
+        PtrHasher(0)
+    }
+}
 
 /// Where a function is in its compile lifecycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -131,7 +183,7 @@ pub(crate) const TIER_DOWN_MISSES: u64 = 64;
 
 /// The request queue plus the lifecycle of every function the JIT has seen.
 pub(crate) struct Coordinator {
-    records: HashMap<u64, FunctionRecord>,
+    records: HashMap<u64, FunctionRecord, PtrHasherBuilder>,
     queue: VecDeque<u64>,
     base_calls: u32,
     base_loops: u32,
@@ -162,7 +214,7 @@ impl Coordinator {
         native_saving_ns_per_bytecode: u64,
     ) -> Self {
         Self {
-            records: HashMap::new(),
+            records: HashMap::default(),
             queue: VecDeque::new(),
             base_calls,
             base_loops,
@@ -211,12 +263,14 @@ impl Coordinator {
         opcodes: &[u8],
         measured_work: u32,
     ) -> Option<Tier> {
-        let first = !self.records.contains_key(&id);
+        let tier = self.first_tier();
+        // One hash for the whole lookup: the lookup that finds the record
+        // already answers "first time we see this function", so a separate
+        // `contains_key` would hash the key a second time on every entry.
+        let (first, record) = self.record_mut(id, opcodes, measured_work);
         if first {
             m.distinct_functions = m.distinct_functions.saturating_add(1);
         }
-        let tier = self.first_tier();
-        let record = self.record_mut(id, opcodes, measured_work);
         record.hotness.record_call();
         record.cooldown = record.cooldown.saturating_sub(1);
         // The work that crosses the gate happened *before* the function was
@@ -234,7 +288,7 @@ impl Coordinator {
         measured_work: u32,
     ) -> Option<Tier> {
         let tier = self.first_tier();
-        let record = self.record_mut(id, opcodes, measured_work);
+        let (_first, record) = self.record_mut(id, opcodes, measured_work);
         record.hotness.record_loop();
         record.note_work();
         Self::crossed_first_gate(record, tier)
@@ -297,11 +351,27 @@ impl Coordinator {
         Some(Tier::Tier2)
     }
 
-    fn record_mut(&mut self, id: u64, opcodes: &[u8], measured_work: u32) -> &mut FunctionRecord {
+    /// The record for `id`, creating it when it is new. The flag says
+    /// whether this call created it: the caller counts distinct functions,
+    /// and the lookup that finds the record already knows the answer — a
+    /// separate `contains_key` would hash the key a second time on every
+    /// function entry.
+    ///
+    /// The creation stays inside the closure on purpose: it walks the
+    /// bytecode (the adaptive thresholds), and inlined into the lookup it
+    /// would run on every single entry.
+    fn record_mut(
+        &mut self,
+        id: u64,
+        opcodes: &[u8],
+        measured_work: u32,
+    ) -> (bool, &mut FunctionRecord) {
         let (base_calls, base_loops) = (self.base_calls, self.base_loops);
         let (base_tier2_calls, base_tier2_loops) = (self.base_tier2_calls, self.base_tier2_loops);
         let payback = self.payback_activations();
-        self.records.entry(id).or_insert_with(|| {
+        let mut created = false;
+        let record = self.records.entry(id).or_insert_with(|| {
+            created = true;
             let inputs = AdaptiveInputs::from_opcodes(opcodes).with_measured_work(measured_work);
             let thresholds = inputs.thresholds(
                 base_calls,
@@ -326,7 +396,8 @@ impl Coordinator {
                 work_since_queue: 0,
                 bytecode_bytes: inputs.bytecode_bytes,
             }
-        })
+        });
+        (created, record)
     }
 
     /// The size of a function's bytecode, in bytes (0 when it is unknown).
@@ -729,6 +800,30 @@ mod tests {
             "already queued"
         );
         assert_eq!(m.distinct_functions, 1);
+    }
+
+    /// The map's hash has to spread the node addresses over the buckets.
+    /// They are aligned pointers, so a hash that keeps their low bits would
+    /// file them all under one bucket and turn every lookup into a walk over
+    /// the same chain.
+    #[test]
+    fn the_pointer_hash_spreads_aligned_keys() {
+        let hash_of = |ptr: u64| {
+            let mut h = PtrHasher(0);
+            h.write_u64(ptr);
+            h.finish()
+        };
+        // The addresses the GC hands out: aligned, and a page apart.
+        let keys = [
+            0x1000u64, 0x2000, 0x3000, 0x4000, 0x5000, 0x6000, 0x7000, 0x8000,
+        ];
+        // The low bits pick the bucket (128 of them is a small table).
+        let buckets: std::collections::HashSet<u64> =
+            keys.iter().map(|k| hash_of(*k) & 0x7f).collect();
+        assert!(
+            buckets.len() > keys.len() / 2,
+            "the hash clusters the keys: {buckets:?}"
+        );
     }
 
     /// A queue of one: the newcomer takes the place of the queued function,
