@@ -16,11 +16,11 @@ use std::{
     sync::OnceLock,
 };
 
-/// Host const atoms: `(name, kind, text_hash)`, kept in id order. Host atom
-/// ids are `ATOM_CONST_COUNT + 1 .. ATOM_CONST_COUNT + len`, just past the
+/// Host const atoms: `(name, kind)`, kept in id order. Host atom ids are
+/// `ATOM_CONST_COUNT + 1 ..=ATOM_CONST_COUNT + len`, just past the
 /// build-time generated const atoms. Populated once by
 /// `init_host_const_atoms` (from the linkme-collected host class names).
-static ATOM_HOST_CLASS_NAMES: OnceLock<Vec<(&'static str, AtomKind, u32)>> = OnceLock::new();
+static ATOM_HOST_CLASS_NAMES: OnceLock<Vec<(&'static str, AtomKind)>> = OnceLock::new();
 
 /// First user (per-runtime) atom id: below it lie the build-time const atoms
 /// plus the runtime-initialized host const atoms.
@@ -35,10 +35,7 @@ pub(crate) fn user_atom_id_start() -> u32 {
 #[allow(clippy::type_complexity)]
 fn build_host_const_table(
     names: &[&'static str],
-) -> (
-    Vec<(&'static str, AtomKind, u32)>,
-    HashMap<&'static str, u32>,
-) {
+) -> (Vec<(&'static str, AtomKind)>, HashMap<&'static str, u32>) {
     let mut table = Vec::new();
     let mut id_map = HashMap::new();
     let mut seen = HashSet::new();
@@ -53,11 +50,7 @@ fn build_host_const_table(
         }
 
         let id = ATOM_CONST_COUNT + table.len() as u32 + 1;
-        table.push((
-            *name,
-            AtomKind::String,
-            Atom::calc_atom_str_hash(*name, AtomKind::String),
-        ));
+        table.push((*name, AtomKind::String));
         id_map.insert(*name, id);
     }
 
@@ -68,7 +61,7 @@ fn build_host_const_table(
 /// the table map to their host slot, names shadowed by a build-time const atom
 /// map to that const atom.
 fn host_class_name_map(
-    table: &[(&'static str, AtomKind, u32)],
+    table: &[(&'static str, AtomKind)],
     names: &[&'static str],
 ) -> HashMap<&'static str, u32> {
     names
@@ -77,7 +70,7 @@ fn host_class_name_map(
             let id = table
                 .iter()
                 .enumerate()
-                .find(|(_, (n, _, _))| *n == name)
+                .find(|(_, (n, _))| *n == name)
                 .map_or_else(
                     || {
                         Atom::lookup_const(name, AtomKind::String)
@@ -92,9 +85,8 @@ fn host_class_name_map(
 }
 
 /// Initialize host const atoms from the deduplicated host class names. Must
-/// run before any runtime starts. Text hashes mirror `calc_atom_str_hash` so
-/// minted descriptor hashes agree with the user-atom `hash_lut`. Returns the
-/// `name -> const atom id` map for filling `ClassDef::name_atom`.
+/// run before any runtime starts. Returns the `name -> const atom id` map for
+/// filling `ClassDef::name_atom`.
 pub(crate) fn init_host_const_atoms(
     names: impl Iterator<Item = &'static str>,
 ) -> HashMap<&'static str, u32> {
@@ -115,7 +107,7 @@ pub(crate) fn init_host_const_atoms(
 /// (linear scan; the host set is small). Returns `None` before init or on miss.
 pub(crate) fn lookup_host_const(kind: AtomKind, cmp: impl Fn(&str) -> bool) -> Option<Atom> {
     let host = ATOM_HOST_CLASS_NAMES.get()?;
-    for (i, (name, k, _)) in host.iter().enumerate() {
+    for (i, (name, k)) in host.iter().enumerate() {
         if *k == kind && cmp(name) {
             return Some(Atom::from_id(ATOM_CONST_COUNT + i as u32 + 1));
         }

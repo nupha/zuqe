@@ -99,20 +99,12 @@ impl Atom {
         }
     }
 
-    /// Build-time precomputed content hash (`text_hash`) for this const atom,
-    /// from the static table. Seeds the hash_lut for content lookup.
-    /// Distinct from the `atom_hash` on minted descriptor nodes, which for
-    /// symbols carries the `JS_ATOM_HASH_SYMBOL`/`JS_ATOM_HASH_PRIVATE` marker
-    /// instead of this text hash.
-    #[inline(always)]
+    /// The content hash of this const atom: the same value a user atom with
+    /// the same content gets (the process's hash secret is folded in), so a
+    /// const atom's string and an equal-content rope hash alike.
+    #[inline]
     pub(crate) fn const_text_hash(&self) -> u32 {
-        debug_assert!(!self.is_null() && self.is_const());
-        let id = self.id() as usize;
-        if id <= ATOM_CONST_COUNT as usize {
-            ATOM_CONST_DEFS[id - 1].2
-        } else {
-            super::ATOM_HOST_CLASS_NAMES.get().unwrap()[id - ATOM_CONST_COUNT as usize - 1].2
-        }
+        Atom::calc_atom_str_hash(self.const_str(), self.const_kind())
     }
 
     /// get atom descriptor kind

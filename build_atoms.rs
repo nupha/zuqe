@@ -381,27 +381,25 @@ pub fn gen_atoms(outfile: &Path) {
 
     // const atom content table, indexed by (atom_id - 1).
     // Fields:
-    // - .0 text:      const atom content ("" / "<brand>" / "Symbol.XXX").
-    // - .1 kind:      const atom kind. `Symbol_*` (well-known symbols) and
-    //                 `Private_brand` (the shared brand storage key) get
-    //                 `AtomKind::Symbol`; everything else is `AtomKind::String`.
-    // - .2 text_hash: build-time content hash (`calc_atom_str_hash`), used to
-    //                 seed the runtime hash_lut so content lookup lands on the
-    //                 const atom. NOT the node `atom_hash`: symbol descriptor
-    //                 nodes carry the `JS_ATOM_HASH_SYMBOL`/`JS_ATOM_HASH_PRIVATE`
-    //                 marker instead (see `RuntimeImpl::const_atom_value`).
+    // - .0 text: const atom content ("" / "<brand>" / "Symbol.XXX").
+    // - .1 kind: const atom kind. `Symbol_*` (well-known symbols) and
+    //             `Private_brand` (the shared brand storage key) get
+    //             `AtomKind::Symbol`; everything else is `AtomKind::String`.
+    // There is no content hash here: the runtime computes it with the
+    // process's hash secret folded in (so a script cannot predict it), and
+    // the build-time `ATOM_CONST_HASH_TABLE` below indexes the *unseeded*
+    // hash, which only the const lookup uses.
     let const_defs = ATOM_DESCR_DEFS
         .iter()
         .zip(&text)
         .map(|(name, txt)| {
-            let (kind_str, kind_num) = if name.starts_with("Symbol_") || name.eq(&"Private_brand") {
+            let (kind_str, _kind_num) = if name.starts_with("Symbol_") || name.eq(&"Private_brand") {
                 ("AtomKind::Symbol", 3u32)
             } else {
                 ("AtomKind::String", 1u32)
             };
-            let text_hash = calc_atom_str_hash(txt, kind_num);
             format!(
-                "(\"{}\", {kind_str}, {text_hash}),",
+                "(\"{}\", {kind_str}),",
                 txt.replace('\\', "\\\\").replace('"', "\\\""),
             )
         })
@@ -409,23 +407,25 @@ pub fn gen_atoms(outfile: &Path) {
 
     output.push(
             "// ATOM_CONST_DEFS, indexed by (atom_id - 1). Fields:\n\
-             //   .0 text:      const atom content (\"\" / \"<brand>\" / \"Symbol.XXX\").\n\
-             //   .1 kind:      AtomKind::Symbol for Symbol_* & Private_brand, else String.\n\
-             //   .2 text_hash: content hash (`calc_atom_str_hash`), building the\n\
-             //                 ATOM_CONST_HASH_TABLE lookup index below.\n\
-             //                 Symbol node atom_hash is JS_ATOM_HASH_SYMBOL / JS_ATOM_HASH_PRIVATE\n\
-             //                 instead (see RuntimeImpl::const_atom_value)."
+             //   .0 text: const atom content (\"\" / \"<brand>\" / \"Symbol.XXX\").\n\
+             //   .1 kind: AtomKind::Symbol for Symbol_* & Private_brand, else String.\n\
+             // The content hash is not stored: the runtime computes it with the\n\
+             // process's hash secret folded in. Symbol node atom_hash is\n\
+             // JS_ATOM_HASH_SYMBOL / JS_ATOM_HASH_PRIVATE instead (see\n\
+             // RuntimeImpl::const_atom_value)."
                 .to_string(),
         );
 
     output.push(format!(
-        "pub const ATOM_CONST_DEFS: &[(&str, AtomKind, u32)] = &[{const_defs}];"
+        "pub const ATOM_CONST_DEFS: &[(&str, AtomKind)] = &[{const_defs}];"
     ));
 
     // const atom content hash index: (text_hash, atom_id) sorted by text_hash.
     // `Atom::lookup_const` binary-searches it so content lookup resolves a
     // const atom with no runtime registration (no hash_lut seeding, no
-    // descriptor nodes).
+    // descriptor nodes). The hash here is the *unseeded* one (the runtime
+    // replica is `Atom::calc_atom_hash_unseeded`): the table is a fixed set
+    // of names, so it needs no secret.
     let mut hash_index = ATOM_DESCR_DEFS
         .iter()
         .zip(&text)

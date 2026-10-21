@@ -25,7 +25,7 @@ use crate::{
         PayloadPtr, check_define_prop_flags,
     },
     string::{CharCode, StringCharIter, StringData},
-    utils::{hash_u32_from_base, unlikely},
+    utils::{hash_fold, hash_key, unlikely},
     value::JSValue,
 };
 
@@ -504,14 +504,18 @@ impl StringRef {
             // hashes identically to an equal-content flat string (required
             // for object/Map key lookup). Folding per-leaf codepoints (not
             // per-leaf hashes) makes the result independent of leaf shape.
-            let mut h = AtomKind::String as u32;
+            //
+            // The process's hash secret is in the fold's multiplier, so the
+            // result is not computable by a script (see `utils::hash_key`).
+            let key = hash_key();
+            let mut h = key ^ AtomKind::String as u64;
             let mut it = RopeIter::new(self);
             while let Some(leaf) = it.next() {
                 for (_, c) in leaf.as_flat().content().chars() {
-                    h = hash_u32_from_base(h, c.to_u32());
+                    h = hash_fold(key, h, c.to_u32());
                 }
             }
-            h
+            (h >> 32) as u32
         }
     }
 

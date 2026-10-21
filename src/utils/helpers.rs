@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::{
+    hash::{BuildHasher, Hasher},
+    sync::atomic::{AtomicU64, Ordering},
+};
+
 /// get stack top level addr
 #[inline(always)]
 pub fn js_get_thread_stack_pointer() -> usize {
@@ -157,16 +162,70 @@ pub(crate) fn get_sleb128(pval: &mut i32, buf: &[u8]) -> Result<usize, i32> {
     Ok(ret)
 }
 
-/// calc hash for base_hash adding an extra u32
+// ── The process's hash secret ──
+
+/// The secret the content hashes fold in.
+///
+/// A script that can compute the hash of a string it chooses can craft many
+/// strings with the same hash: they land in one bucket of the atom table (or
+/// of a `Map`'s lookup table), and every lookup then walks the whole group -
+/// a hash-flooding denial of service. The secret is random per process, so
+/// the fold's result is not computable from the outside.
+///
+/// It is a *multiplier*, not a final xor: a final xor would leave the
+/// collisions of the underlying polynomial intact (both sides shift by the
+/// same amount), and the script could still solve for them.
+static HASH_KEY: AtomicU64 = AtomicU64::new(0);
+
+/// The process's hash secret. Random per process, so it is the same for
+/// every runtime in the process (the string hash has no runtime to ask).
+///
+/// The secret is read on every hash, so it is a relaxed atomic load and not
+/// a `OnceLock` (whose `get_or_init` is a call the optimizer cannot fold
+/// away). `0` means "not seeded yet": the secret is stored odd, so it can
+/// never be mistaken for that.
 #[inline(always)]
-pub(crate) const fn hash_u32_from_base(base_hash: u32, extra: u32) -> u32 {
-    base_hash.wrapping_mul(263).wrapping_add(extra)
+pub(crate) fn hash_key() -> u64 {
+    let key = HASH_KEY.load(Ordering::Relaxed);
+    if key != 0 {
+        return key;
+    }
+    // First call in this process: draw a secret. `RandomState`'s keys come
+    // from the OS entropy pool; hashing a fixed value with a fresh one is
+    // enough of a secret here.
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u64(0);
+    let secret = h.finish() | 1;
+    // Another thread may have won the race: whoever stored first decides, so
+    // every runtime in the process folds in the same secret.
+    let _ = HASH_KEY.compare_exchange(0, secret, Ordering::Relaxed, Ordering::Relaxed);
+    HASH_KEY.load(Ordering::Relaxed)
+}
+
+/// Fold one codepoint into a content hash.
+///
+/// The secret is the multiplier, so the fold keeps its shape (a multiply-add
+/// per codepoint) but only the holder of the secret can predict the result.
+#[inline(always)]
+pub(crate) const fn hash_fold(key: u64, h: u64, extra: u32) -> u64 {
+    h.wrapping_mul(key).wrapping_add(extra as u64)
+}
+
+/// Mix a value into the process's secret: the result is not computable by a
+/// script, so it cannot line values up on purpose (the collisions of a
+/// *public* mixer are craftable - that is the whole point of the secret).
+#[inline(always)]
+pub(crate) fn hash_secret_mix(value: u64) -> u32 {
+    (value.wrapping_mul(hash_key()) >> 32) as u32
 }
 
 /// calc hash for usize
+///
+/// The process's secret is in the multiplier, so a script cannot line values
+/// up on purpose (see [`hash_key`]).
 #[inline(always)]
-pub(crate) const fn hash_usize(id: usize) -> u32 {
-    id.wrapping_mul(3163) as u32
+pub(crate) fn hash_usize(id: usize) -> u32 {
+    hash_secret_mix(id as u64)
 }
 
 #[macro_export]

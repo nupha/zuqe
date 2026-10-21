@@ -13,7 +13,7 @@ use crate::{
     number::{Float64Union, JS_DTOA_VAR_FORMAT, f64_stringify},
     object::{Object, ObjectImpl, PayloadPtr},
     string::{RopeImpl, StringImpl, StringRef},
-    utils::{hash_usize, unlikely},
+    utils::{hash_key, hash_secret_mix, hash_usize, unlikely},
     value::HINT_STRING,
 };
 
@@ -566,23 +566,30 @@ impl JSValue {
                 let u = Float64Union {
                     uint64: self.payload_i32() as u64,
                 };
-                unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
+                unsafe { hash_secret_mix((u.uint32[0] ^ u.uint32[1]) as u64) }
             }
             JSValueTag::String => unsafe { self.as_string_unchecked().hash() },
-            JSValueTag::Symbol => unsafe { self.as_string_unchecked().atom_info().unwrap().hash() },
+            JSValueTag::Symbol => {
+                // A symbol's identity is its atom id. The descriptor's hash is
+                // the `JS_ATOM_HASH_SYMBOL` marker, which *every* symbol
+                // shares - they would all land in one bucket of a `Map`'s
+                // lookup table.
+                let id = unsafe { self.as_string_unchecked().atom_info().unwrap().id() };
+                hash_usize(id as usize)
+            }
             JSValueTag::Float64 => {
                 let d = js_value_get_float64(self.0);
                 let u = Float64Union {
                     d: if d.is_nan() { f64::NAN } else { d },
                 };
-                unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
+                unsafe { hash_secret_mix((u.uint32[0] ^ u.uint32[1]) as u64) }
             }
             JSValueTag::Bool => self.0 as u32,
             JSValueTag::CatchOffset => {
                 let u = Float64Union {
                     uint64: self.payload_i32() as u64,
                 };
-                unsafe { (u.uint32[0] ^ u.uint32[1]).wrapping_mul(3163) }
+                unsafe { hash_secret_mix((u.uint32[0] ^ u.uint32[1]) as u64) }
             }
             #[cfg(feature = "big_int")]
             JSValueTag::BigInt => unsafe { bigint_hash(&self.as_bigint_unchecked()) },
@@ -842,16 +849,19 @@ impl JSValue {
 #[cfg(feature = "big_int")]
 fn bigint_hash(b: &crate::bigint::BigIntRef) -> u32 {
     let i = b.as_impl();
-    let mut h: u32 = if i.sign() { 0x5bd1_e995 } else { 0 };
+    // The secret is the fold's multiplier, so a script cannot craft BigInts
+    // that land in the same bucket of a `Map`'s lookup table.
+    let key = hash_key();
+    let mut h: u64 = if i.sign() { 0x5bd1_e995 } else { 0 } ^ key;
     // Fold every 32-bit half of each limb, so `1n` and a two-limb value with
     // a zero low limb still differ while equal values stay equal.
     for &limb in i.limbs() {
         let lo = limb as u32;
         let hi = (limb >> 32) as u32;
-        h = h.wrapping_mul(3163).wrapping_add(lo);
-        h = h.wrapping_mul(3163).wrapping_add(hi);
+        h = h.wrapping_mul(key).wrapping_add(lo as u64);
+        h = h.wrapping_mul(key).wrapping_add(hi as u64);
     }
-    h
+    (h >> 32) as u32
 }
 
 // ============================================================================

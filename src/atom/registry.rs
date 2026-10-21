@@ -11,7 +11,7 @@ use crate::{
     atom::{is_const_atom, is_small_int_atom},
     number::parse_u32,
     string::{JS_STRING_LEN_MAX, StringData, StringRef},
-    utils::{hash_u32_from_base, unlikely},
+    utils::{hash_fold, hash_key, unlikely},
 };
 
 use super::{
@@ -427,24 +427,62 @@ impl Atom {
         Self(id)
     }
 
-    /// calc atom hash with str and kind
+    /// The content hash of a string, with the process's hash secret folded in.
+    ///
+    /// The secret is what makes the hash unguessable: a script that could
+    /// compute it could craft many strings with the same hash, and every
+    /// lookup would then walk the whole group (a hash-flooding DoS). The
+    /// secret is the fold's multiplier, so the collisions of the underlying
+    /// polynomial cannot be solved for from the outside.
     pub(crate) fn calc_atom_hash(str: &StringData, kind: AtomKind) -> u32 {
+        if str.is_empty() || str.is_ident() {
+            // An empty string has no content to fold, and an ident string
+            // keeps its content in the atom descriptor (its text is not the
+            // content being hashed).
+            return ((hash_key() ^ kind as u64) >> 32) as u32;
+        }
+        let key = hash_key();
+        let mut h = key ^ kind as u64;
+        for (_, c) in str.chars() {
+            h = hash_fold(key, h, c.to_u32());
+        }
+        (h >> 32) as u32
+    }
+
+    /// The content hash of a `&str`, with the process's hash secret folded in
+    /// (see [`Atom::calc_atom_hash`]).
+    #[inline(always)]
+    pub(crate) fn calc_atom_str_hash(str: &str, kind: AtomKind) -> u32 {
+        let key = hash_key();
+        let mut h = key ^ kind as u64;
+        for c in str.chars() {
+            h = hash_fold(key, h, c as u32);
+        }
+        (h >> 32) as u32
+    }
+
+    /// The content hash **without** the secret: the build-time const table is
+    /// generated with it and searched with it, so it must not move.
+    ///
+    /// The const table is a static, fixed set of names, so its hash needs no
+    /// secret - only the *user* atom table (whose keys a script chooses) does.
+    pub(crate) fn calc_atom_hash_unseeded(str: &str, kind: AtomKind) -> u32 {
         let mut h = kind as u32;
-        if !str.is_empty() && !str.is_ident() {
-            for (_, c) in str.chars() {
-                h = hash_u32_from_base(h, c.to_u32());
+        if !str.is_empty() {
+            for c in str.chars() {
+                h = h.wrapping_mul(263).wrapping_add(c as _);
             }
         }
         h
     }
 
-    /// calc atom hash for str and type.
-    #[inline(always)]
-    pub(crate) fn calc_atom_str_hash(str: &str, kind: AtomKind) -> u32 {
+    /// The content hash of a string node **without** the secret (see
+    /// [`Atom::calc_atom_hash_unseeded`]).
+    pub(crate) fn calc_atom_content_hash_unseeded(str: &StringData, kind: AtomKind) -> u32 {
         let mut h = kind as u32;
-        if !str.is_empty() {
-            for c in str.chars() {
-                h = hash_u32_from_base(h, c as _);
+        if !str.is_empty() && !str.is_ident() {
+            for (_, c) in str.chars() {
+                h = h.wrapping_mul(263).wrapping_add(c.to_u32());
             }
         }
         h
@@ -477,16 +515,22 @@ impl Atom {
     /// Resolve a const atom by content string (`&str`).
     #[inline(always)]
     pub(crate) fn lookup_const(str: &str, kind: AtomKind) -> Option<Atom> {
-        let a = Self::const_lookup_by_hash(Self::calc_atom_str_hash(str, kind), kind, |s| s == str);
+        // The const table is indexed by the *unseeded* hash (it is generated
+        // at build time with it), so the search uses that one.
+        let a = Self::const_lookup_by_hash(Self::calc_atom_hash_unseeded(str, kind), kind, |s| {
+            s == str
+        });
         a.or_else(|| lookup_host_const(kind, |s| s == str))
     }
 
     /// Resolve a const atom by content node (`&StringData`).
     #[inline(always)]
     pub(crate) fn const_from_content(content: &StringData, kind: AtomKind) -> Option<Atom> {
-        let a = Self::const_lookup_by_hash(Self::calc_atom_hash(content, kind), kind, |s| {
-            content.eq_str(s)
-        });
+        let a = Self::const_lookup_by_hash(
+            Self::calc_atom_content_hash_unseeded(content, kind),
+            kind,
+            |s| content.eq_str(s),
+        );
         a.or_else(|| lookup_host_const(kind, |s| content.eq_str(s)))
     }
 }
@@ -680,6 +724,94 @@ mod tests {
             );
             assert_eq!(s1.to_atom(cx)?, Atom::CONST_Object);
 
+            Ok::<(), i32>(())
+        })?;
+        Ok(())
+    }
+
+    /// The content hash folds in the process's secret, so a script cannot
+    /// craft the collisions the atom table (and a `Map`'s lookup table) would
+    /// then walk as one group - a hash-flooding denial of service.
+    ///
+    /// The pair below collides in the *public* hash (the old, unseeded one:
+    /// `h*263 + c`), because `263*0x1000 + 0x1000 == 263*0x0FFF + 0x1107`.
+    /// With the secret in the fold they do not.
+    #[test]
+    fn the_content_hash_does_not_share_the_public_collisions() {
+        let a = "z\u{1000}\u{1000}";
+        let b = "z\u{0fff}\u{1107}";
+        assert_eq!(
+            Atom::calc_atom_hash_unseeded(a, AtomKind::String),
+            Atom::calc_atom_hash_unseeded(b, AtomKind::String),
+            "the pair must collide in the public hash"
+        );
+        assert_ne!(
+            Atom::calc_atom_str_hash(a, AtomKind::String),
+            Atom::calc_atom_str_hash(b, AtomKind::String),
+            "the secret must break the collision"
+        );
+    }
+
+    /// A string's hash is its content's hash, whatever shape the string has:
+    /// a rope (built by concatenation) and a flat string with the same
+    /// content must hash alike, or a `Map` would treat them as different
+    /// keys.
+    #[test]
+    fn a_rope_hashes_like_the_flat_string_of_the_same_content() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            Ok(())
+        })?;
+
+        ctx.with_new_scope(|cx| {
+            // The second operand is over the rope threshold (512), so the
+            // concat stays a rope instead of being flattened.
+            let tail = "y".repeat(600);
+            let head = StringRef::alloc_from_str(cx, "x")?;
+            let tail_ref = StringRef::alloc_from_str(cx, &tail)?;
+            let rope = StringRef::concat2(cx, head, tail_ref)?;
+            assert!(!rope.is_flat(), "the concat must stay a rope");
+
+            // The same content, flat.
+            let mut content = String::from("x");
+            content.push_str(&tail);
+            let flat = StringRef::alloc_from_str(cx, &content)?;
+
+            assert_eq!(
+                rope.hash(),
+                flat.hash(),
+                "a rope and an equal flat string must hash alike"
+            );
+            assert_eq!(
+                rope.hash(),
+                Atom::calc_atom_str_hash(&content, AtomKind::String),
+                "the rope's fold must be the content's hash"
+            );
+            Ok::<(), i32>(())
+        })?;
+        Ok(())
+    }
+
+    /// A const atom's string hashes like its content: the const table is
+    /// indexed by the *unseeded* hash (it is generated at build time), but
+    /// the hash a string carries is the seeded content hash.
+    #[test]
+    fn a_const_atom_hashes_like_its_content() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            Ok(())
+        })?;
+
+        ctx.with_new_scope(|cx| {
+            let value = Atom::CONST_Object.to_value(cx)?;
+            let s = value.as_string(false).unwrap();
+            assert_eq!(
+                s.hash(),
+                Atom::calc_atom_str_hash("Object", AtomKind::String),
+                "a const atom's string must carry the content's hash"
+            );
             Ok::<(), i32>(())
         })?;
         Ok(())
