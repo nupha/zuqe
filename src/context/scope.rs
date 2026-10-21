@@ -275,6 +275,32 @@ impl<'a> ScopedContext<'a> {
             .scope(stack_id, self.depth())
             .is_some_and(|s| s.contains(node))
     }
+
+    /// A view of the current (innermost) GC scope that owns nothing:
+    /// dropping it pops no scope.
+    ///
+    /// The trampoline uses it to run a `GcScopeKind::None` callee — one that
+    /// never allocates a GC node — in the caller's scope, the way the
+    /// interpreter's inlined NoScope call does. The view stays valid as long
+    /// as the scope it points at is on the stack: the scope stack is LIFO, so
+    /// the scopes pushed above it do not move it.
+    pub(crate) fn borrow_current_scope(&self) -> ScopedContext<'static> {
+        let s = self.gc_state();
+        ScopedContext {
+            ctx_ptr: self.ctx_ptr,
+            gc_scope: GcScopeType::Ref {
+                stack_id: s.stack_id(),
+                index: s.depth() - 1,
+            },
+        }
+    }
+
+    /// True when this context owns its GC scope — dropping it pops the scope.
+    /// A borrowed scope (see [`ScopedContext::borrow_current_scope`]) owns
+    /// nothing: dropping it pops nothing.
+    pub(crate) const fn owns_scope(&self) -> bool {
+        matches!(self.gc_scope, GcScopeType::Owned(_))
+    }
 }
 
 impl ContextPtr {

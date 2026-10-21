@@ -18,7 +18,7 @@ use crate::{
     },
     context::GlobalVarSetMode,
     function::{
-        BCWrapper, CallContext, JS_CALL_FLAG_CONSTRUCTOR, VarRef, js_build_arguments,
+        BCWrapper, CallContext, GcScopeKind, JS_CALL_FLAG_CONSTRUCTOR, VarRef, js_build_arguments,
         js_build_mapped_arguments, js_function_apply,
     },
     gc::GcHeapExt,
@@ -93,7 +93,7 @@ pub(crate) struct JitExecFrame {
     /// `HELPERS.as_ptr()`.
     pub helpers: *const u8,
     pub this: JSValue,
-    /// `GcScopeKind` as a `u32` (0 = Full, 2 = None).
+    /// `GcScopeKind` as a `u32` (its discriminant: 0 = Full, 1 = Light, 2 = None).
     pub gc_scope_kind: u32,
     /// Immediate for the few helpers that need one (`push_atom_value`, global
     /// variable index, property atom).
@@ -1395,8 +1395,9 @@ unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
         }
         let mut rt = scope.rt_ptr();
         if rt.gc_req {
-            // GcScopeKind::None == 2.
-            if f.gc_scope_kind != 2 {
+            // A borrowed scope belongs to the caller: its locals are still
+            // live, so this frame must not unprotect them.
+            if f.gc_scope_kind != GcScopeKind::None as u32 && scope.owns_scope() {
                 scope.clear_locals();
             }
             rt.gc_collect();

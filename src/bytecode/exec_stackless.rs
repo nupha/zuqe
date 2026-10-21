@@ -32,9 +32,7 @@ use crate::{
         VarRef, build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
     },
     module::{js_dynamic_import, js_import_meta},
-    object::{
-        JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSProperty, Object, PayloadPtr, ThrowPolicy,
-    },
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSProperty, Object, PayloadPtr, ThrowPolicy},
     utils::{read_from_ptr, unlikely},
     value::JSValue,
     vm_stack::{ExecMode, FrameAllocError, FrameIndex, VM_MAX_CALL_DEPTH, VirtualFrame, VmStack},
@@ -105,6 +103,11 @@ pub(crate) enum ExecAction {
 /// No `pop_scope()` is ever called explicitly — scopes are always popped by
 /// `GcScope::Drop` (the anti-forget of `ManuallyDrop::take` + `drop`).
 ///
+/// The scope may also be *borrowed*: a `GcScopeKind::None` callee runs in the
+/// caller's scope (the interpreter's inlined NoScope call does the same), so
+/// nothing is pushed and nothing is popped.
+/// [`ScopedContext::owns_scope`] tells the two apart.
+///
 /// # Safety of `'static` transmute
 ///
 /// The `'static` on `ScopedContext` is safe because:
@@ -128,8 +131,17 @@ impl TrampolineScope {
         }
     }
 
+    /// Run in the caller's scope: nothing is pushed, nothing is popped.
+    #[inline(always)]
+    fn borrowed(scope: &ScopedContext<'_>) -> Self {
+        Self {
+            inner: ManuallyDrop::new(scope.borrow_current_scope()),
+        }
+    }
+
     /// Extract the inner ScopedContext, consuming this wrapper.
-    /// The caller becomes responsible for dropping it (which pops the scope).
+    /// The caller becomes responsible for dropping it (which pops the scope
+    /// when the scope is owned).
     fn into_inner(mut self) -> ScopedContext<'static> {
         unsafe { ManuallyDrop::take(&mut self.inner) }
     }
@@ -3509,7 +3521,18 @@ pub(crate) fn execute_trampoline(
     let arena_ptr: *mut VmStack = &raw mut rt_ptr.vm_stack;
 
     let mut realm_ctx = start_bc.realm();
-    let mut cur_trampoline_scope = unsafe { TrampolineScope::new(&mut realm_ctx) };
+    // A callee that never allocates a GC node needs no scope of its own: it
+    // runs in the caller's scope, the way the interpreter's inlined NoScope
+    // call does. Then a call pays no scope push/pop/promote — the GC part
+    // of the call path. A cross-realm callee still gets its own scope (the
+    // error objects it throws must carry its realm's prototypes).
+    let mut cur_trampoline_scope = if start_bc.gc_scope_kind() == GcScopeKind::None
+        && start_bc.realm() == start_scope.ctx_ptr
+    {
+        TrampolineScope::borrowed(start_scope)
+    } else {
+        unsafe { TrampolineScope::new(&mut realm_ctx) }
+    };
 
     // Check for a pending runtime exception (e.g., .throw() on a suspended
     // async generator or async function). If present, the first
@@ -3746,8 +3769,11 @@ pub(crate) fn execute_trampoline(
                         // arrows (e.g., `new.target` in `async () => new.target`).
                         arena.detach_and_free(cur_frame_idx);
                         // Promote before scope pop so the value stays LOCAL
-                        // in the parent scope (caller's scope).
-                        actual_ret.promote(&cur_trampoline_scope);
+                        // in the parent scope (caller's scope). A borrowed
+                        // scope owns nothing and has no locals to promote.
+                        if cur_trampoline_scope.owns_scope() {
+                            actual_ret.promote(&cur_trampoline_scope);
+                        }
                         drop(cur_trampoline_scope.into_inner());
 
                         // Drain virtual_frames to drop saved caller scopes.
@@ -3844,8 +3870,11 @@ pub(crate) fn execute_trampoline(
                 } else {
                     // Outermost frame: the trampoline scope was created by
                     // TrampolineScope::new() at execute_trampoline entry —
-                    // always promote and drop, even for NoScope start functions.
-                    ret_val.promote(&cur_trampoline_scope);
+                    // promote and drop. A borrowed scope (a NoScope start
+                    // function) owns nothing and has no locals to promote.
+                    if cur_trampoline_scope.owns_scope() {
+                        ret_val.promote(&cur_trampoline_scope);
+                    }
                     drop(cur_trampoline_scope.into_inner());
                     rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (ret_val, true);
@@ -3961,5 +3990,81 @@ pub(crate) fn execute_trampoline(
                 new_target = callee_new_target;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{EvalFlags, EvalName, EvalType, Runtime, ScopedContext};
+
+    /// A callee that never allocates a GC node runs in the caller's scope:
+    /// the trampoline pushes no scope for it, and its return value is not
+    /// promoted. The value it hands back is the caller's own object, so the
+    /// caller's scope is what keeps it alive — through the call and through
+    /// the collections the callback triggers.
+    ///
+    /// `Array.prototype.map` calls the callback through `call_internal`, so
+    /// the callee runs in a nested trampoline — the path the borrowed scope
+    /// is for.
+    #[test]
+    fn a_thin_callee_hands_back_a_live_value() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        let v = ctx
+            .eval(
+                b"function thin(x){ return x; } \
+                  function run(){ \
+                    var local = { tag: 'kept' }; \
+                    var got = [local].map(thin)[0]; \
+                    for (var i = 0; i < 20000; i++) { var junk = { i: i }; } \
+                    return got.tag; \
+                  } \
+                  run();",
+                &EvalName::Name("thin-callee.js".into()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            v.as_string(false).unwrap().content().encode_utf8(false),
+            "kept",
+            "the value the thin callee handed back did not survive"
+        );
+    }
+
+    /// The same call, but the callee throws: the callee has no scope of its
+    /// own, so the thrown value — the caller's object — must survive the
+    /// unwind and reach the handler.
+    #[test]
+    fn a_thin_callee_throws_into_the_callers_scope() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        let v = ctx
+            .eval(
+                b"function thin(x){ throw x; } \
+                  function run(){ \
+                    var local = { tag: 'kept' }; \
+                    try { [local].map(thin); } catch (e) { return e.tag; } \
+                    return 'no-throw'; \
+                  } \
+                  run();",
+                &EvalName::Name("thin-callee-throw.js".into()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            v.as_string(false).unwrap().content().encode_utf8(false),
+            "kept",
+            "the thrown value did not reach the handler"
+        );
     }
 }

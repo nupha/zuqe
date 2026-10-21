@@ -57,6 +57,17 @@ pub(crate) struct VmStack {
     /// Access via `var_refs_or_default` / `try_var_refs_mut` / `has_var_refs`.
     var_refs: Vec<Vec<VarRef>>,
 
+    /// Freed frame headers, ready for reuse.
+    ///
+    /// A call allocates one header (`Box<StackFrame>`) and frees it when the
+    /// frame returns; that malloc/free was on every call — the JIT's call
+    /// path too. The headers are parked here instead and the next
+    /// `alloc_frame` takes one, so a steady-state call allocates nothing.
+    /// The `Box` indirection stays (see `frames`): the header's address must
+    /// not move.
+    #[allow(clippy::vec_box)]
+    frame_pool: Vec<Box<StackFrame>>,
+
     #[cfg(debug_assertions)]
     pub(crate) stats_bump: usize,
     #[cfg(debug_assertions)]
@@ -84,6 +95,7 @@ impl VmStack {
             live_heap_bytes: 0,
             vm_stack_limit: VM_STACK_LIMIT_DEFAULT,
             var_refs: Vec::new(),
+            frame_pool: Vec::new(),
 
             #[cfg(debug_assertions)]
             stats_bump: 0,
@@ -182,23 +194,58 @@ impl VmStack {
             }
         };
 
-        self.frames.push(Box::new(StackFrame {
-            prev: FrameIndex::NULL,
-            depth: 0,
-            state: FrameState::Active,
-            mode,
-            func_obj,
-            cur_pc_offset: 0,
-            cur_sp_offset: 0,
-            buf,
-            arg_base_offset: 0,
-            arg_real_count: 0,
-            arg_count: 0,
-            var_base_offset: 0,
-            var_count: 0,
-        }));
+        let header = self.new_frame_header(func_obj, mode, buf);
+        self.frames.push(header);
 
         Ok(idx)
+    }
+
+    /// A frame header for a new activation: a pooled one when there is one,
+    /// a fresh box otherwise.
+    ///
+    /// The recycled header is prepared in place (see [`StackFrame::reset`]):
+    /// assigning a whole header would copy it through a stack temporary,
+    /// which cost more than the malloc/free the pool avoids.
+    #[inline]
+    fn new_frame_header(
+        &mut self,
+        func_obj: Object,
+        mode: ExecMode,
+        buf: FrameBuffer,
+    ) -> Box<StackFrame> {
+        match self.frame_pool.pop() {
+            Some(mut pooled) => {
+                // The pooled header's buffer was taken out when it was freed,
+                // so the reset below drops an empty buffer.
+                pooled.reset(func_obj, mode, buf);
+                pooled
+            }
+            None => Box::new(StackFrame {
+                prev: FrameIndex::NULL,
+                depth: 0,
+                state: FrameState::Active,
+                mode,
+                func_obj,
+                cur_pc_offset: 0,
+                cur_sp_offset: 0,
+                buf,
+                arg_base_offset: 0,
+                arg_real_count: 0,
+                arg_count: 0,
+                var_base_offset: 0,
+                var_count: 0,
+            }),
+        }
+    }
+
+    /// Park a freed frame header for the next `alloc_frame`. The buffer must
+    /// already be `Empty` — the caller owns the buffer's accounting.
+    #[inline]
+    fn park_frame(&mut self, frame: Box<StackFrame>) {
+        debug_assert!(matches!(frame.buf, FrameBuffer::Empty));
+        if self.frame_pool.len() < crate::config::FRAME_POOL_MAX {
+            self.frame_pool.push(frame);
+        }
     }
 
     pub(crate) fn free_frame(&mut self, idx: FrameIndex) {
@@ -208,8 +255,8 @@ impl VmStack {
         self.clear_var_refs(idx);
 
         if idx.0 as usize == self.frames.len() - 1 {
-            let head = self.frames.pop().unwrap();
-            match head.buf {
+            let mut head = self.frames.pop().unwrap();
+            match std::mem::replace(&mut head.buf, FrameBuffer::Empty) {
                 FrameBuffer::Arena { buf_capacity, .. } => {
                     self.data_used -= buf_capacity as usize;
                 }
@@ -232,6 +279,8 @@ impl VmStack {
                     break;
                 }
             }
+            // The header is empty now — park it for the next allocation.
+            self.park_frame(head);
         } else {
             let head = &mut self.frames[idx.0 as usize];
             if let FrameBuffer::Heap(heap_buf) =
@@ -382,7 +431,9 @@ impl VmStack {
         };
 
         if is_last {
-            self.frames.pop();
+            // The header's buffer was moved out above, so it can be recycled.
+            let head = self.frames.pop().unwrap();
+            self.park_frame(head);
         } else {
             head.state = FrameState::Suspended;
             self.suspended_count += 1;
@@ -401,7 +452,16 @@ impl VmStack {
             self.set_var_refs(new_idx, frame.var_refs);
         }
 
-        self.frames.push(Box::new(frame.frame));
+        // An async frame comes back with its own header; take a pooled one
+        // when there is one.
+        let header = match self.frame_pool.pop() {
+            Some(mut pooled) => {
+                *pooled = frame.frame;
+                pooled
+            }
+            None => Box::new(frame.frame),
+        };
+        self.frames.push(header);
         new_idx
     }
 
@@ -599,5 +659,72 @@ impl GcTrace for VmStack {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{EvalFlags, EvalName, EvalType, Runtime, ScopedContext};
+
+    /// A call must not allocate its frame header: the freed header is parked
+    /// and the next call takes it (the malloc/free was on every call).
+    ///
+    /// The recycled header must also carry nothing from its previous
+    /// activation — a stale argument count would show up as a wrong
+    /// `arguments.length`.
+    #[test]
+    fn the_frame_headers_are_recycled() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let name = EvalName::Name("frame-pool.js".into());
+
+        ctx.eval(
+            b"function three(a, b, c){ return arguments.length; } \
+              function none(){ return arguments.length; } \
+              function many(){ var v0 = 0, v1 = 0; return arguments.length; } \
+              three(1, 2, 3) * 100 + none() * 10 + many(1, 2, 3, 4, 5);",
+            &name,
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap();
+
+        // Every call freed its frame, so the headers are parked for reuse.
+        let parked = rt.vm_stack.frame_pool.len();
+        assert!(parked >= 1, "no frame header was recycled");
+
+        // The next call takes a parked header and parks it again: the pool
+        // must not grow.
+        ctx.eval(b"none();", &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+        assert_eq!(
+            rt.vm_stack.frame_pool.len(),
+            parked,
+            "the frame headers are not reused"
+        );
+    }
+
+    /// The recycled header must not leak the previous activation's shape.
+    #[test]
+    fn a_recycled_header_carries_no_previous_state() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        let v = ctx
+            .eval(
+                b"function three(a, b, c){ return arguments.length; } \
+                  function none(){ return arguments.length; } \
+                  three(1, 2, 3) * 100 + none() * 10;",
+                &EvalName::Name("frame-recycle.js".into()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .unwrap();
+        // 300: `none()` saw its own zero arguments, not `three`'s three.
+        assert_eq!(v.as_int(), Some(300), "the argument count leaked");
     }
 }

@@ -138,6 +138,29 @@ impl StackFrame {
         debug_assert!(self.cur_sp_offset >= 0);
         unsafe { self.stack_base_ptr().add(self.cur_sp_offset as usize) }
     }
+
+    /// Prepare this header for a new activation, in place.
+    ///
+    /// The arena recycles frame headers (see `VmStack::frame_pool`), so a
+    /// header still carries the previous activation's state: every field is
+    /// written here. Writing the fields one by one (instead of assigning a
+    /// whole header) keeps the header out of a stack temporary — that copy
+    /// cost more than the malloc/free it replaces.
+    pub(crate) fn reset(&mut self, func_obj: Object, mode: ExecMode, buf: FrameBuffer) {
+        self.prev = FrameIndex::NULL;
+        self.depth = 0;
+        self.state = FrameState::Active;
+        self.mode = mode;
+        self.func_obj = func_obj;
+        self.cur_pc_offset = 0;
+        self.cur_sp_offset = 0;
+        self.buf = buf;
+        self.arg_base_offset = 0;
+        self.arg_real_count = 0;
+        self.arg_count = 0;
+        self.var_base_offset = 0;
+        self.var_count = 0;
+    }
 }
 
 /// Location of a frame's data buffer (args + vars + operand stack).

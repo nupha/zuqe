@@ -459,6 +459,20 @@ const CASES: &[SemCase] = sem_cases! {
         "f(2)",
         "f(20)",
         "'calls:' + f(5) + ',' + O.add(1)";
+
+    // ── the thin callee (the call path's GC scope) ──
+    // `thin`'s opcodes never allocate a GC node, so it runs in the caller's
+    // scope: the trampoline pushes no scope for it and does not promote what
+    // it hands back. The object it returns is the caller's own, and it must
+    // survive the call and the collections around it — under every tier.
+    thin_callee_shares_the_callers_scope => Compiles =
+        "var __seed = 0; function thin(x){ return x; } \
+         function f(n){ var __z = 0; var o = { tag: 'kept' }; var s = 0; \
+           for (var i = 0; i < n; i++){ s = thin(o).tag.length; var junk = { i: i }; } \
+           return s + o.tag.length; }",
+        "f(1)",
+        "f(200)",
+        "'thin:' + f(3) + ',' + f(0)";
 };
 
 /// Feature areas the suite must cover, checked so the list cannot silently
@@ -492,6 +506,7 @@ const FEATURES: &[&str] = &[
     "fact_",
     "float_",
     "call_",
+    "thin_",
 ];
 #[test]
 fn every_semantic_feature_has_a_case() {

@@ -52,6 +52,11 @@ pub(crate) const VM_STACK_LIMIT_DEFAULT: usize = 512 * 1024;
 /// reallocate them from scratch.
 pub(crate) const HEAP_BUF_CACHE_MAX: usize = 8;
 
+/// Number of freed frame headers kept for reuse per arena.
+/// A call allocates one header and frees it; recycling the header keeps the
+/// malloc/free off the call path.
+pub(crate) const FRAME_POOL_MAX: usize = 64;
+
 /// Interrupt-callback poll interval in executed opcodes. Large enough to keep
 /// the per-opcode cost negligible, small enough to call the callback often.
 pub(crate) const JS_INTERRUPT_COUNTER_INIT: i32 = 10000;
