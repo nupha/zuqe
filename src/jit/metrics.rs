@@ -96,16 +96,16 @@ pub struct JitMetrics {
     /// means the tier-2 specialization is paying more guards than it saves,
     /// which is the evidence `tier-down` would need.
     pub specialized_guard_misses: u64,
-    /// Property reads the inline guard answered on its own (P1-1): an own
-    /// data property, read straight out of the object's slot.
+    /// Property accesses the inline guard answered on its own (P1-1): an own
+    /// data property, read or written straight out of the object's slot.
     ///
     /// Read together with [`Self::property_guard_misses`]: a hit is the guard
-    /// paying off, a miss is a read the helper had to own (a prototype-chain
+    /// paying off, a miss is an access the helper had to own (a prototype-chain
     /// property, an accessor, a non-object target, …). A site that never hits
     /// is a site the guard cannot serve — the reason to look at *what* it
-    /// reads.
+    /// touches.
     pub property_guard_hits: u64,
-    /// Property reads the inline guard handed back to the helper (P1-1).
+    /// Property accesses the inline guard handed back to the helper (P1-1).
     ///
     /// A miss is expected and common (it is not a defect), so it never feeds
     /// the tier-down — that is [`Self::specialized_guard_misses`]' job.

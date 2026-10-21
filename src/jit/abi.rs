@@ -140,12 +140,13 @@ pub(crate) struct JitExecFrame {
     /// per activation (not per function) keeps recursive calls from
     /// double-counting.
     pub guard_misses: u32,
-    /// P1-1 instrumentation: property reads that the inline guard answered
-    /// directly (an own data property in the shape the site recorded).
+    /// P1-1 instrumentation: property accesses the inline guard answered
+    /// directly (an own data property in the shape the site recorded — a read
+    /// or a write).
     /// `invoke_native` folds it into `JitMetrics::property_guard_hits`.
     pub property_guard_hits: u32,
-    /// P1-1 instrumentation: property reads the inline guard handed back to
-    /// the helper (a prototype-chain property, an accessor, a non-object
+    /// P1-1 instrumentation: property accesses the inline guard handed back
+    /// to the helper (a prototype-chain property, an accessor, a non-object
     /// target, …). `invoke_native` folds it into
     /// `JitMetrics::property_guard_misses`.
     ///

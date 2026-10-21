@@ -65,7 +65,10 @@ use crate::{
 #[cfg(feature = "inline_cache")]
 use crate::{
     function::jit_layout as ic_layout,
-    object::{JSProperty, PROP_TAG_NORMAL},
+    object::{
+        JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_WRITABLE, JSProperty,
+        PROP_TAG_NORMAL,
+    },
 };
 
 use super::{
@@ -778,6 +781,15 @@ impl StackCache {
         self.entries.remove(&top);
         self.entries.remove(&(top - 1));
         self.entries.remove(&(top - 2));
+    }
+
+    /// `put_field`: two operands died and nothing replaced them.
+    fn consumed_pair(&mut self) {
+        let top = self.height;
+        self.height = self.height.saturating_sub(2);
+        self.tracked = true;
+        self.entries.remove(&top);
+        self.entries.remove(&(top - 1));
     }
 
     /// The top slot was overwritten in place (a property read replaces its
@@ -2295,11 +2307,17 @@ fn lower_insn(
             Step::Continue(sp)
         }
         "get_field" | "get_field2" | "put_field" => {
-            // P1-1: the read of an own data property is inlined (the guard +
-            // the load). The write and the other read shape keep the helper.
+            // P1-1: the read of an own data property and the write into one
+            // are inlined (the guard + the load / the store). `get_field2`
+            // (the method-call shape) keeps the helper.
             #[cfg(feature = "inline_cache")]
-            if name == "get_field" && ic_index(insn) < state.ic_count {
-                return lower_get_field_fast(state, b, fv, helper_sig, sp_var, sp, insn);
+            if ic_index(insn) < state.ic_count {
+                if name == "get_field" {
+                    return lower_get_field_fast(state, b, fv, helper_sig, sp_var, sp, insn);
+                }
+                if name == "put_field" {
+                    return lower_put_field_fast(state, b, fv, helper_sig, sp_var, sp, insn);
+                }
             }
             let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
             b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
@@ -3874,6 +3892,228 @@ fn lower_get_field_fast(
     // The slot now holds the property's value, not the target: the register
     // copy of the target is stale.
     state.stack.replace_top();
+    Step::Continue(b.use_var(sp_var))
+}
+
+/// P1-1 (the write half): the inline fast path for `put_field` — the write
+/// of an own **data** property.
+///
+/// The guard is the property read guard plus the two things a write needs: the
+/// recorded property must be the one this site writes (the site's way holds
+/// the atom it saw), and it must be **writable** — the engine's own
+/// inline-cache write path checks exactly that (`JS_PROP_NORMAL`,
+/// `JS_PROP_WRITABLE`, and not `JS_PROP_LENGTH`, because writing `length`
+/// resizes the array and stays with the helper).
+///
+/// A stored value that references a GC node needs the collector's write
+/// barrier (a black object pointing at a white value would let the collector
+/// sweep the value away): the same leaf helper the array write uses.
+#[cfg(feature = "inline_cache")]
+fn lower_put_field_fast(
+    state: &mut State,
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    helper_sig: cranelift_codegen::ir::SigRef,
+    sp_var: Variable,
+    sp: Value,
+    insn: &Instruction,
+) -> Step {
+    let pc_after = insn.pc() + insn.size() as u32;
+    let top = state.stack.height;
+    // `put_field`: [target, value, ^] -> [^].
+    let target = state.stack.read(b, sp, top - 1);
+    let value = state.stack.read(b, sp, top);
+
+    // The target must be an object: the tag is -1, i.e. 0xffff. The check
+    // comes before any load, so a non-object value is never dereferenced.
+    let tag = b.ins().ushr_imm(target, 48);
+    let is_object = b.ins().icmp_imm(IntCC::Equal, tag, 0xffff);
+
+    let fast = b.create_block();
+    let slow = b.create_block();
+    let cont = b.create_block();
+    // The operands stay in registers on the fast path; the helper's own
+    // preamble flushes them on the slow path.
+    state.stack.flush_except(b, sp, &[top - 1, top]);
+    b.ins().brif(is_object, fast, &[], slow, &[]);
+
+    b.switch_to_block(fast);
+    // The inline-cache site: its first way holds the shape the site saw, the
+    // slot the property was in, the property itself and the property's flags.
+    let ic_sites = b
+        .ins()
+        .load(types::I64, MemFlags::new(), fv.frame, O_IC_SITES);
+    let site = b
+        .ins()
+        .iadd_imm(ic_sites, i64::from(ic_index(insn)) * ic_layout::SITE_SIZE);
+    let way_shape = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        site,
+        ic_layout::SHAPE_PTR_OFFSET,
+    );
+    let way_uid = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        site,
+        ic_layout::SHAPE_UID_OFFSET,
+    );
+    let way_slot = b
+        .ins()
+        .load(types::I32, MemFlags::new(), site, ic_layout::SLOT_OFFSET);
+    let way_prop = b
+        .ins()
+        .load(types::I32, MemFlags::new(), site, ic_layout::PROP_OFFSET);
+    let way_flags = b
+        .ins()
+        .load(types::I8, MemFlags::new(), site, ic_layout::FLAGS_OFFSET);
+    // The object's pointer: the low 48 bits of the tagged value.
+    let obj = b.ins().band_imm(target, 0x0000_ffff_ffff_ffff);
+    // The object's shape: the GC node pointer. An object without a shape has
+    // no own properties, so it cannot match a recorded shape.
+    let shape_node = b
+        .ins()
+        .load(types::I64, MemFlags::new(), obj, jit_layout::SHAPE_OFFSET);
+    // The inline cache records the shape's *payload* pointer.
+    let shape_payload = b
+        .ins()
+        .iadd_imm(shape_node, i64::from(jit_layout::SHAPE_PAYLOAD_OFFSET));
+    // The way must have seen a shape (an empty way holds a null pointer), and
+    // it must be the object's shape.
+    let used = b.ins().icmp_imm(IntCC::NotEqual, way_shape, 0);
+    let same_shape = b.ins().icmp(IntCC::Equal, way_shape, shape_payload);
+    let shape_ok = b.ins().band(used, same_shape);
+    let matched = b.create_block();
+    b.ins().brif(shape_ok, matched, &[], slow, &[]);
+
+    b.switch_to_block(matched);
+    // The shape's id: the second half of the cache key. A shape's memory can
+    // be reused by another shape, and only the id tells them apart.
+    let shape_uid = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        shape_node,
+        jit_layout::SHAPE_UID_OFFSET,
+    );
+    let same_uid = b.ins().icmp(IntCC::Equal, way_uid, shape_uid);
+    // The recorded property must be the one this site writes.
+    let atom_id = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+    let same_prop = b.ins().icmp(IntCC::Equal, way_prop, atom_id);
+    // The recorded flags: a plain data property (`JS_PROP_NORMAL`), writable,
+    // and not `length` (writing `length` resizes the array).
+    let kind_bits = b.ins().band_imm(way_flags, i64::from(JS_PROP_TMASK));
+    let is_data = b
+        .ins()
+        .icmp_imm(IntCC::Equal, kind_bits, i64::from(JS_PROP_NORMAL));
+    let writable_bit = b.ins().band_imm(way_flags, i64::from(JS_PROP_WRITABLE));
+    let is_writable = b.ins().icmp_imm(IntCC::NotEqual, writable_bit, 0);
+    let length_bit = b.ins().band_imm(way_flags, i64::from(JS_PROP_LENGTH));
+    let not_length = b.ins().icmp_imm(IntCC::Equal, length_bit, 0);
+    let writable_ok = b.ins().band(is_writable, not_length);
+    let flags_ok = b.ins().band(is_data, writable_ok);
+
+    // The slot the way recorded must be inside the object's slots.
+    let slot = b.ins().uextend(types::I64, way_slot);
+    let count = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        obj,
+        jit_layout::PROP_LEN_OFFSET,
+    );
+    let count64 = b.ins().uextend(types::I64, count);
+    let in_range = b.ins().icmp(IntCC::UnsignedLessThan, slot, count64);
+    // Every part must hold before the slot is written.
+    let ok = b.ins().band(same_uid, same_prop);
+    let ok = b.ins().band(ok, flags_ok);
+    let ok = b.ins().band(ok, in_range);
+    let write_ok = b.create_block();
+    b.ins().brif(ok, write_ok, &[], slow, &[]);
+
+    b.switch_to_block(write_ok);
+    // The property slots themselves.
+    let slots = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        obj,
+        jit_layout::PROP_DATA_OFFSET,
+    );
+    // The slot: its tag first, then the value it holds.
+    let addr = {
+        let offset = b.ins().imul_imm(slot, JSProperty::slot_size());
+        b.ins().iadd(slots, offset)
+    };
+    // The slot must still be a data property: `delete` leaves a tombstone
+    // behind *without* changing the shape, and an accessor has its own tag.
+    let slot_tag = b
+        .ins()
+        .load(types::I8, MemFlags::new(), addr, JSProperty::tag_offset());
+    let is_normal = b
+        .ins()
+        .icmp_imm(IntCC::Equal, slot_tag, i64::from(PROP_TAG_NORMAL));
+    let store_ok = b.create_block();
+    b.ins().brif(is_normal, store_ok, &[], slow, &[]);
+
+    b.switch_to_block(store_ok);
+    // The value goes into the slot's `Normal` payload; the tag stays.
+    b.ins().store(
+        MemFlags::new(),
+        value,
+        addr,
+        JSProperty::normal_value_offset(),
+    );
+    // P1-1 instrumentation: the guard answered this write on its own.
+    let hits = b
+        .ins()
+        .load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_HITS);
+    let hits = b.ins().iadd_imm(hits, 1);
+    b.ins()
+        .store(MemFlags::new(), hits, fv.frame, O_PROPERTY_HITS);
+    // The collector's write barrier: only a value that references a GC node
+    // needs it. The pointer tags are 0xfff8..=0xffff (`Object` .. `Symbol`).
+    let value_tag = b.ins().ushr_imm(value, 48);
+    let needs_bind = b
+        .ins()
+        .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, value_tag, GC_NODE_TAG);
+    let bind = b.create_block();
+    b.ins().brif(needs_bind, bind, &[], cont, &[]);
+
+    b.switch_to_block(bind);
+    // `h_gc_bind(frame, owner, value)`: the barrier itself is the collector's
+    // business, so it stays in Rust.
+    let callee = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        fv.helpers,
+        (HELPER_GC_BIND * 8) as i32,
+    );
+    let barrier_sig = state.barrier_sig;
+    b.ins()
+        .call_indirect(barrier_sig, callee, &[fv.frame, obj, value]);
+    b.ins().jump(cont, &[]);
+
+    b.switch_to_block(slow);
+    // P1-1 instrumentation: the guard handed this write back to the helper.
+    let misses = b
+        .ins()
+        .load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_MISSES);
+    let misses = b.ins().iadd_imm(misses, 1);
+    b.ins()
+        .store(MemFlags::new(), misses, fv.frame, O_PROPERTY_MISSES);
+    // The helper does the full lookup: the atom rides in `imm`, the site
+    // index in `imm2`.
+    let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
+    b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
+    let ic = b.ins().iconst(types::I32, i64::from(ic_index(insn)));
+    b.ins().store(MemFlags::new(), ic, fv.frame, O_IMM2);
+    // The helper popped the two operands, exactly like the fast path.
+    let _ = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_PUT_FIELD, pc_after);
+    b.ins().jump(cont, &[]);
+
+    b.switch_to_block(cont);
+    // The two operands are gone, and nothing replaces them.
+    state.stack.consumed_pair();
+    let sp_next = b.ins().iadd_imm(sp, -16);
+    b.def_var(sp_var, sp_next);
     Step::Continue(b.use_var(sp_var))
 }
 

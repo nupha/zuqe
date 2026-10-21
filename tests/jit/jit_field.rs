@@ -216,6 +216,107 @@ const CASES: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// The scripts whose results must not change when the **write** is inlined:
+/// `(label, setup, main)`. The setup defines the function and calls it once
+/// (the warm-up: the JIT compiles it then), and the main calls it again — that
+/// call runs natively, so the write really goes through the inline guard.
+const PUT_CASES: &[(&str, &str, &str)] = &[
+    // A writable own data property: the guard hits.
+    (
+        "own_data",
+        "var o = { x: 1 }; function work(){ for (var i = 0; i < 10; i++) o.x = i; return o.x; } work();",
+        "work();",
+    ),
+    // A **non-writable** own data property: the write is rejected (silently
+    // in sloppy mode), so the guard must decline it.
+    (
+        "not_writable",
+        "var o = {}; Object.defineProperty(o, 'x', { value: 1, writable: false }); function work(){ for (var i = 0; i < 10; i++) o.x = i; return o.x; } work();",
+        "work();",
+    ),
+    // The same in strict mode: the write throws.
+    (
+        "not_writable_strict",
+        "var o = {}; Object.defineProperty(o, 'x', { value: 1, writable: false }); function work(){ 'use strict'; o.x = 2; return o.x; } try { work(); } catch (e) {}",
+        "work();",
+    ),
+    // An own accessor: the setter has to run.
+    (
+        "own_accessor",
+        "var o = { set x(v){ this.got = v; } }; function work(){ for (var i = 0; i < 10; i++) o.x = i; return o.got; } work();",
+        "work();",
+    ),
+    // A property on the prototype chain: not an own property, so the helper
+    // walks the chain (and the write creates an own property).
+    (
+        "prototype_chain",
+        "var p = { x: 1 }; var o = Object.create(p); function work(){ for (var i = 0; i < 10; i++) o.x = i; return o.x; } work();",
+        "work();",
+    ),
+    // A deleted property: the slot is a tombstone, and the write recreates the
+    // property.
+    (
+        "deleted",
+        "var o = { x: 1 }; delete o.x; function work(){ for (var i = 0; i < 10; i++) o.x = i; return o.x; } work();",
+        "work();",
+    ),
+    // An array's `length`: writing it resizes the array, so the helper owns
+    // it.
+    (
+        "array_length",
+        "var a = [1, 2, 3]; function work(){ for (var i = 0; i < 10; i++) a.length = i; return a.length; } work();",
+        "work();",
+    ),
+    // A frozen object: the write is rejected.
+    (
+        "frozen",
+        "var o = Object.freeze({ x: 1 }); function work(){ for (var i = 0; i < 10; i++) o.x = i; return o.x; } work();",
+        "work();",
+    ),
+    // A store of a reference: the value needs the collector's write barrier.
+    (
+        "object_value",
+        "var o = { x: 1 }; function work(){ for (var i = 0; i < 10; i++) o.x = { i: i }; return o.x.i; } work();",
+        "work();",
+    ),
+    // A store of a string: a reference as well.
+    (
+        "string_value",
+        "var o = { x: 1 }; function work(){ for (var i = 0; i < 10; i++) o.x = 'v' + i; return o.x; } work();",
+        "work();",
+    ),
+    // A property added in the middle: the shape changes, the guard misses.
+    (
+        "grows",
+        "var o = { x: 1 }; function work(){ for (var i = 0; i < 10; i++) { o.x = i; if (i === 5) o.y = 2; } return o.x; } work();",
+        "work();",
+    ),
+    // Two shapes at one site: the guard hits the shape it saw last.
+    (
+        "polymorphic",
+        "var a = { x: 1 }; var b = { x: 2, z: 3 }; function work(){ for (var i = 0; i < 10; i++) { (i % 2 ? a : b).x = i; } return a.x + ',' + b.x; } work();",
+        "work();",
+    ),
+    // A null target: the helper throws.
+    (
+        "null_target",
+        "var o = null; function work(){ o.x = 1; return 0; } try { work(); } catch (e) {}",
+        "work();",
+    ),
+    // A write to a property that does not exist yet: the helper creates it.
+    (
+        "creates",
+        "var o = {}; function work(){ for (var i = 0; i < 10; i++) o.x = i; return o.x; } work();",
+        "work();",
+    ),
+    // The write and the read of the same property must see each other.
+    (
+        "write_then_read",
+        "var o = { x: 1 }; function work(){ for (var i = 0; i < 10; i++) { o.x = o.x + 1; } return o.x; } work();",
+        "work();",
+    ),
+];
+
 fn eval(ctx: &mut Context, name: &EvalName, src: &str) -> JSResult {
     ctx.eval(src.as_bytes(), name, EvalType::Global, EvalFlags::empty())
 }
@@ -296,7 +397,10 @@ fn the_guard_serves_own_data_properties_and_declines_the_rest() {
         "work();",
     );
     assert_eq!(hits, 10, "the guard did not serve the data property");
-    assert_eq!(misses, 0, "the guard missed a data property: {misses} misses");
+    assert_eq!(
+        misses, 0,
+        "the guard missed a data property: {misses} misses"
+    );
 
     // An own accessor: the getter has to run, so the guard must decline.
     let (hits, misses) = guard_counters(
@@ -311,8 +415,14 @@ fn the_guard_serves_own_data_properties_and_declines_the_rest() {
         "var p = { x: 1 }; var o = Object.create(p); function work(){ var s = 0; for (var i = 0; i < 10; i++) s += o.x; return s; }",
         "work();",
     );
-    assert_eq!(hits, 0, "the guard served a prototype property: {hits} hits");
-    assert_eq!(misses, 10, "the prototype property never reached the helper");
+    assert_eq!(
+        hits, 0,
+        "the guard served a prototype property: {hits} hits"
+    );
+    assert_eq!(
+        misses, 10,
+        "the prototype property never reached the helper"
+    );
 
     // A deleted property: the slot is a tombstone, so the helper owns it.
     let (hits, misses) = guard_counters(
@@ -345,6 +455,85 @@ fn the_inline_guard_keeps_every_result() {
     }
 }
 
+/// The same for the **write**: the inline store must not change any result
+/// either.
+#[test]
+fn the_inline_store_keeps_every_result() {
+    for (label, setup, main) in PUT_CASES {
+        let (expected, _) = run(Mode::Interpreter, setup, main);
+        for mode in MODES {
+            let (got, metrics) = run(mode, setup, main);
+            assert_eq!(
+                got, expected,
+                "{label}: {mode:?} disagrees with the interpreter"
+            );
+            if mode != Mode::Interpreter {
+                assert!(
+                    metrics.functions_compiled > 0,
+                    "{label}: {mode:?} compiled nothing"
+                );
+            }
+        }
+    }
+}
+
+/// The write guard's decisions, observed through its counters: a **writable
+/// own data property** is written inline (a hit), while everything else goes
+/// back to the helper (a miss) — a non-writable property, an accessor, a
+/// variable reference, a tombstone, `length`.
+///
+/// The scripts only *write*: the counters serve the reads too, so a read in
+/// the same script would show up as a hit.
+#[test]
+fn the_write_guard_serves_writable_data_properties_and_declines_the_rest() {
+    // A writable own data property: every write is answered inline.
+    let (hits, misses) = guard_counters(
+        "var o = { x: 1 }; function work(){ for (var i = 0; i < 10; i++) o.x = i; }",
+        "work();",
+    );
+    assert_eq!(hits, 10, "the guard did not serve the write: {hits} hits");
+    assert_eq!(misses, 0, "the guard missed a writable property: {misses}");
+
+    // A non-writable own data property: the write is rejected, so the helper
+    // has to own it.
+    let (hits, misses) = guard_counters(
+        "var o = {}; Object.defineProperty(o, 'x', { value: 1, writable: false }); function work(){ for (var i = 0; i < 10; i++) o.x = i; }",
+        "work();",
+    );
+    assert_eq!(
+        hits, 0,
+        "the guard wrote a non-writable property: {hits} hits"
+    );
+    assert_eq!(misses, 10, "the write never reached the helper");
+
+    // An own accessor: the setter has to run. The setter's body is empty on
+    // purpose — a property write inside it would show up in the counters too.
+    let (hits, misses) = guard_counters(
+        "var o = { set x(v){} }; function work(){ for (var i = 0; i < 10; i++) o.x = i; }",
+        "work();",
+    );
+    assert_eq!(hits, 0, "the guard bypassed a setter: {hits} hits");
+    assert_eq!(misses, 10, "the setter never ran");
+
+    // A property on the prototype chain that is **not writable**: the write
+    // is rejected and no own property is created, so the shape never changes
+    // and the guard never gets a slot to serve.
+    let (hits, misses) = guard_counters(
+        "var p = {}; Object.defineProperty(p, 'x', { value: 1, writable: false }); var o = Object.create(p); function work(){ for (var i = 0; i < 10; i++) o.x = i; }",
+        "work();",
+    );
+    assert_eq!(hits, 0, "the guard wrote a prototype property: {hits} hits");
+    assert_eq!(misses, 10, "the prototype write never reached the helper");
+
+    // An array's `length`: writing it resizes the array.
+    let (hits, misses) = guard_counters(
+        "var a = [1, 2, 3]; function work(){ for (var i = 0; i < 10; i++) a.length = i; }",
+        "work();",
+    );
+    assert_eq!(hits, 0, "the guard resized an array: {hits} hits");
+    assert_eq!(misses, 10, "the length write never reached the helper");
+}
+
 /// The guard re-reads the shape on **every** access, so a property that turns
 /// into an accessor stops being served: the reads before the change are hits,
 /// the reads after it are misses (the helper runs the getter).
@@ -367,7 +556,10 @@ fn the_guard_re_checks_the_shape_on_every_access() {
         "work();",
     );
     assert_eq!(hits, 5, "the guard served the accessor: {hits} hits");
-    assert_eq!(misses, 5, "the accessor never reached the helper: {misses} misses");
+    assert_eq!(
+        misses, 5,
+        "the accessor never reached the helper: {misses} misses"
+    );
 }
 
 /// The typed array's `length` (P1-1's tail): the property lives on
@@ -414,8 +606,14 @@ fn the_typed_array_length_guard_declines_a_changed_chain() {
          function work(){ var s = 0; for (var i = 0; i < 10; i++) s += t.length; return s; }",
         "work();",
     );
-    assert_eq!(hits, 0, "the guard served a patched class prototype: {hits} hits");
-    assert_eq!(misses, 10, "the patched class prototype never reached the helper");
+    assert_eq!(
+        hits, 0,
+        "the guard served a patched class prototype: {hits} hits"
+    );
+    assert_eq!(
+        misses, 10,
+        "the patched class prototype never reached the helper"
+    );
 }
 
 /// The slots' mirror must follow every mutation that moves them: adding a
@@ -493,4 +691,3 @@ fn a_property_read_runs_natively() {
     assert!(m.functions_compiled > 0, "nothing compiled: {m:?}");
     assert!(m.native_entries > 0, "nothing ran natively: {m:?}");
 }
-
