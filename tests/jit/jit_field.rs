@@ -206,6 +206,22 @@ const CASES: &[(&str, &str, &str)] = &[
         "var gv = 5;",
         "var s = 0; for (var i = 0; i < 10; i++) s += globalThis.gv; s;",
     ),
+    // A **method call**: the lookup is a `get_field2` (the target stays on
+    // the stack) — the same guard, another shape. The work lives in a named
+    // function (a top-level `eval` is never compiled, so the guard would not
+    // run at all).
+    (
+        "method_call",
+        "var o = { m: function(){ return 7; } }; function work(){ var s = 0; for (var i = 0; i < 10; i++) s += o.m(); return s; } work();",
+        "work();",
+    ),
+    // A method on the prototype: the guard declines it (the helper walks the
+    // chain), and the call still works.
+    (
+        "method_on_the_prototype",
+        "var p = { m: function(){ return 7; } }; var o = Object.create(p); function work(){ var s = 0; for (var i = 0; i < 10; i++) s += o.m(); return s; } work();",
+        "work();",
+    ),
     // A **lazy** property: a class field's initializer is instantiated on the
     // first read (the slot is a lazy initializer), and the slot becomes a
     // plain value afterwards.
@@ -556,8 +572,12 @@ fn the_guard_re_checks_the_shape_on_every_access() {
         "work();",
     );
     assert_eq!(hits, 5, "the guard served the accessor: {hits} hits");
+    // Six misses: the five reads after the change, plus the
+    // `Object.defineProperty` **method lookup** (a `get_field2` ✓ — the
+    // method is on the prototype ✓, so the guard declines it ✓ and the
+    // counters see it ✓).
     assert_eq!(
-        misses, 5,
+        misses, 6,
         "the accessor never reached the helper: {misses} misses"
     );
 }

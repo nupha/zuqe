@@ -783,6 +783,14 @@ impl StackCache {
         self.entries.remove(&(top - 2));
     }
 
+    /// `get_array_el2`: the value took the key's place, and the array below
+    /// it is no longer register-resident (the helper's path flushes it).
+    fn replaced_pair(&mut self) {
+        let top = self.height;
+        self.entries.remove(&top);
+        self.entries.remove(&(top - 1));
+    }
+
     /// `put_field`: two operands died and nothing replaced them.
     fn consumed_pair(&mut self) {
         let top = self.height;
@@ -2285,7 +2293,28 @@ fn lower_insn(
             // (the guard + the store). The other two read shapes keep the
             // helper.
             if name == "get_array_el" {
-                return lower_get_array_el_fast(state, b, fv, helper_sig, sp_var, sp, insn);
+                return lower_get_array_el_fast(
+                    state,
+                    b,
+                    fv,
+                    helper_sig,
+                    sp_var,
+                    sp,
+                    insn,
+                    ArrayRead::Replace,
+                );
+            }
+            if name == "get_array_el2" {
+                return lower_get_array_el_fast(
+                    state,
+                    b,
+                    fv,
+                    helper_sig,
+                    sp_var,
+                    sp,
+                    insn,
+                    ArrayRead::Keep,
+                );
             }
             if name == "put_array_el" {
                 return lower_put_array_el_fast(state, b, fv, helper_sig, sp_var, sp, insn);
@@ -2313,7 +2342,28 @@ fn lower_insn(
             #[cfg(feature = "inline_cache")]
             if ic_index(insn) < state.ic_count {
                 if name == "get_field" {
-                    return lower_get_field_fast(state, b, fv, helper_sig, sp_var, sp, insn);
+                    return lower_get_field_fast(
+                        state,
+                        b,
+                        fv,
+                        helper_sig,
+                        sp_var,
+                        sp,
+                        insn,
+                        FieldRead::Replace,
+                    );
+                }
+                if name == "get_field2" {
+                    return lower_get_field_fast(
+                        state,
+                        b,
+                        fv,
+                        helper_sig,
+                        sp_var,
+                        sp,
+                        insn,
+                        FieldRead::Keep,
+                    );
                 }
                 if name == "put_field" {
                     return lower_put_field_fast(state, b, fv, helper_sig, sp_var, sp, insn);
@@ -3070,6 +3120,70 @@ fn lower_typed_array_element(
     }
 }
 
+/// The two shapes a **property** read has: the value takes the target's
+/// place (`get_field`), or the target stays and the value is pushed next to it
+/// (`get_field2` — the method-call shape).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FieldRead {
+    /// `[target] -> [value]`: the value replaces the target.
+    Replace,
+    /// `[target] -> [target, value]`: the value is pushed.
+    Keep,
+}
+
+impl FieldRead {
+    /// The slot the result lands in, relative to the stack pointer.
+    fn result_offset(self) -> i32 {
+        match self {
+            // The target's slot.
+            FieldRead::Replace => -8,
+            // The slot above the target.
+            FieldRead::Keep => 0,
+        }
+    }
+
+    /// The stack pointer after the instruction.
+    fn sp_next(self, b: &mut FunctionBuilder, sp: Value) -> Value {
+        match self {
+            // The value replaced the target: the same number of slots.
+            FieldRead::Replace => sp,
+            // The value was pushed: one slot more.
+            FieldRead::Keep => b.ins().iadd_imm(sp, 8),
+        }
+    }
+}
+
+/// The two shapes an **array element** read has: the value takes the array's
+/// place (`get_array_el`), or the array stays and the value takes the key's
+/// place (`get_array_el2` — the method-call shape).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ArrayRead {
+    /// `[array, prop] -> [value]`: the value replaces the array.
+    Replace,
+    /// `[array, prop] -> [array, value]`: the value replaces the key.
+    Keep,
+}
+
+impl ArrayRead {
+    /// The slot the result lands in, relative to the stack pointer.
+    fn result_offset(self) -> i32 {
+        match self {
+            ArrayRead::Replace => -16,
+            ArrayRead::Keep => -8,
+        }
+    }
+
+    /// The stack pointer after the instruction.
+    fn sp_next(self, b: &mut FunctionBuilder, sp: Value) -> Value {
+        match self {
+            // The value replaced the array: one slot fewer.
+            ArrayRead::Replace => b.ins().iadd_imm(sp, -8),
+            // The value replaced the key: the same number of slots.
+            ArrayRead::Keep => sp,
+        }
+    }
+}
+
 /// P1-1: the inline fast path for `get_array_el` — a read from a **packed**
 /// array with an **integer** index.
 ///
@@ -3097,6 +3211,7 @@ fn lower_get_array_el_fast(
     sp_var: Variable,
     sp: Value,
     insn: &Instruction,
+    shape: ArrayRead,
 ) -> Step {
     let pc_after = insn.pc() + insn.size() as u32;
     let top = state.stack.height;
@@ -3202,9 +3317,11 @@ fn lower_get_array_el_fast(
     let offset = b.ins().imul_imm(index, 8);
     let addr = b.ins().iadd(data, offset);
     let value = b.ins().load(types::I64, MemFlags::new(), addr, 0);
-    // Both paths leave the result in the slot the array occupied.
-    b.ins().store(MemFlags::new(), value, sp, -16);
-    let sp_next = b.ins().iadd_imm(sp, -8);
+    // The result lands in the slot the array occupied (`get_array_el`) or in
+    // the slot the key occupied (`get_array_el2`, which keeps the array).
+    b.ins()
+        .store(MemFlags::new(), value, sp, shape.result_offset());
+    let sp_next = shape.sp_next(b, sp);
     b.def_var(sp_var, sp_next);
     let keep = [value];
     b.ins().jump(cont, if kept { &keep } else { &[] });
@@ -3329,8 +3446,9 @@ fn lower_get_array_el_fast(
     // occupied, like the plain-array path.
     let mut arm = |b: &mut FunctionBuilder, element: TaElement| {
         let value = lower_typed_array_element(b, base, index, element);
-        b.ins().store(MemFlags::new(), value, sp, -16);
-        let sp_next = b.ins().iadd_imm(sp, -8);
+        b.ins()
+            .store(MemFlags::new(), value, sp, shape.result_offset());
+        let sp_next = shape.sp_next(b, sp);
         b.def_var(sp_var, sp_next);
         let keep = [value];
         b.ins().jump(cont, if kept { &keep } else { &[] });
@@ -3361,7 +3479,11 @@ fn lower_get_array_el_fast(
         let ic = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
         b.ins().store(MemFlags::new(), ic, fv.frame, O_IMM2);
     }
-    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_GET_ARRAY_EL, pc_after);
+    let helper = match shape {
+        ArrayRead::Replace => HELPER_GET_ARRAY_EL,
+        ArrayRead::Keep => HELPER_GET_ARRAY_EL2,
+    };
+    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, helper, pc_after);
     b.def_var(sp_var, sp_slow);
     let mut slow_result = [sp_slow];
     if kept {
@@ -3371,7 +3493,10 @@ fn lower_get_array_el_fast(
 
     b.switch_to_block(cont);
     // The operand entries are stale now (a flush would overwrite the result).
-    state.stack.consumed_binary();
+    match shape {
+        ArrayRead::Replace => state.stack.consumed_binary(),
+        ArrayRead::Keep => state.stack.replaced_pair(),
+    }
     if let (Some(keep_id), Some(&value)) = (keep_id, b.block_params(cont).first()) {
         state.cse_regs.insert(keep_id, value);
     }
@@ -3804,6 +3929,7 @@ fn lower_get_field_fast(
     sp_var: Variable,
     sp: Value,
     insn: &Instruction,
+    shape: FieldRead,
 ) -> Step {
     let pc_after = insn.pc() + insn.size() as u32;
     let top = state.stack.height;
@@ -4000,7 +4126,8 @@ fn lower_get_field_fast(
         let len = b.ins().select(is_oob, zero, count);
         // The value is an `Int`: its payload is the count in the low 32 bits.
         let value = b.ins().uextend(types::I64, len);
-        b.ins().store(MemFlags::new(), value, sp, -8);
+        b.ins()
+            .store(MemFlags::new(), value, sp, shape.result_offset());
         // P1-1 instrumentation: the guard answered this read on its own.
         let hits = b
             .ins()
@@ -4008,7 +4135,8 @@ fn lower_get_field_fast(
         let hits = b.ins().iadd_imm(hits, 1);
         b.ins()
             .store(MemFlags::new(), hits, fv.frame, O_PROPERTY_HITS);
-        b.def_var(sp_var, sp);
+        let sp_next = shape.sp_next(b, sp);
+        b.def_var(sp_var, sp_next);
         b.ins().jump(cont, &[]);
         Some(ordinary)
     } else {
@@ -4064,8 +4192,10 @@ fn lower_get_field_fast(
         addr,
         JSProperty::normal_value_offset(),
     );
-    // The result takes the target's place.
-    b.ins().store(MemFlags::new(), value, sp, -8);
+    // The result takes the target's place (`get_field`) or is pushed next to
+    // it (`get_field2`, the method-call shape).
+    b.ins()
+        .store(MemFlags::new(), value, sp, shape.result_offset());
     // P1-1 instrumentation: the guard answered this read on its own.
     let hits = b
         .ins()
@@ -4076,7 +4206,8 @@ fn lower_get_field_fast(
     // The stack height does not change, but the variable must be defined on
     // *both* paths: the merge block takes it from there, and a path that left
     // it undefined would hand the merge a stale pointer.
-    b.def_var(sp_var, sp);
+    let sp_next = shape.sp_next(b, sp);
+    b.def_var(sp_var, sp_next);
     b.ins().jump(cont, &[]);
 
     b.switch_to_block(slow);
@@ -4093,7 +4224,11 @@ fn lower_get_field_fast(
     b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
     let ic = b.ins().iconst(types::I32, i64::from(ic_index(insn)));
     b.ins().store(MemFlags::new(), ic, fv.frame, O_IMM2);
-    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_GET_FIELD, pc_after);
+    let helper = match shape {
+        FieldRead::Replace => HELPER_GET_FIELD,
+        FieldRead::Keep => HELPER_GET_FIELD2,
+    };
+    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, helper, pc_after);
     b.def_var(sp_var, sp_slow);
     b.ins().jump(cont, &[]);
 
@@ -4101,6 +4236,11 @@ fn lower_get_field_fast(
     // The slot now holds the property's value, not the target: the register
     // copy of the target is stale.
     state.stack.replace_top();
+    match shape {
+        FieldRead::Replace => {}
+        // The value was pushed next to the target: one slot more.
+        FieldRead::Keep => state.stack.adjust(1),
+    }
     Step::Continue(b.use_var(sp_var))
 }
 

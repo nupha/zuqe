@@ -388,6 +388,12 @@ const PUT_CASES: &[(&str, &str)] = &[
         "write_then_read",
         "function f(){ var a = [0, 0, 0]; for (var i = 0; i < 8; i++) { a[i % 3] = i; } return a.join(','); } f();",
     ),
+    // A **method call on an element**: the lookup is a `get_array_el2` (the
+    // array stays on the stack) — the same guard, another shape.
+    (
+        "element_method_call",
+        "var a = [function(){ return 1; }, function(){ return 2; }]; function f(){ var s = 0; for (var i = 0; i < 10; i++) s += a[i % 2](); return s; } f();",
+    ),
     // A **typed array**: its elements live in an `ArrayBuffer`, so the write
     // goes through the view (offset, count) and the buffer.
     (
