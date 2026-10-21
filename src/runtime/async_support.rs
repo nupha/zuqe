@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 use std::{
+    marker::PhantomData,
     pin::Pin,
     sync::Arc,
     task::{Context as TaskContext, Poll},
@@ -9,17 +10,45 @@ use std::{
 
 use crate::{ExitStatus, JSValue};
 
-use super::{Runtime, RuntimeImpl, handle::RUNTIMES, rt::JoinState, tick::TickStatus};
+use super::{
+    Runtime, RuntimeImpl,
+    handle::{RUNTIMES, RuntimePtr},
+    rt::JoinState,
+    tick::{TickStatus, tick_tree},
+};
 
 // ── RunFuture ──────────────────────────────────────────────────────────
 
+/// The event-loop driver.
+///
+/// It holds the runtime as a raw pointer plus the lifetime the caller
+/// promised: whoever creates the driver must keep that runtime alive for as
+/// long as the driver is pending. A context makes the same promise about the
+/// runtime it belongs to, so a context can drive its own runtime without
+/// being handed the handle.
 pub struct RunFuture<'rt> {
-    rt: &'rt mut Runtime,
+    rt: RuntimePtr,
+    _marker: PhantomData<&'rt mut Runtime>,
 }
 
 impl<'rt> RunFuture<'rt> {
-    const fn new(rt: &'rt mut Runtime) -> Self {
-        Self { rt }
+    const fn new(rt: RuntimePtr) -> Self {
+        Self {
+            rt,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl RuntimePtr {
+    /// The event-loop driver for the runtime at this pointer.
+    ///
+    /// The caller must keep that runtime alive for as long as the driver is
+    /// pending — the same promise a `Context` makes about the runtime it
+    /// belongs to, and the one [`Runtime::run_async`] makes about the handle
+    /// it borrows.
+    pub(crate) fn run_async<'rt>(self) -> RunFuture<'rt> {
+        RunFuture::new(self)
     }
 }
 
@@ -29,20 +58,20 @@ impl<'rt> std::future::Future for RunFuture<'rt> {
     fn poll(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
 
-        match this.rt.tick() {
+        match tick_tree(this.rt) {
             TickStatus::Progress => {
                 std::thread::yield_now();
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
             TickStatus::Park(hint) => {
-                this.rt.park.park_for(cx.waker(), hint);
+                (*this.rt).park.park_for(cx.waker(), hint);
                 Poll::Pending
             }
             TickStatus::Idle => {
-                debug_assert!(matches!(this.rt.exception(), crate::Exception::No));
+                debug_assert!(matches!((*this.rt).exception(), crate::Exception::No));
 
-                Poll::Ready(if let Some(code) = this.rt.take_interrupt() {
+                Poll::Ready(if let Some(code) = (*this.rt).take_interrupt() {
                     ExitStatus::Interrupted(code)
                 } else {
                     ExitStatus::Value(JSValue::UNDEFINED)
@@ -60,8 +89,8 @@ fn tick_all_to_idle() {
         RUNTIMES.with(|rts| {
             let rts = rts.borrow();
             for w in rts.iter() {
-                let Some(rt) = w.upgrade() else { continue };
-                let rt = unsafe { &mut *rt.get() };
+                let Some(rc) = w.upgrade() else { continue };
+                let mut rt = Runtime::from_inner(rc);
                 // Children are driven by their parent's `tick()`, never here.
                 #[cfg(feature = "child_runtime")]
                 debug_assert!(rt.is_root(), "RUNTIMES holds roots only");
@@ -118,7 +147,7 @@ impl futures_util::Stream for JoinEachFuture {
                 let rts = rts.borrow();
                 for w in rts.iter() {
                     let Some(rc) = w.upgrade() else { continue };
-                    let rt = unsafe { &mut *rc.get() };
+                    let mut rt = Runtime::from_inner(rc);
 
                     // Children are driven by their parent; join tracks roots.
                     #[cfg(feature = "child_runtime")]
@@ -200,11 +229,12 @@ impl futures_util::Stream for JoinEachFuture {
 impl Runtime {
     /// For `self` the single runtime, await running till all background jobs are executed.
     #[inline(always)]
-    pub const fn run_async(&mut self) -> RunFuture<'_> {
-        RunFuture::new(self)
+    pub fn run_async(&mut self) -> RunFuture<'_> {
+        RuntimePtr::from_raw(self.0.get()).run_async()
     }
 
     /// Drive to run all runtimes on the current thread to idle.
+    #[inline(always)]
     pub async fn join_async() {
         tick_all_to_idle();
     }

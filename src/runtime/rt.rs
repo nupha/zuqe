@@ -236,18 +236,29 @@ pub struct RuntimeImpl {
     //
     pub(crate) join_state: JoinState,
 
-    /// Role marker: `true` for a child runtime (created via
-    /// [`Runtime::create_child`](super::Runtime::create_child)), `false` for a
-    /// root runtime. Hosts use it to gate process/thread-global features
-    /// (signals, process exit, terminal control, ...) that must not run in a
-    /// child runtime.
+    /// Child runtimes of this runtime, held **weakly**. The host's handle is
+    /// the only strong owner of a child: dropping it ends the child's life
+    /// immediately, and the parent stops ticking it. Children are ticked from
+    /// this runtime's `tick()`; dead entries are pruned on the next round.
+    ///
+    /// `pub(super)` rather than `pub(crate)`: the tick list is engine-internal
+    /// bookkeeping, and only the runtime module may touch it.
     #[cfg(feature = "child_runtime")]
-    pub(crate) is_child: bool,
-    /// Child runtimes of this runtime, held **strongly** — the tree is the only
-    /// strong owner of a child (`RUNTIMES` tracks roots only). Children are
-    /// ticked from this runtime's `tick()`; a runtime with children is a root.
+    pub(super) children: Vec<std::rc::Weak<std::cell::UnsafeCell<RuntimeImpl>>>,
+    /// The parent of this child runtime, held **strongly**: a child keeps its
+    /// parent alive, so a parent always outlives its children and keeps
+    /// driving them. The dependency direction is child → parent, which is the
+    /// direction the tree is actually driven in.
+    ///
+    /// This is also the role marker: `None` means a root runtime, `Some` a
+    /// child. Hosts gate process/thread-global features (signals, process
+    /// exit, terminal control, ...) on [`Self::is_root`].
+    ///
+    /// The link is established in exactly one place —
+    /// [`Runtime::create_child_with`](super::Runtime::create_child_with) — so
+    /// the parent chain stays a tree: a runtime is never its own parent.
     #[cfg(feature = "child_runtime")]
-    pub(crate) children: Vec<super::Runtime>,
+    pub(super) parent: Option<super::Runtime>,
 
     /// Host-provided user state. Fixed at creation; the box is owned by the
     /// runtime and dropped with it. The object itself may still be mutated
@@ -443,9 +454,9 @@ impl RuntimeImpl {
 
             join_state: JoinState::Active,
             #[cfg(feature = "child_runtime")]
-            is_child: false,
-            #[cfg(feature = "child_runtime")]
             children: Vec::new(),
+            #[cfg(feature = "child_runtime")]
+            parent: None,
 
             user_state,
             #[cfg(debug_assertions)]
@@ -502,14 +513,22 @@ impl RuntimeImpl {
     #[cfg(feature = "child_runtime")]
     #[inline(always)]
     pub const fn is_root(&self) -> bool {
-        !self.is_child
+        self.parent.is_none()
     }
 
     /// Whether this is a child runtime created via `Runtime::create_child`.
     #[cfg(feature = "child_runtime")]
     #[inline(always)]
     pub const fn is_child(&self) -> bool {
-        self.is_child
+        self.parent.is_some()
+    }
+
+    /// The parent of this child runtime, if any.
+    ///
+    /// A child holds its parent strongly, so the parent always outlives it.
+    #[cfg(feature = "child_runtime")]
+    pub fn parent(&self) -> Option<super::Runtime> {
+        self.parent.clone()
     }
 
     /// Whether this runtime still has an outstanding `Atomics.waitAsync`

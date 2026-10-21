@@ -130,7 +130,7 @@ fn main() {
 Use `with_new_scope` and `eval_wait` to execute code within a bounded scope, waiting until all jobs and promises settle:
 
 ```rust
-use zuqe::{Context, EvalFlags, EvalType, Runtime, ScopedContext};
+use zuqe::{Context, EvalFlags, EvalName, EvalType, ExitStatus, Runtime, ScopedContext};
 
 fn main() {
     let mut rt = Runtime::create().unwrap();
@@ -148,28 +148,29 @@ fn main() {
     ctx.with_new_scope(|mut scope| {
         let res = scope.eval_wait(
             script.as_bytes(),
-            "example.js",
+            &EvalName::Name("example.js".into()),
             EvalType::Global,
             EvalFlags::empty(),
         );
 
         match res {
-            Ok(val) => {
-                println!("eval result: {}", val.inspect(&mut scope).unwrap());
+            ExitStatus::Value(val) => {
+                println!("eval result: {}", val.to_string(&mut scope).unwrap());
             }
-            Err(e) => {
-                let mut err_msg = e.message;
-                if let Some(tb) = e.traceback {
+            ExitStatus::Exception(e) => {
+                let mut err_msg = e.to_text(&mut scope).message;
+                if let Some(tb) = e.to_text(&mut scope).traceback {
                     err_msg = format!("{err_msg}\n{tb}");
                 }
                 println!("error: {err_msg}");
             }
+            other => println!("stopped: {other:?}"),
         }
     });
 }
 ```
 
-`with_new_scope` executes the closure inside a dedicated, bounded scope. Each call creates a fresh scope, runs the script within it, and tears it down when the closure returns. This isolates local variables and temporary values, preventing leaks between executions and allowing safe reuse of the same `Context`.
+`eval_wait` drives the event loop of the context's **own** runtime — a context belongs to exactly one runtime, so there is no runtime to pass in. `with_new_scope` executes the closure inside a dedicated, bounded scope. Each call creates a fresh scope, runs the script within it, and tears it down when the closure returns. This isolates local variables and temporary values, preventing leaks between executions and allowing safe reuse of the same `Context`.
 
 ### Embedding API Highlights
 

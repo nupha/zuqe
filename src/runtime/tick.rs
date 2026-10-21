@@ -4,6 +4,7 @@
 use std::time::Instant;
 
 use gc_lite::GcNode;
+use smallvec::SmallVec;
 
 use crate::{
     Exception, WakeReceiver, WakeSender,
@@ -11,7 +12,7 @@ use crate::{
     microtask::JobState,
 };
 
-use super::RuntimeImpl;
+use super::{RuntimeImpl, RuntimePtr};
 
 impl<'c> ScopedContext<'c> {
     #[inline(always)]
@@ -75,7 +76,7 @@ impl<'c> ScopedContext<'c> {
 }
 
 #[derive(Debug, PartialEq)]
-pub(super) enum TickStatus {
+pub enum TickStatus {
     /// This round made real progress: a job completed (Done/Err), a tick
     /// handler reported new work, or a oneshot job is still queued. The
     /// caller should call `tick()` again immediately to advance.
@@ -95,7 +96,6 @@ pub(super) enum TickStatus {
 }
 
 /// Merge one runtime's tick outcome into the tree aggregate.
-#[cfg(feature = "child_runtime")]
 fn merge_status(
     st: TickStatus,
     progress: &mut bool,
@@ -114,48 +114,74 @@ fn merge_status(
     }
 }
 
-impl RuntimeImpl {
-    /// Run background jobs for one round, including this runtime's children.
-    ///
-    /// The aggregate is the strongest outcome across the tree: `Progress` if
-    /// any runtime made progress, else `Park` (earliest reported deadline) if
-    /// any is blocked, else `Idle`. A root runtime's interrupt stops the whole
-    /// tree.
+/// Run background jobs for one round of the runtime at `rt` **and its
+/// children**.
+///
+/// The aggregate is the strongest outcome across the tree: `Progress` if any
+/// runtime made progress, else `Park` (earliest reported deadline) if any is
+/// blocked, else `Idle`. A root runtime's interrupt stops the whole tree.
+///
+/// `rt` must point at a live runtime. Every `&mut RuntimeImpl` borrow below
+/// is scoped, and none of them is live while a child runs: a child may
+/// re-enter this runtime (e.g. to call a callback that lives in its heap),
+/// and that must not alias a live `&mut RuntimeImpl`.
+///
+/// Taking a raw pointer rather than `&mut RuntimeImpl` is what lets a
+/// context drive its own runtime: a context knows its runtime, so it has no
+/// business being handed one.
+pub(super) fn tick_tree(mut rt: RuntimePtr) -> TickStatus {
+    let self_status = (*rt).tick_self();
+
+    // A root interrupt (e.g. `process.exit`) stops the whole tree.
     #[cfg(feature = "child_runtime")]
-    pub(super) fn tick(&mut self) -> TickStatus {
-        let self_status = self.tick_self();
+    if (&*rt).is_root() && (&*rt).interrupt_code.is_some() {
+        return TickStatus::Idle;
+    }
 
-        // A root interrupt (e.g. `process.exit`) stops the whole tree.
-        if !self.is_child && self.interrupt_code.is_some() {
-            return TickStatus::Idle;
+    let mut progress = false;
+    let mut parked = false;
+    let mut hint: Option<Instant> = None;
+    merge_status(self_status, &mut progress, &mut parked, &mut hint);
+
+    #[cfg(feature = "child_runtime")]
+    {
+        // The live children, as strong handles: the snapshot is what lets the
+        // tree tick drop this runtime's `&mut RuntimeImpl` borrow before a
+        // child runs, and the strong handles keep the children alive for the
+        // whole round. The tick list itself is left in place — a child
+        // created during the round is pushed onto it and must not be lost.
+        //
+        // Inline for the usual case: a runtime has few children, and this
+        // buffer is rebuilt on every tick of the tree.
+        let mut out = SmallVec::<[super::Runtime; 4]>::with_capacity((&*rt).children.len());
+        for w in (&*rt).children.iter() {
+            if let Some(rc) = w.upgrade() {
+                out.push(super::Runtime::from_inner(rc));
+            }
         }
-
-        let mut progress = false;
-        let mut parked = false;
-        let mut hint: Option<Instant> = None;
-        merge_status(self_status, &mut progress, &mut parked, &mut hint);
-        for child in self.children.iter_mut() {
+        for mut child in out {
             merge_status(child.tick(), &mut progress, &mut parked, &mut hint);
         }
-
-        if progress {
-            TickStatus::Progress
-        } else if parked {
-            TickStatus::Park(hint)
-        } else {
-            TickStatus::Idle
-        }
+        // Prune the children that died during the round.
+        (&mut *rt).children.retain(|w| w.upgrade().is_some());
     }
 
-    /// Without the `child_runtime` feature there is no tree: one round of this
-    /// runtime's own jobs.
-    #[cfg(not(feature = "child_runtime"))]
-    pub(super) fn tick(&mut self) -> TickStatus {
-        self.tick_self()
+    if progress {
+        TickStatus::Progress
+    } else if parked {
+        TickStatus::Park(hint)
+    } else {
+        TickStatus::Idle
     }
+}
 
+impl RuntimeImpl {
     /// Run this runtime's own jobs for one round (no children).
-    fn tick_self(&mut self) -> TickStatus {
+    ///
+    /// The tree tick lives on [`Runtime::tick`](super::Runtime::tick): it
+    /// drives the children through their own handles so that this runtime's
+    /// `&mut RuntimeImpl` borrow is not live while a child runs.
+    pub(super) fn tick_self(&mut self) -> TickStatus {
         let mut had_progress = false;
         let mut had_blocked = false;
         let mut hint: Option<Instant> = None;
@@ -324,13 +350,11 @@ impl RuntimeImpl {
 
 #[cfg(test)]
 mod tests {
-    use super::TickStatus;
 
     use crate::{
-        JSValue, ScopedContext,
+        JSValue, Runtime, ScopedContext, TickStatus,
         builtins::promise::{Promise, PromiseResultSlot, PromiseState},
         eval::{EvalFlags, EvalName, EvalType},
-        runtime::Runtime,
     };
 
     /// Drive the event loop until it stops (no more jobs to run).

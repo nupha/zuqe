@@ -85,6 +85,11 @@ impl JobGcTrace for JSValue {
 
 impl ContextImpl {
     /// Add a pending micro-task (polling mode, may return `Block` or `Continue`).
+    ///
+    /// The job lives in this context's runtime heap. A job that captures a
+    /// **strong** handle to that same runtime (or to a runtime that holds it)
+    /// forms a cycle — job → runtime → heap → job — and the runtime can never
+    /// be freed. Capture such handles weakly.
     pub fn queue_job<GCN, F>(&mut self, runnable: F, gc_trace_nodes: GCN)
     where
         GCN: JobGcTrace + 'static,
@@ -97,6 +102,9 @@ impl ContextImpl {
     }
 
     /// Add a one-shot micro-task — executed once and always completes; never retried.
+    ///
+    /// See [`ContextImpl::queue_job`] for the capture discipline a job must
+    /// follow.
     pub fn queue_oneshot_job<GCN, F>(&mut self, runnable: F, gc_trace_nodes: GCN)
     where
         GCN: JobGcTrace + 'static,

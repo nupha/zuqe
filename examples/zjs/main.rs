@@ -275,7 +275,10 @@ fn main() -> ExitCode {
 
 #[cfg(not(feature = "async_support"))]
 fn run_main_sync() -> ExitCode {
-    let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
+    // `_rt` is the runtime's lifetime anchor: `ctx` is a GC node in the
+    // runtime's heap, so the runtime must outlive it. The binding is never
+    // read — `eval_wait` drives that runtime through the context.
+    let (_rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
     // Convert the entry filename to a canonical `file://` URL. `module_name`
     // (and `import.meta.url`) is a URL, and a `file://` base is also required so
@@ -346,7 +349,10 @@ fn run_async_main() -> ExitCode {
 
 #[cfg(feature = "async_support")]
 async fn async_main() -> ExitCode {
-    let (mut rt, mut ctx, args, script, is_module) = run_zjs_prepare();
+    // `_rt` is the runtime's lifetime anchor: `ctx` is a GC node in the
+    // runtime's heap, so the runtime must outlive it. The binding is never
+    // read — `eval_wait` drives that runtime through the context.
+    let (_rt, mut ctx, args, script, is_module) = run_zjs_prepare();
 
     // Convert the entry filename to a canonical `file://` URL when running a
     // Convert the entry filename to a canonical `file://` URL. `module_name`
@@ -364,7 +370,6 @@ async fn async_main() -> ExitCode {
     // `ExitStatus::Value` for the host to print.
     let run_result = ctx
         .eval_wait(
-            &mut rt,
             script.as_bytes(),
             &EvalName::BaseUrl(entry_name),
             if is_module {

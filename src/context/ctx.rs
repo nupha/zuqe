@@ -633,6 +633,29 @@ impl<'c> Context<'c> {
         f(self.root_scope())
     }
 
+    /// Call `f` synchronously inside `target`'s context.
+    ///
+    /// This is the one synchronous door between two runtimes. It is an
+    /// associated function, not a method: the call runs entirely in `target`,
+    /// so the calling context plays no part. `this` is `undefined`.
+    ///
+    /// Heap discipline — `f`, every argument **and the returned value** all
+    /// belong to `target`'s heap. The caller must not keep the result past
+    /// the target's lifetime; if the result has to outlive the call, dump it
+    /// (see `JSValue::dump`) and restore it on the other side.
+    ///
+    /// The callee must return synchronously (a returned promise is just a
+    /// value to the caller) and must not create or close runtimes — re-entering
+    /// the runtime tree from inside a tree tick is a re-entrancy hazard.
+    ///
+    /// A thrown exception fails the call with `Err`; the exception stays
+    /// pending in `target`'s runtime, where
+    /// [`Context::take_exception_as_text`] picks it up. Nothing is swallowed.
+    pub fn call_in_ctx(target: &Context<'c>, f: JSValue, args: &[JSValue]) -> Result<JSValue, i32> {
+        let mut cx = target.root_scope();
+        f.call(&mut cx, JSValue::UNDEFINED, args)
+    }
+
     /// Create a child scope, run closure in it.
     pub(crate) fn with_new_scope<R: ScopeResult>(
         &mut self,

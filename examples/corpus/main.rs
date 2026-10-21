@@ -168,7 +168,6 @@ async fn eval_source(
     };
     let entry = match ctx
         .eval_wait(
-            rt,
             &src,
             &EvalName::BaseUrl(case.url.clone()),
             etype,
@@ -195,7 +194,6 @@ async fn eval_source(
     let repl = EvalName::BaseUrl(case.url.clone());
     let ns = match ctx
         .eval_wait(
-            rt,
             b"globalThis.__ns",
             &repl,
             EvalType::Global,
