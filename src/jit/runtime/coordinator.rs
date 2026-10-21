@@ -16,7 +16,6 @@
 
 use std::{
     collections::{HashMap, VecDeque},
-    hash::{BuildHasher, Hasher},
     time::Duration,
 };
 
@@ -24,61 +23,10 @@ use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
     function::Bytecode,
-    jit::{metrics::JitMetrics, rate},
+    jit::{fast_hash::FastHasherBuilder, metrics::JitMetrics, rate},
 };
 
 use super::hotness::{AdaptiveInputs, HotThresholds, HotnessState, Tier};
-
-/// The hash the coordinator's map uses.
-///
-/// Its keys are bytecode node addresses (`function_id`), so the hash only has
-/// to spread pointers over the buckets - and the pointers are not something
-/// JavaScript can control, so the randomised SipHash of `RandomState` buys no
-/// protection here, only cost: hashing the key is on the path of every
-/// function entry and every loop back edge.
-///
-/// The mixing is splitmix64's finalizer. It has to avalanche, not just
-/// multiply: a node address is aligned, so its low bits are zero, and the
-/// map picks its bucket from exactly those bits. A plain multiply would
-/// keep them zero and file every function under one bucket.
-#[derive(Default, Clone, Copy)]
-struct PtrHasher(u64);
-
-impl Hasher for PtrHasher {
-    #[inline]
-    fn finish(&self) -> u64 {
-        self.0
-    }
-
-    #[inline]
-    fn write_u64(&mut self, value: u64) {
-        let mut z = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        self.0 = z ^ (z >> 31);
-    }
-
-    /// The map only holds u64 keys, so this is never reached; the loop keeps
-    /// the hasher correct for any other key type.
-    #[inline]
-    fn write(&mut self, bytes: &[u8]) {
-        for &byte in bytes {
-            self.write_u64(byte as u64);
-        }
-    }
-}
-
-#[derive(Default, Clone, Copy)]
-struct PtrHasherBuilder;
-
-impl BuildHasher for PtrHasherBuilder {
-    type Hasher = PtrHasher;
-
-    #[inline]
-    fn build_hasher(&self) -> PtrHasher {
-        PtrHasher(0)
-    }
-}
 
 /// Where a function is in its compile lifecycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,7 +131,7 @@ pub(crate) const TIER_DOWN_MISSES: u64 = 64;
 
 /// The request queue plus the lifecycle of every function the JIT has seen.
 pub(crate) struct Coordinator {
-    records: HashMap<u64, FunctionRecord, PtrHasherBuilder>,
+    records: HashMap<u64, FunctionRecord, FastHasherBuilder>,
     queue: VecDeque<u64>,
     base_calls: u32,
     base_loops: u32,
@@ -684,7 +632,11 @@ fn count_verified(m: &mut JitMetrics, record: &mut FunctionRecord) {
 
 #[cfg(test)]
 mod tests {
+    use std::hash::Hasher;
+
     use super::*;
+
+    use crate::jit::fast_hash::FastHasher;
 
     /// A coordinator with the two gates: the first at `calls`/`loops`, the
     /// second at `tier2_calls`/`tier2_loops`.
@@ -805,11 +757,11 @@ mod tests {
     /// The map's hash has to spread the node addresses over the buckets.
     /// They are aligned pointers, so a hash that keeps their low bits would
     /// file them all under one bucket and turn every lookup into a walk over
-    /// the same chain.
+    /// the same chain. The mixer itself is pinned in `jit::fast_hash`.
     #[test]
     fn the_pointer_hash_spreads_aligned_keys() {
         let hash_of = |ptr: u64| {
-            let mut h = PtrHasher(0);
+            let mut h = FastHasher::default();
             h.write_u64(ptr);
             h.finish()
         };

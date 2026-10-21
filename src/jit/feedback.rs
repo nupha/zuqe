@@ -25,7 +25,7 @@
 
 use std::{cell::UnsafeCell, collections::HashMap};
 
-use crate::{JSValue, JSValueTag};
+use crate::{JSValue, JSValueTag, jit::fast_hash::FastHasherBuilder};
 
 // ── Observed type classes (bit mask) ──
 
@@ -86,9 +86,13 @@ const MAX_SITES: usize = 1024;
 
 /// All feedback sites of one function, keyed by bytecode pc (the opcode
 /// offset, matching `Instruction::pc()` the compiler indexes by).
+///
+/// The map hashes its keys with the JIT's fast mixer: the key is the pc, a
+/// value JavaScript cannot steer, and every recorded site pays one hash — so
+/// SipHash's cost buys nothing here.
 #[derive(Debug, Default)]
 pub(crate) struct FeedbackTable {
-    sites: HashMap<u32, SiteFeedback>,
+    sites: HashMap<u32, SiteFeedback, FastHasherBuilder>,
     /// Observations recorded so far, saturating. The hotness policy reads this
     /// as "measured work" (one add per recorded opcode, no scan of the sites);
     /// a function that already executed a lot is worth compiling sooner.

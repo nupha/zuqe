@@ -185,6 +185,36 @@ fn site_count_is_stable_across_repeated_runs() {
     );
 }
 
+/// The table keys its sites by the bytecode pc and hashes them with the JIT's
+/// fast mixer. A hash that dropped a site or merged two of them would starve
+/// the tier-2 gate — what the gate reads is a site's *samples* — so every site
+/// must keep accumulating them, and the answer must stay the interpreter's.
+#[test]
+fn every_site_keeps_its_samples() {
+    const DEFINE: &str = "\
+        function f(n){ \
+          var s = 0; \
+          for (var i = 0; i < n; i++) { s = s + i * 2 - 1; } \
+          return s; \
+        } \
+        f(50);";
+    let reference = run_script(JitTierPolicy::Interpreter, DEFINE, "f(500)").0;
+    let (out, m) = run_script(JitTierPolicy::Automatic, DEFINE, "f(500)");
+    assert_eq!(out, reference, "the recorded feedback changed the result");
+    // One site per pc: the loop condition, the increment, the three
+    // arithmetic ops and the accumulator update.
+    assert_eq!(
+        m.feedback_sites, 6,
+        "the recorded sites changed (metrics: {m:?})"
+    );
+    // The samples accumulated: the profitability gate wants eight of them,
+    // so a site that kept its samples is what lets the specialization through.
+    assert!(
+        m.specialized_ops > 0,
+        "no site reached the gate (metrics: {m:?})"
+    );
+}
+
 // ── Epic F2: feedback-driven numeric specialization ──
 
 /// A tag-exact description, so an `Int` that silently became a `Float64`

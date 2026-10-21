@@ -27,6 +27,7 @@ mod code_cache;
 mod compiler;
 mod config;
 mod error;
+mod fast_hash;
 mod feedback;
 mod metrics;
 mod platform;
