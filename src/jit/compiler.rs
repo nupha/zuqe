@@ -77,25 +77,26 @@ use super::{
         HELPER_DEFINE_CLASS_COMPUTED, HELPER_DEFINE_FIELD, HELPER_DEFINE_METHOD,
         HELPER_DEFINE_METHOD_COMPUTED, HELPER_DEFINE_PRIVATE_FIELD, HELPER_DELETE,
         HELPER_DELETE_VAR, HELPER_DIV, HELPER_EQ, HELPER_FOR_IN_NEXT, HELPER_FOR_IN_START,
-        HELPER_FOR_OF_NEXT, HELPER_FOR_OF_START, HELPER_GET_ARRAY_EL, HELPER_GET_ARRAY_EL2,
-        HELPER_GET_ARRAY_EL3, HELPER_GET_FIELD, HELPER_GET_FIELD2, HELPER_GET_PRIVATE_FIELD,
-        HELPER_GET_REF_VALUE, HELPER_GET_SUPER, HELPER_GET_SUPER_VALUE, HELPER_GET_VAR,
-        HELPER_GET_VAR_REF, HELPER_GET_VAR_REF_CHECK, HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE,
-        HELPER_IN, HELPER_INC, HELPER_INIT_CTOR, HELPER_INSTANCEOF, HELPER_ITERATOR_CALL,
-        HELPER_ITERATOR_CHECK_OBJECT, HELPER_ITERATOR_CLOSE, HELPER_ITERATOR_GET_VALUE_DONE,
-        HELPER_ITERATOR_NEXT, HELPER_LNOT, HELPER_LT, HELPER_LTE, HELPER_MAKE_ARG_REF,
-        HELPER_MAKE_LOC_REF, HELPER_MAKE_VAR_REF, HELPER_MAKE_VAR_REF_REF, HELPER_MOD, HELPER_MUL,
-        HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH, HELPER_NOT, HELPER_OBJECT, HELPER_OK, HELPER_OR,
-        HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC, HELPER_POW, HELPER_PRIVATE_IN,
-        HELPER_PRIVATE_SYMBOL, HELPER_PUSH_BIGINT_I32, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD,
-        HELPER_PUT_PRIVATE_FIELD, HELPER_PUT_REF_VALUE, HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR,
-        HELPER_PUT_VAR_INIT, HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK,
-        HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_REGEXP, HELPER_SAFEPOINT, HELPER_SAR,
-        HELPER_SET_HOME_OBJECT, HELPER_SET_NAME_COMPUTED, HELPER_SET_PROTO, HELPER_SET_VAR_REF,
-        HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_THROW,
-        HELPER_THROW_ERROR, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY, HELPER_TYPEOF,
-        HELPER_WITH_DELETE_VAR, HELPER_WITH_GET_REF, HELPER_WITH_GET_VAR, HELPER_WITH_MAKE_REF,
-        HELPER_WITH_MISS, HELPER_WITH_PUT_VAR, HELPER_XOR, JitExecFrame, SPEC_MISS_IMM2,
+        HELPER_FOR_OF_NEXT, HELPER_FOR_OF_START, HELPER_GC_BIND, HELPER_GET_ARRAY_EL,
+        HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3, HELPER_GET_FIELD, HELPER_GET_FIELD2,
+        HELPER_GET_PRIVATE_FIELD, HELPER_GET_REF_VALUE, HELPER_GET_SUPER, HELPER_GET_SUPER_VALUE,
+        HELPER_GET_VAR, HELPER_GET_VAR_REF, HELPER_GET_VAR_REF_CHECK, HELPER_GET_VAR_UNDEF,
+        HELPER_GT, HELPER_GTE, HELPER_IN, HELPER_INC, HELPER_INIT_CTOR, HELPER_INSTANCEOF,
+        HELPER_ITERATOR_CALL, HELPER_ITERATOR_CHECK_OBJECT, HELPER_ITERATOR_CLOSE,
+        HELPER_ITERATOR_GET_VALUE_DONE, HELPER_ITERATOR_NEXT, HELPER_LNOT, HELPER_LT, HELPER_LTE,
+        HELPER_MAKE_ARG_REF, HELPER_MAKE_LOC_REF, HELPER_MAKE_VAR_REF, HELPER_MAKE_VAR_REF_REF,
+        HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH, HELPER_NOT,
+        HELPER_OBJECT, HELPER_OK, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC,
+        HELPER_POW, HELPER_PRIVATE_IN, HELPER_PRIVATE_SYMBOL, HELPER_PUSH_BIGINT_I32,
+        HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD, HELPER_PUT_PRIVATE_FIELD, HELPER_PUT_REF_VALUE,
+        HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR, HELPER_PUT_VAR_INIT, HELPER_PUT_VAR_REF,
+        HELPER_PUT_VAR_REF_CHECK, HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_REGEXP, HELPER_SAFEPOINT,
+        HELPER_SAR, HELPER_SET_HOME_OBJECT, HELPER_SET_NAME_COMPUTED, HELPER_SET_PROTO,
+        HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ, HELPER_STRICT_NEQ,
+        HELPER_SUB, HELPER_THROW, HELPER_THROW_ERROR, HELPER_TO_BOOL, HELPER_TO_OBJECT,
+        HELPER_TO_PROPKEY, HELPER_TYPEOF, HELPER_WITH_DELETE_VAR, HELPER_WITH_GET_REF,
+        HELPER_WITH_GET_VAR, HELPER_WITH_MAKE_REF, HELPER_WITH_MISS, HELPER_WITH_PUT_VAR,
+        HELPER_XOR, JitExecFrame, SPEC_MISS_IMM2,
     },
     analysis::{Analysis, LocalRef, RedundantExpressions},
     bytecode::{
@@ -124,6 +125,20 @@ const FLOAT64_ADDEND: i64 = 0xFFF9 << 48;
 /// `js_new_float64` substitutes for every NaN payload. The float fast path
 /// must box through it, because the differential suite compares bit-for-bit.
 const JS_NAN_U64_BITS: i64 = 0x7FFF_0000_0000_0000;
+/// The lowest raw tag that carries a GC node pointer (`Symbol` = -8 ..
+/// `Object` = -1, i.e. 0xfff8..=0xffff). A value with such a tag needs the
+/// collector's write barrier when it is stored (P1-1).
+const GC_NODE_TAG: i64 = 0xFFF8;
+/// The write guard reads the class id and the fast-array bit in one word
+/// (P1-1): a fast plain `Array` is `fast | Array`, a fast `arguments` object
+/// is `fast | Arguments`.
+const WRITE_CLASS_MASK: i64 = jit_layout::CLASS_ID_MASK | jit_layout::FAST_ARRAY_MASK;
+/// The masked flags word of a fast plain `Array`.
+const WRITE_ARRAY_FLAGS: i64 = JS_CLASS_ARRAY as i64 | jit_layout::FAST_ARRAY_MASK;
+/// The masked flags word of a fast `arguments` object.
+const WRITE_ARGUMENTS_FLAGS: i64 = JS_CLASS_ARGUMENTS as i64 | jit_layout::FAST_ARRAY_MASK;
+/// The bit the extensible flag sits at (the guard shifts it out).
+const WRITE_EXTENSIBLE_SHIFT: i32 = jit_layout::EXTENSIBLE_MASK.trailing_zeros() as i32;
 
 const O_ARG_BASE: i32 = offset_of!(JitExecFrame, arg_base) as i32;
 const O_VAR_BASE: i32 = offset_of!(JitExecFrame, var_base) as i32;
@@ -492,6 +507,10 @@ struct State<'a> {
     /// so it addresses the frame fallback loads even when the model's own
     /// height is stale (a helper-terminated block never re-anchors).
     entry_heights: HashMap<u32, u16>,
+    /// The write barrier's helper signature (`frame`, owner, value) — P1-1's
+    /// inline store calls the barrier with its own arguments, so it needs a
+    /// signature of its own.
+    barrier_sig: cranelift_codegen::ir::SigRef,
 }
 
 /// Block-local register copies of local/argument slots (epic F4, the read half
@@ -749,6 +768,16 @@ impl StackCache {
         self.tracked = true;
         self.entries.remove(&top);
         self.entries.remove(&(top - 1));
+    }
+
+    /// `put_array_el`: three operands died and nothing replaced them.
+    fn consumed_ternary(&mut self) {
+        let top = self.height;
+        self.height = self.height.saturating_sub(3);
+        self.tracked = true;
+        self.entries.remove(&top);
+        self.entries.remove(&(top - 1));
+        self.entries.remove(&(top - 2));
     }
 
     /// The top slot was overwritten in place (a property read replaces its
@@ -1470,7 +1499,8 @@ fn dead_local_stores(
     instructions: &[Instruction],
     gate: bool,
 ) -> HashSet<u32> {
-    analysis.dead_local_stores(instructions, gate)
+    analysis
+        .dead_local_stores(instructions, gate)
         .into_iter()
         .collect()
 }
@@ -1571,6 +1601,7 @@ fn lower(
         cse_regs: HashMap::new(),
         locals: LocalCache::new(locals_cacheable, args_cacheable),
         const_meta: &verified.snapshot().const_meta,
+        barrier_sig: barrier_sig(b, helper_sig),
     };
     let entry_block = state.block_for(b, 0);
     if osr_pcs.is_empty() {
@@ -2238,10 +2269,14 @@ fn lower_insn(
         }
         "get_array_el" | "get_array_el2" | "get_array_el3" | "put_array_el" => {
             // P1-1: the read from a packed array with an integer index is
-            // inlined (the guard + the load). The write and the other two
-            // read shapes keep the helper.
+            // inlined (the guard + the load), and so is the write into one
+            // (the guard + the store). The other two read shapes keep the
+            // helper.
             if name == "get_array_el" {
                 return lower_get_array_el_fast(state, b, fv, helper_sig, sp_var, sp, insn);
+            }
+            if name == "put_array_el" {
+                return lower_put_array_el_fast(state, b, fv, helper_sig, sp_var, sp, insn);
             }
             // The site index rides in `imm2` (array element keys are runtime
             // values, so the cached property atom lives in the cache entry).
@@ -3325,6 +3360,189 @@ fn lower_get_array_el_fast(
     Step::Continue(b.use_var(sp_var))
 }
 
+/// The write barrier's helper signature: `(frame, owner, value)`. The helper
+/// takes its arguments directly, so it needs no operand-stack shape and no
+/// status — the barrier cannot fail.
+fn barrier_sig(
+    b: &mut FunctionBuilder,
+    helper_sig: cranelift_codegen::ir::SigRef,
+) -> cranelift_codegen::ir::SigRef {
+    let conv = b.func.dfg.signatures[helper_sig].call_conv;
+    let mut sig = Signature::new(conv);
+    sig.params.push(AbiParam::new(types::I64));
+    sig.params.push(AbiParam::new(types::I64));
+    sig.params.push(AbiParam::new(types::I64));
+    b.import_signature(sig)
+}
+
+/// P1-1 (the write half): the inline fast path for `put_array_el` — a store
+/// into a **packed** array with an **integer** index.
+///
+/// The guard mirrors the engine's own fast write
+/// (`ObjectImpl::set_property_u32_internal`): the key's tag (`Int`), the
+/// target's tag (`Object`), the target's class (a plain `Array` or an
+/// `arguments` object), the fast-array flag, the extensibility of a plain
+/// array, and the index against the array's length. Everything else — a
+/// dictionary array, a float or string key, a negative index, a store that
+/// grows the array, a typed array, a frozen array — falls back to the helper,
+/// which owns the full semantics.
+///
+/// A stored value that references a GC node needs the collector's write
+/// barrier (a black array pointing at a white value would let the collector
+/// sweep the value away). The generated code checks the value's tag and calls
+/// [`h_gc_bind`](super::abi::h_gc_bind) for the rest — the barrier is the
+/// collector's business, not the generated code's.
+fn lower_put_array_el_fast(
+    state: &mut State,
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    helper_sig: cranelift_codegen::ir::SigRef,
+    sp_var: Variable,
+    sp: Value,
+    insn: &Instruction,
+) -> Step {
+    let pc_after = insn.pc() + insn.size() as u32;
+    let top = state.stack.height;
+    let array = state.stack.read(b, sp, top - 2);
+    let prop = state.stack.read(b, sp, top - 1);
+    let value = state.stack.read(b, sp, top);
+
+    // The key must be an `Int`: the tag is 0 in the high 16 bits.
+    let prop_tag = b.ins().ushr_imm(prop, 48);
+    let prop_is_int = b.ins().icmp_imm(IntCC::Equal, prop_tag, 0);
+    // The target must be an object: the tag is -1, i.e. 0xffff. The checks
+    // come before any load, so a non-object value is never dereferenced.
+    let array_tag = b.ins().ushr_imm(array, 48);
+    let array_is_object = b.ins().icmp_imm(IntCC::Equal, array_tag, 0xffff);
+    let guard = b.ins().band(prop_is_int, array_is_object);
+
+    let fast = b.create_block();
+    let slow = b.create_block();
+    let cont = b.create_block();
+    // The paths leave different stack pointers behind (the fast path pops the
+    // three operands itself, the helper pops them in the frame), so the
+    // continuation carries it.
+    b.append_block_param(cont, types::I64);
+    // The operands stay in registers on the fast path; the helper's own
+    // preamble flushes them on the slow path.
+    state.stack.flush_except(b, sp, &[top - 2, top - 1, top]);
+    b.ins().brif(guard, fast, &[], slow, &[]);
+
+    b.switch_to_block(fast);
+    // The object's pointer: the low 48 bits of the tagged value.
+    let obj = b.ins().band_imm(array, 0x0000_ffff_ffff_ffff);
+    // Its flags word: the class id, the fast-array bit and the extensible bit.
+    let flags = b
+        .ins()
+        .load(types::I32, MemFlags::new(), obj, jit_layout::FLAGS_OFFSET);
+    // The class id and the fast-array bit, read together: a fast plain `Array`
+    // is `fast | Array`, a fast `arguments` object is `fast | Arguments`. One
+    // masked word and two compares cover both shapes — and a target that is
+    // neither (a typed array, a plain object) leaves after them, without
+    // touching the rest of the flags.
+    let class_and_fast = b.ins().band_imm(flags, WRITE_CLASS_MASK);
+    let is_array = b
+        .ins()
+        .icmp_imm(IntCC::Equal, class_and_fast, WRITE_ARRAY_FLAGS);
+    let is_arguments = b
+        .ins()
+        .icmp_imm(IntCC::Equal, class_and_fast, WRITE_ARGUMENTS_FLAGS);
+    let elemented = b.ins().bor(is_array, is_arguments);
+    // A target that is neither leaves here — a typed array or a plain object
+    // never reaches the flags' remaining bits.
+    let elemented_blk = b.create_block();
+    b.ins().brif(elemented, elemented_blk, &[], slow, &[]);
+
+    b.switch_to_block(elemented_blk);
+    // The engine's fast write into a plain array only runs on an extensible
+    // one (a frozen or sealed array goes through the slow path, which throws
+    // in strict mode). The guard asks for an extensible `arguments` object
+    // too: a stricter guard only means the helper answers it, with the same
+    // result.
+    let ext_bit = b.ins().ushr_imm(flags, i64::from(WRITE_EXTENSIBLE_SHIFT));
+    let is_extensible = b.ins().icmp_imm(IntCC::NotEqual, ext_bit, 0);
+    let check = b.create_block();
+    b.ins().brif(is_extensible, check, &[], slow, &[]);
+
+    b.switch_to_block(check);
+    // The payload is only read once the class says it is an array: a plain
+    // object has no payload, and reading it would be a wild load.
+    let payload = b
+        .ins()
+        .load(types::I64, MemFlags::new(), obj, jit_layout::PAYLOAD_OFFSET);
+    let data = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        payload,
+        ArrayPayload::elements_data_offset(),
+    );
+    let len = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        payload,
+        ArrayPayload::elements_len_offset(),
+    );
+    // The index: an `Int` payload is the low 32 bits. A negative index
+    // becomes a huge unsigned value and fails the bounds check.
+    let index = b.ins().band_imm(prop, 0xffff_ffff);
+    let len64 = b.ins().uextend(types::I64, len);
+    let in_bounds = b.ins().icmp(IntCC::UnsignedLessThan, index, len64);
+    // A fast array always has a payload, but the engine checks it before the
+    // write, so the guard does too: a null payload would be a wild load.
+    let has_payload = b.ins().icmp_imm(IntCC::NotEqual, payload, 0);
+    let store_ok = b.ins().band(has_payload, in_bounds);
+    let store = b.create_block();
+    b.ins().brif(store_ok, store, &[], slow, &[]);
+
+    b.switch_to_block(store);
+    // The element's address: `data + index * 8`.
+    let offset = b.ins().imul_imm(index, 8);
+    let addr = b.ins().iadd(data, offset);
+    b.ins().store(MemFlags::new(), value, addr, 0);
+    // The three operands are gone; the stack pointer drops with them.
+    let sp_next = b.ins().iadd_imm(sp, -24);
+    // The collector's write barrier: only a value that references a GC node
+    // needs it. The pointer tags are 0xfff8..=0xffff (`Object` .. `Symbol`).
+    let value_tag = b.ins().ushr_imm(value, 48);
+    let needs_bind = b
+        .ins()
+        .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, value_tag, GC_NODE_TAG);
+    let bind = b.create_block();
+    b.ins().brif(needs_bind, bind, &[], cont, &[sp_next]);
+
+    b.switch_to_block(bind);
+    // `h_gc_bind(frame, owner, value)`: the barrier itself is the collector's
+    // business, so it stays in Rust.
+    let callee = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        fv.helpers,
+        (HELPER_GC_BIND * 8) as i32,
+    );
+    let barrier_sig = state.barrier_sig;
+    b.ins()
+        .call_indirect(barrier_sig, callee, &[fv.frame, obj, value]);
+    b.ins().jump(cont, &[sp_next]);
+
+    b.switch_to_block(slow);
+    // The site index rides in `imm2` (array element keys are runtime values,
+    // so the cached property atom lives in the cache entry).
+    #[cfg(feature = "inline_cache")]
+    {
+        let ic = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
+        b.ins().store(MemFlags::new(), ic, fv.frame, O_IMM2);
+    }
+    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_PUT_ARRAY_EL, pc_after);
+    b.ins().jump(cont, &[sp_slow]);
+
+    b.switch_to_block(cont);
+    // The three operands are gone, and nothing replaces them.
+    state.stack.consumed_ternary();
+    let sp_next = b.block_params(cont)[0];
+    b.def_var(sp_var, sp_next);
+    Step::Continue(b.use_var(sp_var))
+}
+
 /// P1-1 (the property half): the inline fast path for `get_field` — the read
 /// of an own **data** property.
 ///
@@ -3384,21 +3602,38 @@ fn lower_get_field_fast(
     // and the slot the property was in. The sites live in the frame: the guard
     // reads them per access, so the load stays out of the entry block (which
     // every compiled function pays for).
-    let ic_sites = b.ins().load(types::I64, MemFlags::new(), fv.frame, O_IC_SITES);
-    let site = b.ins().iadd_imm(
-        ic_sites,
-        i64::from(ic_index(insn)) * ic_layout::SITE_SIZE,
+    let ic_sites = b
+        .ins()
+        .load(types::I64, MemFlags::new(), fv.frame, O_IC_SITES);
+    let site = b
+        .ins()
+        .iadd_imm(ic_sites, i64::from(ic_index(insn)) * ic_layout::SITE_SIZE);
+    let way_shape = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        site,
+        ic_layout::SHAPE_PTR_OFFSET,
     );
-    let way_shape = b.ins().load(types::I64, MemFlags::new(), site, ic_layout::SHAPE_PTR_OFFSET);
-    let way_uid = b.ins().load(types::I32, MemFlags::new(), site, ic_layout::SHAPE_UID_OFFSET);
-    let way_slot = b.ins().load(types::I32, MemFlags::new(), site, ic_layout::SLOT_OFFSET);
+    let way_uid = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        site,
+        ic_layout::SHAPE_UID_OFFSET,
+    );
+    let way_slot = b
+        .ins()
+        .load(types::I32, MemFlags::new(), site, ic_layout::SLOT_OFFSET);
     // The object's pointer: the low 48 bits of the tagged value.
     let obj = b.ins().band_imm(target, 0x0000_ffff_ffff_ffff);
     // The object's shape: the GC node pointer. An object without a shape has
     // no own properties, so it cannot match a recorded shape.
-    let shape_node = b.ins().load(types::I64, MemFlags::new(), obj, jit_layout::SHAPE_OFFSET);
+    let shape_node = b
+        .ins()
+        .load(types::I64, MemFlags::new(), obj, jit_layout::SHAPE_OFFSET);
     // The inline cache records the shape's *payload* pointer.
-    let shape_payload = b.ins().iadd_imm(shape_node, i64::from(jit_layout::SHAPE_PAYLOAD_OFFSET));
+    let shape_payload = b
+        .ins()
+        .iadd_imm(shape_node, i64::from(jit_layout::SHAPE_PAYLOAD_OFFSET));
     // The way must have seen a shape (an empty way holds a null pointer), and
     // it must be the object's shape.
     let used = b.ins().icmp_imm(IntCC::NotEqual, way_shape, 0);
@@ -3411,7 +3646,12 @@ fn lower_get_field_fast(
     // The shape's id: the second half of the cache key. A shape's memory can
     // be reused by another shape, and only the id tells them apart. The shape
     // matched a recorded one, so it is a live shape and the id is safe to read.
-    let shape_uid = b.ins().load(types::I32, MemFlags::new(), shape_node, jit_layout::SHAPE_UID_OFFSET);
+    let shape_uid = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        shape_node,
+        jit_layout::SHAPE_UID_OFFSET,
+    );
     let same_uid = b.ins().icmp(IntCC::Equal, way_uid, shape_uid);
 
     // ── The typed array's `length` ────────────────────────────────────
@@ -3429,7 +3669,9 @@ fn lower_get_field_fast(
         // slot) or a typed array's `length` (the property lives on the
         // prototype, so the entry caches the shape that owns it instead).
         let ordinary = b.create_block();
-        let way_flags = b.ins().load(types::I8, MemFlags::new(), site, ic_layout::FLAGS_OFFSET);
+        let way_flags = b
+            .ins()
+            .load(types::I8, MemFlags::new(), site, ic_layout::FLAGS_OFFSET);
         let is_ta_length = {
             let kind_bit = b.ins().band_imm(
                 way_flags,
@@ -3467,15 +3709,42 @@ fn lower_get_field_fast(
 
         b.switch_to_block(kind_block);
         // The id of the shape that owns `length` in the chain.
-        let way_owner = b.ins().load(types::I32, MemFlags::new(), site, ic_layout::PROP_OFFSET);
+        let way_owner = b
+            .ins()
+            .load(types::I32, MemFlags::new(), site, ic_layout::PROP_OFFSET);
         // The chain: the instance's shape's prototype (the typed array's own
         // prototype) and its prototype's prototype (`%TypedArray%.prototype`),
         // which owns the `length` getter.
-        let proto1 = b.ins().load(types::I64, MemFlags::new(), shape_node, jit_layout::SHAPE_PROTO_OFFSET);
-        let proto1_shape = b.ins().load(types::I64, MemFlags::new(), proto1, jit_layout::SHAPE_OFFSET);
-        let proto2 = b.ins().load(types::I64, MemFlags::new(), proto1_shape, jit_layout::SHAPE_PROTO_OFFSET);
-        let proto2_shape = b.ins().load(types::I64, MemFlags::new(), proto2, jit_layout::SHAPE_OFFSET);
-        let owner_uid = b.ins().load(types::I32, MemFlags::new(), proto2_shape, jit_layout::SHAPE_UID_OFFSET);
+        let proto1 = b.ins().load(
+            types::I64,
+            MemFlags::new(),
+            shape_node,
+            jit_layout::SHAPE_PROTO_OFFSET,
+        );
+        let proto1_shape = b.ins().load(
+            types::I64,
+            MemFlags::new(),
+            proto1,
+            jit_layout::SHAPE_OFFSET,
+        );
+        let proto2 = b.ins().load(
+            types::I64,
+            MemFlags::new(),
+            proto1_shape,
+            jit_layout::SHAPE_PROTO_OFFSET,
+        );
+        let proto2_shape = b.ins().load(
+            types::I64,
+            MemFlags::new(),
+            proto2,
+            jit_layout::SHAPE_OFFSET,
+        );
+        let owner_uid = b.ins().load(
+            types::I32,
+            MemFlags::new(),
+            proto2_shape,
+            jit_layout::SHAPE_UID_OFFSET,
+        );
         let same_owner = b.ins().icmp(IntCC::Equal, way_owner, owner_uid);
         let chain_ok = b.create_block();
         b.ins().brif(same_owner, chain_ok, &[], slow, &[]);
@@ -3484,8 +3753,15 @@ fn lower_get_field_fast(
         // The view's element count, and the "out of bounds" flag: a view whose
         // resizable buffer was shrunk past its end reports a length of 0 (the
         // same rule the engine's getter uses).
-        let payload = b.ins().load(types::I64, MemFlags::new(), obj, jit_layout::PAYLOAD_OFFSET);
-        let count = b.ins().load(types::I32, MemFlags::new(), payload, ta_layout::COUNT_OFFSET);
+        let payload = b
+            .ins()
+            .load(types::I64, MemFlags::new(), obj, jit_layout::PAYLOAD_OFFSET);
+        let count = b.ins().load(
+            types::I32,
+            MemFlags::new(),
+            payload,
+            ta_layout::COUNT_OFFSET,
+        );
         let out_of_bounds = b.ins().load(
             types::I8,
             MemFlags::new(),
@@ -3499,9 +3775,12 @@ fn lower_get_field_fast(
         let value = b.ins().uextend(types::I64, len);
         b.ins().store(MemFlags::new(), value, sp, -8);
         // P1-1 instrumentation: the guard answered this read on its own.
-        let hits = b.ins().load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_HITS);
+        let hits = b
+            .ins()
+            .load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_HITS);
         let hits = b.ins().iadd_imm(hits, 1);
-        b.ins().store(MemFlags::new(), hits, fv.frame, O_PROPERTY_HITS);
+        b.ins()
+            .store(MemFlags::new(), hits, fv.frame, O_PROPERTY_HITS);
         b.def_var(sp_var, sp);
         b.ins().jump(cont, &[]);
         Some(ordinary)
@@ -3515,7 +3794,12 @@ fn lower_get_field_fast(
     }
     // The slot the way recorded must be inside the object's slots.
     let slot = b.ins().uextend(types::I64, way_slot);
-    let count = b.ins().load(types::I32, MemFlags::new(), obj, jit_layout::PROP_LEN_OFFSET);
+    let count = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        obj,
+        jit_layout::PROP_LEN_OFFSET,
+    );
     let count64 = b.ins().uextend(types::I64, count);
     let in_range = b.ins().icmp(IntCC::UnsignedLessThan, slot, count64);
     // Both must hold before the slot is read: the shape says *which* slot, the
@@ -3526,14 +3810,23 @@ fn lower_get_field_fast(
 
     b.switch_to_block(value_ok);
     // The property slots themselves.
-    let slots = b.ins().load(types::I64, MemFlags::new(), obj, jit_layout::PROP_DATA_OFFSET);
+    let slots = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        obj,
+        jit_layout::PROP_DATA_OFFSET,
+    );
     // The slot: its tag first, then the value it holds.
     let addr = {
         let offset = b.ins().imul_imm(slot, JSProperty::slot_size());
         b.ins().iadd(slots, offset)
     };
-    let slot_tag = b.ins().load(types::I8, MemFlags::new(), addr, JSProperty::tag_offset());
-    let is_data = b.ins().icmp_imm(IntCC::Equal, slot_tag, i64::from(PROP_TAG_NORMAL));
+    let slot_tag = b
+        .ins()
+        .load(types::I8, MemFlags::new(), addr, JSProperty::tag_offset());
+    let is_data = b
+        .ins()
+        .icmp_imm(IntCC::Equal, slot_tag, i64::from(PROP_TAG_NORMAL));
     let read_ok = b.create_block();
     b.ins().brif(is_data, read_ok, &[], slow, &[]);
 
@@ -3547,9 +3840,12 @@ fn lower_get_field_fast(
     // The result takes the target's place.
     b.ins().store(MemFlags::new(), value, sp, -8);
     // P1-1 instrumentation: the guard answered this read on its own.
-    let hits = b.ins().load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_HITS);
+    let hits = b
+        .ins()
+        .load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_HITS);
     let hits = b.ins().iadd_imm(hits, 1);
-    b.ins().store(MemFlags::new(), hits, fv.frame, O_PROPERTY_HITS);
+    b.ins()
+        .store(MemFlags::new(), hits, fv.frame, O_PROPERTY_HITS);
     // The stack height does not change, but the variable must be defined on
     // *both* paths: the merge block takes it from there, and a path that left
     // it undefined would hand the merge a stale pointer.
@@ -3558,9 +3854,12 @@ fn lower_get_field_fast(
 
     b.switch_to_block(slow);
     // P1-1 instrumentation: the guard handed this read back to the helper.
-    let misses = b.ins().load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_MISSES);
+    let misses = b
+        .ins()
+        .load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_MISSES);
     let misses = b.ins().iadd_imm(misses, 1);
-    b.ins().store(MemFlags::new(), misses, fv.frame, O_PROPERTY_MISSES);
+    b.ins()
+        .store(MemFlags::new(), misses, fv.frame, O_PROPERTY_MISSES);
     // The helper does the full lookup: the atom rides in `imm`, the site
     // index in `imm2`.
     let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));

@@ -21,9 +21,11 @@ use crate::{
         BCWrapper, CallContext, JS_CALL_FLAG_CONSTRUCTOR, VarRef, js_build_arguments,
         js_build_mapped_arguments, js_function_apply,
     },
+    gc::GcHeapExt,
     object::{JSProperty, Object, ThrowPolicy},
     vm_stack::{FrameIndex, VmStack},
 };
+use gc_lite::GcHead;
 
 /// Status returned by the stack helpers: `0` is success, `1`/`2` exit the
 /// native frame with `JitExitKind::Exception`/`Interrupt`, and any other value
@@ -875,6 +877,34 @@ unsafe extern "C" fn h_put_array_el(f: *mut JitExecFrame) -> u32 {
         } else {
             HELPER_OK
         }
+    }
+}
+
+/// P1-1 (the write half): the collector's write barrier for the inline
+/// `put_array_el`.
+///
+/// The generated code stored a value into an array's elements. When that value
+/// references a GC node, the tri-color barrier has to run: a black master (the
+/// array) pointing at a white slave (the value) would let the collector sweep
+/// the value away. `gc_lite`'s `bind` owns that (and the cross-partition
+/// bookkeeping), so the generated code only checks the value's tag and leaves
+/// the rest to this helper.
+///
+/// `owner` is the array's GC node pointer (the low 48 bits of the target's
+/// `JSValue`), `value` the value that was stored.
+pub(crate) unsafe extern "C" fn h_gc_bind(f: *mut JitExecFrame, owner: u64, value: JSValue) {
+    unsafe {
+        // A value that references no node (a number, a symbol with a constant
+        // atom) needs no barrier.
+        if value.as_gc_node().is_none() {
+            return;
+        }
+        let Some(master) = std::ptr::NonNull::new(owner as *mut GcHead) else {
+            return;
+        };
+        let scope = scope_of(&*f);
+        let mut rt = scope.rt_ptr();
+        rt.gc_heap_mut().bind_value(master, &value);
     }
 }
 
@@ -2080,11 +2110,7 @@ unsafe extern "C" fn h_get_ref_value(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
         let sp = f.sp;
-        match crate::bytecode::ref_ops::get_ref_value(
-            scope_of(f),
-            *sp.offset(-2),
-            *sp.offset(-1),
-        ) {
+        match crate::bytecode::ref_ops::get_ref_value(scope_of(f), *sp.offset(-2), *sp.offset(-1)) {
             Ok(value) => {
                 *sp = value;
                 f.sp = sp.add(1);
@@ -2421,7 +2447,7 @@ unsafe extern "C" fn h_apply(f: *mut JitExecFrame) -> u32 {
 }
 
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 119;
+pub(crate) const HELPER_COUNT: usize = 120;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -2634,6 +2660,9 @@ pub(crate) const HELPER_CALL_METHOD: usize = 116;
 pub(crate) const HELPER_CALL_CONSTRUCTOR: usize = 117;
 /// Index of [`h_apply`].
 pub(crate) const HELPER_APPLY: usize = 118;
+/// Index of [`h_gc_bind`], called with the barrier's own signature
+/// (`frame`, owner node, stored value).
+pub(crate) const HELPER_GC_BIND: usize = 119;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -2761,4 +2790,5 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_call_method as *const (),
     h_call_constructor as *const (),
     h_apply as *const (),
+    h_gc_bind as *const (),
 ]);

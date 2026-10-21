@@ -274,3 +274,180 @@ fn an_array_read_runs_natively() {
     assert!(m.functions_compiled > 0, "nothing compiled: {m:?}");
     assert!(m.native_entries > 0, "nothing ran natively: {m:?}");
 }
+
+/// The scripts whose results must not change when the **write** is inlined.
+///
+/// Each case defines a function and calls it once (the warm-up: the JIT
+/// compiles it then), and the *observed* call is the second one — that one
+/// runs natively, so the store really goes through the inline guard.
+///
+/// The inline store answers a packed array with an integer index; everything
+/// else — a dictionary array, a float or string key, a negative index, a
+/// store that grows the array, a frozen or sealed array, a typed array, a
+/// plain object — goes through the helper, which owns the full semantics.
+const PUT_CASES: &[(&str, &str)] = &[
+    // The guard hits: an in-bounds store into a packed array.
+    (
+        "packed",
+        "function f(){ var a = [10, 20, 30]; a[1] = 99; return a.join(','); } f();",
+    ),
+    // The store grows the array (the index is the length): the helper owns it.
+    (
+        "append",
+        "function f(){ var a = [1, 2]; a[2] = 3; return a.join(','); } f();",
+    ),
+    // A store past the end makes a hole: the helper owns it.
+    (
+        "sparse",
+        "function f(){ var a = [1, 2]; a[5] = 9; return a.join(','); } f();",
+    ),
+    // A negative index is not an index at all.
+    (
+        "negative",
+        "function f(){ var a = [1, 2, 3]; a[-1] = 7; return a.join(','); } f();",
+    ),
+    // A float key that is integral.
+    (
+        "float_key",
+        "function f(){ var a = [1, 2, 3]; a[1.0] = 7; return a.join(','); } f();",
+    ),
+    // A string key.
+    (
+        "string_key",
+        "function f(){ var a = [1, 2, 3]; a['1'] = 7; return a.join(','); } f();",
+    ),
+    // A plain object with numeric keys.
+    (
+        "plain_object",
+        "function f(){ var o = { 0: 7, 1: 8 }; o[1] = 42; return o[1]; } f();",
+    ),
+    // A typed array: a different class, and a different element width.
+    (
+        "typed_array",
+        "function f(){ var t = new Int32Array(4); t[1] = 5; return t[1]; } f();",
+    ),
+    (
+        "typed_clamped",
+        "function f(){ var t = new Uint8ClampedArray(4); t[1] = 250; return t[1]; } f();",
+    ),
+    // A frozen array: the store is rejected (silently in sloppy mode).
+    (
+        "frozen",
+        "function f(){ var a = Object.freeze([4, 5, 6]); a[2] = 7; return a.join(','); } f();",
+    ),
+    // A frozen array in strict mode: the store throws.
+    (
+        "frozen_strict",
+        "function f(){ 'use strict'; var a = Object.freeze([4, 5, 6]); a[2] = 7; return a.join(','); } try { f(); } catch (e) {}",
+    ),
+    // A sealed array: the elements stay writable, but the guard must not
+    // answer it (the engine's fast write only runs on an extensible array).
+    (
+        "sealed",
+        "function f(){ var a = Object.seal([4, 5, 6]); a[2] = 7; return a.join(','); } f();",
+    ),
+    // A hole: the array is not fast any more, the helper takes over.
+    (
+        "holey",
+        "function f(){ var a = [1, 2, 3]; delete a[1]; a[1] = 8; return a.join(','); } f();",
+    ),
+    // A store of a reference: the value needs the collector's write barrier.
+    (
+        "object_value",
+        "function f(){ var a = [1, 2]; a[0] = { tag: 'kept' }; return a[0].tag; } f();",
+    ),
+    // A store of a string: a reference as well.
+    (
+        "string_value",
+        "function f(){ var a = [1, 2]; a[0] = 'hello'; return a[0]; } f();",
+    ),
+    // A store of `undefined` / `null`.
+    (
+        "other_values",
+        "function f(){ var a = [1, 2]; a[0] = undefined; a[1] = null; return a.join(','); } f();",
+    ),
+    // The array's length was rewritten: the elements are the ones that are
+    // left.
+    (
+        "length_rewritten",
+        "function f(){ var a = [1, 2, 3]; a.length = 2; a[0] = 9; return a.join(','); } f();",
+    ),
+    // A prototype that owns the index: the store must not reach it.
+    (
+        "prototype_index",
+        "function f(){ var a = [1, 2]; var p = { 5: 99 }; Object.setPrototypeOf(a, p); a[5] = 7; return a[5]; } f();",
+    ),
+    // A setter on the prototype: the guard must not bypass it.
+    (
+        "prototype_setter",
+        "function f(){ var a = [1, 2]; Object.defineProperty(Object.getPrototypeOf(a), '9', { set: function(v){ this.got = v; } }); a[9] = 7; return a.got; } f();",
+    ),
+    // The store and the read of the same element, in a loop: the two inline
+    // paths have to see each other.
+    (
+        "write_then_read",
+        "function f(){ var a = [0, 0, 0]; for (var i = 0; i < 8; i++) { a[i % 3] = i; } return a.join(','); } f();",
+    ),
+];
+
+/// The inline store must not change any result: every mode agrees with the
+/// interpreter, bit for bit.
+#[test]
+fn the_inline_store_keeps_every_result() {
+    for (label, setup) in PUT_CASES {
+        let main = "f();";
+        let (expected, _) = run(Mode::Interpreter, setup, main);
+        for mode in MODES {
+            let (got, metrics) = run(mode, setup, main);
+            assert_eq!(
+                got, expected,
+                "{label}: {mode:?} disagrees with the interpreter"
+            );
+            if mode != Mode::Interpreter {
+                assert!(
+                    metrics.functions_compiled > 0,
+                    "{label}: {mode:?} compiled nothing"
+                );
+            }
+        }
+    }
+}
+
+/// A store of a reference must be visible to the collector: the value lives
+/// in the array's elements, and the array is what keeps it alive. The store
+/// happens between two rounds of allocations, so it can land in a marking
+/// phase — which is exactly when the write barrier matters.
+#[test]
+fn a_stored_reference_survives_the_collector() {
+    let setup = "\
+        function f(){ \
+          var a = [1, 2, 3]; \
+          for (var i = 0; i < 5000; i++) { var before = { i: i }; } \
+          a[1] = { tag: 'kept' }; \
+          for (var i = 0; i < 5000; i++) { var after = { i: i, s: 'x' + i }; } \
+          return a[1].tag; \
+        } f();";
+    let main = "f();";
+    let (expected, _) = run(Mode::Interpreter, setup, main);
+    assert_eq!(expected, "str:kept", "unexpected: {expected}");
+    for mode in MODES {
+        let (got, _) = run(mode, setup, main);
+        assert_eq!(got, expected, "{mode:?} disagrees with the interpreter");
+    }
+}
+
+/// The `arguments` object carries its elements in the same array payload, so
+/// the store guard covers it too.
+#[test]
+fn the_arguments_object_is_written_inline() {
+    let setup = "function f(a){ arguments[0] = 99; return a + arguments[0]; } f(1);";
+    let main = "f(20);";
+    let (expected, _) = run(Mode::Interpreter, setup, main);
+    for mode in MODES {
+        let (got, metrics) = run(mode, setup, main);
+        assert_eq!(got, expected, "{mode:?} disagrees with the interpreter");
+        if mode != Mode::Interpreter {
+            assert!(metrics.functions_compiled > 0, "{mode:?} compiled nothing");
+        }
+    }
+}

@@ -186,6 +186,17 @@ const KERNELS: &[Kernel] = &[
                    return s; } workload(0, values);",
         work: "workload(7, values);",
     },
+    // The write half of the array element access (P1-1): a packed array is
+    // written in the loop — the inline store — and the values are read back
+    // once, so the kernel measures the store and not the read.
+    Kernel {
+        name: "array-store",
+        define: "var store = new Array(1024); \
+                 function workload(iterations, seed){ var s = seed; \
+                   for (var i = 0; i < iterations; i++){ store[i & 1023] = (i * 17) & 0xffff; } \
+                   return s + store[0]; } workload(10, 1);",
+        work: "workload(2000000, 1);",
+    },
     // scalar-control-flow.js: both branch exits establish numeric values whose
     // join feeds the same multiply.
     Kernel {

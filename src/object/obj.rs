@@ -62,6 +62,10 @@ mod tests {
             jit_layout::FAST_ARRAY_MASK,
             i64::from(ObjectFlags::MASK_FAST_ARRAY)
         );
+        assert_eq!(
+            jit_layout::EXTENSIBLE_MASK,
+            i64::from(ObjectFlags::MASK_EXTENSIBLE)
+        );
     }
 }
 
@@ -327,6 +331,10 @@ pub(crate) mod jit_layout {
     pub(crate) const CLASS_ID_MASK: i64 = 0x0000_FFFF;
     /// The fast-array flag (bit 28 of the flags word).
     pub(crate) const FAST_ARRAY_MASK: i64 = 0x1000_0000;
+    /// The extensible flag (bit 31 of the flags word). The engine's fast write
+    /// into a plain array only runs on an extensible one, so the write guard
+    /// checks it too.
+    pub(crate) const EXTENSIBLE_MASK: i64 = 0x8000_0000;
     /// The offset of the property slots' data pointer.
     pub(crate) const PROP_DATA_OFFSET: i32 = (NODE_TO_OBJECT
         + std::mem::offset_of!(ObjectImpl, prop_view)
@@ -343,18 +351,17 @@ pub(crate) mod jit_layout {
     pub(crate) const SHAPE_PAYLOAD_OFFSET: i32 =
         gc_lite::gctype::payload_offset_of::<ShapeImpl>() as i32;
     /// The offset of a shape's unique id, from the shape's GC node pointer.
-    pub(crate) const SHAPE_UID_OFFSET: i32 =
-        (gc_lite::gctype::payload_offset_of::<ShapeImpl>()
-            + std::mem::offset_of!(ShapeImpl, uid)) as i32;
+    pub(crate) const SHAPE_UID_OFFSET: i32 = (gc_lite::gctype::payload_offset_of::<ShapeImpl>()
+        + std::mem::offset_of!(ShapeImpl, uid)) as i32;
     /// The offset of a shape's prototype (a GC node pointer; null when the
     /// shape has no prototype).
     ///
     /// The typed array's `length` lives on the prototype, so the guard walks
     /// the chain from the shape to check that the prototype that owns
     /// `length` is still the one the inline cache recorded.
-    pub(crate) const SHAPE_PROTO_OFFSET: i32 =
-        (gc_lite::gctype::payload_offset_of::<ShapeImpl>()
-            + std::mem::offset_of!(ShapeImpl, proto)) as i32;
+    pub(crate) const SHAPE_PROTO_OFFSET: i32 = (gc_lite::gctype::payload_offset_of::<ShapeImpl>()
+        + std::mem::offset_of!(ShapeImpl, proto))
+        as i32;
 }
 
 impl ObjectImpl {

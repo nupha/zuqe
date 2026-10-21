@@ -247,6 +247,17 @@ const CASES: &[SemCase] = sem_cases! {
         "f(400)",
         "'dic:' + f(3) + ',' + f(0)";
 
+    // ── the inline array store (P1-1's write half): a packed array with an
+    //    integer index is written in the generated code. The shapes that must
+    //    fall back to the helper (a store that grows the array, a frozen
+    //    array, a dictionary array, a float key) must stay tag-exact, and the
+    //    store and the read have to see each other ──
+    inline_array_store => Compiles =
+        "var __seed = 0; function f(n){ var __z = 0; var a = [0,0,0,0]; for (var i = 0; i < n; i++) { a[i & 3] = (a[i & 3] + i) & 1023; } var b = [1,2]; b[2] = 3; var c = Object.freeze([1,2]); c[0] = 9; var d = [1,2,3]; delete d[1]; d[1] = 8; var e = [1,2]; e[1.0] = 4; return a.join(',') + '|' + b.join(',') + '|' + c.join(',') + '|' + d.join(',') + '|' + e.join(','); }",
+        "f(4)",
+        "f(400)",
+        "'as:' + f(3) + ',' + f(0)";
+
     // ── cross-block operand stack residency (epic F4 step 2): short-circuit
     //    and ternary joins leave a merged slot on the operand stack, which the
     //    join block must read exactly like the interpreter does. The values
