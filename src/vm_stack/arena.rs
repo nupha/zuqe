@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::collections::HashMap;
-
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
@@ -10,8 +8,8 @@ use crate::{
     config::VM_STACK_LIMIT_DEFAULT,
     context::ScopedContext,
     function::VarRef,
-    vm_stack::{AsyncStackFrame, ExecMode, FrameBuffer, FrameIndex, FrameState, StackFrame},
     value::JSValue,
+    vm_stack::{AsyncStackFrame, ExecMode, FrameBuffer, FrameIndex, FrameState, StackFrame},
 };
 
 /// Bump-allocator frame storage.
@@ -49,11 +47,15 @@ pub(crate) struct VmStack {
     /// running out of host memory.
     vm_stack_limit: usize,
 
-    /// Closure variable references keyed by frame index.
-    /// Only frames with closure captures have entries here;
-    /// most frames never pay the cost.
+    /// Closure variable references, indexed by frame index.
+    /// Only frames with closure captures have a non-empty entry; most frames
+    /// never pay the cost.
+    ///
+    /// A vector, not a hash map: the frame index *is* the slot, and the map
+    /// was looked up on **every** frame allocation and release (a hash per
+    /// call, on the JIT's call path too).
     /// Access via `var_refs_or_default` / `try_var_refs_mut` / `has_var_refs`.
-    var_ref_map: HashMap<FrameIndex, Vec<VarRef>>,
+    var_refs: Vec<Vec<VarRef>>,
 
     #[cfg(debug_assertions)]
     pub(crate) stats_bump: usize,
@@ -81,7 +83,7 @@ impl VmStack {
             heap_buf_cache: Vec::new(),
             live_heap_bytes: 0,
             vm_stack_limit: VM_STACK_LIMIT_DEFAULT,
-            var_ref_map: HashMap::new(),
+            var_refs: Vec::new(),
 
             #[cfg(debug_assertions)]
             stats_bump: 0,
@@ -203,7 +205,7 @@ impl VmStack {
         debug_assert_eq!(self.frames[idx.0 as usize].state, FrameState::Active);
 
         // Clean up any closure var refs associated with this frame.
-        self.var_ref_map.remove(&idx);
+        self.clear_var_refs(idx);
 
         if idx.0 as usize == self.frames.len() - 1 {
             let head = self.frames.pop().unwrap();
@@ -336,6 +338,10 @@ impl VmStack {
         let idx_usize = idx.0 as usize;
         let is_last = idx_usize == self.frames.len() - 1;
 
+        // Migrate the closure VarRefs out of the arena's slot (before the
+        // frame borrow: the two live in the same struct).
+        let mut var_refs = self.take_var_refs(idx);
+
         let head = &mut self.frames[idx_usize];
         debug_assert_eq!(head.state, FrameState::Active);
         debug_assert!(
@@ -351,9 +357,6 @@ impl VmStack {
             FrameBuffer::Heap(b) => b,
             _ => unreachable!("Async frame must be Heap"),
         };
-
-        // Migrate closure VarRefs out of the arena's map.
-        let mut var_refs = self.var_ref_map.remove(&idx).unwrap_or_default();
 
         let arg_base = head.arg_base_offset;
         let var_base = head.var_base_offset;
@@ -395,7 +398,7 @@ impl VmStack {
 
         // Re-insert closure VarRefs into the arena's map.
         if !frame.var_refs.is_empty() {
-            self.var_ref_map.insert(new_idx, frame.var_refs);
+            self.set_var_refs(new_idx, frame.var_refs);
         }
 
         self.frames.push(Box::new(frame.frame));
@@ -471,7 +474,7 @@ impl VmStack {
 
     // ── VarRef map accessors ────────────────────────────────────
     // These are the ONLY external API for accessing `var_ref_map`.
-    // Calling code should never touch the HashMap directly — it must
+    // Calling code should never touch the vector directly — it must
     // go through these methods to keep the ownership / lifecycle
     // invariants centralised (free_frame cleanup, take/put migration).
 
@@ -479,7 +482,40 @@ impl VmStack {
     /// Used by closure creation paths (get_var_ref, make_closure).
     #[inline(always)]
     pub(crate) fn var_refs_or_default(&mut self, idx: FrameIndex) -> &mut Vec<VarRef> {
-        self.var_ref_map.entry(idx).or_default()
+        self.var_refs_mut(idx)
+    }
+
+    /// The slot for `idx`, growing the vector when the frame is new.
+    #[inline(always)]
+    fn var_refs_mut(&mut self, idx: FrameIndex) -> &mut Vec<VarRef> {
+        let slot = idx.0 as usize;
+        if self.var_refs.len() <= slot {
+            self.var_refs.resize_with(slot + 1, Vec::new);
+        }
+        &mut self.var_refs[slot]
+    }
+
+    /// Take the frame's VarRefs out (the frame is going away).
+    #[inline(always)]
+    fn take_var_refs(&mut self, idx: FrameIndex) -> Vec<VarRef> {
+        match self.var_refs.get_mut(idx.0 as usize) {
+            Some(slot) => std::mem::take(slot),
+            None => Vec::new(),
+        }
+    }
+
+    /// Drop the frame's VarRefs (the frame is going away).
+    #[inline(always)]
+    fn clear_var_refs(&mut self, idx: FrameIndex) {
+        if let Some(slot) = self.var_refs.get_mut(idx.0 as usize) {
+            slot.clear();
+        }
+    }
+
+    /// Store the frame's VarRefs (an async frame came back).
+    #[inline(always)]
+    fn set_var_refs(&mut self, idx: FrameIndex, var_refs: Vec<VarRef>) {
+        *self.var_refs_mut(idx) = var_refs;
     }
 
     /// Get mutable access to existing VarRefs without inserting.
@@ -487,14 +523,16 @@ impl VmStack {
     /// Used by detach / CLOSE_LOC paths that only need to act when refs exist.
     #[inline(always)]
     pub(crate) fn try_var_refs_mut(&mut self, idx: FrameIndex) -> Option<&mut Vec<VarRef>> {
-        self.var_ref_map.get_mut(&idx)
+        self.var_refs.get_mut(idx.0 as usize)
     }
 
     /// Check whether `idx` has at least one live closure variable reference.
     /// Used by debug assertions.
     #[inline(always)]
     pub(crate) fn has_var_refs(&self, idx: FrameIndex) -> bool {
-        self.var_ref_map.get(&idx).is_some_and(|v| !v.is_empty())
+        self.var_refs
+            .get(idx.0 as usize)
+            .is_some_and(|v| !v.is_empty())
     }
 }
 
@@ -555,7 +593,7 @@ impl GcTrace for VmStack {
             }
 
             let idx = FrameIndex(i as u32);
-            if let Some(var_refs) = self.var_ref_map.get(&idx) {
+            if let Some(var_refs) = self.var_refs.get(idx.0 as usize) {
                 for vr in var_refs {
                     vr.trace(gcx);
                 }

@@ -330,6 +330,18 @@ const KERNELS: &[Kernel] = &[
                  workload(1, 1);",
         work: "workload(20, 1);",
     },
+    // IMP-3 probe: a thin callee (the call overhead is route B's ceiling).
+    Kernel {
+        name: "probe-thin-call",
+        define: "function thin(x){ return x; } function workload(iterations, seed){ var s = seed; for (var i = 0; i < iterations; i++) s = thin(s); return s; } workload(10, 1);",
+        work: "workload(20000000, 1);",
+    },
+    // The same loop without the call: the difference is the per-call cost.
+    Kernel {
+        name: "probe-thin-nocall",
+        define: "function workload(iterations, seed){ var s = seed; for (var i = 0; i < iterations; i++) s = s; return s; } workload(10, 1);",
+        work: "workload(20000000, 1);",
+    },
     // float64array-traversal.js: Int32Array -> Float64Array conversion, both
     // buffers handed in as one argument object.
     Kernel {
