@@ -222,6 +222,25 @@ const CASES: &[(&str, &str, &str)] = &[
         "var p = { m: function(){ return 7; } }; var o = Object.create(p); function work(){ var s = 0; for (var i = 0; i < 10; i++) s += o.m(); return s; } work();",
         "work();",
     ),
+    // The **optional chain** (`o?.x`): the chain's opcodes are rewritten to
+    // the plain ones (the resolver turns `get_field_opt_chain` into
+    // `get_field` ✓), so the read goes through the inline guard ✓ — and a
+    // nullish target gives `undefined` instead of throwing ✓.
+    (
+        "optional_chain",
+        "var o = { x: 5 }; function work(){ return o?.x; } work();",
+        "work();",
+    ),
+    (
+        "optional_chain_nullish",
+        "var o = null; function work(){ return o?.x; } work();",
+        "work();",
+    ),
+    (
+        "optional_chain_chained",
+        "var o = { m: function(){ return 3; } }; function work(){ return o?.m?.(); } work();",
+        "work();",
+    ),
     // A **lazy** property: a class field's initializer is instantiated on the
     // first read (the slot is a lazy initializer), and the slot becomes a
     // plain value afterwards.

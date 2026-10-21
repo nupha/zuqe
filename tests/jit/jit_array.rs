@@ -394,6 +394,22 @@ const PUT_CASES: &[(&str, &str)] = &[
         "element_method_call",
         "var a = [function(){ return 1; }, function(){ return 2; }]; function f(){ var s = 0; for (var i = 0; i < 10; i++) s += a[i % 2](); return s; } f();",
     ),
+    // The **optional chain** (`a?.[i]`): the chain's opcodes are rewritten to
+    // the plain ones (the resolver turns `get_array_el_opt_chain` into
+    // `get_array_el` ✓), so the read goes through the inline guard ✓ — and a
+    // nullish target gives `undefined` instead of throwing ✓.
+    (
+        "optional_chain",
+        "var a = [1, 2, 3]; function f(){ return a?.[1]; } f();",
+    ),
+    (
+        "optional_chain_nullish",
+        "var a = null; function f(){ return a?.[1]; } f();",
+    ),
+    (
+        "optional_chain_chained",
+        "var a = [1, 2, 3]; function f(){ return a?.[0]?.toString?.(); } f();",
+    ),
     // A **typed array**: its elements live in an `ArrayBuffer`, so the write
     // goes through the view (offset, count) and the buffer.
     (
