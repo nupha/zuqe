@@ -388,6 +388,70 @@ const PUT_CASES: &[(&str, &str)] = &[
         "write_then_read",
         "function f(){ var a = [0, 0, 0]; for (var i = 0; i < 8; i++) { a[i % 3] = i; } return a.join(','); } f();",
     ),
+    // A **typed array**: its elements live in an `ArrayBuffer`, so the write
+    // goes through the view (offset, count) and the buffer.
+    (
+        "typed_int32",
+        "var t = new Int32Array(4); function f(){ for (var i = 0; i < 8; i++) t[i % 4] = i; return t.join(','); } f();",
+    ),
+    (
+        "typed_float64",
+        "var t = new Float64Array(4); function f(){ for (var i = 0; i < 8; i++) t[i % 4] = i * 0.25 + 0.1; return t.join(','); } f();",
+    ),
+    // The integer widths truncate (the engine's `val as u8` and friends).
+    (
+        "typed_int8_truncates",
+        "var t = new Int8Array(2); function f(){ t[0] = 300; t[1] = -300; return t.join(','); } f();",
+    ),
+    (
+        "typed_uint8_truncates",
+        "var t = new Uint8Array(2); function f(){ t[0] = 300; t[1] = -1; return t.join(','); } f();",
+    ),
+    (
+        "typed_int16_truncates",
+        "var t = new Int16Array(1); function f(){ t[0] = 70000; return t.join(','); } f();",
+    ),
+    // A `Float32Array` keeps the double's rounded value.
+    (
+        "typed_float32_rounds",
+        "var t = new Float32Array(1); function f(){ t[0] = 0.1; return t[0]; } f();",
+    ),
+    // The clamped width: the helper owns it (the clamping is more than a
+    // truncation).
+    (
+        "typed_uint8c_clamps",
+        "var t = new Uint8ClampedArray(1); function f(){ t[0] = 300; return t[0]; } f();",
+    ),
+    // A value that needs a conversion: the helper owns it.
+    (
+        "typed_float_value_into_int",
+        "var t = new Int32Array(1); function f(){ t[0] = 1.5; return t[0]; } f();",
+    ),
+    (
+        "typed_int_value_into_float",
+        "var t = new Float64Array(1); function f(){ t[0] = 3; return t[0] === 3; } f();",
+    ),
+    // Out of range: the write is dropped.
+    (
+        "typed_out_of_range",
+        "var t = new Int32Array(4); function f(){ t[10] = 1; return t.join(','); } f();",
+    ),
+    // A **detached** buffer: the elements are gone.
+    (
+        "typed_detached",
+        "var b = new ArrayBuffer(16); var t = new Int32Array(b); function f(){ t[0] = 3; b.transfer(); return t[0]; } f();",
+    ),
+    // A view with a byte offset: the write has to add it.
+    (
+        "typed_byte_offset",
+        "var b = new ArrayBuffer(32); var t = new Int32Array(b, 8); function f(){ t[1] = 77; return t.join(','); } f();",
+    ),
+    // A resizable buffer that shrank below the view's end: the write is
+    // dropped.
+    (
+        "typed_resizable_shrunk",
+        "var b = new ArrayBuffer(16, { maxByteLength: 32 }); var t = new Int32Array(b); function f(){ t[0] = 9; b.resize(0); return t[0]; } f();",
+    ),
 ];
 
 /// The inline store must not change any result: every mode agrees with the

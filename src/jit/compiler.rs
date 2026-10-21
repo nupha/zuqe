@@ -3441,6 +3441,13 @@ fn lower_put_array_el_fast(
     // three operands itself, the helper pops them in the frame), so the
     // continuation carries it.
     b.append_block_param(cont, types::I64);
+    // The plain array's arm, the typed array's arm, and the blocks they use.
+    let elemented_blk = b.create_block();
+    let typed_blk = b.create_block();
+    let ta_view = b.create_block();
+    let ta_buffer = b.create_block();
+    let ta_kind = b.create_block();
+    let ta_done = b.create_block();
     // The operands stay in registers on the fast path; the helper's own
     // preamble flushes them on the slow path.
     state.stack.flush_except(b, sp, &[top - 2, top - 1, top]);
@@ -3466,10 +3473,212 @@ fn lower_put_array_el_fast(
         .ins()
         .icmp_imm(IntCC::Equal, class_and_fast, WRITE_ARGUMENTS_FLAGS);
     let elemented = b.ins().bor(is_array, is_arguments);
-    // A target that is neither leaves here — a typed array or a plain object
-    // never reaches the flags' remaining bits.
-    let elemented_blk = b.create_block();
-    b.ins().brif(elemented, elemented_blk, &[], slow, &[]);
+    // A target that is neither is a typed array (its own arm below) or
+    // something the helper owns.
+    b.ins().brif(elemented, elemented_blk, &[], typed_blk, &[]);
+
+    b.switch_to_block(typed_blk);
+    // The class id decides: a typed array has its own arm (its elements live
+    // in an `ArrayBuffer`, not in a payload), everything else is the
+    // helper's.
+    let class_id = b.ins().band_imm(flags, jit_layout::CLASS_ID_MASK);
+    let typed_low = b.ins().icmp_imm(
+        IntCC::SignedGreaterThanOrEqual,
+        class_id,
+        i64::from(JS_CLASS_UINT8C_ARRAY),
+    );
+    let typed_high = b.ins().icmp_imm(
+        IntCC::SignedLessThanOrEqual,
+        class_id,
+        i64::from(JS_CLASS_FLOAT64_ARRAY),
+    );
+    let is_typed = b.ins().band(typed_low, typed_high);
+    b.ins().brif(is_typed, ta_view, &[], slow, &[]);
+
+    // ── The typed array ───────────────────────────────────────────────
+    //
+    // Its elements live in an `ArrayBuffer`: the view (offset, element count)
+    // is in the typed array's payload, the bytes are in the buffer's payload.
+    // Everything is read fresh, so a resize, a detach or a view that went out
+    // of bounds is a guard miss, not a stale write.
+    b.switch_to_block(ta_view);
+    let ta_payload = b
+        .ins()
+        .load(types::I64, MemFlags::new(), obj, jit_layout::PAYLOAD_OFFSET);
+    let buffer = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        ta_payload,
+        ta_layout::BUFFER_OFFSET,
+    );
+    let view_offset = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        ta_payload,
+        ta_layout::OFFSET_OFFSET,
+    );
+    let count = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        ta_payload,
+        ta_layout::COUNT_OFFSET,
+    );
+    let out_of_bounds = b.ins().load(
+        types::I8,
+        MemFlags::new(),
+        ta_payload,
+        ta_layout::OUT_OF_BOUNDS_OFFSET,
+    );
+    // The index must be inside the view's elements.
+    let index = b.ins().band_imm(prop, 0xffff_ffff);
+    let count64 = b.ins().uextend(types::I64, count);
+    let in_count = b.ins().icmp(IntCC::UnsignedLessThan, index, count64);
+    let ta_buffer = b.create_block();
+    b.ins().brif(in_count, ta_buffer, &[], slow, &[]);
+
+    b.switch_to_block(ta_buffer);
+    // The buffer's payload and the view of its bytes.
+    let buf_payload = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        buffer,
+        jit_layout::PAYLOAD_OFFSET,
+    );
+    let data = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        buf_payload,
+        BUFFER_VIEW_OFFSET + BUFFER_VIEW_DATA_OFFSET,
+    );
+    let direct = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        buf_payload,
+        BUFFER_VIEW_OFFSET + BUFFER_VIEW_DIRECT_OFFSET,
+    );
+    let detached = b.ins().load(
+        types::I8,
+        MemFlags::new(),
+        buf_payload,
+        BUFFER_DETACHED_OFFSET,
+    );
+    // A detached buffer, a view out of bounds and a shared buffer (whose
+    // bytes live behind a lock) all go back to the helper.
+    let not_detached = b.ins().icmp_imm(IntCC::Equal, detached, 0);
+    let not_oob = b.ins().icmp_imm(IntCC::Equal, out_of_bounds, 0);
+    let is_direct = b.ins().icmp_imm(IntCC::NotEqual, direct, 0);
+    let flags_ok = b.ins().band(not_oob, is_direct);
+    let readable = b.ins().band(not_detached, flags_ok);
+    // The element's address: the buffer's bytes plus the view's offset.
+    let view_base = b.ins().uextend(types::I64, view_offset);
+    let base = b.ins().iadd(data, view_base);
+    b.ins().brif(readable, ta_kind, &[], slow, &[]);
+
+    b.switch_to_block(ta_kind);
+    // The value's kind, computed before the jump table (which ends this
+    // block): the integer widths take an `Int` (the engine's `ToNumber` of an
+    // `Int` is the `Int` itself, and `ToInt32` of it is its low 32 bits ✓) —
+    // a `Float64` needs the interpreter's conversion, so it goes back to the
+    // helper.
+    let int_value = is_int(b, value);
+    let int32 = b.ins().ireduce(types::I32, value);
+    // The float widths take a `Float64` (the engine's `ToNumber` of a
+    // `Float64` is the `Float64` itself ✓).
+    let float_value = is_float64(b, value);
+    // The class decides the element's width and how the value becomes it: a
+    // jump table over the typed array classes. `Uint8ClampedArray` (the
+    // clamping), `BigInt64Array`, `BigUint64Array` and `Float16Array` have no
+    // arm here (the interpreter's conversion is more than a truncation), so
+    // they go back to the helper.
+    let kind = b.ins().iadd_imm(class_id, -(JS_CLASS_UINT8C_ARRAY as i64));
+    let ta_int8 = b.create_block();
+    let ta_int16 = b.create_block();
+    let ta_int32 = b.create_block();
+    let ta_f32 = b.create_block();
+    let ta_f64 = b.create_block();
+    // The jump table's entries, in class order.
+    let mut entries = Vec::with_capacity(12);
+    for block in [
+        slow,     // Uint8ClampedArray
+        ta_int8,  // Int8Array
+        ta_int8,  // Uint8Array
+        ta_int16, // Int16Array
+        ta_int16, // Uint16Array
+        ta_int32, // Int32Array
+        ta_int32, // Uint32Array
+        slow,     // BigInt64Array
+        slow,     // BigUint64Array
+        slow,     // Float16Array
+        ta_f32,   // Float32Array
+        ta_f64,   // Float64Array
+    ] {
+        entries.push(b.func.dfg.block_call(block, &[]));
+    }
+    let default = b.func.dfg.block_call(slow, &[]);
+    let table = b.create_jump_table(JumpTableData::new(default, &entries));
+    b.ins().br_table(kind, table);
+
+    // The integer widths: store the value's low bits, truncated to the
+    // width (the engine's `val as u8` / `as i16` / … ✓).
+    let int_store = |b: &mut FunctionBuilder, width: i64| {
+        let scaled = b.ins().imul_imm(index, width);
+        let addr = b.ins().iadd(base, scaled);
+        let ty = match width {
+            1 => types::I8,
+            2 => types::I16,
+            _ => types::I32,
+        };
+        b.ins().store(MemFlags::new(), int32, addr, 0);
+    };
+    b.switch_to_block(ta_int8);
+    let ok8 = b.create_block();
+    b.ins().brif(int_value, ok8, &[], slow, &[]);
+    b.switch_to_block(ok8);
+    int_store(b, 1);
+    b.ins().jump(ta_done, &[]);
+
+    b.switch_to_block(ta_int16);
+    let ok16 = b.create_block();
+    b.ins().brif(int_value, ok16, &[], slow, &[]);
+    b.switch_to_block(ok16);
+    int_store(b, 2);
+    b.ins().jump(ta_done, &[]);
+
+    b.switch_to_block(ta_int32);
+    let ok32 = b.create_block();
+    b.ins().brif(int_value, ok32, &[], slow, &[]);
+    b.switch_to_block(ok32);
+    int_store(b, 4);
+    b.ins().jump(ta_done, &[]);
+
+    // The float widths.
+    b.switch_to_block(ta_f32);
+    let okf32 = b.create_block();
+    b.ins().brif(float_value, okf32, &[], slow, &[]);
+    b.switch_to_block(okf32);
+    // A `Float32Array` keeps the double's rounded value (the engine's
+    // `val as f32` ✓).
+    let wide = unbox_float64(b, value);
+    let narrow = b.ins().fdemote(types::F32, wide);
+    let scaled = b.ins().imul_imm(index, 4);
+    let addr = b.ins().iadd(base, scaled);
+    b.ins().store(MemFlags::new(), narrow, addr, 0);
+    b.ins().jump(ta_done, &[]);
+
+    b.switch_to_block(ta_f64);
+    let okf64 = b.create_block();
+    b.ins().brif(float_value, okf64, &[], slow, &[]);
+    b.switch_to_block(okf64);
+    let wide = unbox_float64(b, value);
+    let scaled = b.ins().imul_imm(index, 8);
+    let addr = b.ins().iadd(base, scaled);
+    b.ins().store(MemFlags::new(), wide, addr, 0);
+    b.ins().jump(ta_done, &[]);
+
+    b.switch_to_block(ta_done);
+    // The three operands are gone; the stack pointer drops with them.
+    let sp_next = b.ins().iadd_imm(sp, -24);
+    b.ins().jump(cont, &[sp_next]);
 
     b.switch_to_block(elemented_blk);
     // The engine's fast write into a plain array only runs on an extensible
