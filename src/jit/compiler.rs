@@ -3,6 +3,10 @@
 
 //! Baseline (Tier1) lowering: verified bytecode straight to Cranelift IR.
 //!
+//! **Terminology**: "IR" here always means the **Cranelift IR** (clif) this
+//! file produces. The function-scoped facts the lowering consults live in
+//! [`super::analysis`] and are called *analysis*, not IR.
+//!
 //! Values live in the frame buffer, exactly where the interpreter keeps them —
 //! with one exception (epic F4): inside a basic block a stack slot may live
 //! only in a register, and is written back before anything can observe the
@@ -19,7 +23,9 @@
 //! interpreter picks up at that bytecode offset.
 //!
 //! There is no separate IR layer: with no optimization passes above it, the
-//! lowering reads `VerifiedFunction` directly (C1 folded into C2).
+//! lowering reads `VerifiedFunction` directly (C1 folded into C2). The
+//! analysis layer ([`super::analysis`]) only answers questions — it never
+//! carries values.
 
 use std::{
     cell::Cell,
@@ -91,12 +97,12 @@ use super::{
         HELPER_WITH_DELETE_VAR, HELPER_WITH_GET_REF, HELPER_WITH_GET_VAR, HELPER_WITH_MAKE_REF,
         HELPER_WITH_MISS, HELPER_WITH_PUT_VAR, HELPER_XOR, JitExecFrame, SPEC_MISS_IMM2,
     },
+    analysis::{Analysis, LocalRef, RedundantExpressions},
     bytecode::{
         cfg::ControlFlowGraph, decode::Instruction, stack::SlotKind, verify::VerifiedFunction,
     },
     error::JitError,
     feedback::{CLASS_FLOAT, CLASS_INT, SiteFeedback},
-    ir::{Ir, LocalRef, RedundantExpressions},
 };
 
 /// Exit codes as written by generated code (keep in sync with `JitExitKind`).
@@ -469,7 +475,7 @@ struct State<'a> {
     carried_locals: HashMap<u32, Vec<LocalRef>>,
     /// Epic S2 (1.2): pcs whose local store is dead (no read before redefinition
     /// on any path), so the lowering skips the memory write. Empty unless the
-    /// IR's liveness is exact.
+    /// analysis' liveness is exact.
     dead_stores: HashSet<u32>,
     /// Epic S2 (1.5): the value numbering's CSE plan (which expressions are
     /// repeats of an earlier one) and, per block, the registers those earlier
@@ -1424,13 +1430,13 @@ fn mark(marked: &mut [bool], entry_h: u16, k: u32) {
 /// aliased slots are skipped for the same reason the local cache is disabled for
 /// them (`cacheable_slots`: a `VarRef` can rewrite the frame out of sight).
 fn carried_local_sets(
-    ir: &Ir,
+    analysis: &Analysis,
     verified: &VerifiedFunction,
     locals_cacheable: bool,
     args_cacheable: bool,
 ) -> HashMap<u32, Vec<LocalRef>> {
     let mut carried = HashMap::new();
-    for block in ir.blocks() {
+    for block in analysis.blocks() {
         if block.start_pc == 0 || !verified.is_reachable(block.start_pc) {
             continue;
         }
@@ -1456,11 +1462,15 @@ fn carried_local_sets(
 }
 
 /// Epic S2 (1.2): the set of `put_loc`/`set_loc` pcs whose store the lowering
-/// should skip (see [`Ir::dead_local_stores`]). `gate` is the caller's "the IR's
-/// liveness is trustworthy for a skipped write": resume-free, exception-free and
-/// with no way to alias a frame slot.
-fn dead_local_stores(ir: &Ir, instructions: &[Instruction], gate: bool) -> HashSet<u32> {
-    ir.dead_local_stores(instructions, gate)
+/// should skip (see [`Analysis::dead_local_stores`]). `gate` is the caller's
+/// "the liveness is trustworthy for a skipped write": resume-free,
+/// exception-free and with no way to alias a frame slot.
+fn dead_local_stores(
+    analysis: &Analysis,
+    instructions: &[Instruction],
+    gate: bool,
+) -> HashSet<u32> {
+    analysis.dead_local_stores(instructions, gate)
         .into_iter()
         .collect()
 }
@@ -1532,13 +1542,13 @@ fn lower(
     let cfg = verified.control_flow_graph();
     let (carried, entry_heights) = carried_sets(verified, osr_pcs, strict);
     let (locals_cacheable, args_cacheable) = cacheable_slots(verified);
-    // Epic S2 (1.1): the function-scoped IR (D-13) supplies which locals each
+    // Epic S2 (1.1): the function-scoped analysis (D-13) supplies which locals each
     // block reads before writing, so they can cross the edges as parameters.
     let resume_free = instructions.iter().all(|i| supported(i.name()));
-    let ir = Ir::build(verified, resume_free);
-    let carried_locals = carried_local_sets(&ir, verified, locals_cacheable, args_cacheable);
+    let analysis = Analysis::build(verified, resume_free);
+    let carried_locals = carried_local_sets(&analysis, verified, locals_cacheable, args_cacheable);
     let dead_stores = dead_local_stores(
-        &ir,
+        &analysis,
         instructions,
         resume_free && locals_cacheable && args_cacheable,
     );
@@ -5237,8 +5247,8 @@ mod tests {
     #[test]
     fn the_loop_header_carries_its_induction_local() {
         let verified = verified_local(loop_bytes(), 0, 1);
-        let ir = Ir::build(&verified, true);
-        let carried = carried_local_sets(&ir, &verified, true, true);
+        let analysis = Analysis::build(&verified, true);
+        let carried = carried_local_sets(&analysis, &verified, true, true);
         // Header at pc 13.
         assert_eq!(
             carried.get(&13).cloned(),
@@ -5262,12 +5272,12 @@ mod tests {
             &[op::OP_return_undef],
         ]);
         let verified = verified_local(dead, 0, 2);
-        let ir = Ir::build(&verified, true);
-        let hints = dead_local_stores(&ir, verified.instructions(), true);
+        let analysis = Analysis::build(&verified, true);
+        let hints = dead_local_stores(&analysis, verified.instructions(), true);
         assert!(hints.contains(&5), "put_loc 0 at pc 5 is never read");
         assert!(hints.contains(&13), "put_loc 1 at pc 13 is never read");
         // The gate being closed yields no hints at all.
-        assert!(dead_local_stores(&ir, verified.instructions(), false).is_empty());
+        assert!(dead_local_stores(&analysis, verified.instructions(), false).is_empty());
 
         // push_i32 1; put_loc 0; get_loc 0; return -> the store is live.
         let live = seq(&[
@@ -5277,8 +5287,8 @@ mod tests {
             &[op::OP_return],
         ]);
         let verified = verified_local(live, 0, 1);
-        let ir = Ir::build(&verified, true);
-        let hints = dead_local_stores(&ir, verified.instructions(), true);
+        let analysis = Analysis::build(&verified, true);
+        let hints = dead_local_stores(&analysis, verified.instructions(), true);
         assert!(!hints.contains(&5), "put_loc 0 at pc 5 is read back");
     }
 
@@ -5304,7 +5314,7 @@ mod tests {
     }
 
     /// Epic S2 (1.2): a read in a *later block* keeps the store alive through
-    /// the IR's liveness (not just the block-local scan).
+    /// the analysis' liveness (not just the block-local scan).
     #[test]
     fn a_store_read_in_a_successor_block_stays_live() {
         let bytes = seq(&[
@@ -5317,8 +5327,8 @@ mod tests {
             &[op::OP_return],
         ]);
         let verified = verified_local(bytes, 0, 1);
-        let ir = Ir::build(&verified, true);
-        let hints = dead_local_stores(&ir, verified.instructions(), true);
+        let analysis = Analysis::build(&verified, true);
+        let hints = dead_local_stores(&analysis, verified.instructions(), true);
         assert!(!hints.contains(&5), "the successor reads local 0");
     }
 

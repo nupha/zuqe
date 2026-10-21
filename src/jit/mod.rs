@@ -21,13 +21,13 @@
 //!   before returning.
 
 mod abi;
+mod analysis;
 mod bytecode;
 mod code_cache;
 mod compiler;
 mod config;
 mod error;
 mod feedback;
-mod ir;
 mod metrics;
 mod platform;
 mod policy;
@@ -1157,20 +1157,28 @@ mod tests {
         let uid = unsafe {
             *((shape_node as *const u8).add(jit_layout::SHAPE_UID_OFFSET as usize) as *const u32)
         };
-        assert_eq!(uid, shape.uid, "the shape's id is not where the JIT reads it");
+        assert_eq!(
+            uid, shape.uid,
+            "the shape's id is not where the JIT reads it"
+        );
 
         // The property slots.
-        let count =
-            unsafe { *((node as *const u8).add(jit_layout::PROP_LEN_OFFSET as usize) as *const u32) };
-        assert_eq!(count as usize, shape.len(), "the slot count is not the shape's");
-        let slots =
-            unsafe { *((node as *const u8).add(jit_layout::PROP_DATA_OFFSET as usize) as *const u64) };
+        let count = unsafe {
+            *((node as *const u8).add(jit_layout::PROP_LEN_OFFSET as usize) as *const u32)
+        };
+        assert_eq!(
+            count as usize,
+            shape.len(),
+            "the slot count is not the shape's"
+        );
+        let slots = unsafe {
+            *((node as *const u8).add(jit_layout::PROP_DATA_OFFSET as usize) as *const u64)
+        };
         // The first slot: the tag and the value it holds.
         let slot = unsafe { slots as *const u8 };
         let tag = unsafe { *slot.add(JSProperty::tag_offset() as usize) };
         assert_eq!(
-            tag,
-            PROP_TAG_NORMAL,
+            tag, PROP_TAG_NORMAL,
             "the slot's tag is not where the JIT reads it"
         );
         let raw = unsafe {
@@ -1180,7 +1188,11 @@ mod tests {
         };
         assert_eq!(
             raw,
-            object.prop_slot(0).value(&mut ctx.root_scope(), value).unwrap().0,
+            object
+                .prop_slot(0)
+                .value(&mut ctx.root_scope(), value)
+                .unwrap()
+                .0,
             "the slot's value is not where the JIT reads it"
         );
     }

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! The minimal function-scoped optimization IR (decision D-13).
+//! The function-scoped analysis the lowering consults (decision D-13).
+//!
+//! **Terminology**: in this crate "IR" means the **Cranelift IR** (clif) the
+//! lowering produces; this layer is the *analysis* layer, and it produces
+//! **facts**, not instructions.
 //!
 //! The baseline lowers [`VerifiedFunction`] straight to Cranelift. That is
 //! enough for a faithful translation, but the remaining F4 work — cross-block
@@ -16,15 +20,15 @@
 //! (read before the next write on some path), and the passes that consume the
 //! IR answer questions the lowering asks at the point it needs them:
 //!
-//! * [`Ir::block_index`] / [`Ir::live_out`] — DCE of a local store (`1.2`).
-//! * [`Ir::blocks`] `uses` — which locals a block reads before writing, so the
+//! * [`Analysis::block_index`] / [`Analysis::live_out`] — DCE of a local store (`1.2`).
+//! * [`Analysis::blocks`] `uses` — which locals a block reads before writing, so the
 //!   edge machinery can carry them in a register (`1.1`).
-//! * [`Ir::loops`] — natural loops, for the loop-level passes still to come
+//! * [`Analysis::loops`] — natural loops, for the loop-level passes still to come
 //!   (`1.3` BCE / loop-invariant loads).
 //!
 //! Liveness is exact only when the function neither raises/catches in-frame nor
 //! contains an opcode the baseline would `Resume` at; otherwise a resume can
-//! read *every* frame slot, so [`Ir::exact`] is false and consumers fall back
+//! read *every* frame slot, so [`Analysis::exact`] is false and consumers fall
 //! to conservative behavior. That gate lives in the caller (it is the same
 //! `supported()` / `has_exception_regions()` question the lowering already
 //! asks), so this module never has to guess.
@@ -41,7 +45,7 @@ mod values;
 
 pub(crate) use values::RedundantExpressions;
 
-/// A frame slot the IR reasons about: a local (excluding arguments) or an
+/// A frame slot the analysis reasons about: a local (excluding arguments) or an
 /// argument.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) struct LocalRef {
@@ -59,10 +63,10 @@ impl LocalRef {
     }
 }
 
-/// One basic block of the IR: the CFG block's instruction range plus its
+/// One basic block of the analysis: the CFG block's instruction range plus its
 /// def/use summary and predecessor/successor indices.
 #[derive(Clone, Debug)]
-pub(crate) struct BlockIr {
+pub(crate) struct BlockInfo {
     pub(crate) start_pc: u32,
     pub(crate) range: Range<usize>,
     pub(crate) succ: Vec<usize>,
@@ -76,19 +80,20 @@ pub(crate) struct BlockIr {
 /// A natural loop: its header block and the blocks that reach a back edge to
 /// the header.
 #[derive(Clone, Debug)]
-pub(crate) struct LoopIr {
+pub(crate) struct LoopInfo {
     pub(crate) header: usize,
     pub(crate) members: Vec<usize>,
 }
 
-/// The function-scoped IR. All block indices are positions in [`Ir::blocks`].
+/// The function-scoped analysis. All block indices are positions in
+/// [`Analysis::blocks`].
 #[derive(Clone, Debug)]
-pub(crate) struct Ir {
-    blocks: Vec<BlockIr>,
+pub(crate) struct Analysis {
+    blocks: Vec<BlockInfo>,
     block_of_pc: HashMap<u32, usize>,
     /// Immediate dominators, indexed like `blocks` (the entry is its own).
     idom: Vec<Option<usize>>,
-    loops: Vec<LoopIr>,
+    loops: Vec<LoopInfo>,
     live_in: Vec<Vec<LocalRef>>,
     live_out: Vec<Vec<LocalRef>>,
     /// Whether [`Self::live_in`] / [`Self::live_out`] are exact (see module
@@ -96,22 +101,22 @@ pub(crate) struct Ir {
     exact: bool,
 }
 
-impl Ir {
-    /// Build the IR. `resume_free` is the caller's answer to "does this
+impl Analysis {
+    /// Build the analysis. `resume_free` is the caller's answer to "does this
     /// function contain an opcode the baseline would `Resume` at?" — the only
-    /// fact the IR cannot derive from the verified bytecode alone.
+    /// fact the analysis cannot derive from the verified bytecode alone.
     pub(crate) fn build(verified: &VerifiedFunction, resume_free: bool) -> Self {
         let instructions = verified.instructions();
         let cfg = verified.control_flow_graph();
 
-        let mut blocks: Vec<BlockIr> = Vec::with_capacity(cfg.blocks().len());
+        let mut blocks: Vec<BlockInfo> = Vec::with_capacity(cfg.blocks().len());
         let mut block_of_pc = HashMap::new();
         for block in cfg.blocks() {
             let index = blocks.len();
             block_of_pc.insert(block.start_pc(), index);
             let range = block.instruction_range();
             let (uses, defs) = def_use(instructions, range.clone());
-            blocks.push(BlockIr {
+            blocks.push(BlockInfo {
                 start_pc: block.start_pc(),
                 range,
                 succ: Vec::new(),
@@ -147,7 +152,7 @@ impl Ir {
         }
     }
 
-    pub(crate) fn blocks(&self) -> &[BlockIr] {
+    pub(crate) fn blocks(&self) -> &[BlockInfo] {
         &self.blocks
     }
 
@@ -175,7 +180,7 @@ impl Ir {
     }
 
     #[allow(dead_code)] // Consumed by the upcoming loop passes (1.3 BCE).
-    pub(crate) fn loops(&self) -> &[LoopIr] {
+    pub(crate) fn loops(&self) -> &[LoopInfo] {
         &self.loops
     }
 
@@ -352,7 +357,7 @@ fn def_use(instructions: &[Instruction], range: Range<usize>) -> (Vec<LocalRef>,
 
 /// Immediate dominators (Cooper–Harvey–Kennedy iteration over reverse post
 /// order). Unreachable blocks keep `None`; the entry block dominates itself.
-fn dominators(blocks: &[BlockIr], block_of_pc: &HashMap<u32, usize>) -> Vec<Option<usize>> {
+fn dominators(blocks: &[BlockInfo], block_of_pc: &HashMap<u32, usize>) -> Vec<Option<usize>> {
     let n = blocks.len();
     let mut idom: Vec<Option<usize>> = vec![None; n];
     let Some(&entry) = block_of_pc.get(&0) else {
@@ -424,8 +429,8 @@ fn dominators(blocks: &[BlockIr], block_of_pc: &HashMap<u32, usize>) -> Vec<Opti
 /// Natural loops: for every edge into a block that dominates the source (a back
 /// edge), the body is `source` plus every predecessor reachable without passing
 /// the header.
-fn natural_loops(blocks: &[BlockIr], idom: &[Option<usize>]) -> Vec<LoopIr> {
-    let mut loops: Vec<LoopIr> = Vec::new();
+fn natural_loops(blocks: &[BlockInfo], idom: &[Option<usize>]) -> Vec<LoopInfo> {
+    let mut loops: Vec<LoopInfo> = Vec::new();
     for (source, block) in blocks.iter().enumerate() {
         if idom[source].is_none() {
             continue;
@@ -460,7 +465,7 @@ fn natural_loops(blocks: &[BlockIr], idom: &[Option<usize>]) -> Vec<LoopIr> {
                 }
                 existing.members.sort_unstable();
             } else {
-                loops.push(LoopIr { header, members });
+                loops.push(LoopInfo { header, members });
             }
         }
     }
@@ -483,7 +488,7 @@ fn dominates(idom: &[Option<usize>], a: usize, b: usize) -> bool {
 
 /// Classic live-variable analysis: `live_in[b] = uses[b] ∪ (live_out[b] \ defs[b])`,
 /// `live_out[b] = ∪ live_in[succ]`. Unreachable blocks are ignored.
-fn liveness(blocks: &[BlockIr]) -> (Vec<Vec<LocalRef>>, Vec<Vec<LocalRef>>) {
+fn liveness(blocks: &[BlockInfo]) -> (Vec<Vec<LocalRef>>, Vec<Vec<LocalRef>>) {
     let n = blocks.len();
     let mut live_in: Vec<Vec<LocalRef>> = vec![Vec::new(); n];
     let mut live_out: Vec<Vec<LocalRef>> = vec![Vec::new(); n];
@@ -570,9 +575,9 @@ mod tests {
         ]
         .concat();
         let verified = verify_bytes(bytes, 0, 2);
-        let ir = Ir::build(&verified, true);
-        assert_eq!(ir.blocks().len(), 1);
-        let block = &ir.blocks()[0];
+        let analysis = Analysis::build(&verified, true);
+        assert_eq!(analysis.blocks().len(), 1);
+        let block = &analysis.blocks()[0];
         assert_eq!(block.uses, vec![LocalRef::local(0)]);
         assert_eq!(block.defs, vec![LocalRef::local(1), LocalRef::local(0)]);
     }
@@ -593,10 +598,10 @@ mod tests {
         ]
         .concat();
         let verified = verify_bytes(bytes, 0, 1);
-        let ir = Ir::build(&verified, true);
-        assert!(ir.exact());
-        let first = ir.block_index(0).expect("entry block");
-        assert!(ir.is_live_out(first, LocalRef::local(0)));
+        let analysis = Analysis::build(&verified, true);
+        assert!(analysis.exact());
+        let first = analysis.block_index(0).expect("entry block");
+        assert!(analysis.is_live_out(first, LocalRef::local(0)));
     }
 
     #[test]
@@ -611,10 +616,10 @@ mod tests {
         ]
         .concat();
         let verified = verify_bytes(bytes, 0, 2);
-        let ir = Ir::build(&verified, true);
-        let entry = ir.block_index(0).expect("entry block");
-        assert!(!ir.is_live_out(entry, LocalRef::local(0)));
-        assert!(!ir.is_live_out(entry, LocalRef::local(1)));
+        let analysis = Analysis::build(&verified, true);
+        let entry = analysis.block_index(0).expect("entry block");
+        assert!(!analysis.is_live_out(entry, LocalRef::local(0)));
+        assert!(!analysis.is_live_out(entry, LocalRef::local(1)));
     }
 
     #[test]
@@ -641,11 +646,13 @@ mod tests {
         // end at pc 34
         bytes.extend_from_slice(&[op::OP_return_undef]);
         let verified = verify_bytes(bytes, 0, 1);
-        let ir = Ir::build(&verified, true);
-        assert_eq!(ir.loops().len(), 1, "one natural loop");
-        let header = ir.block_index(header_pc as u32).expect("header block");
-        assert_eq!(ir.loops()[0].header, header);
-        assert!(ir.loops()[0].members.len() >= 2, "header + body");
+        let analysis = Analysis::build(&verified, true);
+        assert_eq!(analysis.loops().len(), 1, "one natural loop");
+        let header = analysis
+            .block_index(header_pc as u32)
+            .expect("header block");
+        assert_eq!(analysis.loops()[0].header, header);
+        assert!(analysis.loops()[0].members.len() >= 2, "header + body");
     }
 
     #[test]
@@ -658,12 +665,15 @@ mod tests {
         ]
         .concat();
         let verified = verify_bytes(bytes.clone(), 0, 0);
-        let ir = Ir::build(&verified, true);
-        assert!(!ir.exact(), "catch region must disable exact liveness");
+        let analysis = Analysis::build(&verified, true);
+        assert!(
+            !analysis.exact(),
+            "catch region must disable exact liveness"
+        );
 
         // The same shape without a handler is exact.
         let plain = verify_bytes(vec![op::OP_return_undef], 0, 0);
-        assert!(Ir::build(&plain, true).exact());
-        assert!(!Ir::build(&plain, false).exact());
+        assert!(Analysis::build(&plain, true).exact());
+        assert!(!Analysis::build(&plain, false).exact());
     }
 }

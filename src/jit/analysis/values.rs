@@ -92,7 +92,7 @@ pub(crate) struct RedundantExpressions {
 impl RedundantExpressions {
     /// Number the values of every block and record the reusable expressions.
     /// `gate` must mean "a frame slot the pass believes is unchanged really is"
-    /// — the caller's `cacheable_slots` plus the IR's exactness (the same gate
+    /// — the caller's `cacheable_slots` plus the analysis's exactness (the same gate
     /// dead-store elimination uses); otherwise the result is empty.
     pub(crate) fn build(verified: &VerifiedFunction, gate: bool) -> Self {
         let mut plan = Self::default();

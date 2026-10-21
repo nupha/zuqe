@@ -162,13 +162,17 @@ the least-recently-used live mapping is retired (the function falls back to the
 interpreter and recompiles if it becomes hot again). Retirement runs only inside
 `poll`, between native activations, so no in-flight frame can hold a stale entry.
 
-### Optimization IR
+### Function-scoped analysis
 
-A minimal function-scoped IR (`ir/`) provides the data-flow view the bytecode
-does not: which block reads/writes which slot, dominance, natural loops, and
-liveness. It powers cross-block local residency, dead-store elimination and
-block-local CSE. It is deliberately **not** a new instruction representation, an
-SSA form, or a deopt map — the value model stays the frame.
+A minimal function-scoped analysis (`analysis/`) provides the data-flow view the
+bytecode does not: which block reads/writes which slot, dominance, natural
+loops, and liveness. It powers cross-block local residency, dead-store
+elimination and block-local CSE. It is deliberately **not** a new instruction
+representation, an SSA form, or a deopt map — the value model stays the frame.
+
+Terminology: in this project **"IR" always means the Cranelift IR** (clif)
+that the lowering produces. The analysis layer produces *facts*, not
+instructions, so it is called analysis, not IR.
 
 ### Limits and interrupts
 
@@ -195,7 +199,7 @@ is not a preemptive deadline (compilation is inline).
 | Frontend gate (decode, CFG, abstract stack, verify) | `src/jit/bytecode/{mod,decode,cfg,stack,verify}.rs` |
 | Baseline + Tier-2 lowering to Cranelift | `src/jit/compiler.rs` |
 | Native ABI, frame layout, helper trampolines | `src/jit/abi.rs` |
-| Optimization IR (data-flow view) | `src/jit/ir/{mod,values}.rs` |
+| Function-scoped analysis (data-flow facts: liveness, dominators, loops, value numbering) | `src/jit/analysis/{mod,values}.rs` |
 | Tier-2 type feedback table | `src/jit/feedback.rs` |
 | Hotness counters, thresholds, tier policy | `src/jit/runtime/hotness.rs`, `src/jit/config.rs` |
 | Compilation queue and function lifecycle | `src/jit/runtime/coordinator.rs` |
