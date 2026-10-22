@@ -207,10 +207,132 @@ is not a preemptive deadline (compilation is inline).
 | Interpreter integration points | `src/bytecode/exec_stackless.rs` (entry/back-edge hooks, `invoke_native`), `src/runtime/tick.rs` |
 | Per-function native entry slot | `src/function/bytecode.rs` (`FunctionSlot`) |
 
+## JIT testing framework
+
+A JIT can be wrong in two different ways, and one kind of test cannot see both:
+
+1. **Semantic divergence** — the compiled code computes a different result from
+   the interpreter (wrong coercion, missing guard, broken GC interaction).
+2. **Codegen/path divergence** — the result happens to match, but the machine
+   code does something else than intended (falls back to the helper, writes the
+   wrong element width, emits an extra body, skips an inline path).
+
+The suite therefore has **two paths**: a **black box** (differential testing at
+the JS level) and a **white box** (the hand-written bytecode harness). They
+answer different questions, and every new test belongs to exactly one of them.
+This split is part of the contribution contract: do not put a test on the wrong
+side because "it is easier there".
+
+### Black box: differential testing (the default)
+
+Run the same script in `Interpreter`, `Tier1`, `Tier2` and `Automatic`, and
+compare tag-exact results, exceptions and observed side effects. The interpreter
+is the oracle; no expected value is written by hand. Located in `tests/jit/*`
+(`jit_differential.rs`, `jit_semantics.rs`, `jit_opcodes.rs`, `jit_field.rs`,
+`jit_array.rs`, …), run with `cargo test --features jit --test jit`.
+
+This path reproduces the real pipeline: guards, helper fallbacks, GC,
+`detach`/`resize`/shared buffers, prototypes, user `valueOf`, inline calls and
+exceptions.
+
+**Strengths:** real engine state, broad coverage, expectations never go stale
+(the interpreter is the reference), and it finds *unknown* engine bugs — e.g. an
+`ArrayBuffer.resize()` that left the JIT's byte mirror dangling was caught here.
+
+**Weaknesses:** it cannot tell "inline path" from "helper fallback" (both give
+the same result); it cannot see raw bytes, codegen-only tags, internal layouts
+or emission counts; it cannot reach opcodes/shapes the JS frontend never emits;
+and it cannot catch a bug shared by the interpreter and the JIT.
+
+### White box: the hand-written bytecode harness
+
+Assemble a bytecode body with `Asm`, compile it with the real compiler, and run
+it against a synthetic `JitExecFrame` (`test_harness::run_function`) or a copied
+inline body (`run_inline`). Located in `src/jit/test_harness.rs`,
+`src/jit/inline_call.rs` (`#[test]`) and `src/jit/compiler.rs` (`#[test]`), run
+with `cargo test --features jit --lib`.
+
+A real heap object may be passed in as an argument (e.g. a typed array for the
+inline element paths), but the body must not call a helper: the synthetic frame
+has no scope/arena/bytecode behind it. A guard miss therefore **faults** instead
+of silently passing — which is what makes the harness the only proof that a
+given inline path ran.
+
+**Strengths:** proves the path executed; bit-level (element width, raw bytes,
+exact `JSValue` tags); internal protocol (argument-window layout, emission
+counts); reaches frontend-unreachable opcodes and limit boundaries; and can run
+exhaustive tables with hard-coded expected values that are independent of the
+interpreter.
+
+**Weaknesses:** no helpers, so no GC/detach/resize/prototype/user-code paths; a
+synthetic frame is not a real activation; expectations are hand-written and must
+be kept in sync with the engine; a regression fails as a fault, not an
+assertion; and it cannot discover unknown engine bugs.
+
+### Ownership rules
+
+**Default: black box.** If JS can reach the behaviour and observe the result, it
+goes to `tests/jit/*`. Every guard hit or miss, helper fallback, GC interaction,
+buffer state and exception path is a black-box test.
+
+**White box is only for these three categories:**
+
+1. **Unreachable from the frontend** — opcodes or shapes the parser/optimizer
+   never emits (`set_arg`, `set_loc`, `dup`, `drop`, `nop`, the 96/97-instruction
+   inline-eligibility boundary, …).
+2. **Not observable from JS** — raw element bytes and store width, exact tags
+   produced by codegen, the argument-window layout, emission counts, and the
+   **inline-vs-helper path** itself.
+3. **Exhaustive tables with hard-coded expectations** — per-opcode tag tables,
+   per-conversion byte tables. Differential only catches "the two sides
+   disagree"; a table also catches "both are wrong". Such a table must stay
+   limited to lowering facts.
+
+**Anti-rules** (reject in review):
+
+- Do not re-test user-visible semantics in the harness when a black-box case
+  already covers them.
+- A green differential suite does **not** prove an inline path ran. If that
+  matters, add a harness case.
+- Do not use the harness for anything that needs a helper, GC, an exception,
+  `detach`/`resize`, or user code — the synthetic frame cannot support it.
+- Do not derive a harness expectation from "whatever the interpreter does";
+  hard-code the spec value, otherwise it is just a slower differential test.
+- A white-box test must name its differential blind spot in one line of its doc
+  comment ("differential cannot see …"), so the next maintainer knows why it
+  exists and does not delete it.
+
+### Decision checklist
+
+When adding a JIT test, walk this list and stop at the first match:
+
+1. Can JS produce the input and observe the result? → **black box**.
+2. Does the frontend never emit the shape, or can JS not observe the fact
+   (bytes, tags, layout, path, counts)? → **white box**.
+3. Is it a per-opcode / per-conversion exhaustive table whose expected values
+   can be written down independently of the interpreter? → **white box** (and
+   add one representative black-box case if the behaviour is user-visible).
+4. None of the above? It is a unit test of a Rust helper, not a JIT test.
+
+Note that neither path can detect "the interpreter itself is wrong" — the JIT
+matches it by design. Test262 and the pinned corpora cover that.
+
+### Worked examples
+
+| Question | Path | Why |
+|---|---|---|
+| Did a typed array store really go inline, and did it write 1/2/4/8 bytes? | White box (raw view bytes + neighbour element) | Not observable: the helper fallback gives the same result |
+| Do `Float64 → Int32` truncation/wrap and `Uint8ClampedArray` rounding match `ToInt32` / `to_u8_clamped` at every boundary? | Both: black-box differential for semantics, white-box table for exhaustiveness | Two independent oracles |
+| Does `ArrayBuffer.prototype.resize()` leave the JIT's byte mirror dangling? | Black box | Needs real engine state (`realloc`, live views) |
+| Does the `set_loc` opcode lower? | White box | The JS frontend never emits it |
+| Do polymorphic property sites still fall back correctly? | Black box | Real shapes, helper path |
+| Is an inlined callee body emitted twice for the post-call OSR tail? | White box (`inline_emissions`) | Internal emission count |
+
 ## Tests and benchmarking
 
 | Suite | Path | Command |
 |---|---|---|
+| White-box lowering harness | `src/jit/test_harness.rs`, `src/jit/inline_call.rs`, `src/jit/compiler.rs` | `cargo test --features jit --lib` |
 | Differential (4 modes, bit-exact) | `tests/jit/jit_differential.rs` | `cargo test --features jit --test jit jit_differential` |
 | Per-opcode end-to-end + claim audit | `tests/jit/jit_opcodes.rs`, `tests/jit/opcode-claims.py` | `cargo test --features jit --test jit_opcodes` |
 | Semantic stress | `tests/jit/jit_semantics.rs` | `cargo test --features jit --test jit jit_semantics` |

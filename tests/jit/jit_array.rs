@@ -112,6 +112,16 @@ const CASES: &[(&str, &str)] = &[
         "typed_float32_frac",
         "var t = new Float32Array(4); t[1] = 0.1; t[1];",
     ),
+    // The method-call shape (`get_array_el2`) on a typed array element: the
+    // array stays on the stack and the value takes the key's slot.
+    (
+        "typed_element_method_call",
+        "var t = new Int32Array([7]); t[0].toString();",
+    ),
+    (
+        "typed_element_method_call_float",
+        "var t = new Float64Array([1.5]); t[0].toString();",
+    ),
     // Out of range: the typed array answers `undefined`.
     ("typed_out_of_range", "var t = new Int32Array(4); t[10];"),
     // A view with a byte offset: the guard has to add it.
@@ -281,10 +291,12 @@ fn an_array_read_runs_natively() {
 /// compiles it then), and the *observed* call is the second one — that one
 /// runs natively, so the store really goes through the inline guard.
 ///
-/// The inline store answers a packed array with an integer index; everything
-/// else — a dictionary array, a float or string key, a negative index, a
-/// store that grows the array, a frozen or sealed array, a typed array, a
-/// plain object — goes through the helper, which owns the full semantics.
+/// The inline store answers a packed array with an integer index and a typed
+/// array whose element is numeric (`Int`/`Float64`); everything else — a
+/// dictionary array, a float or string key, a negative index, a store that
+/// grows the array, a frozen or sealed array, a non-numeric value, a BigInt or
+/// f16 element, a plain object — goes through the helper, which owns the full
+/// semantics.
 const PUT_CASES: &[(&str, &str)] = &[
     // The guard hits: an in-bounds store into a packed array.
     (
@@ -433,18 +445,93 @@ const PUT_CASES: &[(&str, &str)] = &[
         "typed_int16_truncates",
         "var t = new Int16Array(1); function f(){ t[0] = 70000; return t.join(','); } f();",
     ),
+    // The element's width is the store's width: a narrower write must not
+    // reach the neighbour.
+    (
+        "typed_int8_no_spill",
+        "var t = new Int8Array(2); function f(){ t[1] = 7; t[0] = 300; return t.join(','); } f();",
+    ),
+    (
+        "typed_uint8_no_spill",
+        "var t = new Uint8Array(2); function f(){ t[1] = 7; t[0] = 300; return t.join(','); } f();",
+    ),
+    (
+        "typed_int16_no_spill",
+        "var t = new Int16Array(2); function f(){ t[1] = 7; t[0] = 70000; return t.join(','); } f();",
+    ),
+    (
+        "typed_uint16_no_spill",
+        "var t = new Uint16Array(2); function f(){ t[1] = 7; t[0] = 70000; return t.join(','); } f();",
+    ),
+    // The lvalue read (`get_array_el3`) shares the store path.
+    (
+        "typed_lvalue_increment",
+        "var t = new Int32Array(2); function f(){ t[0] = 1.5; t[0]++; t[1]++; return t.join(','); } f();",
+    ),
+    // A non-numeric value needs `ToNumber` (it may run user code), so the
+    // helper owns it.
+    (
+        "typed_object_value_into_int",
+        "var t = new Int32Array(2); var o = { valueOf: function(){ return 1.75; } }; function f(){ t[0] = o; t[1] = '2.5'; return t.join(','); } f();",
+    ),
+    (
+        "typed_bigint_into_int_throws",
+        "var t = new Int32Array(1); function f(){ try { t[0] = 5n; } catch (e) { return e instanceof TypeError; } return false; } f();",
+    ),
+    // The classes whose conversion stays in the interpreter.
+    (
+        "typed_bigint64",
+        "var t = new BigInt64Array(2); function f(){ t[0] = 5n; t[1] = -7n; return t.join(','); } f();",
+    ),
+    (
+        "typed_float16",
+        "var t = new Float16Array(2); function f(){ t[0] = 0.1; t[1] = 70000; return t.join(','); } f();",
+    ),
     // A `Float32Array` keeps the double's rounded value.
     (
         "typed_float32_rounds",
         "var t = new Float32Array(1); function f(){ t[0] = 0.1; return t[0]; } f();",
     ),
-    // The clamped width: the helper owns it (the clamping is more than a
-    // truncation).
+    // The clamped width: round to nearest even, then clamp.
     (
         "typed_uint8c_clamps",
         "var t = new Uint8ClampedArray(1); function f(){ t[0] = 300; return t[0]; } f();",
     ),
-    // A value that needs a conversion: the helper owns it.
+    (
+        "typed_uint8c_rounds_and_clamps",
+        "var t = new Uint8ClampedArray(8); function f(){ t[0] = 0.5; t[1] = 1.5; t[2] = 2.5; t[3] = 254.5; t[4] = 300.4; t[5] = -5; t[6] = NaN; t[7] = Infinity; return t.join(','); } f();",
+    ),
+    // A `Float64` into an integer width: `ToInt32` is truncation, then a wrap
+    // modulo 2^32 (the same low bits for the narrower widths).
+    (
+        "typed_float_fraction_into_int",
+        "var t = new Int32Array(4); function f(){ t[0] = 1.75; t[1] = -1.75; t[2] = 4294967297.5; t[3] = 0.5; return t.join(','); } f();",
+    ),
+    (
+        "typed_float_wraps_into_int8",
+        "var t = new Int8Array(4); function f(){ t[0] = 300.9; t[1] = -300.9; t[2] = 2147483648; t[3] = 1e300; return t.join(','); } f();",
+    ),
+    (
+        "typed_float_specials_into_int",
+        "var t = new Int16Array(4); function f(){ t[0] = NaN; t[1] = Infinity; t[2] = -Infinity; t[3] = -2.5; return t.join(','); } f();",
+    ),
+    (
+        "typed_float_into_uint32",
+        "var t = new Uint32Array(3); function f(){ t[0] = 4294967295.5; t[1] = -1.5; t[2] = 2147483648.5; return t.join(','); } f();",
+    ),
+    // The `ToInt32` boundaries: both sides of 2^31, 2^32 and 2^53, the
+    // exponent range where the wrap applies, and the specials.
+    (
+        "typed_float_boundaries_into_int",
+        "var v = [0.5, -0.5, 1.5, -1.5, 1.9, -1.9, 2147483647.9, 2147483648.1, -2147483648.1, -2147483649.1, 4294967295.9, 4294967296.1, 4294967297.1, -4294967297.1, 9007199254740991, 9007199254740992, 1e21, -1e21, 1e300, -1e300, 5e-324, NaN, Infinity, -Infinity]; \
+         var t = new Int32Array(v.length); function f(){ for (var i = 0; i < v.length; i++) t[i] = v[i]; return t.join(','); } f();",
+    ),
+    (
+        "typed_float_boundaries_clamped",
+        "var v = [0.5, 1.5, 2.5, 127.5, 128.5, 254.5, 254.49999999999997, 255.1, -0.5, -1.5, 1e300, -1e300, 5e-324, NaN, Infinity, -Infinity]; \
+         var t = new Uint8ClampedArray(v.length); function f(){ for (var i = 0; i < v.length; i++) t[i] = v[i]; return t.join(','); } f();",
+    ),
+    // An `Int` into a float width (`ToNumber` is the value itself).
     (
         "typed_float_value_into_int",
         "var t = new Int32Array(1); function f(){ t[0] = 1.5; return t[0]; } f();",
@@ -453,10 +540,24 @@ const PUT_CASES: &[(&str, &str)] = &[
         "typed_int_value_into_float",
         "var t = new Float64Array(1); function f(){ t[0] = 3; return t[0] === 3; } f();",
     ),
+    (
+        "typed_int_value_into_float_loop",
+        "var src = new Int32Array(4); var dst = new Float64Array(4); function f(){ for (var i = 0; i < 4; i++) dst[i] = src[i] + 1; return dst.join(','); } f();",
+    ),
+    (
+        "typed_int_value_into_float32",
+        "var t = new Float32Array(2); function f(){ t[0] = 3; t[1] = 16777217; return t.join(','); } f();",
+    ),
     // Out of range: the write is dropped.
     (
         "typed_out_of_range",
         "var t = new Int32Array(4); function f(){ t[10] = 1; return t.join(','); } f();",
+    ),
+    // A **shared** buffer: its bytes live behind a lock, so the guard must
+    // miss and the helper owns the write.
+    (
+        "typed_shared",
+        "var b = new SharedArrayBuffer(16); var t = new Int32Array(b); function f(){ t[0] = 7; return t[0]; } f();",
     ),
     // A **detached** buffer: the elements are gone.
     (
@@ -467,6 +568,11 @@ const PUT_CASES: &[(&str, &str)] = &[
     (
         "typed_byte_offset",
         "var b = new ArrayBuffer(32); var t = new Int32Array(b, 8); function f(){ t[1] = 77; return t.join(','); } f();",
+    ),
+    // A resizable buffer that grew: the view's count is read fresh.
+    (
+        "typed_resizable_grown",
+        "var b = new ArrayBuffer(16, { maxByteLength: 32 }); var t = new Int32Array(b); function f(){ b.resize(32); t[7] = 5; return t[7]; } f();",
     ),
     // A resizable buffer that shrank below the view's end: the write is
     // dropped.

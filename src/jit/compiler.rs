@@ -2888,6 +2888,39 @@ fn number_to_float64(
     }
 }
 
+/// The engine's `f64_to_i32` (`number/convert.rs`): ECMAScript `ToInt32` —
+/// truncate toward zero, then wrap modulo 2^32. Cranelift only has saturating
+/// float→int conversions, so the wrap is the engine's exponent/mantissa
+/// reduction, computed branch-free over its three exponent ranges.
+fn to_int32_from_float64(b: &mut FunctionBuilder, d: Value) -> Value {
+    let bits = b.ins().bitcast(types::I64, MemFlags::new(), d);
+    let exponent = b.ins().ushr_imm(bits, 52);
+    let e = b.ins().band_imm(exponent, 0x7ff);
+    // |d| < 2^31: the saturating conversion is exact (truncation).
+    let small = b.ins().fcvt_to_sint_sat(types::I32, d);
+    // 2^31 <= |d| < 2^63: the mantissa with its implicit bit, shifted so the
+    // bit-32 boundary is the wrapped result's sign bit.
+    let mantissa = b.ins().band_imm(bits, (1i64 << 52) - 1);
+    let sig = b.ins().bor_imm(mantissa, 1i64 << 52);
+    let shift = b.ins().iadd_imm(e, -(1023 + 52 - 32));
+    let shifted = b.ins().ishl(sig, shift);
+    let top = b.ins().ushr_imm(shifted, 32);
+    let low = b.ins().ireduce(types::I32, top);
+    let negated = b.ins().ineg(low);
+    let sign = b.ins().ushr_imm(bits, 63);
+    let is_negative = b.ins().icmp_imm(IntCC::NotEqual, sign, 0);
+    let wrapped = b.ins().select(is_negative, negated, low);
+    let in_mid = b
+        .ins()
+        .icmp_imm(IntCC::UnsignedLessThanOrEqual, e, 1023 + 30 + 53);
+    let zero = b.ins().iconst(types::I32, 0);
+    let wide = b.ins().select(in_mid, wrapped, zero);
+    let is_small = b
+        .ins()
+        .icmp_imm(IntCC::UnsignedLessThanOrEqual, e, 1023 + 30);
+    b.ins().select(is_small, small, wide)
+}
+
 /// Box a computed `f64` exactly like `js_new_float64`: any NaN payload becomes
 /// the engine's canonical quiet NaN, everything else is the raw bits minus the
 /// addend (which turns `-0.0`/`±Inf` into their tagged form unchanged).
@@ -3667,8 +3700,11 @@ fn barrier_sig(
 /// `arguments` object), the fast-array flag, the extensibility of a plain
 /// array, and the index against the array's length. Everything else — a
 /// dictionary array, a float or string key, a negative index, a store that
-/// grows the array, a typed array, a frozen array — falls back to the helper,
-/// which owns the full semantics.
+/// grows the array, a frozen array — falls back to the helper, which owns the
+/// full semantics. A typed array has its own path: the element's width comes
+/// from its class, and a numeric value (`Int`/`Float64`) is converted exactly
+/// like the interpreter (`ToInt32`, the clamped rounding, `ToNumber`); a
+/// BigInt, f16 or non-numeric value still goes back to the helper.
 ///
 /// A stored value that references a GC node needs the collector's write
 /// barrier (a black array pointing at a white value would let the collector
@@ -3840,22 +3876,22 @@ fn lower_put_array_el_fast(
     b.ins().brif(readable, ta_kind, &[], slow, &[]);
 
     b.switch_to_block(ta_kind);
-    // The value's kind, computed before the jump table (which ends this
-    // block): the integer widths take an `Int` (the engine's `ToNumber` of an
-    // `Int` is the `Int` itself, and `ToInt32` of it is its low 32 bits ✓) —
-    // a `Float64` needs the interpreter's conversion, so it goes back to the
-    // helper.
+    // The value's tags, computed before the jump table (which ends this
+    // block): only an `Int` or a `Float64` skips `ToNumber`, which may run
+    // user code. Everything else goes back to the helper. Each arm checks its
+    // usual tag first, so the pre-existing hot paths keep one branch.
     let int_value = is_int(b, value);
-    let int32 = b.ins().ireduce(types::I32, value);
-    // The float widths take a `Float64` (the engine's `ToNumber` of a
-    // `Float64` is the `Float64` itself ✓).
     let float_value = is_float64(b, value);
+    // An `Int`'s `ToInt32` is its low 32 bits; a `Float64`'s is the engine's
+    // `f64_to_i32`, emitted per arm so the integer stores do not pay for it.
+    let int32 = b.ins().ireduce(types::I32, value);
     // The class decides the element's width and how the value becomes it: a
-    // jump table over the typed array classes. `Uint8ClampedArray` (the
-    // clamping), `BigInt64Array`, `BigUint64Array` and `Float16Array` have no
-    // arm here (the interpreter's conversion is more than a truncation), so
-    // they go back to the helper.
+    // jump table over the typed array classes. `BigInt64Array`,
+    // `BigUint64Array` and `Float16Array` have no arm here (the interpreter's
+    // conversion is more than a number conversion), so they go back to the
+    // helper.
     let kind = b.ins().iadd_imm(class_id, -(JS_CLASS_UINT8C_ARRAY as i64));
+    let ta_clamped = b.create_block();
     let ta_int8 = b.create_block();
     let ta_int16 = b.create_block();
     let ta_int32 = b.create_block();
@@ -3864,18 +3900,18 @@ fn lower_put_array_el_fast(
     // The jump table's entries, in class order.
     let mut entries = Vec::with_capacity(12);
     for block in [
-        slow,     // Uint8ClampedArray
-        ta_int8,  // Int8Array
-        ta_int8,  // Uint8Array
-        ta_int16, // Int16Array
-        ta_int16, // Uint16Array
-        ta_int32, // Int32Array
-        ta_int32, // Uint32Array
-        slow,     // BigInt64Array
-        slow,     // BigUint64Array
-        slow,     // Float16Array
-        ta_f32,   // Float32Array
-        ta_f64,   // Float64Array
+        ta_clamped, // Uint8ClampedArray
+        ta_int8,    // Int8Array
+        ta_int8,    // Uint8Array
+        ta_int16,   // Int16Array
+        ta_int16,   // Uint16Array
+        ta_int32,   // Int32Array
+        ta_int32,   // Uint32Array
+        slow,       // BigInt64Array
+        slow,       // BigUint64Array
+        slow,       // Float16Array
+        ta_f32,     // Float32Array
+        ta_f64,     // Float64Array
     ] {
         entries.push(b.func.dfg.block_call(block, &[]));
     }
@@ -3883,62 +3919,112 @@ fn lower_put_array_el_fast(
     let table = b.create_jump_table(JumpTableData::new(default, &entries));
     b.ins().br_table(kind, table);
 
-    // The integer widths: store the value's low bits, truncated to the
-    // width (the engine's `val as u8` / `as i16` / … ✓).
-    let int_store = |b: &mut FunctionBuilder, width: i64| {
+    // The integer widths: store the value's low bits, truncated to the width
+    // (the engine's `val as u8` / `as i16` / … ✓). The stored type decides
+    // the store's width.
+    let int_store = |b: &mut FunctionBuilder, width: i64, bits: Value| {
         let scaled = b.ins().imul_imm(index, width);
         let addr = b.ins().iadd(base, scaled);
-        let ty = match width {
-            1 => types::I8,
-            2 => types::I16,
-            _ => types::I32,
+        let value = match width {
+            1 => b.ins().ireduce(types::I8, bits),
+            2 => b.ins().ireduce(types::I16, bits),
+            _ => bits,
         };
-        b.ins().store(MemFlags::new(), int32, addr, 0);
+        b.ins().store(MemFlags::new(), value, addr, 0);
+    };
+    // An integer width takes any number: an `Int` stores its low bits as they
+    // are, a `Float64` is first converted with `ToInt32`.
+    let int_arm = |b: &mut FunctionBuilder, width: i64| {
+        let other = b.create_block();
+        let store = b.create_block();
+        b.ins().brif(int_value, store, &[], other, &[]);
+        b.switch_to_block(store);
+        int_store(b, width, int32);
+        b.ins().jump(ta_done, &[]);
+        b.switch_to_block(other);
+        let ok = b.create_block();
+        b.ins().brif(float_value, ok, &[], slow, &[]);
+        b.switch_to_block(ok);
+        let float = unbox_float64(b, value);
+        let converted = to_int32_from_float64(b, float);
+        int_store(b, width, converted);
+        b.ins().jump(ta_done, &[]);
     };
     b.switch_to_block(ta_int8);
-    let ok8 = b.create_block();
-    b.ins().brif(int_value, ok8, &[], slow, &[]);
-    b.switch_to_block(ok8);
-    int_store(b, 1);
-    b.ins().jump(ta_done, &[]);
-
+    int_arm(b, 1);
     b.switch_to_block(ta_int16);
-    let ok16 = b.create_block();
-    b.ins().brif(int_value, ok16, &[], slow, &[]);
-    b.switch_to_block(ok16);
-    int_store(b, 2);
-    b.ins().jump(ta_done, &[]);
-
+    int_arm(b, 2);
     b.switch_to_block(ta_int32);
-    let ok32 = b.create_block();
-    b.ins().brif(int_value, ok32, &[], slow, &[]);
-    b.switch_to_block(ok32);
-    int_store(b, 4);
+    int_arm(b, 4);
+
+    // `Uint8ClampedArray`: the engine's `to_u8_clamped` — round to nearest,
+    // ties to even, then clamp to [0, 255]. For a `Float64` the rounding is
+    // the 2^52 add/sub trick (every value below 2^52 rounds to an integer
+    // there; larger ones are integral anyway and clamp to an end).
+    b.switch_to_block(ta_clamped);
+    let convert = b.create_block();
+    let store = b.create_block();
+    b.ins().brif(int_value, store, &[], convert, &[]);
+    b.switch_to_block(convert);
+    let ok_clamped = b.create_block();
+    b.ins().brif(float_value, ok_clamped, &[], slow, &[]);
+    b.switch_to_block(ok_clamped);
+    let float = unbox_float64(b, value);
+    let magic = b.ins().f64const(4503599627370496.0);
+    let shifted = b.ins().fadd(float, magic);
+    let rounded = b.ins().fsub(shifted, magic);
+    let converted = b.ins().fcvt_to_sint_sat(types::I32, rounded);
+    let clamp = b.create_block();
+    b.append_block_param(clamp, types::I32);
+    b.ins().jump(clamp, &[converted]);
+    b.switch_to_block(store);
+    b.ins().jump(clamp, &[int32]);
+    b.switch_to_block(clamp);
+    let bits = b.block_params(clamp)[0];
+    let zero = b.ins().iconst(types::I32, 0);
+    let low = b.ins().smax(bits, zero);
+    let max = b.ins().iconst(types::I32, 255);
+    let high = b.ins().smin(low, max);
+    let byte = b.ins().ireduce(types::I8, high);
+    let scaled = b.ins().imul_imm(index, 1);
+    let addr = b.ins().iadd(base, scaled);
+    b.ins().store(MemFlags::new(), byte, addr, 0);
     b.ins().jump(ta_done, &[]);
 
-    // The float widths.
+    // The float widths: an `Int` is converted (`ToNumber`), a `Float64` is
+    // unboxed.
+    let float_arm = |b: &mut FunctionBuilder, width: i64, narrow: bool| {
+        let store = |b: &mut FunctionBuilder, wide: Value| {
+            let stored = if narrow {
+                b.ins().fdemote(types::F32, wide)
+            } else {
+                wide
+            };
+            let scaled = b.ins().imul_imm(index, width);
+            let addr = b.ins().iadd(base, scaled);
+            b.ins().store(MemFlags::new(), stored, addr, 0);
+        };
+        let other = b.create_block();
+        let float = b.create_block();
+        b.ins().brif(float_value, float, &[], other, &[]);
+        b.switch_to_block(float);
+        let wide = unbox_float64(b, value);
+        store(b, wide);
+        b.ins().jump(ta_done, &[]);
+        b.switch_to_block(other);
+        let ok = b.create_block();
+        b.ins().brif(int_value, ok, &[], slow, &[]);
+        b.switch_to_block(ok);
+        let wide = int_to_float64(b, value);
+        store(b, wide);
+        b.ins().jump(ta_done, &[]);
+    };
     b.switch_to_block(ta_f32);
-    let okf32 = b.create_block();
-    b.ins().brif(float_value, okf32, &[], slow, &[]);
-    b.switch_to_block(okf32);
     // A `Float32Array` keeps the double's rounded value (the engine's
     // `val as f32` ✓).
-    let wide = unbox_float64(b, value);
-    let narrow = b.ins().fdemote(types::F32, wide);
-    let scaled = b.ins().imul_imm(index, 4);
-    let addr = b.ins().iadd(base, scaled);
-    b.ins().store(MemFlags::new(), narrow, addr, 0);
-    b.ins().jump(ta_done, &[]);
-
+    float_arm(b, 4, true);
     b.switch_to_block(ta_f64);
-    let okf64 = b.create_block();
-    b.ins().brif(float_value, okf64, &[], slow, &[]);
-    b.switch_to_block(okf64);
-    let wide = unbox_float64(b, value);
-    let scaled = b.ins().imul_imm(index, 8);
-    let addr = b.ins().iadd(base, scaled);
-    b.ins().store(MemFlags::new(), wide, addr, 0);
-    b.ins().jump(ta_done, &[]);
+    float_arm(b, 8, false);
 
     b.switch_to_block(ta_done);
     // The three operands are gone; the stack pointer drops with them.

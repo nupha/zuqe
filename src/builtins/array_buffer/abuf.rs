@@ -512,6 +512,10 @@ impl ArrayBuffer {
                 return Err(ctx.throw_type_error("cannot resize a raw ArrayBuffer"));
             }
         };
+        // The reallocation may have moved the bytes: the JIT's mirror must
+        // follow, or the inline element paths would write through a stale
+        // pointer.
+        abuf.sync_view();
 
         // Update every live TypedArray view.
         for w in abuf.typed_array_list.iter() {
@@ -591,6 +595,9 @@ impl ArrayBuffer {
                 ABufData::Shared(Arc::new(RwLock::new(v.into_boxed_slice())))
             }
         };
+        // Shared bytes are never directly readable, but the mirror's length
+        // must still follow the data (the rule: every mutation syncs).
+        abuf.sync_view();
 
         // Update every live TypedArray view (mirrors `resize`).
         for w in abuf.typed_array_list.iter() {
