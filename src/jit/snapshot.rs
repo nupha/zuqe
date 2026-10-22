@@ -70,8 +70,12 @@ pub(crate) struct CompileSnapshot {
 ///
 /// This is the callee's own snapshot metadata, copied while the runtime
 /// thread still owns the bytecode. The compiler verifies it like any other
-/// snapshot and, if the body is within the inline subset (pure, no calls, no
-/// exits), emits that body in the caller's code.
+/// snapshot and, if the body is within the inline subset, emits that body in
+/// the caller's code.
+///
+/// `call_sites` / `inline_callees` are the callee's *own* monomorphic sites
+/// (T7.2): a call inside the copied body can be copied too. The nesting is
+/// bounded at snapshot time.
 #[derive(Clone, Debug)]
 pub(crate) struct InlineCallee {
     pub(crate) bytecode: Box<[u8]>,
@@ -82,7 +86,18 @@ pub(crate) struct InlineCallee {
     pub(crate) mode: ExecMode,
     pub(crate) gc_scope_kind: GcScopeKind,
     pub(crate) const_meta: Box<[ConstMeta]>,
+    /// The callee's own call sites, in site-id order (as `CompileSnapshot`).
+    pub(crate) call_sites: Box<[CallSite]>,
+    /// The callees those sites may copy.
+    pub(crate) inline_callees: Box<[InlineCallee]>,
 }
+
+/// How many copied bodies may be stacked at one call site (T7.2). Deeper
+/// call chains stay on the direct path.
+const MAX_INLINE_DEPTH: u8 = 2;
+/// Total bytecode bytes one snapshot may spend on nested copies. The
+/// per-callee caps bound one body; this bounds the whole tree.
+const MAX_INLINE_BYTES: usize = 64 * 1024;
 
 /// The cheapest sanity gate for copying a callee's body: the body must be a
 /// plain, small, non-closure function. The compiler decides usability from
@@ -102,7 +117,29 @@ fn inline_candidate(caller: &BytecodeImpl, callee: &Bytecode) -> bool {
 }
 
 impl InlineCallee {
-    fn from_bytecode(bc: &BytecodeImpl) -> Self {
+    fn from_bytecode(bc: &BytecodeImpl, depth: u8, budget: &mut usize) -> Self {
+        let mut call_sites = bc.feedback.snapshot_calls();
+        let mut inline_callees = Vec::new();
+        if depth < MAX_INLINE_DEPTH {
+            for (id, site) in call_sites.iter_mut().enumerate() {
+                if site.polymorphic || site.callee == 0 {
+                    continue;
+                }
+                let Some(callee) = bc.feedback.call_callee(id as u32) else {
+                    continue;
+                };
+                if !inline_candidate(bc, &callee) {
+                    continue;
+                }
+                let len = callee.opcodes().len();
+                if len > *budget {
+                    break;
+                }
+                *budget -= len;
+                site.inline = Some(inline_callees.len() as u32);
+                inline_callees.push(InlineCallee::from_bytecode(&callee, depth + 1, budget));
+            }
+        }
         Self {
             bytecode: bc.opcodes().into(),
             arg_count: bc.arg_count,
@@ -118,12 +155,14 @@ impl InlineCallee {
                     tag: value.tag() as i16,
                 })
                 .collect(),
+            call_sites: call_sites.into_boxed_slice(),
+            inline_callees: inline_callees.into_boxed_slice(),
         }
     }
 
     /// The callee as a standalone snapshot, for the compiler's verifier. The
-    /// call-site tables stay empty: an inlined body never calls another
-    /// function (that is part of the inline subset).
+    /// nested call-site tables travel with it, so a copied body can copy its
+    /// own monomorphic callees (T7.2).
     pub(crate) fn snapshot(&self, function_id: u64) -> CompileSnapshot {
         CompileSnapshot {
             function_id,
@@ -139,8 +178,8 @@ impl InlineCallee {
             const_meta: self.const_meta.clone(),
             ic_count: 0,
             feedback: Box::new([]),
-            call_sites: Box::new([]),
-            inline_callees: Box::new([]),
+            call_sites: self.call_sites.clone(),
+            inline_callees: self.inline_callees.clone(),
             speculate: false,
         }
     }
@@ -166,6 +205,7 @@ impl CompileSnapshot {
         // alive, so the identity the guard carries stays valid.
         let mut call_sites = bc.feedback.snapshot_calls();
         let mut inline_callees = Vec::new();
+        let mut budget = MAX_INLINE_BYTES;
         for (id, site) in call_sites.iter_mut().enumerate() {
             if site.polymorphic || site.callee == 0 {
                 continue;
@@ -176,8 +216,13 @@ impl CompileSnapshot {
             if !inline_candidate(bc, &callee) {
                 continue;
             }
+            let len = callee.opcodes().len();
+            if len > budget {
+                break;
+            }
+            budget -= len;
             site.inline = Some(inline_callees.len() as u32);
-            inline_callees.push(InlineCallee::from_bytecode(&callee));
+            inline_callees.push(InlineCallee::from_bytecode(&callee, 0, &mut budget));
         }
 
         Self {

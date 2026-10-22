@@ -149,6 +149,55 @@ pub(crate) mod object {
     }
 }
 
+/// The bytecode function's payload layout: where the `Bytecode` handle lives.
+///
+/// A nested inlined call site guards on the live callee's *bytecode* identity
+/// (the same identity `h_inline_guard` compares), so the generated code walks
+/// object → payload → bytecode without a helper.
+pub(crate) mod function {
+    use crate::function::BFuncPayload;
+
+    /// The offset of the `Bytecode` handle inside the payload.
+    pub(crate) const BYTECODE_OFFSET: i32 = BFuncPayload::BYTECODE_OFFSET as i32;
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// The generated guard reads the bytecode pointer at this offset. Pin
+        /// it against a real function object: the identity read the way the
+        /// guard reads it must be the bytecode node the function runs.
+        #[test]
+        fn the_function_payload_layout_is_stable() {
+            let mut rt = crate::Runtime::create().unwrap();
+            let mut ctx = rt
+                .create_context(crate::ScopedContext::ECMA_CONTEXT_SETUP)
+                .unwrap();
+            let value = ctx
+                .eval(
+                    b"(function f(){ return 1; })",
+                    &crate::EvalName::Name("jit-layout-fn.js".into()),
+                    crate::EvalType::Global,
+                    crate::EvalFlags::empty(),
+                )
+                .unwrap();
+            let func = crate::function::BCWrapper::try_from(value).expect("a function object");
+            let bytecode = func.payload().bytecode();
+            let node = value.as_gc_node().expect("a GC node").as_ptr() as usize;
+            let obj = unsafe {
+                *((node as *const u8).add(crate::jit::layout::object::PAYLOAD_OFFSET as usize)
+                    as *const u64)
+            };
+            let read = unsafe { *((obj as *const u8).add(BYTECODE_OFFSET as usize) as *const u64) };
+            assert_eq!(
+                read,
+                bytecode.gc_node_ptr().as_ptr() as u64,
+                "the bytecode handle is not where the nested guard reads it"
+            );
+        }
+    }
+}
+
 /// The typed array's layout: the view's buffer, its start offset, its lengths
 /// and its out-of-bounds flag.
 pub(crate) mod typed_array {

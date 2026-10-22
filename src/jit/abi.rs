@@ -166,10 +166,17 @@ pub(crate) struct JitExecFrame {
     /// D-6 route B, step 2: calls whose site passed the inline guard and ran
     /// the callee's body copied into the caller.
     pub frame_inline_hits: u32,
+    /// D-6 route B, step 2 (T7.2): nested call sites inside a copied body
+    /// whose constant-identity guard passed. Counted by the generated code.
+    pub nested_inline_hits: u32,
     /// D-6 route B: calls at a monomorphic site whose guard missed (the callee
     /// was not the recorded one), or whose callee the direct path could not
     /// serve — those took the general call path.
     pub inline_call_misses: u32,
+    /// D-6 route B, step 2 (T7.4): the value an allocation helper produced for
+    /// an inlined body. The generated code reads it immediately; no GC point
+    /// can run between the helper and the read.
+    pub scratch: JSValue,
 }
 
 /// The object in the prototype chain that *owns* `prop` (the one whose own
@@ -2031,6 +2038,43 @@ unsafe extern "C" fn h_object(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// `object` inside an inlined body (T7.4): allocate an empty object and leave
+/// it in `scratch` instead of the caller's operand stack. The helper cannot
+/// collect (an allocation only sets `gc_req`), so the unrooted scratch slot is
+/// safe until the generated code reads it in the same basic block.
+unsafe extern "C" fn h_alloc_object(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let value = scope_of(f)
+            .create_base_object()
+            .map_or(JSValue::EXCEPTION, JSValue::from);
+        f.scratch = value;
+        if value.is_exception() {
+            HELPER_EXCEPTION
+        } else {
+            HELPER_OK
+        }
+    }
+}
+
+/// `array_from 0` inside an inlined body (T7.4): an empty array in `scratch`.
+unsafe extern "C" fn h_alloc_array0(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let scope = scope_of(f);
+        let Ok(list) = crate::array::alloc_fast_array_slots(scope, 0) else {
+            return HELPER_EXCEPTION;
+        };
+        match crate::array::Array::from_values(scope, list) {
+            Ok(array) => {
+                f.scratch = JSValue::from(array);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
 /// `array_from`: `[v0, …, vN-1, ^] -> [array, ^]`; `imm` is `N`. Mirrors the
 /// interpreter's `ARRAY_FROM` (the same fast-array slot allocation).
 unsafe extern "C" fn h_array_from(f: *mut JitExecFrame) -> u32 {
@@ -2657,7 +2701,7 @@ unsafe extern "C" fn h_apply(f: *mut JitExecFrame) -> u32 {
 }
 
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 123;
+pub(crate) const HELPER_COUNT: usize = 125;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -2882,6 +2926,12 @@ pub(crate) const HELPER_CALL_METHOD_INLINE: usize = 121;
 /// Index of [`h_inline_guard`], the guard an inlined monomorphic call site
 /// tests before running the callee's body in the caller (D-6 route B, step 2).
 pub(crate) const HELPER_INLINE_GUARD: usize = 122;
+/// Index of [`h_alloc_object`], an empty object literal inside an inlined
+/// body (T7.4). The value is read back from `JitExecFrame::scratch`.
+pub(crate) const HELPER_ALLOC_OBJECT: usize = 123;
+/// Index of [`h_alloc_array0`], an empty array literal inside an inlined body
+/// (T7.4).
+pub(crate) const HELPER_ALLOC_ARRAY0: usize = 124;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -3013,4 +3063,6 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_call_inline as *const (),
     h_call_method_inline as *const (),
     h_inline_guard as *const (),
+    h_alloc_object as *const (),
+    h_alloc_array0 as *const (),
 ]);

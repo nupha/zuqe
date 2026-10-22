@@ -162,6 +162,260 @@ fn a_forward_branch_is_inlined() {
     );
 }
 
+/// T7.1: a loop inside the copied body runs inline; its back edge polls the
+/// caller frame's safepoint and bails if the poll asks to stop.
+#[test]
+fn a_loop_inside_the_callee_is_inlined() {
+    let setup = "\
+        function sum(n){ var s = 0; for (var i = 0; i < n; i++) { s = s + i; } return s; } \
+        function caller(n){ var t = sum(n); return t * 2; } \
+        caller(4);";
+    let main = "caller(50)";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    assert_eq!(result, "int:2450");
+    assert!(
+        metrics.frame_inline_hits > 0,
+        "the loop-shaped callee was not inlined: {metrics:?}"
+    );
+    assert_eq!(
+        metrics.inline_call_misses, 0,
+        "the guard never missed on a monomorphic site: {metrics:?}"
+    );
+}
+
+/// A collection requested by the host runs at the inlined loop's back edge,
+/// with the caller frame (and its call window) as the only roots. The WeakRef
+/// proves the argument survived the collection.
+#[test]
+fn a_gc_at_an_inlined_backedge_keeps_the_frame_valid() {
+    let mut rt = Runtime::create().expect("runtime");
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .expect("context");
+    let jit = Jit::attach_to(&rt, config(Mode::Tier1)).expect("attach");
+    let name = EvalName::Name("jit-inline-gc.js".into());
+
+    eval(
+        &mut ctx,
+        &name,
+        "function sum(n){ var s = 0; for (var i = 0; i < n; i++) { s = s + i; } return s; } \
+         function caller(o, n){ \
+             var wr = new WeakRef(o); \
+             var s = sum(n); \
+             if (wr.deref() !== o) throw new Error('collected'); \
+             return o.v + s; \
+         } \
+         caller({ v: 1 }, 4);",
+    )
+    .expect("setup");
+    settle(&jit);
+
+    // The next safepoint inside the inlined loop collects.
+    ctx.rt_mut().gc_request();
+    let res = eval(&mut ctx, &name, "caller({ v: 5 }, 10)");
+    assert_eq!(describe(&mut ctx, res), "int:50");
+    assert!(
+        jit.metrics().frame_inline_hits > 0,
+        "the loop was not inlined: {:?}",
+        jit.metrics()
+    );
+}
+
+/// T7.2: a call inside the copied body is copied too, when its own site is
+/// monomorphic. `mid` is inlined into `caller`, and `leaf` into `mid`.
+#[test]
+fn a_nested_call_is_inlined() {
+    let setup = "\
+        function leaf(x){ return x + 1; } \
+        function mid(f, x){ return f(x) * 2; } \
+        function caller(n){ var s = 0; for (var i = 0; i < n; i++) { s = s + mid(leaf, i); } return s; } \
+        caller(4);";
+    let main = "caller(20)";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    // sum over i in [0, 20): 2 * (i + 1)
+    assert_eq!(result, "int:420");
+    assert!(
+        metrics.frame_inline_hits > 0,
+        "the outer call chain was not inlined: {metrics:?}"
+    );
+    assert!(
+        metrics.nested_inline_hits > 0,
+        "the nested call was not inlined: {metrics:?}"
+    );
+}
+
+/// T7.2 copies a three-body chain (the snapshot depth bound is two nested
+/// levels): caller -> a -> b -> c.
+#[test]
+fn a_three_body_call_chain_is_inlined() {
+    let setup = "\
+        function c(x){ return x + 1; } \
+        function b(f, x){ return f(x) + 1; } \
+        function a(f, g, x){ return f(g, x) + 1; } \
+        function caller(n){ return a(b, c, n); } \
+        caller(3);";
+    let main = "caller(5)";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    assert_eq!(result, "int:8");
+    assert!(
+        metrics.nested_inline_hits >= 2,
+        "the chain did not inline to its depth bound: {metrics:?}"
+    );
+}
+
+/// T7.3: a `try/catch` body is copied. The non-throwing path runs inline; a
+/// `throw` bails to the general path, which owns the catch scan — so a handler
+/// inside the copied body still wins exactly as it would.
+#[test]
+fn a_try_catch_body_is_inlined() {
+    let setup = "\
+        function f(x){ try { if (x) throw 1; return 7; } catch (e) { return 9; } } \
+        function caller(x){ return f(x); } \
+        caller(0);";
+    let main = "caller(0) + ':' + caller(1)";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    assert_eq!(result, "str:7:9");
+    assert!(
+        metrics.frame_inline_hits > 0,
+        "the try/catch body was not inlined: {metrics:?}"
+    );
+}
+
+/// A throw with no handler in the copied body propagates through the caller's
+/// own `catch`, exactly like the interpreter.
+#[test]
+fn a_throw_through_an_inlined_body_is_caught_by_the_caller() {
+    let setup = "\
+        function f(x){ if (x) throw 1; return 1; } \
+        function caller(x){ try { return f(x); } catch (e) { return 'caught:' + e; } } \
+        caller(0);";
+    let main = "caller(0) + ':' + caller(1)";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    assert_eq!(result, "str:1:caught:1");
+    assert!(
+        metrics.frame_inline_hits > 0,
+        "the throwing body was not inlined: {metrics:?}"
+    );
+}
+
+/// T7.4: an empty object literal is allocated inside the copied body and
+/// returned. Two calls must produce two distinct objects.
+#[test]
+fn an_allocation_inside_the_callee_is_inlined() {
+    let setup = "\
+        function make(){ return {}; } \
+        function caller(){ var a = make(); var b = make(); return a === b; } \
+        caller();";
+    let main = "caller()";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    assert_eq!(result, "bool:false");
+    assert!(
+        metrics.frame_inline_hits > 0,
+        "the allocating body was not inlined: {metrics:?}"
+    );
+}
+
+/// The empty-array literal uses `array_from 0`; the same scratch path.
+#[test]
+fn an_empty_array_literal_is_inlined() {
+    let setup = "\
+        function make(){ return []; } \
+        function caller(){ var a = make(); var b = make(); return Array.isArray(a) && a !== b; } \
+        caller();";
+    let main = "caller()";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    assert_eq!(result, "bool:true");
+    assert!(
+        metrics.frame_inline_hits > 0,
+        "the array-allocating body was not inlined: {metrics:?}"
+    );
+}
+
+/// A body that both allocates and loops is not inlined: the back edge's
+/// safepoint could collect an object that only lives in a register.
+#[test]
+fn an_allocation_plus_a_loop_stays_on_the_direct_path() {
+    let setup = "\
+        function f(n){ var o = {}; for (var i = 0; i < n; i++) { } return o; } \
+        function caller(n){ return f(n); } \
+        caller(1);";
+    let main = "typeof caller(3)";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    assert_eq!(result, "str:object");
+    assert_eq!(
+        metrics.frame_inline_hits, 0,
+        "allocation + safepoint must not inline: {metrics:?}"
+    );
+}
+
+/// A host-requested collection runs at the caller's next back edge, after the
+/// inlined allocation returned its object; the object must survive.
+#[test]
+fn a_gc_after_an_inlined_allocation_keeps_the_object() {
+    let mut rt = Runtime::create().expect("runtime");
+    let mut ctx = rt
+        .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+        .expect("context");
+    let jit = Jit::attach_to(&rt, config(Mode::Tier1)).expect("attach");
+    let name = EvalName::Name("jit-inline-alloc-gc.js".into());
+
+    eval(
+        &mut ctx,
+        &name,
+        "function make(){ return {}; } \
+         function caller(n){ \
+             var o = make(); \
+             var wr = new WeakRef(o); \
+             for (var i = 0; i < n; i++) { } \
+             return wr.deref() === o; \
+         } \
+         caller(2);",
+    )
+    .expect("setup");
+    settle(&jit);
+
+    ctx.rt_mut().gc_request();
+    let res = eval(&mut ctx, &name, "caller(4)");
+    assert_eq!(describe(&mut ctx, res), "bool:true");
+    assert!(
+        jit.metrics().frame_inline_hits > 0,
+        "the allocating body was not inlined: {:?}",
+        jit.metrics()
+    );
+}
+
+/// The nested guard misses when the copied body calls a different function;
+/// the whole call bails to the general path and still agrees.
+#[test]
+fn a_nested_guard_miss_falls_back() {
+    let setup = "\
+        function leaf(x){ return x + 1; } \
+        function other(x){ return x + 2; } \
+        function mid(f, x){ return f(x) * 10; } \
+        function caller(f, n){ return mid(f, n); } \
+        caller(leaf, 1);";
+    let main = "caller(leaf, 3) + ':' + caller(other, 3)";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    assert_eq!(result, "str:40:50");
+    assert!(
+        metrics.frame_inline_hits > 0,
+        "the monomorphic outer site was not inlined: {metrics:?}"
+    );
+    assert!(
+        metrics.nested_inline_hits > 0,
+        "the recorded nested callee never hit: {metrics:?}"
+    );
+}
+
 /// A non-`Int` operand bails to the general path; the frame still holds the
 /// original call window, so the callee simply runs there. Both shapes must be
 /// right at the same monomorphic site.
@@ -513,22 +767,28 @@ fn a_poisoned_operand_runs_user_code_once() {
 fn every_ineligible_shape_stays_on_the_direct_path() {
     let cases = [
         (
-            "loop",
-            "function f(n){ var s = 0; for (var i = 0; i < n; i++) { s = s + i; } return s; } \
-             function caller(n){ return f(n); } caller(4);",
-            "caller(5)",
-        ),
-        (
             "callee with a call",
-            "function g(x){ var s = 0; for (var i = 0; i < x; i++) { s = s + 1; } return s; } \
-             function f(x){ return g(x); } function caller(x){ return f(x); } caller(1);",
-            "caller(2)",
+            "function g(o){ return o.v; } function f(o){ return g(o); } \
+             function caller(o){ return f(o); } caller({ v: 1 });",
+            "caller({ v: 2 })",
         ),
         (
-            "try/catch",
-            "function f(x){ try { return x + 1; } catch (e) { return 0; } } \
+            "callee catch with a global",
+            "var g = 1; function f(x){ try { if (x) throw 1; return 7; } catch (e) { return 9 + g; } } \
+             function caller(x){ return f(x); } caller(0);",
+            "caller(0) + ':' + caller(1)",
+        ),
+        (
+            "try/finally",
+            "function f(x){ var y = x; try { return y + 1; } finally { y = 0; } } \
              function caller(x){ return f(x); } caller(1);",
             "caller(2)",
+        ),
+        (
+            "recursive callee",
+            "function rec(f, n){ if (n < 2) return n; return f(f, n - 1) + f(f, n - 2); } \
+             function caller(n){ return rec(rec, n); } caller(3);",
+            "caller(6)",
         ),
         (
             "this",

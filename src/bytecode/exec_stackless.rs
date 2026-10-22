@@ -287,7 +287,10 @@ impl Bytecode {
         let mut rt = realm_scope.rt_ptr();
         let bytecodes = self.opcodes();
         debug_assert!(
-            pc_offset < bytecodes.len(),
+            // A pending exception may resume at the end pc (`out_pc` after the
+            // last instruction): the exception path never fetches an opcode
+            // there, and a caught one replaces the pc with the handler.
+            pc_offset < bytecodes.len() || throwed,
             "pc_offset={}, bytecodes.len()={}",
             pc_offset,
             bytecodes.len()

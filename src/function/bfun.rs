@@ -121,6 +121,9 @@ impl GcTrace for BFuncPayload {
 }
 
 impl BFuncPayload {
+    /// The offset of the `Bytecode` handle, for the JIT's nested-call guard.
+    pub(crate) const BYTECODE_OFFSET: usize = std::mem::offset_of!(Self, bytecode);
+
     pub(crate) const fn new(bytecode: Bytecode, captured_vars: Vec<VarRef>) -> Self {
         Self {
             bytecode,

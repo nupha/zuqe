@@ -191,7 +191,25 @@ pub(crate) fn call_native_direct(
             {
                 scope.build_backtrace_to(err_val, None, 0);
             }
-            DirectCall::Exception
+            // Resume the callee in the interpreter with the pending exception:
+            // `execute_with_arena` starts with `throwed = true`, so the normal
+            // catch scan runs in the *callee's* frame. Returning the exception
+            // to the JIT caller here would skip a `catch` inside the callee.
+            {
+                let head = arena.frame_mut(frame_idx);
+                head.cur_pc_offset = frame.out_pc as usize;
+                head.cur_sp_offset = frame.out_sp;
+            }
+            let (value, _completed) =
+                execute_trampoline(bc, frame_idx, scope, this_obj, new_target);
+            if value.is_exception() {
+                DirectCall::Exception
+            } else {
+                match callee_scope.as_mut() {
+                    Some(s) => DirectCall::Done(value.promote(s.scope_mut())),
+                    None => DirectCall::Done(value),
+                }
+            }
         }
         crate::jit::JitExitKind::Resume | crate::jit::JitExitKind::Retry => {
             // The callee's code could not go on (an opcode it cannot lower, or

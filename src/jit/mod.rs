@@ -946,7 +946,9 @@ pub(crate) fn invoke_native(
         backedges: 0,
         inline_call_hits: 0,
         frame_inline_hits: 0,
+        nested_inline_hits: 0,
         inline_call_misses: 0,
+        scratch: JSValue::UNDEFINED,
     };
     // SAFETY: `entry` was produced by `compile` for this exact bytecode layout
     // and ABI, and the slot is only populated while the code cache keeps the
@@ -991,6 +993,9 @@ pub(crate) fn invoke_native(
         frame_inline_hits: m
             .frame_inline_hits
             .saturating_add(u64::from(frame.frame_inline_hits)),
+        nested_inline_hits: m
+            .nested_inline_hits
+            .saturating_add(u64::from(frame.nested_inline_hits)),
         inline_call_misses: m
             .inline_call_misses
             .saturating_add(u64::from(frame.inline_call_misses)),

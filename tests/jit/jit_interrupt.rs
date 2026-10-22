@@ -70,6 +70,22 @@ fn describe(ctx: &mut Context, res: JSResult) -> String {
 }
 
 fn run(with_jit: bool, long_run: &str) -> InterruptRun {
+    run_with(
+        with_jit,
+        DEFINE,
+        "for (var w = 0; w < 40; w++) spin(2);",
+        long_run,
+        "spin(50) + '/' + guarded(3)",
+    )
+}
+
+fn run_with(
+    with_jit: bool,
+    define: &str,
+    prime: &str,
+    long_run: &str,
+    recover: &str,
+) -> InterruptRun {
     let mut rt = Runtime::create().expect("runtime");
     let mut ctx = rt
         .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
@@ -86,7 +102,7 @@ fn run(with_jit: bool, long_run: &str) -> InterruptRun {
     });
     let name = EvalName::Name("jit-interrupt.js".into());
 
-    eval(&mut ctx, &name, DEFINE).expect("setup");
+    eval(&mut ctx, &name, define).expect("setup");
     if let Some(jit) = &jit {
         settle(&jit);
         assert!(
@@ -99,15 +115,15 @@ fn run(with_jit: bool, long_run: &str) -> InterruptRun {
     // would fire. Prime it with a handler that never fires, so the countdown
     // only starts inside the long run below.
     ctx.rt_mut().set_interrupt_handler(|_| false);
-    eval(&mut ctx, &name, "for (var w = 0; w < 40; w++) spin(2);").expect("priming run");
-    // Arm it: the countdown now expires inside `spin`'s back-edge loop.
+    eval(&mut ctx, &name, prime).expect("priming run");
+    // Arm it: the countdown now expires inside the loop's back edge.
     ctx.rt_mut().set_interrupt_handler(|_| true);
     let res = eval(&mut ctx, &name, long_run);
     let outcome = describe(&mut ctx, res);
     let interrupted = ctx.rt_mut().take_interrupt().is_some();
     ctx.rt_mut().unset_interrupt_handler();
 
-    let res = eval(&mut ctx, &name, "spin(50) + '/' + guarded(3)");
+    let res = eval(&mut ctx, &name, recover);
     let recovered = describe(&mut ctx, res);
     let metrics = jit.as_ref().map_or_else(JitMetrics::default, Jit::metrics);
 
@@ -175,6 +191,52 @@ fn interrupt_is_not_swallowed_by_a_catch_in_the_same_frame() {
     println!(
         "same-frame: outcome={} native_interrupts={}",
         native.outcome, native.metrics.native_interrupts
+    );
+}
+
+/// T7.1: the loop inside the *inlined* body polls the caller frame and bails
+/// to the general path when the poll asks to stop; the interrupt is then
+/// delivered from the callee, exactly as the interpreter-only run does.
+#[test]
+fn an_inlined_loop_takes_the_interrupt_exit() {
+    const DEFINE_INLINE: &str = "\
+function sum(n){ var s = 0; for (var i = 0; i < n; i++) s = (s + i) | 0; return s; } \
+function inline_caller(n){ return sum(n) + 1; } \
+inline_caller(1);";
+
+    let native = run_with(
+        true,
+        DEFINE_INLINE,
+        "for (var w = 0; w < 40; w++) inline_caller(2);",
+        "inline_caller(300000);",
+        "inline_caller(50);",
+    );
+    let reference = run_with(
+        false,
+        DEFINE_INLINE,
+        "for (var w = 0; w < 40; w++) inline_caller(2);",
+        "inline_caller(300000);",
+        "inline_caller(50);",
+    );
+
+    assert!(
+        native.metrics.frame_inline_hits > 0,
+        "the callee was not inlined, so the test does not cover T7.1: {:?}",
+        native.metrics
+    );
+    assert!(native.interrupted, "no interrupt exit code was recorded");
+    assert!(
+        native.metrics.native_interrupts > 0,
+        "no native interrupt exit was observed (metrics: {:?})",
+        native.metrics
+    );
+    assert_eq!(
+        native.outcome, reference.outcome,
+        "JIT and interpreter disagree on the interrupted inlined loop"
+    );
+    assert_eq!(
+        native.recovered, reference.recovered,
+        "post-interrupt recovery differs from the interpreter"
     );
 }
 

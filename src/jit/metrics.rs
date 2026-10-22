@@ -119,6 +119,9 @@ pub struct JitMetrics {
     /// general path on an operand the inline subset does not implement; this
     /// counter only says the guard was passed.
     pub frame_inline_hits: u64,
+    /// Nested call sites inside a copied body whose constant-identity guard
+    /// passed (D-6 route B, step 2, T7.2).
+    pub nested_inline_hits: u64,
     /// Calls at a monomorphic site that took the general call path (D-6 route
     /// B): the guard missed (the callee was not the recorded one), or the
     /// callee could not run directly (a generator, a cross-realm callee, one

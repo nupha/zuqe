@@ -342,6 +342,43 @@ const KERNELS: &[Kernel] = &[
         define: "function workload(iterations, seed){ var s = seed; for (var i = 0; i < iterations; i++) s = s; return s; } workload(10, 1);",
         work: "workload(20000000, 1);",
     },
+    // T7.1: a callee that loops. The inline path copies the loop and pays one
+    // safepoint per back edge, but no frame/call protocol per invocation.
+    Kernel {
+        name: "probe-loop-call",
+        define: "function sumTo(n){ var s = 0; for (var i = 0; i < n; i++) { s = s + i; } return s; } \
+                 function workload(iterations, seed){ var s = seed; for (var i = 0; i < iterations; i++) s = (s + sumTo(8)) | 0; return s; } \
+                 workload(10, 1);",
+        work: "workload(2000000, 1);",
+    },
+    // T7.4: an object literal inside the callee, no loop there. The copied
+    // body allocates through the caller's scope and returns a register value.
+    Kernel {
+        name: "probe-alloc-call",
+        define: "function make(x){ var o = {}; return x + 1; } \
+                 function workload(iterations, seed){ var s = seed; for (var i = 0; i < iterations; i++) s = (s + make(i)) | 0; return s; } \
+                 workload(10, 1);",
+        work: "workload(2000000, 1);",
+    },
+    // T7.3: a try/catch body whose fast path never throws. The copied body
+    // runs inline; a throw would bail to the general path.
+    Kernel {
+        name: "probe-try-catch",
+        define: "function guarded(x){ try { return x + 1; } catch (e) { return 0; } } \
+                 function workload(iterations, seed){ var s = seed; for (var i = 0; i < iterations; i++) s = (s + guarded(i)) | 0; return s; } \
+                 workload(10, 1);",
+        work: "workload(2000000, 1);",
+    },
+    // T7.2: a two-level call chain. The callee passed as an argument keeps the
+    // copied bodies free of globals/closures, so both levels inline.
+    Kernel {
+        name: "probe-nested-call",
+        define: "function leaf(x){ return x + 1; } \
+                 function mid(f, x){ return f(x) * 2; } \
+                 function workload(iterations, seed){ var s = seed; for (var i = 0; i < iterations; i++) s = (s + mid(leaf, i)) | 0; return s; } \
+                 workload(10, 1);",
+        work: "workload(2000000, 1);",
+    },
     // float64array-traversal.js: Int32Array -> Float64Array conversion, both
     // buffers handed in as one argument object.
     Kernel {

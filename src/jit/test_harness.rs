@@ -42,6 +42,7 @@
 //!   not re-test user-visible semantics the differential suites already cover.
 
 use std::cell::Cell;
+use std::collections::HashMap;
 
 use cranelift_codegen::{
     Context,
@@ -257,7 +258,9 @@ pub(crate) fn run_function(body: &[u8], args: u16, vars: u16, arguments: &[u64])
         backedges: 0,
         inline_call_hits: 0,
         frame_inline_hits: 0,
+        nested_inline_hits: 0,
         inline_call_misses: 0,
+        scratch: JSValue::UNDEFINED,
     };
 
     let mem = publish(&compiled);
@@ -286,8 +289,13 @@ pub(crate) fn run_inline(
     method: bool,
 ) -> Option<u64> {
     let verified = verified_function(body, args, vars, 32);
+    let plan = inline_call::Plan {
+        body: verified,
+        callee: 0,
+        sites: HashMap::new(),
+    };
     assert!(
-        inline_call::eligible(&verified),
+        inline_call::eligible(&plan.body, &plan.sites),
         "hand-written body must be inlinable"
     );
 
@@ -308,17 +316,42 @@ pub(crate) fn run_inline(
     let bail = builder.create_block();
     let merge = builder.create_block();
     builder.append_block_param(merge, types::I64);
+    // No real frame here: a body with a back edge would call the safepoint
+    // helper with these dummy values, so only forward bodies may be executed
+    // through this runner (loop bodies are covered by the integration suite).
+    let dummy_frame = builder.ins().iconst(types::I64, 0);
+    let mut helper_sig = Signature::new(isa.default_call_conv());
+    helper_sig.params.push(AbiParam::new(types::I64));
+    helper_sig.returns.push(AbiParam::new(types::I32));
+    let helper_sig = builder.import_signature(helper_sig);
 
+    let arg_base = builder.ins().iadd_imm(base, if method { 16 } else { 8 });
+    let undefined = builder.ins().iconst(types::I64, UNDEFINED as i64);
+    let declared = u32::from(plan.body.snapshot().arg_count);
+    let mut inline_args = Vec::with_capacity(declared as usize);
+    for index in 0..declared {
+        inline_args.push(if index < runtime_argc {
+            builder
+                .ins()
+                .load(types::I64, MemFlags::new(), arg_base, (index as i32) * 8)
+        } else {
+            undefined
+        });
+    }
+    let sp_after = builder.ins().iadd_imm(base, 8);
+    let mut next_tag = 0u32;
     inline_call::lower(
         &mut builder,
-        &verified,
-        base,
-        runtime_argc,
-        method,
-        0,
+        &plan,
+        &inline_args,
+        Some((base, sp_after)),
+        &mut next_tag,
         entry,
         bail,
         merge,
+        dummy_frame,
+        dummy_frame,
+        helper_sig,
     );
 
     builder.switch_to_block(bail);
@@ -354,7 +387,8 @@ pub(crate) fn run_inline(
 /// so the boundary can be tested.
 pub(crate) fn inlinable_with(body: &[u8], args: u16, vars: u16, stack_size: u16) -> bool {
     let snapshot = CompileSnapshot::from_raw(body.to_vec(), args, vars, 0, stack_size);
-    verify(snapshot, VerifyLimits::default()).is_ok_and(|body| inline_call::eligible(&body))
+    verify(snapshot, VerifyLimits::default())
+        .is_ok_and(|body| inline_call::eligible(&body, &HashMap::new()))
 }
 
 pub(crate) fn inlinable(body: &[u8], args: u16, vars: u16) -> bool {
@@ -373,23 +407,35 @@ pub(crate) fn compile_caller_with_inline(
     vars: u16,
     sites: &[(u32, &[u8])],
 ) -> Result<(), crate::jit::error::JitError> {
-    let mut call_sites = Vec::with_capacity(sites.len());
-    let mut callees = Vec::with_capacity(sites.len());
-    for (index, (pc, callee)) in sites.iter().enumerate() {
-        call_sites.push(CallSite {
-            pc: *pc,
-            callee: 1,
-            polymorphic: false,
-            inline: Some(index as u32),
-        });
-        let snapshot = CompileSnapshot::from_raw((*callee).to_vec(), 0, 0, 0, 32);
-        let verified = verify(snapshot, VerifyLimits::default()).expect("verify inline callee");
-        assert!(
-            inline_call::eligible(&verified),
-            "inline callee must be eligible"
-        );
-        callees.push(InlineCallee {
-            bytecode: (*callee).into(),
+    let nested: Vec<(u32, &[u8], &[(u32, &[u8])])> = sites
+        .iter()
+        .map(|(pc, body)| (*pc, *body, &[][..]))
+        .collect();
+    compile_caller_with_nested_inline(caller, args, vars, &nested)
+}
+
+/// Like [`compile_caller_with_inline`], with each site's callee carrying its
+/// own `(pc, body)` nested sites (T7.2).
+pub(crate) fn compile_caller_with_nested_inline(
+    caller: &[u8],
+    args: u16,
+    vars: u16,
+    sites: &[(u32, &[u8], &[(u32, &[u8])])],
+) -> Result<(), crate::jit::error::JitError> {
+    fn callee(body: &[u8], nested: &[(u32, &[u8])]) -> InlineCallee {
+        let mut call_sites = Vec::with_capacity(nested.len());
+        let mut callees = Vec::with_capacity(nested.len());
+        for (index, (pc, nested_body)) in nested.iter().enumerate() {
+            call_sites.push(CallSite {
+                pc: *pc,
+                callee: 1,
+                polymorphic: false,
+                inline: Some(index as u32),
+            });
+            callees.push(callee(nested_body, &[]));
+        }
+        InlineCallee {
+            bytecode: body.into(),
             arg_count: 0,
             var_count: 0,
             local_buf_size: 32,
@@ -397,7 +443,21 @@ pub(crate) fn compile_caller_with_inline(
             mode: ExecMode::empty(),
             gc_scope_kind: GcScopeKind::None,
             const_meta: Box::new([]),
+            call_sites: call_sites.into_boxed_slice(),
+            inline_callees: callees.into_boxed_slice(),
+        }
+    }
+
+    let mut call_sites = Vec::with_capacity(sites.len());
+    let mut callees = Vec::with_capacity(sites.len());
+    for (index, (pc, body, nested)) in sites.iter().enumerate() {
+        call_sites.push(CallSite {
+            pc: *pc,
+            callee: 1,
+            polymorphic: false,
+            inline: Some(index as u32),
         });
+        callees.push(callee(body, nested));
     }
     let snapshot = CompileSnapshot {
         function_id: 0,

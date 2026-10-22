@@ -47,7 +47,8 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    jit::snapshot::ConstMeta, vm_stack::ExecMode,
+    jit::snapshot::{ConstMeta, InlineCallee},
+    vm_stack::ExecMode,
 };
 
 /// The inline-cache site's layout (P1-1): the inline property guard reads
@@ -515,9 +516,9 @@ struct State<'a> {
     /// not here: its guard would miss every time.
     call_sites: HashMap<u32, u32>,
     /// Monomorphic sites whose callee body is copied into this function
-    /// (D-6 route B, step 2). The value is the verified callee; a site not in
-    /// here keeps the direct-call helper.
-    inline_sites: HashMap<u32, VerifiedFunction>,
+    /// (D-6 route B, step 2). The value is the verified plan (the body plus
+    /// its own nested sites); a site not in here keeps the direct-call helper.
+    inline_sites: HashMap<u32, super::inline_call::Plan>,
     /// Counter for the variable-id block an inlined body owns. Every emission
     /// gets a fresh block: Cranelift forbids declaring a variable twice.
     inline_tag: u32,
@@ -1606,7 +1607,7 @@ fn monomorphic_call_sites(verified: &VerifiedFunction) -> HashMap<u32, u32> {
 /// (D-6 route B, step 2). The callee's snapshot was taken while the runtime
 /// thread held the bytecode; verify it here, off-thread, exactly like any
 /// other function, and keep only bodies inside the inline subset.
-fn inline_call_sites(verified: &VerifiedFunction) -> HashMap<u32, VerifiedFunction> {
+fn inline_call_sites(verified: &VerifiedFunction) -> HashMap<u32, super::inline_call::Plan> {
     let snapshot = verified.snapshot();
     let mut sites = HashMap::new();
     for site in snapshot.call_sites.iter() {
@@ -1616,14 +1617,36 @@ fn inline_call_sites(verified: &VerifiedFunction) -> HashMap<u32, VerifiedFuncti
         let Some(callee) = snapshot.inline_callees.get(index as usize) else {
             continue;
         };
-        let Ok(body) = verify(callee.snapshot(site.callee), VerifyLimits::default()) else {
-            continue;
-        };
-        if super::inline_call::eligible(&body) {
-            sites.insert(site.pc, body);
+        if let Some(plan) = build_inline_plan(callee, site.callee) {
+            sites.insert(site.pc, plan);
         }
     }
     sites
+}
+
+/// Verify one callee and its own monomorphic callees (T7.2). A nested site
+/// that cannot be planned simply stays out of `sites`, which makes the
+/// enclosing body ineligible at its `call` opcode.
+fn build_inline_plan(callee: &InlineCallee, identity: u64) -> Option<super::inline_call::Plan> {
+    let body = verify(callee.snapshot(identity), VerifyLimits::default()).ok()?;
+    let snapshot = body.snapshot();
+    let mut sites = HashMap::new();
+    for site in snapshot.call_sites.iter() {
+        let Some(index) = site.inline else {
+            continue;
+        };
+        let Some(nested) = snapshot.inline_callees.get(index as usize) else {
+            continue;
+        };
+        if let Some(plan) = build_inline_plan(nested, site.callee) {
+            sites.insert(site.pc, plan);
+        }
+    }
+    super::inline_call::eligible(&body, &sites).then_some(super::inline_call::Plan {
+        body,
+        callee: identity,
+        sites,
+    })
 }
 
 fn lower(
@@ -1967,8 +1990,15 @@ fn lower_insn(
             // the inline subset runs that body here. The guard is the same
             // recorded-callee check the direct helper makes; a miss (or any
             // operand the subset cannot serve) takes the general path.
-            if matches!(name, "call" | "call_method")
-                && let Some(callee) = state.inline_sites.get(&pc).cloned()
+            // Take the plan out of the map so `state` stays mutable below (the
+            // fallback path needs it); put it back before leaving this arm —
+            // the OSR tail lowers the same site again.
+            let inline_plan = if matches!(name, "call" | "call_method") {
+                state.inline_sites.remove(&pc)
+            } else {
+                None
+            };
+            if let Some(callee) = inline_plan.as_ref()
                 && let Some(&site_id) = state.call_sites.get(&pc)
             {
                 let encoded = if method {
@@ -2018,16 +2048,46 @@ fn lower_insn(
                     i64::from(argc) + 1
                 };
                 let base = b.ins().iadd_imm(sp, -(window * 8));
-                let tag = state.inline_tag;
-                state.inline_tag += 1;
+                // The callee's declared arguments, read from the call window
+                // (missing ones are `undefined`). T7.2 nested copies reuse the
+                // same lowering with register arguments.
+                let arg_base = b.ins().iadd_imm(base, if method { 16 } else { 8 });
+                let undefined = b.ins().iconst(types::I64, UNDEFINED_BITS);
+                let declared = u32::from(callee.body.snapshot().arg_count);
+                let mut inline_args = Vec::with_capacity(declared as usize);
+                for index in 0..declared {
+                    inline_args.push(if index < argc {
+                        b.ins()
+                            .load(types::I64, MemFlags::new(), arg_base, (index as i32) * 8)
+                    } else {
+                        undefined
+                    });
+                }
+                let sp_after = b.ins().iadd_imm(base, 8);
                 super::inline_call::lower(
-                    b, &callee, base, argc, method, tag, inline, fallback, merge,
+                    b,
+                    callee,
+                    &inline_args,
+                    Some((base, sp_after)),
+                    &mut state.inline_tag,
+                    inline,
+                    fallback,
+                    merge,
+                    fv.frame,
+                    fv.helpers,
+                    helper_sig,
                 );
 
                 b.switch_to_block(merge);
                 let sp_merge = b.block_params(merge)[0];
                 b.def_var(sp_var, sp_merge);
+                state
+                    .inline_sites
+                    .insert(pc, inline_plan.expect("the plan was just borrowed"));
                 return Step::Continue(sp_merge);
+            }
+            if let Some(plan) = inline_plan {
+                state.inline_sites.insert(pc, plan);
             }
 
             let id = match name {
