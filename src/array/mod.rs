@@ -91,16 +91,6 @@ impl ArrayPayload {
         };
     }
 
-    /// The offset of the elements' data pointer, from the payload's start.
-    pub(crate) const fn elements_data_offset() -> i32 {
-        ELEMENTS_VIEW_OFFSET + ELEMENTS_DATA_OFFSET
-    }
-
-    /// The offset of the elements' length, from the payload's start.
-    pub(crate) const fn elements_len_offset() -> i32 {
-        ELEMENTS_VIEW_OFFSET + ELEMENTS_LEN_OFFSET
-    }
-
     pub const fn len(&self) -> usize {
         self.values.len()
     }

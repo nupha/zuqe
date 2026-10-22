@@ -15,7 +15,7 @@
 
 use crate::{
     function::{BytecodeImpl, GcScopeKind},
-    jit::feedback::SiteFeedback,
+    jit::feedback::{CallSite, SiteFeedback},
     vm_stack::ExecMode,
 };
 
@@ -51,6 +51,10 @@ pub(crate) struct CompileSnapshot {
     /// filtered by the epic F5 profitability gate. Empty under
     /// `Interpreter`/`Tier1` policies, which never record.
     pub(crate) feedback: Box<[(u32, SiteFeedback)]>,
+    /// Call-site feedback (D-6 route B): the callee each call site saw, in
+    /// site-id order — the index in this box is the site id the compiled code
+    /// carries, and the helper reads the expected callee back through it.
+    pub(crate) call_sites: Box<[CallSite]>,
     /// Whether the compiler may speculatively specialize this function (epic
     /// F2). Cleared after tier-down (P7 7.2) observed too many guard misses at
     /// its sites: the recompile keeps the int fast paths but not the
@@ -93,6 +97,7 @@ impl CompileSnapshot {
                 .collect(),
             ic_count,
             feedback: bc.feedback.snapshot(min_samples).into_boxed_slice(),
+            call_sites: bc.feedback.snapshot_calls().into_boxed_slice(),
             speculate: true,
         }
     }
@@ -129,6 +134,7 @@ impl CompileSnapshot {
             const_meta: Box::new([]),
             ic_count: 0,
             feedback: Box::new([]),
+            call_sites: Box::new([]),
             speculate: true,
         }
     }

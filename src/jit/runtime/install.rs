@@ -33,6 +33,6 @@ pub(crate) fn publish(
     let block = Rc::new(CodeBlock::new(mem));
     let slot = Rc::new(CodeSlot::new(block, cache.clock()));
     let evicted = cache.insert(id, &slot).ok()?;
-    bytecode.jit_slot().install(slot);
+    bytecode.jit.install(slot);
     Some(evicted)
 }

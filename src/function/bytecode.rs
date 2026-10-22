@@ -97,9 +97,11 @@ pub(crate) mod jit_layout {
     /// The size of one inline-cache site.
     pub(crate) const SITE_SIZE: i64 = std::mem::size_of::<InlineCacheSite>() as i64;
     /// The offset of a way's cached shape pointer.
-    pub(crate) const SHAPE_PTR_OFFSET: i32 = std::mem::offset_of!(InlineCacheEntry, shape_ptr) as i32;
+    pub(crate) const SHAPE_PTR_OFFSET: i32 =
+        std::mem::offset_of!(InlineCacheEntry, shape_ptr) as i32;
     /// The offset of a way's cached shape id.
-    pub(crate) const SHAPE_UID_OFFSET: i32 = std::mem::offset_of!(InlineCacheEntry, shape_uid) as i32;
+    pub(crate) const SHAPE_UID_OFFSET: i32 =
+        std::mem::offset_of!(InlineCacheEntry, shape_uid) as i32;
     /// The offset of a way's cached slot index.
     pub(crate) const SLOT_OFFSET: i32 = std::mem::offset_of!(InlineCacheEntry, slot) as i32;
     /// The offset of a way's cached property id (the atom — or, for a typed
@@ -448,6 +450,12 @@ impl GcTrace for BytecodeImpl {
         if let Some(x) = self.debug.as_ref() {
             x.trace(gcx)
         }
+
+        // The call-site feedback holds the recorded callees (D-6 route B): they
+        // are GC nodes, and holding them is what keeps a recorded identity
+        // unique.
+        #[cfg(feature = "jit")]
+        self.feedback.trace(gcx);
     }
 }
 
@@ -538,14 +546,6 @@ impl BytecodeImpl {
     #[inline(always)]
     pub(crate) const fn gc_scope_kind(&self) -> GcScopeKind {
         self.attrs.gc_scope_kind
-    }
-
-    /// This function's native-entry slot, for the JIT to read and install
-    /// through. Stable because the GC never moves nodes.
-    #[cfg(feature = "jit")]
-    #[inline(always)]
-    pub(crate) fn jit_slot(&self) -> &crate::jit::FunctionSlot {
-        &self.jit
     }
 
     /// The inline-cache sites, for the JIT's inline property guard (P1-1).
@@ -709,14 +709,6 @@ impl BytecodeImpl {
 
     /// get opcodes slice
     #[inline(always)]
-    /// Observations the feedback table has recorded (epic F5's "measured
-    /// work", read by the hotness policy on every entry/backedge). Zero when the
-    /// tier never records.
-    #[cfg(feature = "jit")]
-    pub(crate) fn feedback_samples(&self) -> u32 {
-        self.feedback.total_samples()
-    }
-
     pub(crate) fn opcodes(&self) -> &[u8] {
         &self.binary[self.opcodes_start as usize..]
     }
@@ -952,8 +944,11 @@ mod inline_cache_site_tests {
                 .add(jit_layout::SHAPE_PTR_OFFSET as usize)
                 .cast::<*const crate::object::ShapeImpl>()
         };
-        let shape_uid =
-            unsafe { *base.add(jit_layout::SHAPE_UID_OFFSET as usize).cast::<u32>() };
+        let shape_uid = unsafe {
+            *base
+                .add(jit_layout::SHAPE_UID_OFFSET as usize)
+                .cast::<u32>()
+        };
         let slot = unsafe { *base.add(jit_layout::SLOT_OFFSET as usize).cast::<u32>() };
         assert_eq!(shape_ptr, shape_at(1));
         assert_eq!(shape_uid, 7);

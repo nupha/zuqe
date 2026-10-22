@@ -159,6 +159,32 @@ pub(crate) struct JitExecFrame {
     /// the code is installed, so the second gate (plan §13.6.5 item 1) needs
     /// the native tier's own back-edge count.
     pub backedges: u32,
+    /// D-6 route B: calls at a monomorphic site that took the direct path (the
+    /// callee's compiled code was entered without the interpreter's call
+    /// protocol).
+    pub inline_call_hits: u32,
+    /// D-6 route B: calls at a monomorphic site whose guard missed (the callee
+    /// was not the recorded one), or whose callee the direct path could not
+    /// serve — those took the general call path.
+    pub inline_call_misses: u32,
+}
+
+/// The object in the prototype chain that *owns* `prop` (the one whose own
+/// property it is), and how far up the chain it was found.
+///
+/// The depth counts the instance as 0, its prototype as 1, and so on. The
+/// typed array's `length` is owned by `%TypedArray%.prototype`, which sits
+/// two levels up (the typed array's own prototype is in between).
+fn proto_chain_owner_of(
+    obj: &crate::object::Object,
+    prop: crate::atom::Atom,
+) -> Option<(crate::object::Object, usize)> {
+    for (depth, cur) in obj.shape_proto_iter(true).enumerate() {
+        if cur.find_shape_property(prop).is_some() {
+            return Some((cur, depth));
+        }
+    }
+    None
 }
 
 /// The compiled entry. Returns a [`JitExitKind`] as a `u32`.
@@ -983,7 +1009,7 @@ unsafe fn field_get(f: *mut JitExecFrame, push: bool) -> u32 {
                         && let Some(o) = target.as_object()
                         && (crate::JS_CLASS_UINT8C_ARRAY..=crate::JS_CLASS_FLOAT64_ARRAY)
                             .contains(&o.class_id())
-                        && let Some((owner, depth)) = o.proto_chain_owner_of(atom)
+                        && let Some((owner, depth)) = proto_chain_owner_of(&o, atom)
                         // The owner must sit where the generated code looks
                         // for it: two levels up (the typed array's own
                         // prototype is in between). Anything else is served
@@ -2390,6 +2416,145 @@ unsafe extern "C" fn h_call_method(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// `call <argc>` at a *monomorphic* site (D-6 route B):
+/// `[func, arg1..argN, ^] -> [ret, ^]`.
+///
+/// The interpreter recorded one callee for this site, so the helper can enter
+/// that function's compiled code directly: no `call_internal`, no trampoline,
+/// no interpreter frame prologue. The guard is the recorded callee — a call
+/// whose callee is not it (or one the direct path cannot serve) falls back
+/// to the general path below.
+unsafe extern "C" fn h_call_inline(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let argc = f.imm as usize;
+        let base = f.sp.offset(-(argc as isize) - 1);
+        let func = *base;
+        let args = std::slice::from_raw_parts(base.add(1), argc);
+        if let Some(result) = try_direct_call(f, func, JSValue::UNDEFINED, args) {
+            return match result {
+                Ok(value) => {
+                    *base = value;
+                    f.sp = base.add(1);
+                    HELPER_OK
+                }
+                Err(status) => status,
+            };
+        }
+        // The general path (D-6 route A).
+        match func.call_internal(scope_of(f), JSValue::UNDEFINED, JSValue::UNDEFINED, args, 0) {
+            Ok(value) => {
+                *base = value;
+                f.sp = base.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// `call_method <argc>` at a *monomorphic* site (D-6 route B):
+/// `[this, func, arg1..argN, ^] -> [ret, ^]`. Same guard and fallback as
+/// [`h_call_inline`]; the receiver is the callee's `this`.
+unsafe extern "C" fn h_call_method_inline(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let argc = f.imm as usize;
+        let base = f.sp.offset(-(argc as isize) - 2);
+        let method_this = *base;
+        let func = *base.add(1);
+        let args = std::slice::from_raw_parts(base.add(2), argc);
+        if let Some(result) = try_direct_call(f, func, method_this, args) {
+            return match result {
+                Ok(value) => {
+                    *base = value;
+                    f.sp = base.add(1);
+                    HELPER_OK
+                }
+                Err(status) => status,
+            };
+        }
+        // The general path (D-6 route A).
+        match func.call_internal(scope_of(f), method_this, JSValue::UNDEFINED, args, 0) {
+            Ok(value) => {
+                *base = value;
+                f.sp = base.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// Run the callee through the direct path (D-6 route B): enter its compiled
+/// code without the interpreter's call protocol.
+///
+/// `None` means "the general path must serve this call": the guard missed
+/// (the callee is not the recorded one), or the direct path cannot serve it
+/// (a generator, a cross-realm callee, one without compiled code). `Err` is
+/// the helper status the call must exit with (an exception or an interrupt).
+///
+/// **Must be inlined**: it sits on the hot path of every monomorphic call, and
+/// the optimizer's own judgement (the body calls the whole direct-call
+/// sequence) leaves it out of line — which costs an extra call frame per call
+/// site (~4.7ns/call, measured: `call-heavy` tier1 14.8ms → 13.3ms).
+#[inline(always)]
+unsafe fn try_direct_call(
+    f: &mut JitExecFrame,
+    func: JSValue,
+    this_obj: JSValue,
+    args: &[JSValue],
+) -> Option<Result<JSValue, u32>> {
+    // The guard: the callee must be exactly the recorded one.
+    let Some(recorded) = (unsafe { recorded_callee(f) }) else {
+        f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+        return None;
+    };
+    if !callee_is(func, recorded) {
+        f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+        return None;
+    }
+    let direct = {
+        let scope = unsafe { scope_of(f) };
+        crate::jit::direct_call::call_native_direct(scope, func, this_obj, JSValue::UNDEFINED, args)
+    };
+    match direct {
+        crate::jit::DirectCall::Done(value) => {
+            f.inline_call_hits = f.inline_call_hits.saturating_add(1);
+            Some(Ok(value))
+        }
+        crate::jit::DirectCall::Exception => {
+            f.inline_call_hits = f.inline_call_hits.saturating_add(1);
+            Some(Err(HELPER_EXCEPTION))
+        }
+        crate::jit::DirectCall::Interrupt => {
+            f.inline_call_hits = f.inline_call_hits.saturating_add(1);
+            Some(Err(HELPER_INTERRUPT))
+        }
+        crate::jit::DirectCall::Fallback => {
+            f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+            None
+        }
+    }
+}
+
+/// The callee the interpreter recorded at this call site (D-6 route B's
+/// guard). `imm2` carries the site id the compiled code baked in.
+unsafe fn recorded_callee(f: &JitExecFrame) -> Option<crate::function::Bytecode> {
+    // SAFETY: `f.bytecode` points at the running function's bytecode, which
+    // its function object keeps alive for the whole activation.
+    let bc = unsafe { &*f.bytecode };
+    bc.feedback.call_callee(f.imm2)
+}
+
+/// Whether the live callee is exactly the recorded one.
+fn callee_is(func: JSValue, recorded: crate::function::Bytecode) -> bool {
+    match crate::function::BCWrapper::try_from(func) {
+        Ok(bfun) => bfun.payload().bytecode().gc_node_ptr() == recorded.gc_node_ptr(),
+        Err(_) => false,
+    }
+}
+
 /// `call_constructor <argc>`: `[func, new_target, arg1..argN, ^] -> [ret, ^]`
 /// (D-6). `call_internal` owns the constructor protocol (legacy instance
 /// creation, derived-constructor `this`, `super()` prototype fix-up).
@@ -2449,7 +2614,7 @@ unsafe extern "C" fn h_apply(f: *mut JitExecFrame) -> u32 {
 }
 
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 120;
+pub(crate) const HELPER_COUNT: usize = 122;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -2665,6 +2830,12 @@ pub(crate) const HELPER_APPLY: usize = 118;
 /// Index of [`h_gc_bind`], called with the barrier's own signature
 /// (`frame`, owner node, stored value).
 pub(crate) const HELPER_GC_BIND: usize = 119;
+/// Index of [`h_call_inline`], the direct call at a monomorphic site (D-6
+/// route B).
+pub(crate) const HELPER_CALL_INLINE: usize = 120;
+/// Index of [`h_call_method_inline`], the direct method call at a monomorphic
+/// site (D-6 route B).
+pub(crate) const HELPER_CALL_METHOD_INLINE: usize = 121;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -2793,4 +2964,6 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_call_constructor as *const (),
     h_apply as *const (),
     h_gc_bind as *const (),
+    h_call_inline as *const (),
+    h_call_method_inline as *const (),
 ]);

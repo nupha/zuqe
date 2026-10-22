@@ -110,6 +110,15 @@ pub struct JitMetrics {
     /// A miss is expected and common (it is not a defect), so it never feeds
     /// the tier-down — that is [`Self::specialized_guard_misses`]' job.
     pub property_guard_misses: u64,
+    /// Calls at a monomorphic site that took the direct path (D-6 route B):
+    /// the callee's compiled code was entered without the interpreter's call
+    /// protocol.
+    pub inline_call_hits: u64,
+    /// Calls at a monomorphic site that took the general call path (D-6 route
+    /// B): the guard missed (the callee was not the recorded one), or the
+    /// callee could not run directly (a generator, a cross-realm callee, one
+    /// that allocates GC nodes).
+    pub inline_call_misses: u64,
     /// Nanoseconds spent compiling (verification + codegen), summed over every
     /// attempt. The publish step (mmap / mprotect) is *not* included: it is
     /// not a compile.

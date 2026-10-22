@@ -33,9 +33,12 @@ use crate::{
     },
     module::{js_dynamic_import, js_import_meta},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSProperty, Object, PayloadPtr, ThrowPolicy},
+    runtime::RuntimeImpl,
     utils::{read_from_ptr, unlikely},
     value::JSValue,
-    vm_stack::{ExecMode, FrameAllocError, FrameIndex, VM_MAX_CALL_DEPTH, VirtualFrame, VmStack},
+    vm_stack::{
+        ExecMode, FrameAllocError, FrameIndex, FrameState, VM_MAX_CALL_DEPTH, VirtualFrame, VmStack,
+    },
 };
 
 /// Action returned by the bytecode interpreter inner loop to the trampoline.
@@ -116,14 +119,14 @@ pub(crate) enum ExecAction {
 /// - `ManuallyDrop` prevents auto-drop at the wrong time
 /// - All scopes are drained (into_inner + drop) before the GC heap is destroyed
 #[derive(Debug)]
-struct TrampolineScope {
+pub(crate) struct TrampolineScope {
     inner: ManuallyDrop<ScopedContext<'static>>,
 }
 
 impl TrampolineScope {
     /// Push a new scope onto the GC heap and wrap it.
     #[inline(always)]
-    unsafe fn new(ctx: &mut ContextPtr) -> Self {
+    pub(crate) unsafe fn new(ctx: &mut ContextPtr) -> Self {
         Self {
             inner: ManuallyDrop::new(unsafe {
                 std::mem::transmute::<ScopedContext<'_>, ScopedContext<'static>>(ctx.new_scope())
@@ -142,7 +145,7 @@ impl TrampolineScope {
     /// Extract the inner ScopedContext, consuming this wrapper.
     /// The caller becomes responsible for dropping it (which pops the scope
     /// when the scope is owned).
-    fn into_inner(mut self) -> ScopedContext<'static> {
+    pub(crate) fn into_inner(mut self) -> ScopedContext<'static> {
         unsafe { ManuallyDrop::take(&mut self.inner) }
     }
 
@@ -164,7 +167,7 @@ impl TrampolineScope {
 
     /// Borrow the inner scope mutably (for passing to `execute_with_arena`).
     #[inline(always)]
-    fn scope_mut(&mut self) -> &mut ScopedContext<'static> {
+    pub(crate) fn scope_mut(&mut self) -> &mut ScopedContext<'static> {
         &mut self.inner
     }
 }
@@ -1125,6 +1128,17 @@ impl Bytecode {
 
                         let func = unsafe { *call_argv.offset(-1) };
 
+                        // D-6 route B: record the callee at this call site, so
+                        // the compiler can tell a monomorphic site (one callee,
+                        // always) from a polymorphic one.
+                        #[cfg(feature = "jit")]
+                        crate::jit::note_call(
+                            &rt,
+                            self,
+                            (unsafe { pc.offset_from(pc_base) } as u32) - 3,
+                            func,
+                        );
+
                         // ── Inline bytecode dispatch ──
                         if let Ok(bfun) = BCWrapper::try_from(func) {
                             let bc = bfun.payload().bytecode();
@@ -1386,6 +1400,16 @@ impl Bytecode {
 
                         let func = unsafe { *call_argv.offset(-1) };
                         let method_this = unsafe { *call_argv.offset(-2) };
+
+                        // D-6 route B: record the callee at this call site (see
+                        // the CALL arm).
+                        #[cfg(feature = "jit")]
+                        crate::jit::note_call(
+                            &rt,
+                            self,
+                            (unsafe { pc.offset_from(pc_base) } as u32) - 3,
+                            func,
+                        );
 
                         // ── Inline bytecode dispatch (mirrors CALL) ──
                         // Method calls must not recurse on the C stack either

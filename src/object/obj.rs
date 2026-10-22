@@ -44,42 +44,17 @@ pub struct ObjectFlags {
     bitfield: u32,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The JIT's masks must be **the engine's** masks (P1-1): the generated
-    /// code reads the class id and the fast-array flag out of the flags word
-    /// with them. A change on either side without the other would make the
-    /// guard read the wrong bits — silently (a wrong guard, not a crash).
-    #[test]
-    fn the_jit_masks_match_the_engine() {
-        assert_eq!(
-            jit_layout::CLASS_ID_MASK,
-            i64::from(ObjectFlags::MASK_CLASS_ID)
-        );
-        assert_eq!(
-            jit_layout::FAST_ARRAY_MASK,
-            i64::from(ObjectFlags::MASK_FAST_ARRAY)
-        );
-        assert_eq!(
-            jit_layout::EXTENSIBLE_MASK,
-            i64::from(ObjectFlags::MASK_EXTENSIBLE)
-        );
-    }
-}
-
 impl ObjectFlags {
-    const MASK_EXTENSIBLE: u32 = 0x8000_0000;
+    pub(crate) const MASK_EXTENSIBLE: u32 = 0x8000_0000;
     const MASK_FREE_MARK: u32 = 0x4000_0000;
     const MASK_IS_EXOTIC: u32 = 0x2000_0000;
-    const MASK_FAST_ARRAY: u32 = 0x1000_0000;
+    pub(crate) const MASK_FAST_ARRAY: u32 = 0x1000_0000;
     const MASK_IS_CONSTRUCTOR: u32 = 0x0800_0000;
     const MASK_IMMUTABLE_PROTOTYPE: u32 = 0x0400_0000;
     const MASK_IS_UNCATCHABLE_ERROR: u32 = 0x0200_0000;
     const MASK_TMP_MARK: u32 = 0x0100_0000;
     const MASK_IS_HTMLDDA: u32 = 0x0080_0000;
-    const MASK_CLASS_ID: u32 = 0x0000_FFFF;
+    pub(crate) const MASK_CLASS_ID: u32 = 0x0000_FFFF;
 
     pub const fn extensible(&self) -> bool {
         self.bitfield & Self::MASK_EXTENSIBLE != 0
@@ -209,25 +184,20 @@ pub(crate) struct PropView {
     pub(crate) len: u32,
 }
 
-/// The offset of the slots' data pointer inside [`PropView`].
-pub(crate) const PROP_VIEW_DATA_OFFSET: usize = std::mem::offset_of!(PropView, data);
-/// The offset of the slots' count inside [`PropView`].
-pub(crate) const PROP_VIEW_LEN_OFFSET: usize = std::mem::offset_of!(PropView, len);
-
 pub struct ObjectImpl {
     rt: RuntimePtr,
 
     /// object flags
-    obj_flags: ObjectFlags,
+    pub(crate) obj_flags: ObjectFlags,
 
     /// Shape of object, to denote prototype and property names + flag
-    shape: Option<Shape>,
+    pub(crate) shape: Option<Shape>,
 
     /// property value slots
     pub(super) prop_values: Vec<JSProperty>,
 
     /// The slots, as the JIT sees them (P1-1): a mirror of `prop_values`.
-    pub(super) prop_view: PropView,
+    pub(crate) prop_view: PropView,
 
     /// Number of slots marked as JSProperty::Deleted.
     /// Batch compact is triggered when (deleted_slot_count << 3) >= prop_values.len().
@@ -238,7 +208,7 @@ pub struct ObjectImpl {
     weak_refs: Vec<GcWeak<ObjectImpl>>,
 
     /// object payload — type-erased pointer, interpreted via class_id.
-    pub(super) payload: *mut c_void,
+    pub(crate) payload: *mut c_void,
 }
 
 impl GcTrace for ObjectImpl {
@@ -299,69 +269,6 @@ impl std::fmt::Display for ObjectImpl {
             write!(f, "[{name}]")
         }
     }
-}
-
-/// The layout contract the JIT's inline guards rely on (P1-1).
-///
-/// The generated code loads an object's flags word and its payload pointer
-/// directly, so these offsets and masks are a contract between the engine and
-/// the JIT. They are `offset_of!`-derived: a layout change moves them with
-/// the code instead of silently breaking the guards. The masks mirror
-/// [`ObjectFlags`]' own, so they cannot drift from it either.
-pub(crate) mod jit_layout {
-    use super::ObjectImpl;
-    use crate::object::ShapeImpl;
-
-    /// The distance from a **GC node pointer** to the object's fields. A
-    /// `JSValue` holds the *node* pointer (the object's payload follows the
-    /// node header), so the offsets the generated code uses are relative to
-    /// the node — not to the `ObjectImpl`.
-    const NODE_TO_OBJECT: usize = gc_lite::gctype::payload_offset_of::<ObjectImpl>();
-
-    /// The offset of the flags word (the class id + the object flags).
-    pub(crate) const FLAGS_OFFSET: i32 =
-        (NODE_TO_OBJECT + std::mem::offset_of!(ObjectImpl, obj_flags)) as i32;
-    /// The offset of the type-erased payload pointer.
-    pub(crate) const PAYLOAD_OFFSET: i32 =
-        (NODE_TO_OBJECT + std::mem::offset_of!(ObjectImpl, payload)) as i32;
-    /// The offset of the object's shape pointer (`None` is a null pointer).
-    pub(crate) const SHAPE_OFFSET: i32 =
-        (NODE_TO_OBJECT + std::mem::offset_of!(ObjectImpl, shape)) as i32;
-    /// The class id lives in the low 16 bits of the flags word.
-    pub(crate) const CLASS_ID_MASK: i64 = 0x0000_FFFF;
-    /// The fast-array flag (bit 28 of the flags word).
-    pub(crate) const FAST_ARRAY_MASK: i64 = 0x1000_0000;
-    /// The extensible flag (bit 31 of the flags word). The engine's fast write
-    /// into a plain array only runs on an extensible one, so the write guard
-    /// checks it too.
-    pub(crate) const EXTENSIBLE_MASK: i64 = 0x8000_0000;
-    /// The offset of the property slots' data pointer.
-    pub(crate) const PROP_DATA_OFFSET: i32 = (NODE_TO_OBJECT
-        + std::mem::offset_of!(ObjectImpl, prop_view)
-        + super::PROP_VIEW_DATA_OFFSET) as i32;
-    /// The offset of the property slots' count.
-    pub(crate) const PROP_LEN_OFFSET: i32 = (NODE_TO_OBJECT
-        + std::mem::offset_of!(ObjectImpl, prop_view)
-        + super::PROP_VIEW_LEN_OFFSET) as i32;
-    /// The offset of a shape's payload, from the shape's GC node pointer.
-    ///
-    /// The inline cache records a shape's *payload* pointer (what
-    /// `GcRef::as_ptr` returns), while an object holds the shape's *node*
-    /// pointer — so the guard adds this before comparing.
-    pub(crate) const SHAPE_PAYLOAD_OFFSET: i32 =
-        gc_lite::gctype::payload_offset_of::<ShapeImpl>() as i32;
-    /// The offset of a shape's unique id, from the shape's GC node pointer.
-    pub(crate) const SHAPE_UID_OFFSET: i32 = (gc_lite::gctype::payload_offset_of::<ShapeImpl>()
-        + std::mem::offset_of!(ShapeImpl, uid)) as i32;
-    /// The offset of a shape's prototype (a GC node pointer; null when the
-    /// shape has no prototype).
-    ///
-    /// The typed array's `length` lives on the prototype, so the guard walks
-    /// the chain from the shape to check that the prototype that owns
-    /// `length` is still the one the inline cache recorded.
-    pub(crate) const SHAPE_PROTO_OFFSET: i32 = (gc_lite::gctype::payload_offset_of::<ShapeImpl>()
-        + std::mem::offset_of!(ShapeImpl, proto))
-        as i32;
 }
 
 impl ObjectImpl {

@@ -26,9 +26,11 @@ mod bytecode;
 mod code_cache;
 mod compiler;
 mod config;
+mod direct_call;
 mod error;
 mod fast_hash;
 mod feedback;
+mod layout;
 mod metrics;
 mod platform;
 mod policy;
@@ -49,6 +51,7 @@ pub use {
 pub use compiler::shuffle_opcodes;
 
 pub(crate) use abi::{FunctionSlot, JitExitKind};
+pub(crate) use direct_call::DirectCall;
 pub(crate) use feedback::FeedbackSlot;
 
 use {
@@ -236,6 +239,27 @@ impl JitState {
         self.metrics.set(m);
     }
 
+    /// Record the callee seen at a call site (D-6 route B's call feedback).
+    ///
+    /// Only while the function is still interpreted: once its code is
+    /// installed, the recorded sites are baked into that code, and recording
+    /// more would only cost. The recording is what makes a call site
+    /// *monomorphic* — one callee, always — which is the premise of the
+    /// direct call the compiler emits for such a site.
+    fn note_call(&self, bc: &Bytecode, site: u32, callee: JSValue) {
+        if self.disabled() || bc.jit.entry().is_some() {
+            return;
+        }
+        // The callee's identity is its bytecode node: two closures over one
+        // bytecode share it (and share its compiled code), so it is the right
+        // key. A callee that is not a bytecode function records `None`, which
+        // makes the site non-monomorphic as soon as anything else shows up.
+        let callee = crate::function::BCWrapper::try_from(callee)
+            .ok()
+            .map(|bfun| bfun.payload().bytecode());
+        bc.feedback.record_call(site, callee);
+    }
+
     fn note_enter(&self, bc: &Bytecode) {
         if self.disabled() {
             return;
@@ -243,7 +267,7 @@ impl JitState {
         let id = function_id(bc);
         let mut m = self.metrics.get();
         m.function_entries = m.function_entries.saturating_add(1);
-        let measured = bc.feedback_samples();
+        let measured = bc.feedback.total_samples();
         let mut coordinator = self.coordinator.borrow_mut();
         if let Some(tier) = coordinator.record_call(&mut m, id, bc.opcodes(), measured) {
             coordinator.enqueue(&mut m, id, Some(*bc), tier);
@@ -302,7 +326,7 @@ impl JitState {
     /// native tier's per-call bookkeeping.
     fn sync_promotable(&self, bytecode: &Bytecode, id: u64) {
         let promotable = self.coordinator.borrow().tier(id) == Tier::Tier1;
-        bytecode.jit_slot().set_promotable(promotable);
+        bytecode.jit.set_promotable(promotable);
     }
 
     /// P7 7.2: fold one activation's speculative guard misses into the
@@ -351,7 +375,7 @@ impl JitState {
         let id = function_id(bc);
         let mut m = self.metrics.get();
         m.backedges = m.backedges.saturating_add(1);
-        let measured = bc.feedback_samples();
+        let measured = bc.feedback.total_samples();
         let mut coordinator = self.coordinator.borrow_mut();
         if let Some(tier) = coordinator.record_loop(&mut m, id, bc.opcodes(), measured) {
             coordinator.enqueue(&mut m, id, Some(*bc), tier);
@@ -366,7 +390,7 @@ impl JitState {
         // N3: compile here, not at the next frame boundary, or the rest of this
         // loop stays interpreted. Gated like the other automatic polls.
         self.poll_deferred();
-        bc.jit_slot().entry().is_some()
+        bc.jit.entry().is_some()
     }
 
     /// The in-eval half of the automatic poll: the interpreter's trampoline runs
@@ -846,6 +870,15 @@ pub(crate) fn note_local_update(
     }
 }
 
+/// Call-site feedback hook: record the callee seen at a call site (D-6 route
+/// B). A no-op unless a JIT is attached and the function is still interpreted.
+#[inline]
+pub(crate) fn note_call(rt: &RuntimeImpl, bc: &Bytecode, site: u32, callee: JSValue) {
+    if let Some(state) = rt.jit.as_deref() {
+        state.note_call(bc, site, callee);
+    }
+}
+
 /// Run the compiled entry for `bc`, if one is installed. Returns the exit kind
 /// and the frame the code wrote its results into; `None` means "no native code,
 /// interpret as usual".
@@ -878,7 +911,7 @@ pub(crate) fn invoke_native(
     home_obj: Option<crate::object::Object>,
 ) -> Option<(JitExitKind, JitExecFrame)> {
     let state = rt.jit.as_deref()?;
-    let entry = bc.jit_slot().entry()?;
+    let entry = bc.jit.entry()?;
     let mut frame = JitExecFrame {
         scope,
         arg_base,
@@ -908,6 +941,8 @@ pub(crate) fn invoke_native(
         property_guard_hits: 0,
         property_guard_misses: 0,
         backedges: 0,
+        inline_call_hits: 0,
+        inline_call_misses: 0,
     };
     // SAFETY: `entry` was produced by `compile` for this exact bytecode layout
     // and ABI, and the slot is only populated while the code cache keeps the
@@ -945,6 +980,13 @@ pub(crate) fn invoke_native(
         property_guard_misses: m
             .property_guard_misses
             .saturating_add(u64::from(frame.property_guard_misses)),
+        // D-6 route B: the monomorphic call sites' direct path.
+        inline_call_hits: m
+            .inline_call_hits
+            .saturating_add(u64::from(frame.inline_call_hits)),
+        inline_call_misses: m
+            .inline_call_misses
+            .saturating_add(u64::from(frame.inline_call_misses)),
         ..m
     });
     // P7 7.2: feed the same count to the function's record so a function whose
@@ -955,7 +997,7 @@ pub(crate) fn invoke_native(
     // second gate (plan §13.6.5 item 1) is fed from here. Only a function
     // that may still be promoted reports at all, so the check is a load next
     // to the entry pointer.
-    if bc.jit_slot().promotable() {
+    if bc.jit.promotable() {
         state.note_native_work(bc, pc == 0, frame.backedges);
     }
 
@@ -976,13 +1018,9 @@ mod tests {
     fn the_array_layout_contract_holds_from_a_js_value() {
         use crate::{
             EvalFlags, EvalName, EvalType, ScopedContext,
-            builtins::{
-                array_buffer::{
-                    BUFFER_VIEW_DATA_OFFSET, BUFFER_VIEW_DIRECT_OFFSET, BUFFER_VIEW_OFFSET,
-                },
-                typed_array::jit_layout as ta_layout,
+            jit::layout::{
+                array_buffer as buffer_layout, object as jit_layout, typed_array as ta_layout,
             },
-            object::jit_layout,
         };
 
         let mut rt = crate::Runtime::create().unwrap();
@@ -1025,12 +1063,11 @@ mod tests {
             "the payload pointer is not where the JIT expects it"
         );
         let data = unsafe {
-            *((payload as *const u8)
-                .add(crate::array::ArrayPayload::elements_data_offset() as usize)
+            *((payload as *const u8).add(crate::jit::layout::array::DATA_OFFSET as usize)
                 as *const u64)
         };
         let len = unsafe {
-            *((payload as *const u8).add(crate::array::ArrayPayload::elements_len_offset() as usize)
+            *((payload as *const u8).add(crate::jit::layout::array::LEN_OFFSET as usize)
                 as *const u32)
         };
         assert_eq!(
@@ -1050,13 +1087,9 @@ mod tests {
     fn the_typed_array_layout_contract_holds_from_a_js_value() {
         use crate::{
             EvalFlags, EvalName, EvalType, ScopedContext,
-            builtins::{
-                array_buffer::{
-                    BUFFER_VIEW_DATA_OFFSET, BUFFER_VIEW_DIRECT_OFFSET, BUFFER_VIEW_OFFSET,
-                },
-                typed_array::jit_layout as ta_layout,
+            jit::layout::{
+                array_buffer as buffer_layout, object as jit_layout, typed_array as ta_layout,
             },
-            object::jit_layout,
         };
 
         let mut rt = crate::Runtime::create().unwrap();
@@ -1096,12 +1129,12 @@ mod tests {
         };
         let data = unsafe {
             *((buf_payload as *const u8)
-                .add((BUFFER_VIEW_OFFSET + BUFFER_VIEW_DATA_OFFSET) as usize)
+                .add((buffer_layout::VIEW_OFFSET + buffer_layout::VIEW_DATA_OFFSET) as usize)
                 as *const u64)
         };
         let direct = unsafe {
             *((buf_payload as *const u8)
-                .add((BUFFER_VIEW_OFFSET + BUFFER_VIEW_DIRECT_OFFSET) as usize)
+                .add((buffer_layout::VIEW_OFFSET + buffer_layout::VIEW_DIRECT_OFFSET) as usize)
                 as *const u32)
         };
         assert_eq!(direct, 1, "the bytes are not directly readable");
@@ -1118,7 +1151,8 @@ mod tests {
     fn the_property_layout_contract_holds_from_a_js_value() {
         use crate::{
             EvalFlags, EvalName, EvalType, ScopedContext,
-            object::{JSProperty, PROP_TAG_NORMAL, jit_layout},
+            jit::layout::object as jit_layout,
+            object::{JSProperty, PROP_TAG_NORMAL},
         };
 
         let mut rt = crate::Runtime::create().unwrap();

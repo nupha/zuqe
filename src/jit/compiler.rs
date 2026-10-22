@@ -47,17 +47,7 @@ use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
-    array::ArrayPayload,
-    builtins::{
-        array_buffer::{
-            BUFFER_DETACHED_OFFSET, BUFFER_VIEW_DATA_OFFSET, BUFFER_VIEW_DIRECT_OFFSET,
-            BUFFER_VIEW_OFFSET,
-        },
-        typed_array::jit_layout as ta_layout,
-    },
-    jit::snapshot::ConstMeta,
-    object::jit_layout,
-    vm_stack::ExecMode,
+    jit::snapshot::ConstMeta, vm_stack::ExecMode,
 };
 
 /// The inline-cache site's layout (P1-1): the inline property guard reads
@@ -74,32 +64,32 @@ use crate::{
 use super::{
     abi::{
         HELPER_ADD, HELPER_ADD_BRAND, HELPER_ADD_LOC, HELPER_AND, HELPER_APPEND, HELPER_APPLY,
-        HELPER_ARRAY_FROM, HELPER_CALL, HELPER_CALL_CONSTRUCTOR, HELPER_CALL_METHOD,
-        HELPER_CHECK_BRAND, HELPER_CHECK_CTOR, HELPER_CHECK_CTOR_RETURN, HELPER_CLOSE_LOC,
-        HELPER_COPY_DATA_PROPERTIES, HELPER_DEC, HELPER_DEFINE_ARRAY_EL, HELPER_DEFINE_CLASS,
-        HELPER_DEFINE_CLASS_COMPUTED, HELPER_DEFINE_FIELD, HELPER_DEFINE_METHOD,
-        HELPER_DEFINE_METHOD_COMPUTED, HELPER_DEFINE_PRIVATE_FIELD, HELPER_DELETE,
-        HELPER_DELETE_VAR, HELPER_DIV, HELPER_EQ, HELPER_FOR_IN_NEXT, HELPER_FOR_IN_START,
-        HELPER_FOR_OF_NEXT, HELPER_FOR_OF_START, HELPER_GC_BIND, HELPER_GET_ARRAY_EL,
-        HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3, HELPER_GET_FIELD, HELPER_GET_FIELD2,
-        HELPER_GET_PRIVATE_FIELD, HELPER_GET_REF_VALUE, HELPER_GET_SUPER, HELPER_GET_SUPER_VALUE,
-        HELPER_GET_VAR, HELPER_GET_VAR_REF, HELPER_GET_VAR_REF_CHECK, HELPER_GET_VAR_UNDEF,
-        HELPER_GT, HELPER_GTE, HELPER_IN, HELPER_INC, HELPER_INIT_CTOR, HELPER_INSTANCEOF,
-        HELPER_ITERATOR_CALL, HELPER_ITERATOR_CHECK_OBJECT, HELPER_ITERATOR_CLOSE,
-        HELPER_ITERATOR_GET_VALUE_DONE, HELPER_ITERATOR_NEXT, HELPER_LNOT, HELPER_LT, HELPER_LTE,
-        HELPER_MAKE_ARG_REF, HELPER_MAKE_LOC_REF, HELPER_MAKE_VAR_REF, HELPER_MAKE_VAR_REF_REF,
-        HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH, HELPER_NOT,
-        HELPER_OBJECT, HELPER_OK, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC,
-        HELPER_POW, HELPER_PRIVATE_IN, HELPER_PRIVATE_SYMBOL, HELPER_PUSH_BIGINT_I32,
-        HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD, HELPER_PUT_PRIVATE_FIELD, HELPER_PUT_REF_VALUE,
-        HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR, HELPER_PUT_VAR_INIT, HELPER_PUT_VAR_REF,
-        HELPER_PUT_VAR_REF_CHECK, HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_REGEXP, HELPER_SAFEPOINT,
-        HELPER_SAR, HELPER_SET_HOME_OBJECT, HELPER_SET_NAME_COMPUTED, HELPER_SET_PROTO,
-        HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ, HELPER_STRICT_NEQ,
-        HELPER_SUB, HELPER_THROW, HELPER_THROW_ERROR, HELPER_TO_BOOL, HELPER_TO_OBJECT,
-        HELPER_TO_PROPKEY, HELPER_TYPEOF, HELPER_WITH_DELETE_VAR, HELPER_WITH_GET_REF,
-        HELPER_WITH_GET_VAR, HELPER_WITH_MAKE_REF, HELPER_WITH_MISS, HELPER_WITH_PUT_VAR,
-        HELPER_XOR, JitExecFrame, SPEC_MISS_IMM2,
+        HELPER_ARRAY_FROM, HELPER_CALL, HELPER_CALL_CONSTRUCTOR, HELPER_CALL_INLINE,
+        HELPER_CALL_METHOD, HELPER_CALL_METHOD_INLINE, HELPER_CHECK_BRAND, HELPER_CHECK_CTOR,
+        HELPER_CHECK_CTOR_RETURN, HELPER_CLOSE_LOC, HELPER_COPY_DATA_PROPERTIES, HELPER_DEC,
+        HELPER_DEFINE_ARRAY_EL, HELPER_DEFINE_CLASS, HELPER_DEFINE_CLASS_COMPUTED,
+        HELPER_DEFINE_FIELD, HELPER_DEFINE_METHOD, HELPER_DEFINE_METHOD_COMPUTED,
+        HELPER_DEFINE_PRIVATE_FIELD, HELPER_DELETE, HELPER_DELETE_VAR, HELPER_DIV, HELPER_EQ,
+        HELPER_FOR_IN_NEXT, HELPER_FOR_IN_START, HELPER_FOR_OF_NEXT, HELPER_FOR_OF_START,
+        HELPER_GC_BIND, HELPER_GET_ARRAY_EL, HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3,
+        HELPER_GET_FIELD, HELPER_GET_FIELD2, HELPER_GET_PRIVATE_FIELD, HELPER_GET_REF_VALUE,
+        HELPER_GET_SUPER, HELPER_GET_SUPER_VALUE, HELPER_GET_VAR, HELPER_GET_VAR_REF,
+        HELPER_GET_VAR_REF_CHECK, HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE, HELPER_IN,
+        HELPER_INC, HELPER_INIT_CTOR, HELPER_INSTANCEOF, HELPER_ITERATOR_CALL,
+        HELPER_ITERATOR_CHECK_OBJECT, HELPER_ITERATOR_CLOSE, HELPER_ITERATOR_GET_VALUE_DONE,
+        HELPER_ITERATOR_NEXT, HELPER_LNOT, HELPER_LT, HELPER_LTE, HELPER_MAKE_ARG_REF,
+        HELPER_MAKE_LOC_REF, HELPER_MAKE_VAR_REF, HELPER_MAKE_VAR_REF_REF, HELPER_MOD, HELPER_MUL,
+        HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH, HELPER_NOT, HELPER_OBJECT, HELPER_OK, HELPER_OR,
+        HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC, HELPER_POW, HELPER_PRIVATE_IN,
+        HELPER_PRIVATE_SYMBOL, HELPER_PUSH_BIGINT_I32, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD,
+        HELPER_PUT_PRIVATE_FIELD, HELPER_PUT_REF_VALUE, HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR,
+        HELPER_PUT_VAR_INIT, HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK,
+        HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_REGEXP, HELPER_SAFEPOINT, HELPER_SAR,
+        HELPER_SET_HOME_OBJECT, HELPER_SET_NAME_COMPUTED, HELPER_SET_PROTO, HELPER_SET_VAR_REF,
+        HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_THROW,
+        HELPER_THROW_ERROR, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY, HELPER_TYPEOF,
+        HELPER_WITH_DELETE_VAR, HELPER_WITH_GET_REF, HELPER_WITH_GET_VAR, HELPER_WITH_MAKE_REF,
+        HELPER_WITH_MISS, HELPER_WITH_PUT_VAR, HELPER_XOR, JitExecFrame, SPEC_MISS_IMM2,
     },
     analysis::{Analysis, LocalRef, RedundantExpressions},
     bytecode::{
@@ -107,6 +97,10 @@ use super::{
     },
     error::JitError,
     feedback::{CLASS_FLOAT, CLASS_INT, SiteFeedback},
+    layout::{
+        array as array_layout, array_buffer as buffer_layout, object as jit_layout,
+        typed_array as ta_layout,
+    },
 };
 
 /// Exit codes as written by generated code (keep in sync with `JitExitKind`).
@@ -514,6 +508,10 @@ struct State<'a> {
     /// inline store calls the barrier with its own arguments, so it needs a
     /// signature of its own.
     barrier_sig: cranelift_codegen::ir::SigRef,
+    /// The monomorphic call sites (D-6 route B): the opcode offset -> the site
+    /// id the compiled code carries. A site that saw more than one callee is
+    /// not here: its guard would miss every time.
+    call_sites: HashMap<u32, u32>,
 }
 
 /// Block-local register copies of local/argument slots (epic F4, the read half
@@ -1577,6 +1575,24 @@ fn emit_osr_prologue(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// The monomorphic call sites (D-6 route B): the opcode offset -> the site id
+/// the compiled code carries in `imm2`.
+///
+/// A site is monomorphic when the interpreter only ever saw one callee there.
+/// The site id is the site's index in the snapshot's table — the same index
+/// the runtime's table uses, so the helper reads the expected callee back
+/// through it.
+fn monomorphic_call_sites(verified: &VerifiedFunction) -> HashMap<u32, u32> {
+    verified
+        .snapshot()
+        .call_sites
+        .iter()
+        .enumerate()
+        .filter(|(_, site)| !site.polymorphic && site.callee != 0)
+        .map(|(id, site)| (site.pc, id as u32))
+        .collect()
+}
+
 fn lower(
     b: &mut FunctionBuilder,
     fv: &FrameVals,
@@ -1622,6 +1638,7 @@ fn lower(
         locals: LocalCache::new(locals_cacheable, args_cacheable),
         const_meta: &verified.snapshot().const_meta,
         barrier_sig: barrier_sig(b, helper_sig),
+        call_sites: monomorphic_call_sites(verified),
     };
     let entry_block = state.block_for(b, 0);
     if osr_pcs.is_empty() {
@@ -1899,6 +1916,12 @@ fn lower_insn(
         // `call_constructor`) or `apply`'s magic. `call_stack_helper` flushes
         // the operand stack and reloads `sp` from the frame (the helper popped
         // the call window and pushed the result).
+        //
+        // D-6 route B: a *monomorphic* site (the interpreter only ever saw
+        // one callee there) gets the direct-call helper: it enters that
+        // callee's compiled code without the interpreter's call protocol. The
+        // site id travels in `imm2`; the helper guards on the callee and falls
+        // back to the general path when the guard misses.
         "call" | "call_method" | "call_constructor" | "apply" => {
             let operand = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
             b.ins().store(MemFlags::new(), operand, fv.frame, O_IMM);
@@ -1907,6 +1930,18 @@ fn lower_insn(
                 "call_method" => HELPER_CALL_METHOD,
                 "call_constructor" => HELPER_CALL_CONSTRUCTOR,
                 _ => HELPER_APPLY,
+            };
+            let id = match state.call_sites.get(&pc) {
+                Some(&site_id) => {
+                    let site = b.ins().iconst(types::I32, i64::from(site_id));
+                    b.ins().store(MemFlags::new(), site, fv.frame, O_IMM2);
+                    match name {
+                        "call" => HELPER_CALL_INLINE,
+                        "call_method" => HELPER_CALL_METHOD_INLINE,
+                        _ => id,
+                    }
+                }
+                None => id,
             };
             let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
             return Step::Continue(sp);
@@ -3296,13 +3331,13 @@ fn lower_get_array_el_fast(
         types::I64,
         MemFlags::new(),
         payload,
-        ArrayPayload::elements_data_offset(),
+        array_layout::DATA_OFFSET,
     );
     let len = b.ins().load(
         types::I32,
         MemFlags::new(),
         payload,
-        ArrayPayload::elements_len_offset(),
+        array_layout::LEN_OFFSET,
     );
     // The index: an `Int` payload is the low 32 bits. A negative index
     // becomes a huge unsigned value and fails the bounds check.
@@ -3379,19 +3414,19 @@ fn lower_get_array_el_fast(
         types::I64,
         MemFlags::new(),
         buf_payload,
-        BUFFER_VIEW_OFFSET + BUFFER_VIEW_DATA_OFFSET,
+        buffer_layout::VIEW_OFFSET + buffer_layout::VIEW_DATA_OFFSET,
     );
     let direct = b.ins().load(
         types::I32,
         MemFlags::new(),
         buf_payload,
-        BUFFER_VIEW_OFFSET + BUFFER_VIEW_DIRECT_OFFSET,
+        buffer_layout::VIEW_OFFSET + buffer_layout::VIEW_DIRECT_OFFSET,
     );
     let detached = b.ins().load(
         types::I8,
         MemFlags::new(),
         buf_payload,
-        BUFFER_DETACHED_OFFSET,
+        buffer_layout::DETACHED_OFFSET,
     );
     // A detached buffer, a view out of bounds and a shared buffer (whose
     // bytes live behind a lock) all go back to the helper.
@@ -3673,19 +3708,19 @@ fn lower_put_array_el_fast(
         types::I64,
         MemFlags::new(),
         buf_payload,
-        BUFFER_VIEW_OFFSET + BUFFER_VIEW_DATA_OFFSET,
+        buffer_layout::VIEW_OFFSET + buffer_layout::VIEW_DATA_OFFSET,
     );
     let direct = b.ins().load(
         types::I32,
         MemFlags::new(),
         buf_payload,
-        BUFFER_VIEW_OFFSET + BUFFER_VIEW_DIRECT_OFFSET,
+        buffer_layout::VIEW_OFFSET + buffer_layout::VIEW_DIRECT_OFFSET,
     );
     let detached = b.ins().load(
         types::I8,
         MemFlags::new(),
         buf_payload,
-        BUFFER_DETACHED_OFFSET,
+        buffer_layout::DETACHED_OFFSET,
     );
     // A detached buffer, a view out of bounds and a shared buffer (whose
     // bytes live behind a lock) all go back to the helper.
@@ -3826,13 +3861,13 @@ fn lower_put_array_el_fast(
         types::I64,
         MemFlags::new(),
         payload,
-        ArrayPayload::elements_data_offset(),
+        array_layout::DATA_OFFSET,
     );
     let len = b.ins().load(
         types::I32,
         MemFlags::new(),
         payload,
-        ArrayPayload::elements_len_offset(),
+        array_layout::LEN_OFFSET,
     );
     // The index: an `Int` payload is the low 32 bits. A negative index
     // becomes a huge unsigned value and fails the bounds check.

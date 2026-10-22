@@ -58,13 +58,6 @@ pub struct BufferView {
     pub direct: u32,
 }
 
-/// The offset of the bytes' data pointer inside [`BufferView`].
-pub const BUFFER_VIEW_DATA_OFFSET: i32 = std::mem::offset_of!(BufferView, data) as i32;
-/// The offset of the bytes' length inside [`BufferView`].
-pub const BUFFER_VIEW_LEN_OFFSET: i32 = std::mem::offset_of!(BufferView, len) as i32;
-/// The offset of the "directly readable" flag inside [`BufferView`].
-pub const BUFFER_VIEW_DIRECT_OFFSET: i32 = std::mem::offset_of!(BufferView, direct) as i32;
-
 impl ABufData {
     /// The bytes as the JIT sees them: a shared buffer is not directly
     /// readable (its bytes are behind a lock), so it is reported as such.
@@ -163,10 +156,10 @@ impl ABufData {
 #[derive(Debug)]
 pub struct ArrayBufferPayload {
     /// The bytes as the JIT sees them (P1-1) — a mirror of `data`.
-    view: BufferView,
+    pub(crate) view: BufferView,
     data: ABufData,
     /// if is shared, the array buffer cannot be detached
-    detached: bool,
+    pub(crate) detached: bool,
     /// list of TypedArray objects (weakref) that adopting this ArrayBuffer.
     typed_array_list: Vec<GcWeak<ObjectImpl>>,
     /// whether the buffer is resizable (created with a `maxByteLength` option).
@@ -175,11 +168,6 @@ pub struct ArrayBufferPayload {
     max_byte_length: usize,
     opaque: *mut c_void,
 }
-
-/// The offset of the "detached" flag inside [`ArrayBufferPayload`].
-pub const BUFFER_DETACHED_OFFSET: i32 = std::mem::offset_of!(ArrayBufferPayload, detached) as i32;
-/// The offset of the bytes' view inside [`ArrayBufferPayload`].
-pub const BUFFER_VIEW_OFFSET: i32 = std::mem::offset_of!(ArrayBufferPayload, view) as i32;
 
 impl ArrayBufferPayload {
     /// The bytes as the JIT sees them.
@@ -197,28 +185,6 @@ impl ArrayBufferPayload {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The layout the JIT's typed-array guard reads (P1-1): the data pointer
-    /// first, the length second, the "directly readable" flag third. The
-    /// generated code loads them in that order and with those widths.
-    ///
-    /// The `detached` flag is read too (a detached buffer's bytes are gone),
-    /// so its offset is part of the contract as well.
-    #[test]
-    fn the_view_layout_is_stable() {
-        assert_eq!(BUFFER_VIEW_DATA_OFFSET, 0);
-        assert_eq!(BUFFER_VIEW_LEN_OFFSET, 8);
-        assert_eq!(BUFFER_VIEW_DIRECT_OFFSET, 12);
-        // The detached flag is a byte, and it must not share an offset with
-        // the view (the guard loads them independently).
-        assert_eq!(std::mem::size_of::<bool>(), 1);
-        let mut offsets = [BUFFER_VIEW_OFFSET, BUFFER_DETACHED_OFFSET];
-        offsets.sort_unstable();
-        assert!(
-            offsets[0] < offsets[1],
-            "the detached flag overlaps the view"
-        );
-    }
 
     /// The mirror must follow every change of the buffer's data — the JIT
     /// reads it to find the elements.

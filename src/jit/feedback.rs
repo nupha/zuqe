@@ -22,10 +22,22 @@
 //! interpreter/JIT helper), and D-21 keeps guards out of generated code — so
 //! the compiler has no consumer for observed shapes, and the runtime cache
 //! already is the shape feedback.
+//!
+//! # Call-site feedback (D-6 route B)
+//!
+//! A second table records, per call site, the callee the interpreter saw
+//! there. A site that only ever calls one bytecode function is *monomorphic*:
+//! the compiler can then emit a guard ("the callee is exactly this one") and
+//! call that function's compiled code directly, instead of going through the
+//! general call path. The callee is held by the table, so its identity stays
+//! unique — a collected bytecode node's address could be reused by another
+//! node, and a stale guard would then match the wrong function.
 
 use std::{cell::UnsafeCell, collections::HashMap};
 
-use crate::{JSValue, JSValueTag, jit::fast_hash::FastHasherBuilder};
+use gc_lite::{GcTrace, GcTraceCtx};
+
+use crate::{JSValue, JSValueTag, function::Bytecode, jit::fast_hash::FastHasherBuilder};
 
 // ── Observed type classes (bit mask) ──
 
@@ -84,6 +96,56 @@ pub(crate) struct SiteFeedback {
 /// (or key the cap to bytecode size) if large bodies ever miss specialization.
 const MAX_SITES: usize = 1024;
 
+/// How many call sites one function may record (D-6 route B). Same shortcut as
+/// [`MAX_SITES`]: a fixed per-function bound.
+const MAX_CALL_SITES: usize = 256;
+
+// ── Call sites (D-6 route B) ──
+
+/// One call site: the callee the interpreter saw there.
+#[derive(Debug)]
+pub(crate) struct CallSiteFeedback {
+    /// The opcode offset of the call site.
+    pub(crate) pc: u32,
+    /// The callee's identity (its bytecode node's address); 0 when the callee
+    /// was not a bytecode function (a native function, a bound function, …) —
+    /// such a site is never monomorphic.
+    pub(crate) callee_id: u64,
+    /// The callee seen at this site, kept alive so its identity stays unique:
+    /// a collected bytecode node's address could be reused by another node,
+    /// and a stale guard would then match the wrong function.
+    pub(crate) callee: Option<Bytecode>,
+    /// A second, different callee turned up here: the site is polymorphic and
+    /// the monomorphic guard would miss from then on.
+    pub(crate) polymorphic: bool,
+    /// Calls observed at this site.
+    pub(crate) samples: u32,
+}
+
+/// A call site as the compiler sees it: the callee's identity and whether the
+/// site turned out polymorphic.
+///
+/// The callee is a plain identity (its bytecode node's address), not a
+/// reference: the snapshot crosses to the compiler thread and must stay
+/// pointer-free. The table keeps the callee alive, so the address stays
+/// unique for as long as the site exists.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CallSite {
+    /// The opcode offset of the call site.
+    pub(crate) pc: u32,
+    /// The callee's identity (the bytecode node's address); 0 when the callee
+    /// was not a bytecode function.
+    pub(crate) callee: u64,
+    /// Whether a second, different callee turned up at this site.
+    pub(crate) polymorphic: bool,
+}
+
+/// The identity of a callee: the address of its bytecode node. Stable for as
+/// long as the node is alive — the call-site table keeps it alive.
+pub(crate) fn callee_id(bc: &Bytecode) -> u64 {
+    bc.gc_node_ptr().as_ptr() as u64
+}
+
 /// All feedback sites of one function, keyed by bytecode pc (the opcode
 /// offset, matching `Instruction::pc()` the compiler indexes by).
 ///
@@ -97,6 +159,12 @@ pub(crate) struct FeedbackTable {
     /// as "measured work" (one add per recorded opcode, no scan of the sites);
     /// a function that already executed a lot is worth compiling sooner.
     total_samples: u32,
+    /// The call sites (D-6 route B), in the order they were first seen. The
+    /// index in this vector is the *site id* the compiled code carries: the
+    /// helper reads the expected callee back through it.
+    calls: Vec<CallSiteFeedback>,
+    /// Opcode offset -> the site id, for the recording path.
+    call_ids: HashMap<u32, u32, FastHasherBuilder>,
 }
 
 impl FeedbackTable {
@@ -142,6 +210,82 @@ impl FeedbackTable {
             .collect();
         sites.sort_unstable_by_key(|&(pc, _)| pc);
         sites
+    }
+
+    /// Record the callee seen at the call site `pc` (D-6 route B).
+    ///
+    /// Returns true when the site is new. A site that saw two different
+    /// callees is polymorphic from then on — the monomorphic guard would miss
+    /// every time — so it stops being updated.
+    fn record_call(&mut self, pc: u32, callee: Option<Bytecode>) -> bool {
+        let id = callee.as_ref().map_or(0, callee_id);
+        self.record_call_id(pc, id, callee)
+    }
+
+    /// The recording path, split from [`Self::record_call`] so the identity
+    /// can be exercised without a GC node: `callee` is the handle that keeps
+    /// the identity unique, `id` the identity itself.
+    fn record_call_id(&mut self, pc: u32, id: u64, callee: Option<Bytecode>) -> bool {
+        let (site_id, is_new) = match self.call_ids.get(&pc) {
+            Some(&site_id) => (site_id, false),
+            None => {
+                if self.calls.len() >= MAX_CALL_SITES {
+                    return false;
+                }
+                let site_id = self.calls.len() as u32;
+                self.calls.push(CallSiteFeedback {
+                    pc,
+                    callee_id: id,
+                    callee,
+                    polymorphic: false,
+                    samples: 0,
+                });
+                self.call_ids.insert(pc, site_id);
+                (site_id, true)
+            }
+        };
+        let site = &mut self.calls[site_id as usize];
+        if site.polymorphic {
+            return false;
+        }
+        site.samples = site.samples.saturating_add(1);
+        if site.callee_id != id {
+            site.polymorphic = true;
+        }
+        if site.callee.is_none() {
+            site.callee = callee;
+        }
+        is_new
+    }
+
+    /// The call sites, in site-id order, for the compile snapshot. The order
+    /// is the table's own: the site id is the index, and the compiled code
+    /// carries it.
+    fn snapshot_calls(&self) -> Vec<CallSite> {
+        self.calls
+            .iter()
+            .map(|site| CallSite {
+                pc: site.pc,
+                callee: site.callee_id,
+                polymorphic: site.polymorphic,
+            })
+            .collect()
+    }
+
+    /// The callee recorded at the call site `id` — what the monomorphic guard
+    /// compares the live callee against.
+    fn call_callee(&self, id: u32) -> Option<Bytecode> {
+        self.calls.get(id as usize).and_then(|site| site.callee)
+    }
+
+    /// Trace the recorded callees: they are GC nodes, and holding them is what
+    /// keeps a recorded identity unique.
+    fn trace(&self, gcx: &mut GcTraceCtx) {
+        for site in &self.calls {
+            if let Some(callee) = &site.callee {
+                callee.trace(gcx);
+            }
+        }
     }
 
     #[cfg(test)]
@@ -200,6 +344,43 @@ impl FeedbackSlot {
         match unsafe { &*self.0.get() } {
             Some(table) => table.snapshot(min_samples),
             None => Vec::new(),
+        }
+    }
+
+    /// Record the callee seen at the call site `site` (bytecode pc).
+    ///
+    /// Returns true when the site is new.
+    pub(crate) fn record_call(&self, site: u32, callee: Option<Bytecode>) -> bool {
+        // SAFETY: single-threaded; same discipline as `record` above.
+        let cell = unsafe { &mut *self.0.get() };
+        cell.get_or_insert_with(|| Box::new(FeedbackTable::default()))
+            .record_call(site, callee)
+    }
+
+    /// The call sites, in site-id order, for `CompileSnapshot`.
+    pub(crate) fn snapshot_calls(&self) -> Vec<CallSite> {
+        // SAFETY: single-threaded; called from `Jit::poll`, never mid-opcode.
+        match unsafe { &*self.0.get() } {
+            Some(table) => table.snapshot_calls(),
+            None => Vec::new(),
+        }
+    }
+
+    /// The callee recorded at the call site `id` — the monomorphic guard
+    /// (D-6 route B) compares the live callee against it.
+    pub(crate) fn call_callee(&self, id: u32) -> Option<Bytecode> {
+        // SAFETY: single-threaded; a plain read of the table.
+        match unsafe { &*self.0.get() } {
+            Some(table) => table.call_callee(id),
+            None => None,
+        }
+    }
+
+    /// Trace the recorded callees (they are GC nodes).
+    pub(crate) fn trace(&self, gcx: &mut GcTraceCtx) {
+        // SAFETY: single-threaded; a plain read of the table.
+        if let Some(table) = unsafe { &*self.0.get() } {
+            table.trace(gcx);
         }
     }
 }
@@ -318,5 +499,50 @@ mod tests {
             table.record(0, CLASS_INT, CLASS_INT, CLASS_INT);
         }
         assert_eq!(table.snapshot(1)[0].1.samples, u16::MAX);
+    }
+
+    /// D-6 route B: a site that keeps seeing the same callee stays
+    /// monomorphic; a second, different callee makes it polymorphic.
+    #[test]
+    fn a_second_callee_makes_the_site_polymorphic() {
+        let mut table = FeedbackTable::default();
+        assert!(table.record_call_id(10, 0x1000, None));
+        assert!(!table.record_call_id(10, 0x1000, None));
+        let site = table.snapshot_calls()[0];
+        assert_eq!(site.pc, 10);
+        assert_eq!(site.callee, 0x1000);
+        assert!(!site.polymorphic);
+
+        // A different callee at the same site: the guard would miss from now
+        // on, so the site is polymorphic.
+        table.record_call_id(10, 0x2000, None);
+        assert!(table.snapshot_calls()[0].polymorphic);
+    }
+
+    /// The site id is the index in the table's own order: the compiled code
+    /// carries it, and the helper reads the expected callee back through it.
+    #[test]
+    fn the_site_id_is_the_index_in_the_table() {
+        let mut table = FeedbackTable::default();
+        table.record_call_id(30, 0x3000, None);
+        table.record_call_id(10, 0x1000, None);
+        table.record_call_id(20, 0x2000, None);
+        let sites = table.snapshot_calls();
+        assert_eq!(sites.len(), 3);
+        // The order is the order the sites were first seen, not the pc order.
+        assert_eq!(sites[0].pc, 30);
+        assert_eq!(sites[1].pc, 10);
+        assert_eq!(sites[2].pc, 20);
+    }
+
+    /// The call-site table is bounded: past the cap it stops growing.
+    #[test]
+    fn the_call_site_count_is_capped() {
+        let mut table = FeedbackTable::default();
+        for pc in 0..MAX_CALL_SITES as u32 {
+            assert!(table.record_call_id(pc, u64::from(pc) + 1, None));
+        }
+        assert!(!table.record_call_id(MAX_CALL_SITES as u32, 1, None));
+        assert_eq!(table.snapshot_calls().len(), MAX_CALL_SITES);
     }
 }

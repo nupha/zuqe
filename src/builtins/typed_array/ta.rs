@@ -27,76 +27,16 @@ use super::{
 pub const JS_TYPED_ARRAY_COUNT: usize =
     JS_CLASS_FLOAT64_ARRAY as usize - JS_CLASS_UINT8C_ARRAY as usize + 1;
 
-/// The layout the JIT's typed-array guard reads (P1-1).
-///
-/// The generated code reads the view's buffer, its offset and its lengths
-/// straight out of the payload, so the offsets are part of a contract with
-/// the JIT (see `array::ArrayPayload` for the same trick). **The contract is
-/// pinned by the tests at the bottom of this module** — change a field's
-/// meaning and they fail.
-pub mod jit_layout {
-    use super::TypedArrayPayload;
-
-    /// The offset of the underlying buffer (a GC node pointer).
-    pub const BUFFER_OFFSET: i32 = std::mem::offset_of!(TypedArrayPayload, array_buffer) as i32;
-    /// The offset of the view's start offset, in bytes.
-    pub const OFFSET_OFFSET: i32 = std::mem::offset_of!(TypedArrayPayload, offset) as i32;
-    /// The offset of the view's byte length.
-    pub const BYTE_LENGTH_OFFSET: i32 = std::mem::offset_of!(TypedArrayPayload, byte_length) as i32;
-    /// The offset of the view's element count.
-    pub const COUNT_OFFSET: i32 = std::mem::offset_of!(TypedArrayPayload, count) as i32;
-    /// The offset of the "out of bounds" flag.
-    pub const OUT_OF_BOUNDS_OFFSET: i32 =
-        std::mem::offset_of!(TypedArrayPayload, out_of_bounds) as i32;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The layout the JIT's typed-array guard reads (P1-1) must stay what the
-    /// guard assumes. The offsets are computed, so a field that *moves* is
-    /// fine — but two fields sharing an offset, or a field that changes its
-    /// width, would make the generated code read the wrong thing.
-    ///
-    /// The *meaning* of each field is pinned by the end-to-end test in
-    /// `jit::tests` (it reads them through these very offsets) and by the
-    /// behavioural tests in `tests/jit/jit_array.rs`.
-    #[test]
-    fn the_jit_layout_contract_is_stable() {
-        // The offsets the guard loads must be inside the payload, and they
-        // must not overlap: the guard loads them independently.
-        let size = std::mem::size_of::<TypedArrayPayload>();
-        let mut offsets = [
-            jit_layout::BUFFER_OFFSET,
-            jit_layout::OFFSET_OFFSET,
-            jit_layout::BYTE_LENGTH_OFFSET,
-            jit_layout::COUNT_OFFSET,
-            jit_layout::OUT_OF_BOUNDS_OFFSET,
-        ];
-        for offset in offsets {
-            assert!(
-                offset >= 0 && (offset as usize) < size,
-                "the guard would read outside the payload"
-            );
-        }
-        offsets.sort_unstable();
-        for pair in offsets.windows(2) {
-            assert!(pair[0] < pair[1], "two fields share an offset");
-        }
-    }
-}
-
 #[derive(Debug)]
 pub struct TypedArrayPayload {
     /// underlaying array buffer object.
-    pub(super) array_buffer: ArrayBuffer,
+    pub(crate) array_buffer: ArrayBuffer,
     /// start offset in array buffer
-    pub(super) offset: u32,
+    pub(crate) offset: u32,
     /// number of bytes from array buffer
-    pub(super) byte_length: u32,
+    pub(crate) byte_length: u32,
     /// number of elements in typed array
-    count: u32,
+    pub(crate) count: u32,
 
     /// whether the view is length-tracked (i.e. created from a resizable buffer
     /// without an explicit length). Length-tracked views grow/shrink with the
@@ -107,7 +47,7 @@ pub struct TypedArrayPayload {
     /// whether the view is currently out-of-bounds of its (resizable) buffer.
     /// Out-of-bounds views report 0 for `length`/`byteLength`/`byteOffset` and
     /// expose no readable bytes.
-    out_of_bounds: bool,
+    pub(crate) out_of_bounds: bool,
 
     /// back reference to the TypedArray/DataView object.
     #[deprecated(note = "seems no use")]
