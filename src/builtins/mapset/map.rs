@@ -11,7 +11,6 @@ use crate::{
     class::ClassID,
     context::{ContextImpl, ScopedContext},
     object::{MapSet, Object, ObjectImpl, PayloadPtr},
-    utils::hash_usize,
     value::JSValue,
 };
 
@@ -295,15 +294,19 @@ impl JSMapState {
     pub(crate) fn remove_weak_obj(&mut self, obj: Object) {
         debug_assert!(self.is_weak);
 
-        let hash = hash_usize(obj.id());
+        // Must match `upsert`'s bucket: the object key's `JSValue::hash()`
+        // (node pointer), not the `Object` wrapper's address.
+        let hash = JSValue::from(obj).hash();
 
         // remove from lut
         let purge_lut = if let Some(lst) = self.lut.get_mut(&hash) {
             lst.retain(|i| match self.slots.get(*i) {
                 Some(MapPair::Weak { key, .. }) => {
+                    // Drop entries whose key is `obj` (still upgradeable here)
+                    // or already dead (upgrade yields None).
                     if key
                         .upgrade(obj.rt_ptr().gc_heap())
-                        .is_some_and(|k| *k.as_raw() != obj.0)
+                        .is_none_or(|k| *k.as_raw() == obj.0)
                     {
                         self.slots[*i] = MapPair::Removed;
                         false
@@ -383,5 +386,55 @@ impl MapSet {
     pub fn from_entries(ctx: &mut ScopedContext, entries: JSMapState) -> Result<Self, i32> {
         ctx.create_instance(PayloadPtr::new(JS_CLASS_MAP, entries))
             .map(|o| Self(o.0))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MapPair;
+    use crate::{EvalFlags, EvalName, EvalType, Runtime, ScopedContext};
+
+    /// T1: a collected weak key must leave both `slots` and `lut`, while a
+    /// live key in the same map stays reachable.
+    #[test]
+    fn collected_weak_key_is_removed() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let name = EvalName::Name("weakmap-gc.js".into());
+        ctx.eval(
+            b"globalThis.wm = new WeakMap(); globalThis.live = {};
+              wm.set(live, 1); (() => { let dead = {}; wm.set(dead, 2); })();",
+            &name,
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap();
+
+        // The IIFE scope is gone, so only the live key is reachable.
+        ctx.with_root_scope(|mut cx| cx.rt_mut().gc_collect());
+
+        let value = ctx
+            .eval(b"wm.get(live)", &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+        assert_eq!(value.to_bool(), Ok(true), "live entry was dropped");
+
+        let wm = ctx
+            .eval(b"wm", &name, EvalType::Global, EvalFlags::empty())
+            .unwrap();
+        let wm = wm.as_object().expect("wm is a WeakMap");
+        let state = wm.payload_mapset().expect("wm is a WeakMap");
+        let live_slots = state
+            .slots
+            .iter()
+            .filter(|p| matches!(p, MapPair::Weak { .. }))
+            .count();
+        assert_eq!(live_slots, 1, "collected key still occupies a slot");
+        assert_eq!(
+            state.lut.values().map(Vec::len).sum::<usize>(),
+            1,
+            "collected key still occupies a lut bucket"
+        );
     }
 }
