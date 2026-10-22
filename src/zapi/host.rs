@@ -377,12 +377,15 @@ impl<'a> ScopedContext<'a> {
         // extension exports its own (author wins). Host-side so prebuilt
         // extensions get it without recompiling. Same value as
         // `zuqe_zapi::module_path()`.
-        let inject_file = !export_names.iter().any(|n| n == "__file__");
-        if inject_file {
-            export_names.push("__file__".to_string());
-        }
-        let module_path_str = abs_path.to_string_lossy().into_owned();
-        let module_path_clone = module_path_str.clone();
+
+        // Disabled for now — may be re-enabled later. Rust-side extensions
+        // locate bundled resources via `zuqe_zapi::module_path()` instead.
+        // let inject_file = !export_names.iter().any(|n| n == "__file__");
+        // if inject_file {
+        //     export_names.push("__file__".to_string());
+        // }
+        // let module_path_str = abs_path.to_string_lossy().into_owned();
+        // let module_path_clone = module_path_str.clone();
 
         let init_ptr = md_info.init;
         let runtime_finalize = md_info.runtime_finalize;
@@ -419,13 +422,15 @@ impl<'a> ScopedContext<'a> {
                 set_module_export(ctx, md, name, value)?;
             }
 
-            if inject_file {
-                // export `__file__` field
-                let sr = ctx
-                    .create_string_from_utf8(module_path_clone.as_bytes().to_vec())
-                    .map_err(|_| -1)?;
-                set_module_export(ctx, md, "__file__", crate::JSValue::make_string(sr))?;
-            }
+            // Disabled for now — may be re-enabled later (see `__file__`
+            // injection above, commented out).
+            // if inject_file {
+            //     // export `__file__` field
+            //     let sr = ctx
+            //         .create_string_from_utf8(module_path_clone.as_bytes().to_vec())
+            //         .map_err(|_| -1)?;
+            //     set_module_export(ctx, md, "__file__", crate::JSValue::make_string(sr))?;
+            // }
 
             Ok(())
         };
