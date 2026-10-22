@@ -161,8 +161,11 @@ pub(crate) struct JitExecFrame {
     pub backedges: u32,
     /// D-6 route B: calls at a monomorphic site that took the direct path (the
     /// callee's compiled code was entered without the interpreter's call
-    /// protocol).
+    /// protocol), or step 2's guard-passed inline site.
     pub inline_call_hits: u32,
+    /// D-6 route B, step 2: calls whose site passed the inline guard and ran
+    /// the callee's body copied into the caller.
+    pub frame_inline_hits: u32,
     /// D-6 route B: calls at a monomorphic site whose guard missed (the callee
     /// was not the recorded one), or whose callee the direct path could not
     /// serve — those took the general call path.
@@ -2541,10 +2544,16 @@ unsafe fn try_direct_call(
 /// The callee the interpreter recorded at this call site (D-6 route B's
 /// guard). `imm2` carries the site id the compiled code baked in.
 unsafe fn recorded_callee(f: &JitExecFrame) -> Option<crate::function::Bytecode> {
+    unsafe { recorded_callee_at(f, f.imm2) }
+}
+
+/// [`recorded_callee`] for an explicit site id. The inline guard encodes the
+/// method-call flag in the top bit of `imm2`, so it reads the id itself.
+unsafe fn recorded_callee_at(f: &JitExecFrame, site: u32) -> Option<crate::function::Bytecode> {
     // SAFETY: `f.bytecode` points at the running function's bytecode, which
     // its function object keeps alive for the whole activation.
     let bc = unsafe { &*f.bytecode };
-    bc.feedback.call_callee(f.imm2)
+    bc.feedback.call_callee(site)
 }
 
 /// Whether the live callee is exactly the recorded one.
@@ -2552,6 +2561,40 @@ fn callee_is(func: JSValue, recorded: crate::function::Bytecode) -> bool {
     match crate::function::BCWrapper::try_from(func) {
         Ok(bfun) => bfun.payload().bytecode().gc_node_ptr() == recorded.gc_node_ptr(),
         Err(_) => false,
+    }
+}
+
+/// `imm2`'s top bit marks a `call_method` inline site (the receiver sits
+/// below the callee); the low bits are the call-site id.
+pub(crate) const INLINE_METHOD_BIT: u32 = 1 << 31;
+
+/// The guard for an *inlined* call site (D-6 route B, step 2).
+///
+/// Returns 1 when the callee on the stack is the recorded one: the caller's
+/// generated code then runs the callee's body inline. A miss returns 0 and the
+/// caller takes the general call path, exactly as the direct helper would.
+/// The counters keep the existing "monomorphic fast path" meaning: a hit is a
+/// site the guard served, whether inline or direct.
+unsafe extern "C" fn h_inline_guard(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let argc = f.imm as usize;
+        let method = f.imm2 & INLINE_METHOD_BIT != 0;
+        let site = f.imm2 & !INLINE_METHOD_BIT;
+        let base = f.sp.offset(-(argc as isize) - if method { 2 } else { 1 });
+        let func = if method { *base.add(1) } else { *base };
+        let Some(recorded) = recorded_callee_at(f, site) else {
+            f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+            return 0;
+        };
+        if callee_is(func, recorded) {
+            f.inline_call_hits = f.inline_call_hits.saturating_add(1);
+            f.frame_inline_hits = f.frame_inline_hits.saturating_add(1);
+            1
+        } else {
+            f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+            0
+        }
     }
 }
 
@@ -2614,7 +2657,7 @@ unsafe extern "C" fn h_apply(f: *mut JitExecFrame) -> u32 {
 }
 
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 122;
+pub(crate) const HELPER_COUNT: usize = 123;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -2836,6 +2879,9 @@ pub(crate) const HELPER_CALL_INLINE: usize = 120;
 /// Index of [`h_call_method_inline`], the direct method call at a monomorphic
 /// site (D-6 route B).
 pub(crate) const HELPER_CALL_METHOD_INLINE: usize = 121;
+/// Index of [`h_inline_guard`], the guard an inlined monomorphic call site
+/// tests before running the callee's body in the caller (D-6 route B, step 2).
+pub(crate) const HELPER_INLINE_GUARD: usize = 122;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -2966,4 +3012,5 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_gc_bind as *const (),
     h_call_inline as *const (),
     h_call_method_inline as *const (),
+    h_inline_guard as *const (),
 ]);

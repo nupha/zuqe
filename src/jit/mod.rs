@@ -30,6 +30,7 @@ mod direct_call;
 mod error;
 mod fast_hash;
 mod feedback;
+mod inline_call;
 mod layout;
 mod metrics;
 mod platform;
@@ -37,6 +38,8 @@ mod policy;
 mod rate;
 mod runtime;
 mod snapshot;
+#[cfg(test)]
+mod test_harness;
 
 pub use {
     config::{JitConfig, JitConfigBuilder, JitTierPolicy},
@@ -942,6 +945,7 @@ pub(crate) fn invoke_native(
         property_guard_misses: 0,
         backedges: 0,
         inline_call_hits: 0,
+        frame_inline_hits: 0,
         inline_call_misses: 0,
     };
     // SAFETY: `entry` was produced by `compile` for this exact bytecode layout
@@ -984,6 +988,9 @@ pub(crate) fn invoke_native(
         inline_call_hits: m
             .inline_call_hits
             .saturating_add(u64::from(frame.inline_call_hits)),
+        frame_inline_hits: m
+            .frame_inline_hits
+            .saturating_add(u64::from(frame.frame_inline_hits)),
         inline_call_misses: m
             .inline_call_misses
             .saturating_add(u64::from(frame.inline_call_misses)),

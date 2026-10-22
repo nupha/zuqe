@@ -75,7 +75,7 @@ use super::{
         HELPER_GET_FIELD, HELPER_GET_FIELD2, HELPER_GET_PRIVATE_FIELD, HELPER_GET_REF_VALUE,
         HELPER_GET_SUPER, HELPER_GET_SUPER_VALUE, HELPER_GET_VAR, HELPER_GET_VAR_REF,
         HELPER_GET_VAR_REF_CHECK, HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE, HELPER_IN,
-        HELPER_INC, HELPER_INIT_CTOR, HELPER_INSTANCEOF, HELPER_ITERATOR_CALL,
+        HELPER_INC, HELPER_INIT_CTOR, HELPER_INLINE_GUARD, HELPER_INSTANCEOF, HELPER_ITERATOR_CALL,
         HELPER_ITERATOR_CHECK_OBJECT, HELPER_ITERATOR_CLOSE, HELPER_ITERATOR_GET_VALUE_DONE,
         HELPER_ITERATOR_NEXT, HELPER_LNOT, HELPER_LT, HELPER_LTE, HELPER_MAKE_ARG_REF,
         HELPER_MAKE_LOC_REF, HELPER_MAKE_VAR_REF, HELPER_MAKE_VAR_REF_REF, HELPER_MOD, HELPER_MUL,
@@ -89,11 +89,13 @@ use super::{
         HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_THROW,
         HELPER_THROW_ERROR, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY, HELPER_TYPEOF,
         HELPER_WITH_DELETE_VAR, HELPER_WITH_GET_REF, HELPER_WITH_GET_VAR, HELPER_WITH_MAKE_REF,
-        HELPER_WITH_MISS, HELPER_WITH_PUT_VAR, HELPER_XOR, JitExecFrame, SPEC_MISS_IMM2,
+        HELPER_WITH_MISS, HELPER_WITH_PUT_VAR, HELPER_XOR, INLINE_METHOD_BIT, JitExecFrame,
+        SPEC_MISS_IMM2,
     },
     analysis::{Analysis, LocalRef, RedundantExpressions},
     bytecode::{
-        cfg::ControlFlowGraph, decode::Instruction, stack::SlotKind, verify::VerifiedFunction,
+        VerifyLimits, cfg::ControlFlowGraph, decode::Instruction, stack::SlotKind, verify,
+        verify::VerifiedFunction,
     },
     error::JitError,
     feedback::{CLASS_FLOAT, CLASS_INT, SiteFeedback},
@@ -512,6 +514,13 @@ struct State<'a> {
     /// id the compiled code carries. A site that saw more than one callee is
     /// not here: its guard would miss every time.
     call_sites: HashMap<u32, u32>,
+    /// Monomorphic sites whose callee body is copied into this function
+    /// (D-6 route B, step 2). The value is the verified callee; a site not in
+    /// here keeps the direct-call helper.
+    inline_sites: HashMap<u32, VerifiedFunction>,
+    /// Counter for the variable-id block an inlined body owns. Every emission
+    /// gets a fresh block: Cranelift forbids declaring a variable twice.
+    inline_tag: u32,
 }
 
 /// Block-local register copies of local/argument slots (epic F4, the read half
@@ -1593,6 +1602,30 @@ fn monomorphic_call_sites(verified: &VerifiedFunction) -> HashMap<u32, u32> {
         .collect()
 }
 
+/// The monomorphic sites whose callee the compiler can copy into the caller
+/// (D-6 route B, step 2). The callee's snapshot was taken while the runtime
+/// thread held the bytecode; verify it here, off-thread, exactly like any
+/// other function, and keep only bodies inside the inline subset.
+fn inline_call_sites(verified: &VerifiedFunction) -> HashMap<u32, VerifiedFunction> {
+    let snapshot = verified.snapshot();
+    let mut sites = HashMap::new();
+    for site in snapshot.call_sites.iter() {
+        let Some(index) = site.inline else {
+            continue;
+        };
+        let Some(callee) = snapshot.inline_callees.get(index as usize) else {
+            continue;
+        };
+        let Ok(body) = verify(callee.snapshot(site.callee), VerifyLimits::default()) else {
+            continue;
+        };
+        if super::inline_call::eligible(&body) {
+            sites.insert(site.pc, body);
+        }
+    }
+    sites
+}
+
 fn lower(
     b: &mut FunctionBuilder,
     fv: &FrameVals,
@@ -1639,6 +1672,8 @@ fn lower(
         const_meta: &verified.snapshot().const_meta,
         barrier_sig: barrier_sig(b, helper_sig),
         call_sites: monomorphic_call_sites(verified),
+        inline_sites: inline_call_sites(verified),
+        inline_tag: 0,
     };
     let entry_block = state.block_for(b, 0);
     if osr_pcs.is_empty() {
@@ -1925,6 +1960,76 @@ fn lower_insn(
         "call" | "call_method" | "call_constructor" | "apply" => {
             let operand = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
             b.ins().store(MemFlags::new(), operand, fv.frame, O_IMM);
+            let method = name == "call_method";
+            let argc = u32::from(insn.operand_u16(1));
+
+            // D-6 route B, step 2: a monomorphic site whose callee is inside
+            // the inline subset runs that body here. The guard is the same
+            // recorded-callee check the direct helper makes; a miss (or any
+            // operand the subset cannot serve) takes the general path.
+            if matches!(name, "call" | "call_method")
+                && let Some(callee) = state.inline_sites.get(&pc).cloned()
+                && let Some(&site_id) = state.call_sites.get(&pc)
+            {
+                let encoded = if method {
+                    site_id | INLINE_METHOD_BIT
+                } else {
+                    site_id
+                };
+                let site = b.ins().iconst(types::I32, i64::from(encoded));
+                b.ins().store(MemFlags::new(), site, fv.frame, O_IMM2);
+
+                state.stack.flush(b, sp);
+                b.ins().store(MemFlags::new(), sp, fv.frame, O_SP);
+                write_cur_sp(b, fv, sp);
+                let guard_fn = b.ins().load(
+                    types::I64,
+                    MemFlags::new(),
+                    fv.helpers,
+                    (HELPER_INLINE_GUARD * 8) as i32,
+                );
+                let call = b.ins().call_indirect(helper_sig, guard_fn, &[fv.frame]);
+                let guard = b.inst_results(call)[0];
+                let hit = b.ins().icmp_imm(IntCC::NotEqual, guard, 0);
+
+                let inline = b.create_block();
+                let fallback = b.create_block();
+                let merge = b.create_block();
+                b.append_block_param(merge, types::I64);
+                b.ins().brif(hit, inline, &[], fallback, &[]);
+
+                // The general call path, also the inline body's bailout: the
+                // frame and the call window are untouched up to here.
+                b.switch_to_block(fallback);
+                let general = if method {
+                    HELPER_CALL_METHOD
+                } else {
+                    HELPER_CALL
+                };
+                let sp_fallback =
+                    call_stack_helper(state, b, fv, helper_sig, sp, general, pc + size);
+                b.def_var(sp_var, sp_fallback);
+                b.ins().jump(merge, &[sp_fallback]);
+
+                b.switch_to_block(inline);
+                let window = if method {
+                    i64::from(argc) + 2
+                } else {
+                    i64::from(argc) + 1
+                };
+                let base = b.ins().iadd_imm(sp, -(window * 8));
+                let tag = state.inline_tag;
+                state.inline_tag += 1;
+                super::inline_call::lower(
+                    b, &callee, base, argc, method, tag, inline, fallback, merge,
+                );
+
+                b.switch_to_block(merge);
+                let sp_merge = b.block_params(merge)[0];
+                b.def_var(sp_var, sp_merge);
+                return Step::Continue(sp_merge);
+            }
+
             let id = match name {
                 "call" => HELPER_CALL,
                 "call_method" => HELPER_CALL_METHOD,
@@ -2704,7 +2809,7 @@ fn ic_index(_insn: &Instruction) -> u32 {
 /// Box a 32-bit bit-operation result exactly like `JSValue::from(u32)`: an `Int`
 /// when it fits in `i32`, otherwise a `Float64`. (The interpreter really does
 /// return `4294967295` for `-1 | 0`; the baseline matches it bit-for-bit.)
-fn box_bit_result(b: &mut FunctionBuilder, result: Value) -> Value {
+pub(super) fn box_bit_result(b: &mut FunctionBuilder, result: Value) -> Value {
     let nonneg = b.ins().icmp_imm(IntCC::SignedGreaterThanOrEqual, result, 0);
     let as_int = b.ins().uextend(types::I64, result);
     let as_float = b.ins().fcvt_from_uint(types::F64, result);
@@ -2715,7 +2820,7 @@ fn box_bit_result(b: &mut FunctionBuilder, result: Value) -> Value {
 }
 
 /// The `tag == 0` (Int) test a binary fast path emits per unchecked operand.
-fn is_int(b: &mut FunctionBuilder, value: Value) -> Value {
+pub(super) fn is_int(b: &mut FunctionBuilder, value: Value) -> Value {
     let tag = b.ins().ushr_imm(value, 48);
     b.ins().icmp_imm(IntCC::Equal, tag, 0)
 }

@@ -14,7 +14,7 @@
 #![allow(dead_code)]
 
 use crate::{
-    function::{BytecodeImpl, GcScopeKind},
+    function::{Bytecode, BytecodeImpl, FunctionKind, GcScopeKind},
     jit::feedback::{CallSite, SiteFeedback},
     vm_stack::ExecMode,
 };
@@ -55,11 +55,95 @@ pub(crate) struct CompileSnapshot {
     /// site-id order — the index in this box is the site id the compiled code
     /// carries, and the helper reads the expected callee back through it.
     pub(crate) call_sites: Box<[CallSite]>,
+    /// The callees the compiler may copy into this function (D-6 route B,
+    /// step 2). A site's `CallSite::inline` indexes this box; no pointer is
+    /// kept, so the snapshot still crosses to the compiler thread.
+    pub(crate) inline_callees: Box<[InlineCallee]>,
     /// Whether the compiler may speculatively specialize this function (epic
     /// F2). Cleared after tier-down (P7 7.2) observed too many guard misses at
     /// its sites: the recompile keeps the int fast paths but not the
     /// speculation, so the guards stop being paid.
     pub(crate) speculate: bool,
+}
+
+/// A callee the compiler may inline into its caller (D-6 route B, step 2).
+///
+/// This is the callee's own snapshot metadata, copied while the runtime
+/// thread still owns the bytecode. The compiler verifies it like any other
+/// snapshot and, if the body is within the inline subset (pure, no calls, no
+/// exits), emits that body in the caller's code.
+#[derive(Clone, Debug)]
+pub(crate) struct InlineCallee {
+    pub(crate) bytecode: Box<[u8]>,
+    pub(crate) arg_count: u16,
+    pub(crate) var_count: u16,
+    pub(crate) local_buf_size: u16,
+    pub(crate) stack_size: u16,
+    pub(crate) mode: ExecMode,
+    pub(crate) gc_scope_kind: GcScopeKind,
+    pub(crate) const_meta: Box<[ConstMeta]>,
+}
+
+/// The cheapest sanity gate for copying a callee's body: the body must be a
+/// plain, small, non-closure function. The compiler decides usability from
+/// the decoded opcodes; this only keeps the snapshot small.
+fn inline_candidate(caller: &BytecodeImpl, callee: &Bytecode) -> bool {
+    let bc = &**callee;
+    bc.func_kind() == FunctionKind::Normal
+        && !bc.mode().contains(ExecMode::ASYNC)
+        && bc.realm() == caller.realm()
+        && bc.closure_var_count == 0
+        && bc.global_var_ref_count == 0
+        && bc.arg_count <= 16
+        && bc.var_count <= 16
+        && bc.stack_size <= 32
+        && bc.opcodes().len() <= 1024
+        && bc.consts().len() <= 64
+}
+
+impl InlineCallee {
+    fn from_bytecode(bc: &BytecodeImpl) -> Self {
+        Self {
+            bytecode: bc.opcodes().into(),
+            arg_count: bc.arg_count,
+            var_count: bc.var_count,
+            local_buf_size: bc.local_buf_size,
+            stack_size: bc.stack_size,
+            mode: bc.mode(),
+            gc_scope_kind: bc.gc_scope_kind(),
+            const_meta: bc
+                .consts()
+                .iter()
+                .map(|value| ConstMeta {
+                    tag: value.tag() as i16,
+                })
+                .collect(),
+        }
+    }
+
+    /// The callee as a standalone snapshot, for the compiler's verifier. The
+    /// call-site tables stay empty: an inlined body never calls another
+    /// function (that is part of the inline subset).
+    pub(crate) fn snapshot(&self, function_id: u64) -> CompileSnapshot {
+        CompileSnapshot {
+            function_id,
+            bytecode: self.bytecode.clone(),
+            arg_count: self.arg_count,
+            var_count: self.var_count,
+            global_var_ref_count: 0,
+            closure_var_count: 0,
+            local_buf_size: self.local_buf_size,
+            stack_size: self.stack_size,
+            mode: self.mode,
+            gc_scope_kind: self.gc_scope_kind,
+            const_meta: self.const_meta.clone(),
+            ic_count: 0,
+            feedback: Box::new([]),
+            call_sites: Box::new([]),
+            inline_callees: Box::new([]),
+            speculate: false,
+        }
+    }
 }
 
 impl CompileSnapshot {
@@ -76,6 +160,25 @@ impl CompileSnapshot {
         };
         #[cfg(not(feature = "inline_cache"))]
         let ic_count = 0;
+
+        // D-6 route B step 2: keep a copy of each monomorphic callee whose
+        // shape the compiler may inline. The call-site table holds the callee
+        // alive, so the identity the guard carries stays valid.
+        let mut call_sites = bc.feedback.snapshot_calls();
+        let mut inline_callees = Vec::new();
+        for (id, site) in call_sites.iter_mut().enumerate() {
+            if site.polymorphic || site.callee == 0 {
+                continue;
+            }
+            let Some(callee) = bc.feedback.call_callee(id as u32) else {
+                continue;
+            };
+            if !inline_candidate(bc, &callee) {
+                continue;
+            }
+            site.inline = Some(inline_callees.len() as u32);
+            inline_callees.push(InlineCallee::from_bytecode(&callee));
+        }
 
         Self {
             function_id,
@@ -97,7 +200,8 @@ impl CompileSnapshot {
                 .collect(),
             ic_count,
             feedback: bc.feedback.snapshot(min_samples).into_boxed_slice(),
-            call_sites: bc.feedback.snapshot_calls().into_boxed_slice(),
+            call_sites: call_sites.into_boxed_slice(),
+            inline_callees: inline_callees.into_boxed_slice(),
             speculate: true,
         }
     }
@@ -135,6 +239,7 @@ impl CompileSnapshot {
             ic_count: 0,
             feedback: Box::new([]),
             call_sites: Box::new([]),
+            inline_callees: Box::new([]),
             speculate: true,
         }
     }

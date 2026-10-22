@@ -110,10 +110,15 @@ pub struct JitMetrics {
     /// A miss is expected and common (it is not a defect), so it never feeds
     /// the tier-down — that is [`Self::specialized_guard_misses`]' job.
     pub property_guard_misses: u64,
-    /// Calls at a monomorphic site that took the direct path (D-6 route B):
-    /// the callee's compiled code was entered without the interpreter's call
-    /// protocol.
+    /// Calls at a monomorphic site that took the fast path (D-6 route B):
+    /// either the callee's compiled code was entered directly (step 1) or the
+    /// inline guard passed and the copied body ran in the caller (step 2).
     pub inline_call_hits: u64,
+    /// Calls whose site passed the inline guard and ran the callee's body
+    /// inside the caller (D-6 route B, step 2). The body may still bail to the
+    /// general path on an operand the inline subset does not implement; this
+    /// counter only says the guard was passed.
+    pub frame_inline_hits: u64,
     /// Calls at a monomorphic site that took the general call path (D-6 route
     /// B): the guard missed (the callee was not the recorded one), or the
     /// callee could not run directly (a generator, a cross-realm callee, one

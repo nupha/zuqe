@@ -138,6 +138,9 @@ pub(crate) struct CallSite {
     pub(crate) callee: u64,
     /// Whether a second, different callee turned up at this site.
     pub(crate) polymorphic: bool,
+    /// Index into `CompileSnapshot::inline_callees` when the compiler may
+    /// inline the callee's body at this site (D-6 route B, step 2).
+    pub(crate) inline: Option<u32>,
 }
 
 /// The identity of a callee: the address of its bytecode node. Stable for as
@@ -268,6 +271,7 @@ impl FeedbackTable {
                 pc: site.pc,
                 callee: site.callee_id,
                 polymorphic: site.polymorphic,
+                inline: None,
             })
             .collect()
     }
