@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
 //! Zapi — FFI / high-level API conformance test extension.
 //!
 //! Every `ZqApi` function pointer is exercised at least once, directly or via
@@ -12,18 +15,18 @@
 // `#[zq_function]` generates snake_case marker types for the export manifest.
 #![allow(non_camel_case_types)]
 
-use std::cell::Cell;
-use std::ffi::c_void;
+use std::{cell::Cell, ffi::c_void};
 
-use zuqe_zapi::ffi::{
-    ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE, ZQ_CONST_VALUE_SLOT_INFINITY,
-    ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN, ZQ_CONST_VALUE_SLOT_NULL,
-    ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED, ZQ_CONST_VALUE_SLOT_ZERO,
-    ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_WRITABLE, ZqApi, ZqCallInfoS, ZqGcTraceCtxS,
-};
 use zuqe_zapi::{
     AsyncIterResult, Class, ZqAsyncIterable, ZqCallInfo, ZqCtx, ZqError, ZqErrorType, ZqGcTraceCtx,
-    ZqPropertyDescriptor, ZqRawCtx, ZqRawValue, ZqValue,
+    ZqMember, ZqPropertyDescriptor, ZqRawCtx, ZqRawValue, ZqValue,
+    ffi::{
+        ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE, ZQ_CONST_VALUE_SLOT_INFINITY,
+        ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN, ZQ_CONST_VALUE_SLOT_NULL,
+        ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED, ZQ_CONST_VALUE_SLOT_ZERO,
+        ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_WRITABLE, ZqApi, ZqCallInfoS,
+        ZqGcTraceCtxS, ZqMemberDef,
+    },
 };
 use zuqe_zapi_macros::{
     ZqGcTrace, zq_class, zq_class_impl, zq_function, zq_method, zq_module, zq_static_method,
@@ -543,11 +546,201 @@ impl Point {
     }
 }
 
+/// `#[zq_class(prototype_members = ..)]`: members whose names live in a
+/// `const` table rather than in attributes.
+const TABLE_MEMBERS: &[ZqMemberDef] = &[
+    ZqMemberDef::method(c"fromTable", table_dispatch::trampoline(), 0, 0),
+    ZqMemberDef::method(c"which", table_dispatch::trampoline(), 0, 1),
+    // A constant, proving the table is not method-only.
+    ZqMemberDef::const_int(c"TABLE_SIZE", 2),
+];
+
+#[zq_class(name = "Tabled", prototype_members = TABLE_MEMBERS)]
+struct Tabled;
+
+#[zq_class_impl]
+impl Tabled {
+    fn constructor<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        Tabled::new_instance(cx)
+    }
+
+    /// A declared member, which the table leaves alone.
+    #[zq_method(name = "declared")]
+    fn declared<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        Ok(ZqValue::new_string(cx, "declared")?)
+    }
+}
+
+/// A table that claims a name a `#[zq_method]` already has.
+///
+/// The engine's lazy install cannot redefine a property, so the host refuses
+/// the whole class by name instead of aborting or silently overwriting. Not
+/// exported: registering it fails, and that failure is the thing under test.
+const COLLIDING_MEMBERS: &[ZqMemberDef] = &[
+    ZqMemberDef::method(c"other", table_dispatch::trampoline(), 0, 0),
+    ZqMemberDef::method(c"taken", table_dispatch::trampoline(), 0, 1),
+];
+
+#[zq_class(name = "Colliding", prototype_members = COLLIDING_MEMBERS)]
+struct Colliding;
+
+#[zq_class_impl]
+impl Colliding {
+    fn constructor<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        Colliding::new_instance(cx)
+    }
+
+    /// The name the table repeats.
+    #[zq_method(name = "taken")]
+    fn taken<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        Ok(ZqValue::new_string(cx, "declared")?)
+    }
+}
+
+/// A static method on a name every native function already owns. Refused by
+/// name rather than aborting.
+#[zq_class(name = "ReservedStatic")]
+struct ReservedStatic;
+
+#[zq_class_impl]
+impl ReservedStatic {
+    fn constructor<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        ReservedStatic::new_instance(cx)
+    }
+
+    #[zq_static_method(name = "name")]
+    fn bad<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        Ok(ZqValue::int32(1))
+    }
+}
+
+/// A table that claims a name a `#[zq_static_method]` already has.
+///
+/// The macro catches a declared method and a declared static sharing a name at
+/// compile time, so the only way to reach the host check is a name the macro
+/// cannot see: one coming from the table.
+const TABLE_VS_STATIC: &[ZqMemberDef] = &[ZqMemberDef::method(
+    c"clash",
+    table_dispatch::trampoline(),
+    0,
+    0,
+)];
+
+#[zq_class(name = "TableVsStatic", prototype_members = TABLE_VS_STATIC)]
+struct TableVsStatic;
+
+#[zq_class_impl]
+impl TableVsStatic {
+    fn constructor<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        TableVsStatic::new_instance(cx)
+    }
+
+    /// The name the table repeats.
+    #[zq_static_method(name = "clash")]
+    fn clash<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        Ok(ZqValue::int32(2))
+    }
+}
+
+#[zq_function(name = "newTableVsStatic")]
+fn new_table_vs_static<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    TableVsStatic::register_id(cx)?;
+    TableVsStatic::new_instance(cx)
+}
+
+#[zq_function(name = "newReservedStatic")]
+fn new_reserved_static<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    ReservedStatic::register_id(cx)?;
+    ReservedStatic::new_instance(cx)
+}
+
+/// Registering `Colliding` must fail: the table and the `#[zq_method]` both
+/// claim "taken".
+#[zq_function(name = "newColliding")]
+fn new_colliding<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    Colliding::register_id(cx)?;
+    Colliding::new_instance(cx)
+}
+
+/// The runtime API's happy path: register, install members whose names are
+/// computed at runtime, hand back an instance.
+#[zq_class(name = "RuntimeMembers")]
+struct RuntimeMembers;
+
+#[zq_class_impl]
+impl RuntimeMembers {
+    fn constructor<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        RuntimeMembers::new_instance(cx)
+    }
+
+    /// A declared member, which the runtime install must leave alone.
+    #[zq_method(name = "declared")]
+    fn declared<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        Ok(ZqValue::new_string(cx, "declared")?)
+    }
+}
+
+#[zq_function(name = "registerRuntimeMembers")]
+fn register_runtime_members<'a>(
+    cx: ZqCtx<'a>,
+    _cc: ZqCallInfo<'a>,
+) -> Result<ZqValue<'a>, ZqError> {
+    let class_id = RuntimeMembers::register_id(cx)?;
+    // Magic is the index into the name list, so the dispatcher and the table
+    // cannot drift: same construction the const-table path does at compile time.
+    let methods: Vec<ZqMember> = ["aaa", "bbb"]
+        .iter()
+        .enumerate()
+        .map(|(index, name)| ZqMember::method(name, late_dispatch::trampoline(), index as i32))
+        .collect();
+    cx.class_install_prototype_members(class_id, &methods)?;
+    // A constant needs a different kind, so the list is not all methods.
+    cx.class_install_prototype_members(class_id, &[ZqMember::const_int("LIMIT", 7)])?;
+    RuntimeMembers::new_instance(cx)
+}
+
+/// The runtime API refuses a name the class already declares, the same way.
+#[zq_class(name = "RuntimeCollide")]
+struct RuntimeCollide;
+
+#[zq_class_impl]
+impl RuntimeCollide {
+    fn constructor<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        RuntimeCollide::new_instance(cx)
+    }
+
+    #[zq_method(name = "declared")]
+    fn declared<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+        Ok(ZqValue::new_string(cx, "declared")?)
+    }
+}
+
+#[zq_function(name = "newRuntimeCollide")]
+fn new_runtime_collide<'a>(cx: ZqCtx<'a>, _cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    let class_id = RuntimeCollide::register_id(cx)?;
+    cx.class_install_prototype_members(
+        class_id,
+        &[ZqMember::method("declared", late_dispatch::trampoline(), 0)],
+    )?;
+    RuntimeCollide::new_instance(cx)
+}
+
+/// The one body behind every name in `TABLE_MEMBERS`; `cc.magic()` says which.
+#[zq_function(name = "__table_dispatch")]
+fn table_dispatch<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    Ok(ZqValue::int32(cc.magic() as i32 * 100))
+}
+
+#[zq_function(name = "__late_dispatch")]
+fn late_dispatch<'a>(_cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
+    Ok(ZqValue::int32(cc.magic() as i32))
+}
+
 /// `instanceof_operator`: JS `val instanceof Point`, routed through the class def.
 #[zq_function(name = "isPointViaClass")]
 fn is_point_via_class<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
     let class: Class<'_, Point> = unsafe { Class::from_def(Point::class_def()) };
-    Ok(ZqValue::bool(cx.is_instance_of_class(cc.arg(0), &class)?))
+    Ok(ZqValue::bool(cc.arg(0).is_instance_of_class(cx, &class)?))
 }
 
 // ──────────────────────────────────────
@@ -659,7 +852,7 @@ fn n_object_with_proto<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<
 /// `instanceof` against an arbitrary constructor (honours `Symbol.hasInstance`).
 #[zq_function(name = "vInstanceOf")]
 fn v_instance_of<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, ZqError> {
-    Ok(ZqValue::bool(cx.is_instance_of(cc.arg(0), cc.arg(1))?))
+    Ok(ZqValue::bool(cc.arg(0).is_instance_of(cx, cc.arg(1))?))
 }
 
 // ──────────────────────────────────────
@@ -683,7 +876,8 @@ fn v_instance_of<'a>(cx: ZqCtx<'a>, cc: ZqCallInfo<'a>) -> Result<ZqValue<'a>, Z
         gc_trace_pin, gc_traced, gc_trace_unpin, gc_force,
         async_resolve, async_reject, async_seq,
         cap_resolve, cap_reject,
-        Point, is_point_via_class,
+        Point, Tabled, new_colliding, register_runtime_members, new_runtime_collide,
+        new_reserved_static, new_table_vs_static, is_point_via_class,
     ]
 )]
 fn module_init(cx: &ZqCtx) -> Result<(), ZqError> {

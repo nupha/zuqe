@@ -15,6 +15,8 @@ use crate::{
     runtime::{DummyUserState, RuntimeImpl, RuntimeUserState, tick::TickStatus},
 };
 
+use super::tick::tick_tree;
+
 // ── Thread-local scheduler ─────────────────────────────────────────────
 //
 // Every *root* Runtime created on the current thread is registered here as a
@@ -56,7 +58,7 @@ static PANIC_HOOK: Once = Once::new();
 /// When last handle dropped, associated runtime will be dropped.
 #[derive(Clone)]
 #[repr(transparent)]
-pub struct Runtime(Rc<UnsafeCell<RuntimeImpl>>);
+pub struct Runtime(pub(super) Rc<UnsafeCell<RuntimeImpl>>);
 
 impl Deref for Runtime {
     type Target = RuntimeImpl;
@@ -126,10 +128,15 @@ impl Runtime {
 
     /// Create a *child* runtime of `parent` carrying host-defined `state`:
     /// same as [`Runtime::create`] but marked as a child (`is_root()` == false)
-    /// and registered in `parent.children` (strong). The child shares the
+    /// and registered in `parent.children` (weak). The child shares the
     /// parent's park state, so a wake from the child (IO / deadline) wakes the
-    /// parent's event loop. The parent's `tick()` drives the child; the parent
-    /// owns its lifetime — call [`Runtime::remove_child`] to detach it.
+    /// parent's event loop. The parent's `tick()` drives the child.
+    ///
+    /// Ownership: the child holds its parent **strongly** and the parent holds
+    /// the child **weakly**. So a parent always outlives its children (the
+    /// child keeps the parent's event loop alive), while a child lives exactly
+    /// as long as the host's handle to it — drop the handle and the child is
+    /// gone, and the parent stops ticking it.
     ///
     /// The child's state is its own box (the parent's cannot be shared); use
     /// this when per-runtime host state must exist in children too.
@@ -142,21 +149,43 @@ impl Runtime {
         let rt = Self::create_inner(Box::new(state))?;
         {
             let inner = unsafe { &mut *rt.0.get() };
-            inner.is_child = true;
+            // The child is created here, fresh — the host supplies only the
+            // parent. The parent can therefore be neither the child nor one
+            // of its descendants, and the parent chain stays a tree: a
+            // runtime is never its own parent, and the chain never closes
+            // into a cycle.
+            //
+            // The assert checks the link that is actually stored, so it
+            // catches a future change that lets a host hand in an existing
+            // runtime as the child. The chain invariant itself is pinned by
+            // a test (`the_parent_chain_is_a_tree`), which holds in release
+            // builds too.
+            let parent_link = parent.clone();
+            debug_assert!(
+                !Rc::ptr_eq(&rt.0, &parent_link.0),
+                "a runtime cannot be its own parent"
+            );
             inner.park = parent.park.clone();
+            // The child drags its parent along: the parent must outlive it.
+            // This link is also what marks the runtime as a child.
+            inner.parent = Some(parent_link);
         }
         unsafe {
-            (*parent.0.get()).children.push(rt.clone());
+            (*parent.0.get()).children.push(Rc::downgrade(&rt.0));
         }
         Ok(rt)
     }
 
-    /// Detach `child` from this runtime's children (by identity). The child is
-    /// dropped once all other handles are gone. No-op if not a child here.
+    /// Detach `child` from this runtime's children (by identity).
+    ///
+    /// This only removes the child from the tick list; it does not decide the
+    /// child's lifetime — the host's handle does. No-op if not a child here.
     #[cfg(feature = "child_runtime")]
     pub fn remove_child(&self, child: &Runtime) {
         unsafe {
-            (*self.0.get()).children.retain(|c| !Self::ptr_eq(c, child));
+            (*self.0.get())
+                .children
+                .retain(|w| w.upgrade().is_none_or(|rc| !Rc::ptr_eq(&rc, &child.0)));
         }
     }
 
@@ -219,8 +248,15 @@ impl Runtime {
                             unsafe { (&mut *p).panic_free_gc() };
                             #[cfg(feature = "child_runtime")]
                             {
+                                // Children are held weakly: upgrade to reach
+                                // the live ones, skip the dead.
                                 let children = unsafe { (&*p).children.clone() };
-                                stack.extend(children);
+                                stack.extend(
+                                    children
+                                        .into_iter()
+                                        .filter_map(|w| w.upgrade())
+                                        .map(Runtime::from_inner),
+                                );
                             }
                         }
                     }
@@ -250,6 +286,23 @@ impl Runtime {
     /// Consequently this function always terminates — it cannot busy-loop.
     pub fn drain_jobs(&mut self) {
         while self.tick() == TickStatus::Progress {}
+    }
+
+    /// Run background jobs for one round, including this runtime's children.
+    ///
+    /// The aggregate is the strongest outcome across the tree: `Progress` if
+    /// any runtime made progress, else `Park` (earliest reported deadline) if
+    /// any is blocked, else `Idle`. A root runtime's interrupt stops the whole
+    /// tree.
+    ///
+    /// Children are ticked through their own [`Runtime`] handles, and this
+    /// runtime's `&mut RuntimeImpl` borrow ends *before* the first child runs.
+    /// That is what makes a re-entry safe: a child may call back into this
+    /// runtime (e.g. an import policy living in this runtime's heap), and that
+    /// must not alias a live `&mut RuntimeImpl`.
+    #[inline(always)]
+    pub fn tick(&mut self) -> TickStatus {
+        tick_tree(RuntimePtr::from_raw(self.0.get()))
     }
 }
 
@@ -304,6 +357,15 @@ impl DerefMut for RuntimePtr {
     }
 }
 
+impl RuntimePtr {
+    /// Wrap a raw runtime pointer.
+    ///
+    /// The pointer must be non-null and point at a live runtime.
+    pub(crate) const fn from_raw(ptr: *mut RuntimeImpl) -> Self {
+        Self(NonNull::new(ptr).expect("runtime pointer must not be null"))
+    }
+}
+
 impl From<&RuntimeImpl> for RuntimePtr {
     #[inline(always)]
     fn from(r: &RuntimeImpl) -> Self {
@@ -315,5 +377,87 @@ impl From<&mut RuntimeImpl> for RuntimePtr {
     #[inline(always)]
     fn from(r: &mut RuntimeImpl) -> Self {
         Self(NonNull::from_ref(r))
+    }
+}
+
+#[cfg(all(test, feature = "child_runtime"))]
+mod tests {
+    use super::*;
+    use crate::{Context, JSValue, ScopedContext};
+
+    /// `call_in_ctx` runs the callee in the *target's* context: the argument
+    /// is a value of the target's heap, the callee sees the target's globals,
+    /// and the return value comes back from there.
+    #[test]
+    fn call_in_ctx_uses_the_target_context() -> Result<(), i32> {
+        let mut rt_a = Runtime::create()?;
+        let mut ctx_a: Context<'static> = rt_a.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+        let mut rt_b = Runtime::create()?;
+        let mut ctx_b: Context<'static> = rt_b.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        // Each runtime has its own global: the callee must see the target's.
+        for (ctx, who) in [(&mut ctx_a, "A"), (&mut ctx_b, "B")] {
+            ctx.with_root_scope(|mut cx| {
+                cx.eval(
+                    format!("globalThis.__who = '{who}';").as_bytes(),
+                    &crate::EvalName::Name("who.js".into()),
+                    crate::EvalType::Global,
+                    crate::EvalFlags::empty(),
+                )?;
+                Ok::<_, i32>(())
+            })?;
+        }
+
+        let (f, arg) = ctx_a.with_root_scope(|mut cx| {
+            let f = cx.eval(
+                b"(name) => globalThis.__who + ':' + name",
+                &crate::EvalName::Name("a.js".into()),
+                crate::EvalType::Global,
+                crate::EvalFlags::empty(),
+            )?;
+            let arg = cx
+                .create_string_from_utf8(b"world".to_vec())
+                .map(JSValue::make_string)?;
+            Ok::<_, i32>((f, arg))
+        })?;
+
+        let out = Context::call_in_ctx(&ctx_a, f, &[arg])?;
+        let text = out
+            .as_string(false)
+            .expect("a string comes back")
+            .content()
+            .encode_utf8(false)
+            .to_string();
+        assert_eq!(
+            text, "A:world",
+            "the callee must run in the target's context"
+        );
+        Ok(())
+    }
+
+    /// A throwing callee fails the call and leaves the exception pending in
+    /// the target runtime — the caller can read it, nothing is swallowed.
+    #[test]
+    fn call_in_ctx_reports_the_thrown_exception() -> Result<(), i32> {
+        let mut rt_a = Runtime::create()?;
+        let mut ctx_a: Context<'static> = rt_a.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        let f = ctx_a.with_root_scope(|mut cx| {
+            cx.eval(
+                b"() => { throw new Error('boom'); }",
+                &crate::EvalName::Name("a.js".into()),
+                crate::EvalType::Global,
+                crate::EvalFlags::empty(),
+            )
+        })?;
+
+        assert!(Context::call_in_ctx(&ctx_a, f, &[]).is_err());
+        let text = ctx_a.take_exception_as_text();
+        assert!(
+            text.message.contains("boom"),
+            "the thrown message must survive: {}",
+            text.message
+        );
+        Ok(())
     }
 }

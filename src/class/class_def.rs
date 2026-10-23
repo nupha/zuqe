@@ -11,8 +11,8 @@ use crate::{
         SetPrototypeFn,
     },
     context::ScopedContext,
-    function::{CallbackFn, NativeFunction},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object},
+    function::CallbackFn,
+    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE},
 };
 
 use super::{
@@ -94,8 +94,9 @@ impl ClassCtorDef {
 enum ClassInitType {
     Normal {
         proto_entries: &'static [FieldDef],
-        /// Parent class id resolver (lazily resolved at initialize time, so the
-        /// parent does not need to be registered before the child).
+        /// The class this one extends, resolved lazily at initialize time so the
+        /// parent need not be registered before the child. Applied by
+        /// `link_class_extends`, the one place a parent relation is written.
         extends_class: Option<fn() -> ClassID>,
         ctor: Option<ClassCtorDef>,
     },
@@ -219,9 +220,15 @@ impl ClassDef {
         }
     }
 
-    /// Create user-defined class def with proto entries, ctor and extends inheritance.
+    /// Create user-defined class def with proto entries, ctor and extends
+    /// inheritance.
+    ///
     /// `extends_class` is a resolver invoked lazily at initialize time, so the
-    /// parent class need not be registered before the child.
+    /// parent need not be registered before the child. It is the declaration
+    /// half of inheritance; the link itself is written by
+    /// `link_class_extends`, the same call a script's `class ... extends` and an
+    /// extension's `extends = Base` end up in, so all three kinds of class
+    /// inherit the one way.
     pub const fn new_extends(
         name: &'static str,
         proto_entries: &'static [FieldDef],
@@ -233,8 +240,8 @@ impl ClassDef {
             name,
             on_initialize: ClassInitType::Normal {
                 proto_entries,
-                extends_class: Some(extends_class),
                 ctor,
+                extends_class: Some(extends_class),
             },
             ..Self::DEFAULT
         }
@@ -325,75 +332,75 @@ impl ClassDef {
                 extends_class,
                 ctor,
             } => {
-                if let Some(parent_resolver) = extends_class {
-                    // Extends inheritance: set up prototype chain. Resolve the
-                    // parent id lazily so registration order does not matter.
-                    let parent_id = parent_resolver();
+                // The class is built as a root — its prototype an ordinary
+                // object, its constructor on `Function.prototype` — and its
+                // declared parent, if it has one, is applied afterwards by
+                // `link_class_extends`. Builtins, classes declared with
+                // `extends:` and extension classes therefore all inherit
+                // through the same call; there is no second implementation of
+                // "child inherits parent" to keep in step.
+                if ctx.class_slots[class_id as usize].proto.is_none() {
+                    // `_proto` is read by the assertion only, which is what the
+                    // underscore says: the call is what creates the prototype
+                    // (and installs `proto_entries`), the check below only
+                    // confirms it landed in the slot it was meant for.
+                    let _proto = ctx.init_class_proto(class_id, proto_entries)?;
+                    debug_assert!(
+                        ctx.class_slots[class_id as usize]
+                            .proto
+                            .is_some_and(|p| p == _proto)
+                    );
+                }
 
-                    if ctx.class_slots[class_id as usize].proto.is_none() {
-                        let parent_proto = ctx.class_proto(parent_id).unwrap();
-                        let proto = ctx.create_base_object_with_proto(Some(parent_proto))?;
-                        ctx.init_class_proto_internal(class_id, proto, proto_entries)?;
-                    }
-
-                    if let Some(c) = ctor
-                        && ctx.class_slots[class_id as usize].ctor.is_none()
-                    {
-                        let class_name = ctx.rt().class_def(class_id).unwrap().name_atom;
-                        let parent_ctor = ctx.class_constructor(parent_id).unwrap();
-
-                        let proto = ctx.class_proto(class_id).unwrap();
-                        let mut ctor: Object = NativeFunction::create(
+                if let Some(c) = ctor
+                    && ctx.class_slots[class_id as usize].ctor.is_none()
+                {
+                    let proto = ctx.class_proto(class_id).unwrap();
+                    let ctor = ctx.init_class_ctor_internal(
+                        class_id, c.callback, c.length, c.magic, proto, c.entries,
+                    )?;
+                    if c.export_to_global {
+                        ctx.global_obj().define_property_value(
                             ctx,
-                            c.callback,
-                            class_name,
-                            c.length as _,
-                            c.magic,
-                            parent_ctor,
-                            None,
-                        )?
-                        .into();
-                        if !c.entries.is_empty() {
-                            ctor.install_fields(ctx, c.entries)?;
-                        }
-                        ctx.bind_ctor_proto(ctor, proto)?;
-                        ctx.class_slots[class_id as usize].ctor = Some(ctor);
-
-                        if c.export_to_global {
-                            ctx.global_obj().define_property_value(
-                                ctx,
-                                class_name,
-                                ctor.into(),
-                                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                            )?;
-                        }
-                    }
-                } else {
-                    if ctx.class_slots[class_id as usize].proto.is_none() {
-                        let proto = ctx.init_class_proto(class_id, proto_entries)?;
-                        debug_assert!(
-                            ctx.class_slots[class_id as usize]
-                                .proto
-                                .is_some_and(|p| p == proto)
-                        );
-                    }
-
-                    if let Some(c) = ctor
-                        && ctx.class_slots[class_id as usize].ctor.is_none()
-                    {
-                        let proto = ctx.class_proto(class_id).unwrap();
-                        let ctor = ctx.init_class_ctor_internal(
-                            class_id, c.callback, c.length, c.magic, proto, c.entries,
+                            self.name_atom,
+                            ctor.into(),
+                            JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
                         )?;
-                        if c.export_to_global {
-                            ctx.global_obj().define_property_value(
-                                ctx,
-                                self.name_atom,
-                                ctor.into(),
-                                JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                            )?;
-                        }
                     }
+                }
+
+                if let Some(parent_resolver) = extends_class {
+                    // Resolved here rather than at registration, so the parent
+                    // may be registered after the child.
+                    let parent_id = parent_resolver();
+                    if parent_id == class_id {
+                        return Err(ctx.throw_internal_error(&format!(
+                            "class ({class_id}) declares itself as its own parent"
+                        )));
+                    }
+                    // Both sides have to exist before either chain can be
+                    // linked: `use_class` builds the parent, including its own
+                    // parent. (A caller that initializes classes one at a time,
+                    // as zapi does, can reach the child first.)
+                    ctx.use_class(parent_id)?;
+
+                    let (child_proto, child_ctor) =
+                        (ctx.class_proto(class_id), ctx.class_constructor(class_id));
+                    let (parent_proto, parent_ctor) =
+                        (ctx.class_proto(parent_id), ctx.class_constructor(parent_id));
+                    let (Some(child_proto), Some(parent_proto)) = (child_proto, parent_proto)
+                    else {
+                        return Err(ctx.throw_internal_error(&format!(
+                            "class ({class_id}): parent class ({parent_id}) has no prototype"
+                        )));
+                    };
+
+                    ctx.link_class_extends(
+                        child_proto,
+                        child_ctor,
+                        Some(parent_proto),
+                        parent_ctor,
+                    )?;
                 }
             }
 

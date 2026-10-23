@@ -152,14 +152,15 @@ pub(crate) fn js_op_define_class_for_arena(
         parent_proto = ctx.class_proto(JS_CLASS_OBJECT);
     }
 
-    let mut proto = ctx.create_base_object_with_proto(parent_proto)?;
-    let mut ctor = bc.make_closure_for_arena(
-        ctx,
-        parent_class.as_object(),
-        captured_vars,
-        arena,
-        parent_frame_idx,
-    )?;
+    // The prototype and the constructor are built as a root class and then
+    // handed to `link_class_extends` — the one place a class-level
+    // `[[Prototype]]` is written. A script's `class ... extends`, a builtin and
+    // an extension class all arrive at that same call, so they cannot come to
+    // disagree about what inheriting means.
+    let mut proto = ctx.create_base_object()?;
+    let mut ctor =
+        bc.make_closure_for_arena(ctx, None, captured_vars, arena, parent_frame_idx)?;
+    ctx.link_class_extends(proto, Some(ctor.into()), parent_proto, parent_class.as_object())?;
 
     ctor.method_set_home_object(Some(proto));
     ctor.set_flag_constructor(true);

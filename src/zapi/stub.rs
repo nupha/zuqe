@@ -18,14 +18,37 @@ use zuqe_zapi::ffi::{
     ZQ_CONST_VALUE_SLOT_COUNT, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_CONST_VALUE_SLOT_FALSE,
     ZQ_CONST_VALUE_SLOT_INFINITY, ZQ_CONST_VALUE_SLOT_MINUS_INFINITY, ZQ_CONST_VALUE_SLOT_NAN,
     ZQ_CONST_VALUE_SLOT_NULL, ZQ_CONST_VALUE_SLOT_TRUE, ZQ_CONST_VALUE_SLOT_UNDEFINED,
-    ZQ_CONST_VALUE_SLOT_ZERO, ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_KIND_ACCESSOR,
-    ZQ_PROP_KIND_DATA, ZQ_PROP_WRITABLE, ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL,
-    ZQ_VALUE_TYPE_EXCEPTION, ZQ_VALUE_TYPE_FUNCTION, ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER,
-    ZQ_VALUE_TYPE_OBJECT, ZQ_VALUE_TYPE_STRING, ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED,
-    ZqApi, ZqBodyFn, ZqCallInfoS, ZqClassDef, ZqDropFn, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn,
-    ZqJobRunFn, ZqJobTraceFn, ZqPromiseCapabilityS, ZqPropertyDescriptorS, ZqRawCtx, ZqRawValue,
+    ZQ_CONST_VALUE_SLOT_ZERO, ZQ_FIELD_BOOL, ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC, ZQ_FIELD_GETSET,
+    ZQ_FIELD_INT, ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED, ZQ_MEMBER_BOOL, ZQ_MEMBER_FLOAT,
+    ZQ_MEMBER_GETSET, ZQ_MEMBER_INT, ZQ_MEMBER_METHOD, ZQ_MEMBER_STR, ZQ_MEMBER_UNDEFINED,
+    ZQ_PROP_CONFIGURABLE, ZQ_PROP_ENUMERABLE, ZQ_PROP_KIND_ACCESSOR, ZQ_PROP_KIND_DATA,
+    ZQ_PROP_WRITABLE, ZQ_VALUE_TYPE_BIGINT, ZQ_VALUE_TYPE_BOOL, ZQ_VALUE_TYPE_EXCEPTION,
+    ZQ_VALUE_TYPE_FUNCTION, ZQ_VALUE_TYPE_NULL, ZQ_VALUE_TYPE_NUMBER, ZQ_VALUE_TYPE_OBJECT,
+    ZQ_VALUE_TYPE_STRING, ZQ_VALUE_TYPE_SYMBOL, ZQ_VALUE_TYPE_UNDEFINED, ZqApi, ZqBodyFn,
+    ZqCallInfoS, ZqClassDef, ZqDropFn, ZqFieldDef, ZqGcTraceCtxS, ZqGcTraceFn, ZqJobRunFn,
+    ZqJobTraceFn, ZqMemberDef, ZqPromiseCapabilityS, ZqPropertyDescriptorS, ZqRawCtx, ZqRawValue,
     ZqRuntime, ZqWakeHandleS,
 };
+
+/// The oldest extension ABI this host still loads.
+///
+/// A compatibility policy of *this* engine, not part of the wire contract: an
+/// extension states which ABI it was built against, and the host decides how far
+/// back it is willing to read. Lowering support is a change to this file alone —
+/// it must never require editing and re-releasing the `zuqe_zapi` crate, whose
+/// `ZQ_ABI_VERSION` says what a build *is*, not what a host *accepts*.
+///
+/// ABI is append-only: `ZqApi` grows at the end, so an extension built against
+/// an older ABI reads a prefix of the table this host fills, and keeps working
+/// unchanged.
+pub const ZQ_ABI_MIN: u16 = 2;
+
+/// The oldest extension API tier this host still implements.
+///
+/// Same reasoning as [`ZQ_ABI_MIN`]. API moves when the extension surface gains
+/// something, so raising it here is what stops a newer extension from being
+/// loaded against a host that would quietly not implement what it needs.
+pub const ZQ_API_MIN: u16 = 1;
 
 use crate::{
     Array, Atom, ErrorKind, JS_CLASS_BIG_INT64_ARRAY, JS_CLASS_BIG_UINT64_ARRAY,
@@ -44,7 +67,7 @@ use crate::{
 
 use super::{
     ZapiGcTracer,
-    host::{push_class_fields, register_zapi_func_magic, zapi_trampoline_fn},
+    host::{push_class_fields, register_zapi_body, register_zapi_func_magic},
 };
 
 /// Translate FFI `ZQ_PROP_*` flags into engine `JS_PROP_*` flags bit-by-bit.
@@ -535,6 +558,134 @@ impl crate::RuntimeImpl {
     }
 }
 
+/// Constructor trampoline for a class registered by a zapi extension.
+///
+/// A `#[zq_class]` constructor is a JS-class-style constructor: it expects a
+/// fresh instance as `this` and normally returns it. The engine, however,
+/// treats every native constructor as a builtin one — it hands the constructor
+/// `new_target` as `this` and expects the callback to allocate the instance
+/// itself. So the class object is not an instance: allocate one here, from
+/// `new_target.prototype`, before invoking the extension. That is what makes
+/// `new NativeBase()` yield an instance and lets a script
+/// `class Derived extends NativeBase` get a `Derived` instance.
+///
+/// The class id rides along as the registry's user magic. The instance is
+/// created without a native payload: a payload-carrying constructor still
+/// creates its own instance through `new_instance` and returns it, and a
+/// constructor that returns an object overrides the allocated one per
+/// `[[Construct]]`. A body that returns a primitive keeps the instance.
+fn zapi_class_ctor_fn(
+    ctx: &mut ScopedContext,
+    cc: crate::function::CallContext,
+) -> crate::JSResult {
+    let serial = cc.magic();
+    let (body, class_id) = match ctx
+        .rt()
+        .zapi_body_registry
+        .lock()
+        .unwrap()
+        .get(&serial)
+        .copied()
+    {
+        Some(entry) => entry,
+        None => return Err(-1),
+    };
+
+    // A native constructor receives `new_target` as `this`; deriving the
+    // instance prototype from it gives a subclass its own prototype.
+    let new_target = cc.this();
+    let instance = match ctx.ordinary_create_from_constructor_payload(
+        new_target,
+        PayloadPtr::opaque(class_id as ClassID, std::ptr::null_mut()),
+    ) {
+        Ok(obj) => obj,
+        Err(_) => return Err(-1),
+    };
+
+    let args: Vec<ZqRawValue> = cc.arguments().iter().map(|v| v.0).collect();
+    let mut call_info = ZqCallInfoS {
+        target: 0,
+        this: JSValue::from(instance).0,
+        argv: args.as_ptr(),
+        argc: args.len(),
+        magic: 0,
+    };
+
+    let env = ctx as *mut ScopedContext as ZqRawCtx;
+    let result = unsafe { body(env, &mut call_info as *mut _) };
+    if result == ZQ_API_TABLE.const_values[ZQ_CONST_VALUE_SLOT_EXCEPTION] {
+        return Err(-1);
+    }
+
+    // `[[Construct]]` returns an object a constructor returns, otherwise `this`.
+    let value = JSValue(result, PhantomData);
+    if value.is_object() {
+        Ok(value)
+    } else {
+        Ok(JSValue::from(instance))
+    }
+}
+
+/// The ClassID of the class `parent` names, or `None` for a root class.
+///
+/// `parent` is a `*const ZqClassDef` pointing at another class's static def in
+/// the same dylib. A module may register them in any order — the child may come
+/// first, or the parent may only appear from the extension's own init hook —
+/// so this reports "not yet" rather than failing, and `link_pending_parents`
+/// re-runs once the parent is there.
+///
+/// A pointer from another dylib, or one the module never registers, stays
+/// `None` for good: that class simply has no parent.
+fn parent_class_id(ctx: &ScopedContext, parent: *const ZqClassDef) -> Option<ClassID> {
+    if parent.is_null() {
+        return None;
+    }
+    let base = static_class_count();
+    ctx.rt()
+        .zapi_class_defs
+        .iter()
+        .position(|entry| entry.zq_def == parent)
+        .map(|index| (base + index) as ClassID)
+}
+
+/// Chain every registered class onto its `extends =` parent that is not already
+/// chained, through the one `link_class_extends`.
+///
+/// A class builds as a root when its parent is not registered yet, so a parent
+/// arriving later leaves an unlinked child behind. `zapi_register_class` calls
+/// this after each registration; `use_class` inside makes sure the parent is
+/// built before anything chains onto it. A class whose parent never arrives
+/// stays the root class it was built as.
+fn link_pending_parents(ctx: &mut ScopedContext) -> Result<(), i32> {
+    let base = static_class_count();
+    for index in 0..ctx.rt().zapi_class_defs.len() {
+        let id = (base + index) as ClassID;
+        let Some(def_ptr) = ctx.rt().zapi_def(id) else {
+            continue;
+        };
+        if def_ptr.is_null() {
+            continue;
+        }
+        let parent = unsafe { &*def_ptr }.parent_class;
+        let Some(parent_id) = parent_class_id(ctx, parent) else {
+            continue;
+        };
+        if parent_id == id {
+            continue;
+        }
+
+        ctx.use_class(parent_id)?;
+        let (child_proto, child_ctor) = (ctx.class_proto(id), ctx.class_constructor(id));
+        let (parent_proto, parent_ctor) =
+            (ctx.class_proto(parent_id), ctx.class_constructor(parent_id));
+        let (Some(child_proto), Some(parent_proto)) = (child_proto, parent_proto) else {
+            continue;
+        };
+        ctx.link_class_extends(child_proto, child_ctor, Some(parent_proto), parent_ctor)?;
+    }
+    Ok(())
+}
+
 unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClassDef) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
     let def = unsafe { &*class_def };
@@ -548,11 +699,13 @@ unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClas
     let leaked: &'static str = unsafe { crate::zapi::ext_str_static(name) };
 
     fn zapi_class_init(ctx: &mut ScopedContext, class_id: ClassID) -> Result<(), i32> {
-        let o = ctx.create_instance_with_proto(None, PayloadPtr::none(class_id))?;
-        ctx.class_slots[class_id as usize].proto = Some(o);
-
-        // Build the constructor (ClassCtorDef equivalent): a constructor-flagged
-        // native function wired to the zapi `call` body, plus static methods.
+        // The prototype and the constructor are built as a root class here — a
+        // prototype chained to `Object.prototype`, a constructor on
+        // `Function.prototype`. `extends = Base` does not take effect until
+        // `link_pending_parents` applies it through the one
+        // `link_class_extends`, the same call a builtin and a script's
+        // `class ... extends` inherit through; a class whose parent is not
+        // registered yet is simply a root class until then.
         let Some(class_def) = ctx.rt().zapi_def(class_id) else {
             return Ok(());
         };
@@ -560,12 +713,19 @@ unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClas
             return Ok(());
         }
         let def = unsafe { &*class_def };
+        let object_proto = ctx.class_proto(crate::JS_CLASS_OBJECT);
+        let o = ctx.create_instance_with_proto(object_proto, PayloadPtr::none(class_id))?;
+        ctx.class_slots[class_id as usize].proto = Some(o);
+
+        // Build the constructor (ClassCtorDef equivalent): a constructor-flagged
+        // native function wired to the zapi `call` body, plus static methods.
         let Some(body) = def.call else {
             return Ok(());
         };
 
-        let (_, magic) = register_zapi_func_magic(ctx, body, 0);
-
+        // Register the extension body with the class id as its user magic; the
+        // constructor trampoline reads it back to allocate the instance.
+        let magic = register_zapi_body(ctx, body, class_id as i32);
         // Instance entries (installed on the prototype) and static entries
         // (installed on the constructor), mirroring zuqe's native classes:
         // proto_entries + ClassCtorDef.entries.
@@ -582,13 +742,28 @@ unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClas
             field_slice(def.static_entries, def.static_entries_len),
         )?;
 
+        // Every member name the class declares, on either side, has to be
+        // distinct before anything is installed: `#[zq_method]` entries and the
+        // `prototype_members` table arrive as one slice, and a repeat anywhere
+        // would trip the lazy-property assert inside `install_fields`.
+        if reject_member_collisions(
+            ctx,
+            class_id,
+            field_slice(def.proto_entries, def.proto_entries_len),
+            field_slice(def.static_entries, def.static_entries_len),
+        )
+        .is_err()
+        {
+            return Err(-1);
+        }
+
         // Install instance methods/accessors on the prototype.
         let mut proto = ctx.class_proto(class_id).ok_or(-1)?;
         proto.install_fields(ctx, &proto_entries)?;
 
         ctx.init_class_constructor(
             class_id,
-            zapi_trampoline_fn,
+            zapi_class_ctor_fn,
             def.call_arity as i32,
             magic as i16,
             proto,
@@ -639,7 +814,186 @@ unsafe extern "C" fn zapi_register_class(env: ZqRawCtx, class_def: *const ZqClas
         return -1;
     }
 
+    // This registration may be the parent a previously registered class was
+    // waiting for.
+    if link_pending_parents(ctx).is_err() {
+        return -1;
+    }
+
     class_id as i32
+}
+
+/// The prototype object of a class `register_class` gave this id to. Lets an
+/// extension add members whose names only exist at runtime without allocating a
+/// probe instance to ask `Object.getPrototypeOf`.
+unsafe extern "C" fn zapi_class_prototype(env: ZqRawCtx, class_id: i32) -> ZqRawValue {
+    let ctx = unsafe { ctx_from_env(env) };
+    match ctx.class_proto(class_id as ClassID) {
+        Some(proto) => JSValue::from(proto).0,
+        None => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
+    }
+}
+
+/// `ZqMemberDef` -> `ZqFieldDef`, so a prototype install reuses the exact
+/// path module exports and `#[zq_method]` entries already take.
+///
+/// Unknown kinds are passed through unchanged so `push_class_fields` reports
+/// them the way it reports every other unsupported field kind.
+fn member_to_field(m: &ZqMemberDef) -> ZqFieldDef {
+    let kind = match m.kind {
+        ZQ_MEMBER_METHOD => ZQ_FIELD_FUNC,
+        ZQ_MEMBER_GETSET => ZQ_FIELD_GETSET,
+        ZQ_MEMBER_STR => ZQ_FIELD_STR,
+        ZQ_MEMBER_INT => ZQ_FIELD_INT,
+        ZQ_MEMBER_FLOAT => ZQ_FIELD_FLOAT,
+        ZQ_MEMBER_BOOL => ZQ_FIELD_BOOL,
+        ZQ_MEMBER_UNDEFINED => ZQ_FIELD_UNDEFINED,
+        other => other,
+    };
+    ZqFieldDef {
+        name: m.name,
+        kind,
+        arity: m.arity,
+        magic: m.magic,
+        prop_flags: m.flags,
+        body: m.body,
+        get: m.get,
+        set: m.set,
+        class_def: std::ptr::null(),
+        value_fn: None,
+        str_val: m.str_val,
+        i64_val: m.i64_val,
+        f64_val: m.f64_val,
+        u8_val: m.u8_val,
+    }
+}
+
+/// Names a class prototype owns before any member is installed: `bind_ctor_proto`
+/// puts `constructor` there right after, and redefining it would be silently
+/// dropped by the engine's ordinary redefine path.
+const PROTO_RESERVED: &[&str] = &["constructor"];
+
+/// Names a class constructor owns before any static member is installed: every
+/// native function has `length` and `name`, and `bind_ctor_proto` adds
+/// `prototype` immediately afterwards.
+const CTOR_RESERVED: &[&str] = &["length", "name", "prototype"];
+
+/// Refuse a member install that would use a name twice.
+///
+/// `install_fields` cannot redefine. Its lazy-property branch asserts the object
+/// does not already have the name, so a collision aborts the process in a debug
+/// build and mis-bookkeeps the shape slot in a release one. The engine's
+/// ordinary redefine path does have the right rule — a non-configurable property
+/// is refused, a configurable one replaced — but the lazy branch never reaches
+/// it. So the collision is caught here instead, where it can be a `TypeError`
+/// that names the member and the class.
+///
+/// A name may appear once and only once: not twice in one batch, not on the
+/// prototype and the constructor at the same time, and not on a name either
+/// object already owns.
+fn reject_member_collisions(
+    ctx: &mut ScopedContext,
+    class_id: ClassID,
+    proto_fields: &[ZqFieldDef],
+    static_fields: &[ZqFieldDef],
+) -> Result<(), i32> {
+    let mut seen: Vec<Atom> = Vec::new();
+
+    let mut claim = |ctx: &mut ScopedContext,
+                     seen: &mut Vec<Atom>,
+                     fields: &[ZqFieldDef],
+                     reserved: &[&str],
+                     what: &str|
+     -> Result<(), i32> {
+        for f in fields {
+            let Some(name) = f.name_str() else {
+                continue;
+            };
+            if reserved.contains(&name) {
+                let _ = ctx.throw_type_error(&format!(
+                    "'{name}' is reserved on the {what} of class id {class_id}"
+                ));
+                return Err(-1);
+            }
+            let atom = crate::function::prop_str_to_atom(ctx, name)?;
+            if seen.contains(&atom) {
+                let _ = ctx.throw_type_error(&format!(
+                    "member '{name}' is declared twice on class id {class_id}"
+                ));
+                return Err(-1);
+            }
+            seen.push(atom);
+        }
+        Ok(())
+    };
+
+    claim(ctx, &mut seen, proto_fields, PROTO_RESERVED, "prototype")?;
+    // One shared list: a static name must not repeat a prototype name either.
+    claim(ctx, &mut seen, static_fields, CTOR_RESERVED, "constructor")
+}
+
+/// Refuse a runtime member install whose names the prototype already owns.
+///
+/// Same reason as [`reject_member_collisions`]; here the prototype already
+/// carries whatever `#[zq_method]` and the host installed.
+fn reject_install_collisions(
+    ctx: &mut ScopedContext,
+    class_id: ClassID,
+    fields: &[ZqFieldDef],
+    existing: &[Atom],
+) -> Result<(), i32> {
+    let mut seen: Vec<Atom> = Vec::new();
+    for f in fields {
+        let Some(name) = f.name_str() else {
+            continue;
+        };
+        let atom = crate::function::prop_str_to_atom(ctx, name)?;
+        if existing.contains(&atom) || seen.contains(&atom) {
+            let _ = ctx.throw_type_error(&format!(
+                "prototype member '{name}' on class id {class_id} already exists"
+            ));
+            return Err(-1);
+        }
+        seen.push(atom);
+    }
+    Ok(())
+}
+
+/// Install members on a class prototype.
+///
+/// Every name must be new: a collision is a `TypeError`, not an overwrite. Not
+/// atomic — entries before a failing one stay installed and the call reports
+/// the error.
+unsafe extern "C" fn zapi_class_install_prototype_members(
+    env: ZqRawCtx,
+    class_id: i32,
+    members: *const ZqMemberDef,
+    len: usize,
+) -> i32 {
+    let ctx = unsafe { ctx_from_env(env) };
+    let slice = unsafe { std::slice::from_raw_parts(members, len) };
+    let converted: Vec<ZqFieldDef> = slice.iter().map(member_to_field).collect();
+
+    let Some(mut proto) = ctx.class_proto(class_id as ClassID) else {
+        let _ = ctx.throw_internal_error(&format!("class {class_id} is not registered"));
+        return -1;
+    };
+    let existing = match proto.get_own_property_names(ctx, JS_GPN_STR_OR_INT_MASK) {
+        Ok(keys) => keys.iter().map(|k| k.atom).collect::<Vec<_>>(),
+        Err(_) => return -1,
+    };
+    if reject_install_collisions(ctx, class_id as ClassID, &converted, &existing).is_err() {
+        return -1;
+    }
+
+    let mut fields: Vec<crate::FieldDef> = Vec::new();
+    if push_class_fields(ctx, &mut fields, &converted).is_err() {
+        return -1;
+    }
+    match proto.install_fields(ctx, &fields) {
+        Ok(()) => 0,
+        Err(_) => -1,
+    }
 }
 
 unsafe extern "C" fn zapi_new_instance(
@@ -1725,6 +2079,8 @@ pub(crate) fn new_zapi() -> Box<ZqApi> {
 
         // ── native object / class ──
         register_class: zapi_register_class,
+        class_prototype: zapi_class_prototype,
+        class_install_prototype_members: zapi_class_install_prototype_members,
         new_instance: zapi_new_instance,
         get_object_payload: zapi_get_object_payload,
         take_object_payload: zapi_take_object_payload,
@@ -1967,6 +2323,69 @@ mod class_registration_tests {
     /// Multi-runtime isolation regression: the same extension class (one
     /// `ZqClassDef*` — a process-level static in real extensions) registered
     /// into two runtimes must stay fully isolated: per-runtime class ids,
+    /// A parent that registers *after* its child: the child is built as a root
+    /// class and the pending pass chains it once the parent shows up. That is the
+    /// order a module is free to write — `#[zq_class(extends = Base)]` before
+    /// `Base` — and the only reason `link_pending_parents` exists, so it is
+    /// asserted here instead of being left to the registration order of whichever
+    /// module happens to be loaded.
+    #[test]
+    fn pending_parent_chains_when_it_registers_later() -> Result<(), i32> {
+        use std::ffi::{CStr, c_char};
+
+        use zuqe_zapi::ffi::{ZqClassDef, ZqRawCtx};
+
+        use crate::{ClassID, Context};
+
+        fn def(name: &'static CStr, parent: *const ZqClassDef) -> ZqClassDef {
+            ZqClassDef {
+                name: name.as_ptr() as *const c_char,
+                parent_class: parent,
+                finalize: None,
+                gc_trace: None,
+                call: None,
+                has_instance: None,
+                call_arity: 0,
+                proto_entries_len: 0,
+                proto_entries: std::ptr::null(),
+                static_entries_len: 0,
+                static_entries: std::ptr::null(),
+            }
+        }
+
+        fn register(ctx: &mut Context<'_>, zq: *const ZqClassDef) -> Result<ClassID, i32> {
+            let id = ctx.with_new_scope(|cx| unsafe {
+                super::zapi_register_class(cx as *mut ScopedContext as ZqRawCtx, zq)
+            });
+            if id < 0 { Err(-1) } else { Ok(id as ClassID) }
+        }
+
+        let _lock = REG_LOCK.lock().unwrap();
+
+        let base: *const ZqClassDef = Box::leak(Box::new(def(c"LateBase", std::ptr::null())));
+        let child: *const ZqClassDef = Box::leak(Box::new(def(c"LateChild", base)));
+
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        // The child first: its parent is not registered yet, so it starts as a
+        // root class.
+        let child_id = register(&mut ctx, child)?;
+        let base_id = register(&mut ctx, base)?;
+
+        ctx.with_new_scope(|cx| {
+            let child_proto = cx.class_proto(child_id).expect("child prototype");
+            let base_proto = cx.class_proto(base_id).expect("base prototype");
+            assert_eq!(
+                child_proto.prototype(cx)?,
+                Some(base_proto),
+                "a parent that registers later must still chain"
+            );
+            Ok::<(), i32>(())
+        })?;
+        Ok(())
+    }
+
     /// create/instanceof/gc_trace/finalize, and one runtime's GC must not touch
     /// the other's objects.
     #[test]

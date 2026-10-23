@@ -56,7 +56,15 @@ The `def_native_object!` macro arguments are:
 
 Optional keyword arguments (all prefixed with `,`):
 
-- `extends: $class_id_fn` — register the class as a subclass of another native class
+- `extends: $class_id_fn` — register the class as a subclass of another native
+  class, named by its `ClassID` (`SomeClass::class_id`). The parent is resolved
+  lazily and built on demand, so it may be initialized after the child; the
+  engine links both sides of `class Child extends Parent` — the child's
+  prototype object inherits the parent's, and the child's constructor inherits
+  the parent's — so `Child.prototype.__proto__ === Parent.prototype` and
+  `Child.__proto__ === Parent` hold for host classes exactly as they do for
+  `class` in a script. A class declared without `extends` is a root class: its
+  prototype inherits `Object.prototype`.
 
 > **⚠️ GC safety (MUST READ):** A `JSValue`/`Object` stored in a class payload or in a
 > `thread_local!` is invisible to Zuqe's GC — if the collector reclaims it while you still use it,

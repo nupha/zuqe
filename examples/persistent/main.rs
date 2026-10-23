@@ -71,7 +71,6 @@ async fn roundtrip(script: &str) -> (String, String, bool) {
     let name = zuqe::path_to_url("repl.js").expect("repl.js url");
     let val1 = match ctx1
         .eval_wait(
-            &mut rt1,
             script.as_bytes(),
             &EvalName::BaseUrl(name),
             EvalType::Global,
@@ -105,7 +104,6 @@ async fn roundtrip_module(source: &str) -> (String, String, bool) {
     let name = zuqe::path_to_url("mod.mjs").expect("mod.mjs url");
     let val1 = match ctx1
         .eval_wait(
-            &mut rt1,
             source.as_bytes(),
             &EvalName::BaseUrl(name),
             EvalType::Module,
@@ -143,7 +141,6 @@ async fn roundtrip_module_file(source: &str) -> (String, String, bool) {
         let name = zuqe::path_to_url("mod.mjs").expect("mod.mjs url");
         let val1 = match ctx1
             .eval_wait(
-                &mut rt1,
                 source.as_bytes(),
                 &EvalName::BaseUrl(name),
                 EvalType::Module,
@@ -203,7 +200,6 @@ async fn check_call_file(name: &str, script: &str, call_args: &[i32], expect: i3
         let url = zuqe::path_to_url("repl.js").expect("repl.js url");
         let val1 = match ctx1
             .eval_wait(
-                &mut rt1,
                 script.as_bytes(),
                 &EvalName::BaseUrl(url),
                 EvalType::Global,
@@ -263,7 +259,6 @@ async fn check_call(name: &str, script: &str, call_args: &[i32], expect: i32) {
     let url = zuqe::path_to_url("repl.js").expect("repl.js url");
     let val1 = match ctx1
         .eval_wait(
-            &mut rt1,
             script.as_bytes(),
             &EvalName::BaseUrl(url),
             EvalType::Global,
@@ -334,7 +329,6 @@ async fn check_module_call_file(name: &str, source: &str) {
         let url = zuqe::path_to_url("mod.mjs").expect("mod.mjs url");
         match ctx1
             .eval_wait(
-                &mut rt1,
                 source.as_bytes(),
                 &EvalName::BaseUrl(url),
                 EvalType::Module,
@@ -348,7 +342,6 @@ async fn check_module_call_file(name: &str, source: &str) {
         // Bridge the module's exports out so we can serialize the namespace.
         let ns_val = match ctx1
             .eval_wait(
-                &mut rt1,
                 b"globalThis.__ns",
                 &EvalName::BaseUrl(zuqe::path_to_url("repl.js").expect("repl.js url")),
                 EvalType::Global,
@@ -448,7 +441,6 @@ async fn check_call_file_f64(name: &str, script: &str, call_args: &[f64], expect
         let url = zuqe::path_to_url("repl.js").expect("repl.js url");
         let val1 = match ctx1
             .eval_wait(
-                &mut rt1,
                 script.as_bytes(),
                 &EvalName::BaseUrl(url),
                 EvalType::Global,
@@ -544,7 +536,6 @@ async fn check_native_call(name: &str, expect: i32) {
         let url = zuqe::path_to_url("repl.js").expect("repl.js url");
         let val1 = match ctx1
             .eval_wait(
-                &mut rt1,
                 b"(function(x){ return myAdd(x, 1) })",
                 &EvalName::BaseUrl(url),
                 EvalType::Global,
@@ -719,7 +710,6 @@ async fn check_native_capture(name: &str, expect: i32) -> bool {
         let url = zuqe::path_to_url("repl.js").expect("repl.js url");
         let val1 = match ctx1
             .eval_wait(
-                &mut rt1,
                 b"let g = myAdd; (function(x){ return g(x, 1) })",
                 &EvalName::BaseUrl(url),
                 EvalType::Global,
@@ -796,7 +786,6 @@ async fn check_native_capture_missing(name: &str) -> bool {
         let url = zuqe::path_to_url("repl.js").expect("repl.js url");
         let val1 = match ctx1
             .eval_wait(
-                &mut rt1,
                 b"let g = myAdd; (function(x){ return g(x, 1) })",
                 &EvalName::BaseUrl(url),
                 EvalType::Global,
@@ -847,7 +836,6 @@ async fn check_roundtrip_js(name: &str, script: &str, check_js: &str, expect: &s
         let mut ctx1 = mk_ctx!(&mut rt1);
         let val1 = match ctx1
             .eval_wait(
-                &mut rt1,
                 script.as_bytes(),
                 &EvalName::BaseUrl(repl.clone()),
                 EvalType::Global,
@@ -893,7 +881,6 @@ async fn check_roundtrip_js(name: &str, script: &str, check_js: &str, expect: &s
 
     let got = match ctx2
         .eval_wait(
-            &mut rt2,
             check_js.as_bytes(),
             &EvalName::BaseUrl(repl),
             EvalType::Global,
@@ -943,7 +930,6 @@ async fn check_module_roundtrip_js(
         let mut ctx1 = mk_ctx!(&mut rt1);
         match ctx1
             .eval_wait(
-                &mut rt1,
                 source.as_bytes(),
                 &EvalName::BaseUrl(base),
                 EvalType::Module,
@@ -963,7 +949,6 @@ async fn check_module_roundtrip_js(
         }
         let ns = match ctx1
             .eval_wait(
-                &mut rt1,
                 b"globalThis.__ns",
                 &EvalName::BaseUrl(repl.clone()),
                 EvalType::Global,
@@ -1009,7 +994,6 @@ async fn check_module_roundtrip_js(
 
     let got = match ctx2
         .eval_wait(
-            &mut rt2,
             check_js.as_bytes(),
             &EvalName::BaseUrl(repl),
             EvalType::Global,

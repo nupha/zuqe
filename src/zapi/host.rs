@@ -10,15 +10,14 @@ use std::{
 
 use libloading::Library;
 use zuqe_zapi::ffi::{
-    ZQ_ABI_BASE, ZQ_ABI_VERSION, ZQ_API_BASE, ZQ_API_VERSION, ZQ_CONST_VALUE_SLOT_EXCEPTION,
-    ZQ_FIELD_BOOL, ZQ_FIELD_CLASS, ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC, ZQ_FIELD_GETSET, ZQ_FIELD_INT,
-    ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED, ZQ_FIELD_VALUE, ZqApi, ZqCallInfoS, ZqFieldDef, ZqModuleInfo,
-    ZqRawCtx, ZqRawValue,
+    ZQ_ABI_VERSION, ZQ_API_VERSION, ZQ_CONST_VALUE_SLOT_EXCEPTION, ZQ_FIELD_BOOL, ZQ_FIELD_CLASS,
+    ZQ_FIELD_FLOAT, ZQ_FIELD_FUNC, ZQ_FIELD_GETSET, ZQ_FIELD_INT, ZQ_FIELD_STR, ZQ_FIELD_UNDEFINED,
+    ZQ_FIELD_VALUE, ZqApi, ZqBodyFn, ZqCallInfoS, ZqFieldDef, ZqModuleInfo, ZqRawCtx, ZqRawValue,
 };
 
 use crate::{JSValue, ModuleDef, ScopedContext, class::ClassID, function::Callback};
 
-use super::stub::{ZQ_API_TABLE, zq_to_js_prop_flags};
+use super::stub::{ZQ_ABI_MIN, ZQ_API_MIN, ZQ_API_TABLE, zq_to_js_prop_flags};
 
 /// A zapi extension dylib, loaded at most once per process and kept mapped for
 /// the whole process lifetime.
@@ -184,12 +183,10 @@ pub(crate) fn zapi_trampoline_fn(
     }
 }
 
-/// 同 `register_zapi_func`，但显式指定用户 magic。
-pub(crate) fn register_zapi_func_magic(
-    ctx: &mut ScopedContext,
-    body: unsafe extern "C" fn(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue,
-    magic: i32,
-) -> (Callback, i32) {
+/// Register an extension body in the runtime's serial registry and return its
+/// token (the engine `magic`). The token is what a trampoline reads back to
+/// recover the body and its user magic.
+pub(crate) fn register_zapi_body(ctx: &mut ScopedContext, body: ZqBodyFn, magic: i32) -> i32 {
     let rt = ctx.rt_mut();
     let token = rt
         .zapi_next_serial
@@ -198,6 +195,16 @@ pub(crate) fn register_zapi_func_magic(
         .lock()
         .unwrap()
         .insert(token, (body, magic));
+    token
+}
+
+/// 同 `register_zapi_func`，但显式指定用户 magic。
+pub(crate) fn register_zapi_func_magic(
+    ctx: &mut ScopedContext,
+    body: unsafe extern "C" fn(env: ZqRawCtx, info: *mut ZqCallInfoS) -> ZqRawValue,
+    magic: i32,
+) -> (Callback, i32) {
+    let token = register_zapi_body(ctx, body, magic);
     (Callback::Func(zapi_trampoline_fn), token)
 }
 
@@ -318,17 +325,17 @@ impl<'a> ScopedContext<'a> {
 
         // Validate ABI compatibility
         let ext_abi = md_info.abi_version();
-        if !(ZQ_ABI_BASE..=ZQ_ABI_VERSION).contains(&ext_abi) {
+        if !(ZQ_ABI_MIN..=ZQ_ABI_VERSION).contains(&ext_abi) {
             return Err(self.throw_reference_error(&format!(
-                "module '{file_url}': zapi ABI version {ext_abi} mismatch (expect {ZQ_ABI_BASE} - {ZQ_ABI_VERSION})"
+                "module '{file_url}': zapi ABI version {ext_abi} mismatch (expect {ZQ_ABI_MIN} - {ZQ_ABI_VERSION})"
             )));
         }
 
         // Validate API capability
         let ext_api = md_info.api_version();
-        if !(ZQ_API_BASE..=ZQ_API_VERSION).contains(&ext_api) {
+        if !(ZQ_API_MIN..=ZQ_API_VERSION).contains(&ext_api) {
             return Err(self.throw_reference_error(&format!(
-                "module '{file_url}': zapi API version {ext_api} mismatch (expect {ZQ_API_BASE} - {ZQ_API_VERSION})"
+                "module '{file_url}': zapi API version {ext_api} mismatch (expect {ZQ_API_MIN} - {ZQ_API_VERSION})"
             )));
         }
 
@@ -370,12 +377,15 @@ impl<'a> ScopedContext<'a> {
         // extension exports its own (author wins). Host-side so prebuilt
         // extensions get it without recompiling. Same value as
         // `zuqe_zapi::module_path()`.
-        let inject_file = !export_names.iter().any(|n| n == "__file__");
-        if inject_file {
-            export_names.push("__file__".to_string());
-        }
-        let module_path_str = abs_path.to_string_lossy().into_owned();
-        let module_path_clone = module_path_str.clone();
+
+        // Disabled for now — may be re-enabled later. Rust-side extensions
+        // locate bundled resources via `zuqe_zapi::module_path()` instead.
+        // let inject_file = !export_names.iter().any(|n| n == "__file__");
+        // if inject_file {
+        //     export_names.push("__file__".to_string());
+        // }
+        // let module_path_str = abs_path.to_string_lossy().into_owned();
+        // let module_path_clone = module_path_str.clone();
 
         let init_ptr = md_info.init;
         let runtime_finalize = md_info.runtime_finalize;
@@ -412,13 +422,15 @@ impl<'a> ScopedContext<'a> {
                 set_module_export(ctx, md, name, value)?;
             }
 
-            if inject_file {
-                // export `__file__` field
-                let sr = ctx
-                    .create_string_from_utf8(module_path_clone.as_bytes().to_vec())
-                    .map_err(|_| -1)?;
-                set_module_export(ctx, md, "__file__", crate::JSValue::make_string(sr))?;
-            }
+            // Disabled for now — may be re-enabled later (see `__file__`
+            // injection above, commented out).
+            // if inject_file {
+            //     // export `__file__` field
+            //     let sr = ctx
+            //         .create_string_from_utf8(module_path_clone.as_bytes().to_vec())
+            //         .map_err(|_| -1)?;
+            //     set_module_export(ctx, md, "__file__", crate::JSValue::make_string(sr))?;
+            // }
 
             Ok(())
         };

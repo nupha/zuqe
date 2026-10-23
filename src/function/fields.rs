@@ -443,3 +443,45 @@ pub(crate) fn prop_str_to_atom(ctx: &mut ScopedContext, str: &str) -> Result<Ato
 
     Atom::intern_str(ctx, str)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{context::ScopedContext, runtime::Runtime};
+
+    /// Lazy slots are appended, never merged, so a repeated name used to leave
+    /// the shape and `prop_values` disagreeing: a `debug_assert` fired in a
+    /// debug build and the slot bookkeeping was simply wrong in a release one.
+    /// `define_lazy_property` reports it now, so the failure is an error the
+    /// caller can see.
+    #[test]
+    fn installing_a_name_twice_is_refused() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(|cx| ScopedContext::ECMA_CONTEXT_SETUP(cx))?;
+
+        ctx.with_new_scope(|cx| {
+            let mut obj = cx.create_base_object()?;
+
+            // Distinct names install fine.
+            obj.install_fields(
+                cx,
+                &[FieldDef::STR("a", "1", 0), FieldDef::STR("b", "2", 0)],
+            )?;
+
+            // The same name again is refused rather than appended.
+            assert!(
+                obj.install_fields(cx, &[FieldDef::STR("a", "3", 0)])
+                    .is_err(),
+                "redefining a name through install_fields must be refused"
+            );
+
+            // And the object is still coherent: both first-install names resolve,
+            // and the refused one still reads back its original value.
+            let atom_a = prop_str_to_atom(cx, "a")?;
+            let atom_b = prop_str_to_atom(cx, "b")?;
+            assert!(!obj.get_property(cx, atom_a)?.is_undefined());
+            assert!(!obj.get_property(cx, atom_b)?.is_undefined());
+            Ok(())
+        })
+    }
+}

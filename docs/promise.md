@@ -175,7 +175,7 @@ let (tx, rx) = ctx.make_channel(1);
 let promise = Promise::create_with_receiver(ctx, rx, |cx, res: Result<Vec<u8>, String>| {
     match res {
         Ok(bytes) => {
-            let obj = JSFileData::new_instance(cx, bytes)?;
+            let obj = JSFileData::new_instance(cx, JSValue::UNDEFINED, bytes)?;
             Ok(JSValue::from(obj))
         }
         Err(e) => {
@@ -192,6 +192,10 @@ std::thread::spawn(move || {
 
 // JS: const data = await host.readFileWithReceiver(...);
 ```
+
+An instance created outside a constructor passes `JSValue::UNDEFINED` as `new_instance`'s
+`new_target`: the engine then builds it from the class's own prototype. Inside a constructor you
+pass `cc.this()` instead.
 
 Use `create_with_receiver` when:
 
@@ -237,7 +241,7 @@ let (promise, tx) =
             cx.throw_internal_error(&e);
             -1
         })?;
-        let obj = JSLlamaModel::new_instance(cx, model)?;
+        let obj = JSLlamaModel::new_instance(cx, JSValue::UNDEFINED, model)?;
         Ok(JSValue::from(obj))
     })?;
 
@@ -257,7 +261,7 @@ Example: integrate `tokio::fs::read`:
 let (promise, tx) = Promise::create_with_channel(ctx, |cx, res: std::io::Result<Vec<u8>>| {
     match res {
         Ok(bytes) => {
-            let obj = JSFileData::new_instance(cx, bytes)?;
+            let obj = JSFileData::new_instance(cx, JSValue::UNDEFINED, bytes)?;
             Ok(JSValue::from(obj))
         }
         Err(e) => {
@@ -346,7 +350,7 @@ let slot = PromiseResultSlot::new();
 let promise = Promise::create_with_result_slot(ctx, slot.clone(), |cx, res: Result<Vec<u8>, String>| {
     match res {
         Ok(bytes) => {
-            let obj = JSFileData::new_instance(cx, bytes)?;
+            let obj = JSFileData::new_instance(cx, JSValue::UNDEFINED, bytes)?;
             Ok(JSValue::from(obj))
         }
         Err(e) => {

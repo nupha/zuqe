@@ -58,10 +58,13 @@ impl<'c> ScopedContext<'c> {
                 .unwrap();
             self.class_slots[JS_CLASS_ERROR as usize].proto = Some(error_proto);
 
-            // standard error objects
+            // standard error objects. They are built as root objects; the link
+            // that makes each kind inherit `Error` — prototype and constructor
+            // both — is made where their constructors appear
+            // (`intrinsic_base_errors`), through the one `link_class_extends`.
             let msg = Atom::CONST_empty_string.force_string(self).unwrap();
             for (i, &name) in STD_ERROR_NAMES.iter().enumerate() {
-                let mut err = self.create_base_object_with_proto(Some(error_proto))?;
+                let mut err = self.create_base_object()?;
 
                 let name = self.create_string_interned(name)?;
                 //let name = self.create_string_interned(name).unwrap();

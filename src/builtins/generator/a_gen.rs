@@ -367,12 +367,14 @@ impl AsyncGeneratorFunction {
         match class_id {
             JS_CLASS_ASYNC_GENERATOR => {
                 let aiter_proto = ctx.async_iterator_proto()?;
-                let proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
-                ctx.init_class_proto_internal(class_id, proto, js_async_generator_proto_funcs)
+                ctx.init_class_proto_extends(
+                    class_id,
+                    Some(aiter_proto),
+                    js_async_generator_proto_funcs,
+                )
             }
             JS_CLASS_ASYNC_GENERATOR_FUNCTION => {
-                let mut agen_func_proto =
-                    ctx.create_base_object_with_proto(Some(ctx.function_proto()))?;
+                let mut agen_func_proto = ctx.create_base_object()?;
                 agen_func_proto.install_fields(ctx, js_async_generator_function_proto_funcs)?;
                 ctx.set_class_proto(class_id, agen_func_proto);
 
@@ -399,7 +401,7 @@ impl AsyncGeneratorFunction {
                     Atom::CONST_AsyncGeneratorFunction,
                     1,
                     FunctionKind::AsyncGenerator as i16,
-                    ctx.function_ctor(),
+                    ctx.function_proto(),
                     None,
                 )?;
                 ctx.bind_ctor_proto_ex(
@@ -410,6 +412,16 @@ impl AsyncGeneratorFunction {
                 )?;
                 ctx.class_slots[JS_CLASS_ASYNC_GENERATOR_FUNCTION as usize].ctor =
                     Some(agen_func_ctor.into());
+
+                // %AsyncGeneratorFunction% inherits Function, by the one link.
+                let function_proto = ctx.function_proto();
+                let function_ctor = ctx.function_ctor();
+                ctx.link_class_extends(
+                    agen_func_proto,
+                    Some(agen_func_ctor.into()),
+                    Some(function_proto),
+                    Some(function_ctor),
+                )?;
 
                 Ok(())
             }

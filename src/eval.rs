@@ -13,7 +13,6 @@ use crate::{
     function::{BCWrapper, Bytecode, FunctionDef, FunctionKind, add_closure_variables},
     module::{ModuleDef, path_to_url},
     parse::JSParseState,
-    runtime::Runtime,
     value::JSValue,
     vm_stack::{ExecMode, FrameIndex},
 };
@@ -491,7 +490,7 @@ impl<'c> ScopedContext<'c> {
         let ret_val = match self.eval(source, base, eval_type, flags) {
             Ok(v) => v,
             Err(_) => {
-                return ExitStatus::Exception(self.rt_mut().take_exception());
+                return ExitStatus::Exception(self.take_exception());
             }
         };
 
@@ -528,13 +527,16 @@ impl<'c> ScopedContext<'c> {
 
         // tick to finish
         loop {
-            match self.rt_mut().tick() {
+            // The tree tick runs off this context's own runtime pointer: a
+            // context belongs to exactly one runtime, so there is nothing for
+            // the caller to hand in.
+            match crate::runtime::tick_tree(self.rt_ptr()) {
                 crate::runtime::TickStatus::Progress => {
                     // Real work was produced — drain it now.
                     std::thread::yield_now();
                     continue;
                 }
-                crate::runtime::TickStatus::Parked(hint) => {
+                crate::runtime::TickStatus::Park(hint) => {
                     // A polling job (fetch/fs/... or a timer) is waiting.
                     // Suspend the thread until an external wake or the
                     // deadline. With quantum poll off (the default) the wait
@@ -635,7 +637,6 @@ impl<'c> Context<'c> {
     #[cfg(feature = "async_support")]
     pub async fn eval_wait(
         &mut self,
-        rt: &mut Runtime,
         source: &[u8],
         name: &EvalName,
         eval_type: EvalType,
@@ -677,7 +678,7 @@ impl<'c> Context<'c> {
                 // the loop drains (`Stop`) before the promise settles, the promise
                 // future is retained and polled to its terminal state. `tokio::select!`
                 // would drop it and swallow the rejection (exit 0, no output).
-                let rt_fut = std::pin::pin!(rt.run_async());
+                let rt_fut = std::pin::pin!(self.rt_ptr().run_async());
                 let script_fut = std::pin::pin!(fut);
 
                 match futures_util::future::select(rt_fut, script_fut).await {
@@ -721,7 +722,7 @@ impl<'c> Context<'c> {
             // `Interrupted` (Ctrl-C mid-drain) or `Value(UNDEFINED)` (loop
             // stopped with nothing meaningful), so forward an interrupt but
             // never let the loop's placeholder UNDEFINED shadow the real result.
-            None => match rt.run_async().await {
+            None => match self.rt_ptr().run_async().await {
                 ExitStatus::Interrupted(code) => ExitStatus::Interrupted(code),
                 // `run_async` never produces `Exception`, and its `Value` variant
                 // is always `UNDEFINED` (see RunFuture::poll). Anything else is a
@@ -741,6 +742,108 @@ impl<'c> Context<'c> {
                 _ => ExitStatus::Value(ret_val),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::Cell, rc::Rc};
+
+    use super::*;
+    use crate::{Runtime, ScopedContext};
+
+    /// Two runtimes, each with a context and a pending job. The flags report
+    /// which of the two jobs ran.
+    struct Pair {
+        _rt_a: Runtime,
+        ctx_a: Context<'static>,
+        _rt_b: Runtime,
+        ctx_b: Context<'static>,
+        a_ran: Rc<Cell<bool>>,
+        b_ran: Rc<Cell<bool>>,
+    }
+
+    fn pair() -> Result<Pair, i32> {
+        let mut rt_a = Runtime::create()?;
+        let mut ctx_a: Context<'static> = rt_a.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+        let mut rt_b = Runtime::create()?;
+        let mut ctx_b: Context<'static> = rt_b.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        let a_ran = Rc::new(Cell::new(false));
+        let b_ran = Rc::new(Cell::new(false));
+        {
+            let flag = a_ran.clone();
+            ctx_a.queue_oneshot_job(
+                move |_cx| {
+                    flag.set(true);
+                    Ok(())
+                },
+                (),
+            );
+        }
+        {
+            let flag = b_ran.clone();
+            ctx_b.queue_oneshot_job(
+                move |_cx| {
+                    flag.set(true);
+                    Ok(())
+                },
+                (),
+            );
+        }
+
+        Ok(Pair {
+            _rt_a: rt_a,
+            ctx_a,
+            _rt_b: rt_b,
+            ctx_b,
+            a_ran,
+            b_ran,
+        })
+    }
+
+    /// `eval_wait` drives the **context's own** runtime — and only that one.
+    ///
+    /// The runtime used to be a parameter of `eval_wait`, which made it
+    /// possible to hand in a runtime other than the context's: the code would
+    /// then run in one runtime's heap while a *different* runtime's event loop
+    /// was drained — the script's promises would never settle and foreign jobs
+    /// would run in the wrong heap. The context knows its runtime, so there is
+    /// nothing left to pass.
+    #[cfg(feature = "async_support")]
+    #[tokio::test]
+    async fn eval_wait_drives_the_contexts_own_runtime() -> Result<(), i32> {
+        let mut p = pair()?;
+        let status = p
+            .ctx_a
+            .eval_wait(
+                b"1 + 1",
+                &EvalName::Name("a.js".into()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .await;
+        assert!(matches!(status, ExitStatus::Value(_)), "{status:?}");
+        assert!(p.a_ran.get(), "the context's own runtime must be driven");
+        assert!(!p.b_ran.get(), "another runtime must not be driven");
+        Ok(())
+    }
+
+    /// The same for the sync `eval_wait`.
+    #[cfg(not(feature = "async_support"))]
+    #[test]
+    fn eval_wait_drives_the_contexts_own_runtime() -> Result<(), i32> {
+        let mut p = pair()?;
+        let status = p.ctx_a.eval_wait(
+            b"1 + 1",
+            &EvalName::Name("a.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        );
+        assert!(matches!(status, ExitStatus::Value(_)), "{status:?}");
+        assert!(p.a_ran.get(), "the context's own runtime must be driven");
+        assert!(!p.b_ran.get(), "another runtime must not be driven");
+        Ok(())
     }
 }
 

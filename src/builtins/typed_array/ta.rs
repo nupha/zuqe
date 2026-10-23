@@ -301,7 +301,7 @@ impl TypedArray {
                 Atom::CONST_Uint8ClampedArray.id() + (cid - JS_CLASS_UINT8C_ARRAY) as u32,
             );
 
-            let mut ta_proto = ctx.create_base_object_with_proto(Some(proto))?;
+            let mut ta_proto = ctx.create_base_object()?;
             ta_proto.define_property_value_str(ctx, "BYTES_PER_ELEMENT", JSValue::from(nby), 0)?;
             ctx.set_class_proto(cid, ta_proto);
 
@@ -311,11 +311,19 @@ impl TypedArray {
                 name,
                 3,
                 cid as i16, // magic
-                ta_func_proto.into(),
+                ctx.function_proto(),
                 None,
             )?
             .into();
             ctx.bind_ctor_proto(ta_ctor, ta_proto)?;
+            // Uint8Array inherits %TypedArray% — prototype and constructor both,
+            // by the one link.
+            ctx.link_class_extends(
+                ta_proto,
+                Some(ta_ctor),
+                Some(proto),
+                Some(ta_func_proto.into()),
+            )?;
             // Per spec, concrete TypedArray constructors/prototypes define only
             // BYTES_PER_ELEMENT (plus constructor/prototype wiring) themselves;
             // all other statics/methods are inherited from %TypedArray% /

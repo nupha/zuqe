@@ -34,8 +34,11 @@ impl AsyncFromSyncIterator {
         debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         let aiter_proto = ctx.async_iterator_proto()?;
-        let proto = ctx.create_base_object_with_proto(Some(aiter_proto))?;
-        ctx.init_class_proto_internal(class_id, proto, js_async_from_sync_iterator_proto_funcs)?;
+        ctx.init_class_proto_extends(
+            class_id,
+            Some(aiter_proto),
+            js_async_from_sync_iterator_proto_funcs,
+        )?;
         Ok(())
     }
 }
