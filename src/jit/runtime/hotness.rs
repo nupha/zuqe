@@ -11,9 +11,17 @@
 //!
 //! Two gates, two tiers (plan §13.6.5 item 1): the first gate compiles the
 //! **baseline** tier, the second one promotes the function to the **optimizing**
-//! tier. The counters behind both gates are the same, but the second gate must
-//! also see the work a function does *after* it was compiled — the interpreter
-//! stops counting then, so the native tier reports its own activations and back
+//! tier. Each gate is one **weighted budget** (plan §13.6.5 item 3): an entry
+//! weighs as much as the configured loop threshold, a back edge as much as the
+//! call threshold, and the gate fires once the sum reaches their product —
+//! `loops_weight × calls + calls_weight × loops ≥ budget`. The line runs
+//! through the configured two corner points (unchanged from the old
+//! `calls ≥ C ∨ loops ≥ L` gates), so `calls*W + loops` is the explicit form of
+//! "an entry is worth more than a back edge" instead of an intuition.
+//!
+//! The counters behind both gates are the same, but the second gate must also
+//! see the work a function does *after* it was compiled — the interpreter stops
+//! counting then, so the native tier reports its own activations and back
 //! edges back into the same counters.
 
 use crate::{
@@ -41,15 +49,27 @@ pub(crate) enum Tier {
     Tier2,
 }
 
-/// Entry/backedge counts a function must reach before it is queued.
+/// One gate's weighted budget (plan §13.6.5 item 3): the `calls ∨ loops`
+/// crossing becomes `calls_weight × calls + loops_weight × loops ≥ budget`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GateBudget {
+    /// An entry's weight among back edges (`= loop_threshold`).
+    calls_weight: u32,
+    /// A back edge's weight among entries (`= call_threshold`).
+    loops_weight: u32,
+    /// The gate fires at this many weighted points (`call × loop`, in `u64`
+    /// because the host can configure unbounded thresholds).
+    budget: u64,
+}
+
+/// The budgets a function must reach before it is queued.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct HotThresholds {
-    pub(crate) calls: u32,
-    pub(crate) loops: u32,
+    /// The first gate: entries and back edges reach this many weighted points.
+    first: GateBudget,
     /// The second gate: the counts that promote an already-compiled function
     /// to the optimizing tier.
-    pub(crate) tier2_calls: u32,
-    pub(crate) tier2_loops: u32,
+    tier2: GateBudget,
     pub(crate) reason: HotReason,
 }
 
@@ -59,6 +79,20 @@ const SIZE_SCALE: u32 = 16;
 /// The cap of the size factor: 4x the base (plan §13.6.5 item 2).
 const SIZE_FACTOR_MAX: u32 = 4 * SIZE_SCALE;
 
+impl GateBudget {
+    /// The budget line through the configured pair's two corner points: `N`
+    /// entries alone (`N = call_threshold`) and `L` back edges alone
+    /// (`L = loop_threshold`) fire, exactly where the old OR-gates did (T8).
+    /// `u32 × u32` fits `u64` exactly, so no saturation is needed.
+    const fn of(calls: u32, loops: u32) -> Self {
+        Self {
+            calls_weight: loops,
+            loops_weight: calls,
+            budget: calls as u64 * loops as u64,
+        }
+    }
+}
+
 impl HotThresholds {
     pub(crate) const fn neutral(
         calls: u32,
@@ -67,10 +101,8 @@ impl HotThresholds {
         tier2_loops: u32,
     ) -> Self {
         Self {
-            calls,
-            loops,
-            tier2_calls,
-            tier2_loops,
+            first: GateBudget::of(calls, loops),
+            tier2: GateBudget::of(tier2_calls, tier2_loops),
             reason: HotReason::NeutralBase,
         }
     }
@@ -160,6 +192,14 @@ impl AdaptiveInputs {
     /// An eager base (both thresholds 1) is left alone: the host asked for
     /// "compile on the first event", and raising that would silently defeat
     /// the diagnostic/test harnesses that rely on it.
+    ///
+    /// T8: each gate is one **weighted budget**. The configured pair `(C, L)`
+    /// survives as the line's two corner points — `C` entries alone and `L`
+    /// back edges alone fire exactly as before — but a mixed function now
+    /// fires early: the crossing is `L×calls + C×loops ≥ C×L`, so e.g.
+    /// `C/2` entries plus `L/2` back edges are enough (the line cuts the
+    /// rectangle's corner). The cost gate floors the pair, and the line follows
+    /// it.
     pub(crate) fn thresholds(
         &self,
         base_calls: u32,
@@ -177,53 +217,43 @@ impl AdaptiveInputs {
             );
         }
         // Proven work outranks the static shape: a function observed doing a lot
-        // of interpreter work is worth compiling even if it is large.
+        // of interpreter work is worth compiling even if it is large. The
+        // budget follows the halved pair (T8: half the calls, half the back
+        // edges).
         if self.measured_work.is_some_and(|work| work >= 4096) {
             return HotThresholds {
-                calls: base_calls / 2,
-                loops: base_loops / 2,
-                tier2_calls: base_tier2_calls / 2,
-                tier2_loops: base_tier2_loops / 2,
+                first: GateBudget::of(base_calls / 2, base_loops / 2),
+                tier2: GateBudget::of(base_tier2_calls / 2, base_tier2_loops / 2),
                 reason: HotReason::MeasuredWork,
             };
         }
         let helper_dense = self.helper_dense();
-        let size = self.size_factor();
         let factor = if helper_dense {
-            size.saturating_mul(2).min(SIZE_FACTOR_MAX)
+            self.size_factor().saturating_mul(2).min(SIZE_FACTOR_MAX)
         } else {
-            size
+            self.size_factor()
         };
-        let mut thresholds = if factor == SIZE_SCALE {
-            HotThresholds::neutral(base_calls, base_loops, base_tier2_calls, base_tier2_loops)
+        // The cost gate (P1-3): a floor under the pair, budget line through it.
+        // `u32::max(0)` is the identity, so `payback == 0` (the gate off) needs
+        // no branch.
+        let calls = (base_calls.saturating_mul(factor) / SIZE_SCALE).max(payback);
+        let loops = (base_loops.saturating_mul(factor) / SIZE_SCALE)
+            .max(payback.saturating_mul(base_loops) / base_calls.max(1));
+        let tier2_calls = (base_tier2_calls.saturating_mul(factor) / SIZE_SCALE).max(payback);
+        let tier2_loops = (base_tier2_loops.saturating_mul(factor) / SIZE_SCALE)
+            .max(payback.saturating_mul(base_tier2_loops) / base_tier2_calls.max(1));
+        let reason = if helper_dense {
+            HotReason::HelperDensity
+        } else if factor == SIZE_SCALE {
+            HotReason::NeutralBase
         } else {
-            HotThresholds {
-                calls: base_calls.saturating_mul(factor) / SIZE_SCALE,
-                loops: base_loops.saturating_mul(factor) / SIZE_SCALE,
-                tier2_calls: base_tier2_calls.saturating_mul(factor) / SIZE_SCALE,
-                tier2_loops: base_tier2_loops.saturating_mul(factor) / SIZE_SCALE,
-                reason: if helper_dense {
-                    HotReason::HelperDensity
-                } else {
-                    HotReason::BytecodeScale
-                },
-            }
+            HotReason::BytecodeScale
         };
-        // The cost gate: a floor under the first gate (the compile has to pay
-        // for itself) and under the second one (the promotion is a second
-        // compile). The back-edge gate keeps the configured ratio to the call
-        // gate: a back edge is a smaller unit of work than a call.
-        if payback > 0 {
-            thresholds.calls = thresholds.calls.max(payback);
-            thresholds.loops = thresholds
-                .loops
-                .max(payback.saturating_mul(base_loops) / base_calls.max(1));
-            thresholds.tier2_calls = thresholds.tier2_calls.max(payback);
-            thresholds.tier2_loops = thresholds
-                .tier2_loops
-                .max(payback.saturating_mul(base_tier2_loops) / base_tier2_calls.max(1));
+        HotThresholds {
+            first: GateBudget::of(calls, loops),
+            tier2: GateBudget::of(tier2_calls, tier2_loops),
+            reason,
         }
-        thresholds
     }
 }
 
@@ -270,14 +300,24 @@ impl HotnessState {
         self.loops
     }
 
-    /// Whether the first gate is crossed.
+    /// Whether the first gate is crossed (plan §13.6.5 item 3): the weighted
+    /// budget `loops_weight × calls + calls_weight × loops ≥ budget`, with the
+    /// entry heavier than a back edge (its weight is the configured loop
+    /// threshold).
     pub(crate) const fn crossed_first_gate(&self, th: &HotThresholds) -> bool {
-        self.calls >= th.calls || self.loops >= th.loops
+        Self::crossed(&th.first, self.calls, self.loops)
     }
 
     /// Whether the second gate is crossed.
     pub(crate) const fn crossed_second_gate(&self, th: &HotThresholds) -> bool {
-        self.calls >= th.tier2_calls || self.loops >= th.tier2_loops
+        Self::crossed(&th.tier2, self.calls, self.loops)
+    }
+
+    /// One gate's crossing, in `u64` (`weight × count` and the budget are all
+    /// the product of two `u32`s).
+    const fn crossed(gate: &GateBudget, calls: u32, loops: u32) -> bool {
+        gate.calls_weight as u64 * calls as u64 + gate.loops_weight as u64 * loops as u64
+            >= gate.budget
     }
 }
 
@@ -288,13 +328,46 @@ mod tests {
     /// The production base plus the second gate (plan §13.6.5 item 1).
     const BASE: (u32, u32, u32, u32) = (32, 56, 1024, 2048);
 
+    /// The crossing checks are the gate's contract; the budget line itself is
+    /// an implementation detail. Zero counts mean "just below a corner".
+    fn state(calls: u32, loops: u32) -> HotnessState {
+        let mut state = HotnessState::default();
+        for _ in 0..calls {
+            state.record_call();
+        }
+        for _ in 0..loops {
+            state.record_loop();
+        }
+        state
+    }
+
     #[test]
     fn without_measurements_the_base_is_unchanged() {
         let th = AdaptiveInputs::default().thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
-        assert_eq!(th.calls, 32);
-        assert_eq!(th.loops, 56);
-        assert_eq!((th.tier2_calls, th.tier2_loops), (1024, 2048));
         assert_eq!(th.reason, HotReason::NeutralBase);
+        // T8: the budget line keeps the two OR-gates' corner points — `C`
+        // entries alone and `L` back edges alone fire exactly as before.
+        assert!(!state(31, 0).crossed_first_gate(&th));
+        assert!(state(32, 0).crossed_first_gate(&th));
+        assert!(!state(0, 55).crossed_first_gate(&th));
+        assert!(state(0, 56).crossed_first_gate(&th));
+        assert!(!state(31, 1).crossed_first_gate(&th), "one short of both");
+        // The second gate: unchanged corners.
+        assert!(!state(1023, 0).crossed_second_gate(&th));
+        assert!(state(1024, 0).crossed_second_gate(&th));
+        assert!(state(0, 2048).crossed_second_gate(&th));
+    }
+
+    /// T8's point: the two gates are one **weighted budget**, so a function
+    /// with half of each is hot too (the line cuts the OR-rectangle's corner).
+    #[test]
+    fn the_budget_mixes_calls_and_loops() {
+        let th = AdaptiveInputs::default().thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
+        assert!(!state(15, 28).crossed_first_gate(&th), "just under");
+        assert!(
+            state(16, 28).crossed_first_gate(&th),
+            "16×56 + 28×32 = the budget"
+        );
     }
 
     /// The static shape is read even when no measurement exists (a baseline
@@ -309,9 +382,13 @@ mod tests {
             ..AdaptiveInputs::default()
         };
         let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
-        assert_eq!((th.calls, th.loops), (64, 112));
-        assert_eq!((th.tier2_calls, th.tier2_loops), (2048, 4096));
         assert_eq!(th.reason, HotReason::HelperDensity);
+        assert!(!state(63, 0).crossed_first_gate(&th));
+        assert!(state(64, 0).crossed_first_gate(&th));
+        assert!(state(0, 112).crossed_first_gate(&th));
+        assert!(!state(2047, 0).crossed_second_gate(&th));
+        assert!(state(2048, 0).crossed_second_gate(&th));
+        assert!(state(0, 4096).crossed_second_gate(&th));
     }
 
     #[test]
@@ -321,9 +398,11 @@ mod tests {
             ..AdaptiveInputs::default()
         };
         let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
-        assert_eq!(th.calls, 16);
-        assert_eq!(th.tier2_calls, 512);
         assert_eq!(th.reason, HotReason::MeasuredWork);
+        assert!(!state(15, 0).crossed_first_gate(&th));
+        assert!(state(16, 0).crossed_first_gate(&th));
+        assert!(!state(511, 0).crossed_second_gate(&th));
+        assert!(state(512, 0).crossed_second_gate(&th));
     }
 
     #[test]
@@ -335,8 +414,9 @@ mod tests {
             ..AdaptiveInputs::default()
         };
         let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
-        assert_eq!(th.calls, 64);
         assert_eq!(th.reason, HotReason::HelperDensity);
+        assert!(!state(63, 0).crossed_first_gate(&th));
+        assert!(state(64, 0).crossed_first_gate(&th));
     }
 
     #[test]
@@ -383,14 +463,22 @@ mod tests {
         };
         // 1 KiB → 2x: 64 calls / 112 back edges.
         let th = inputs(1024).thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
-        assert_eq!((th.calls, th.loops), (64, 112));
-        assert_eq!((th.tier2_calls, th.tier2_loops), (2048, 4096));
+        assert!(!state(63, 0).crossed_first_gate(&th));
+        assert!(state(64, 0).crossed_first_gate(&th));
+        assert!(!state(0, 111).crossed_first_gate(&th));
+        assert!(state(0, 112).crossed_first_gate(&th));
+        // The second gate's corners are untouched by the size factor.
+        assert!(!state(2047, 0).crossed_second_gate(&th));
+        assert!(state(2048, 0).crossed_second_gate(&th));
         // 2 KiB → 3x.
         let th = inputs(2048).thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
-        assert_eq!((th.calls, th.loops), (96, 168));
+        assert!(!state(95, 0).crossed_first_gate(&th));
+        assert!(state(96, 0).crossed_first_gate(&th));
         // 4 KiB → the 4x cap.
         let th = inputs(4096).thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
-        assert_eq!((th.calls, th.loops), (128, 224));
+        assert!(!state(127, 0).crossed_first_gate(&th));
+        assert!(state(128, 0).crossed_first_gate(&th));
+        assert!(state(0, 224).crossed_first_gate(&th));
     }
 
     /// A helper-dominated function doubles the size factor on top, and the
@@ -405,11 +493,13 @@ mod tests {
         };
         // 1 KiB → 2x size → 4x total.
         let th = inputs(1024).thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
-        assert_eq!((th.calls, th.loops), (128, 224));
+        assert!(!state(127, 0).crossed_first_gate(&th));
+        assert!(state(128, 0).crossed_first_gate(&th));
         assert_eq!(th.reason, HotReason::HelperDensity);
         // 2 KiB → 3x size → 6x, capped at 4x.
         let th = inputs(2048).thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
-        assert_eq!((th.calls, th.loops), (128, 224));
+        assert!(!state(127, 0).crossed_first_gate(&th));
+        assert!(state(128, 0).crossed_first_gate(&th));
     }
 
     #[test]
@@ -421,13 +511,18 @@ mod tests {
             measured_work: Some(4096),
         };
         let th = inputs.thresholds(1, 1, BASE.2, BASE.3, 0);
-        assert_eq!((th.calls, th.loops), (1, 1), "the host asked for eager");
         assert_eq!(th.reason, HotReason::NeutralBase);
+        assert!(
+            state(1, 0).crossed_first_gate(&th),
+            "the host asked for eager"
+        );
+        assert!(state(0, 1).crossed_first_gate(&th));
     }
 
     /// P1-3: the cost gate is a **floor** under the thresholds. A function
     /// that is called a handful of times cannot pay for a compile, so it is
-    /// not compiled at all — whatever the configured thresholds say.
+    /// not compiled at all — whatever the configured thresholds say. With T8
+    /// the floor lifts the pair first and the budget line follows it.
     #[test]
     fn the_cost_gate_raises_the_thresholds_to_the_payback() {
         let inputs = AdaptiveInputs {
@@ -438,14 +533,21 @@ mod tests {
         };
         // No gate: the configured base.
         let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
-        assert_eq!((th.calls, th.loops), (32, 56));
+        assert!(!state(31, 0).crossed_first_gate(&th));
+        assert!(state(32, 0).crossed_first_gate(&th));
 
-        // A gate of 300 activations: the call gate moves to 300, the back
-        // edge gate keeps the configured 56/32 ratio (525).
+        // A gate of 300 activations: the call corner moves to 300, the back
+        // edge corner keeps the configured 56/32 ratio (525).
         let th = inputs.thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 300);
-        assert_eq!((th.calls, th.loops), (300, 525));
-        // The second gate is a second compile: it gets the same floor.
-        assert_eq!((th.tier2_calls, th.tier2_loops), (1024, 2048));
+        assert!(!state(299, 0).crossed_first_gate(&th));
+        assert!(state(300, 0).crossed_first_gate(&th));
+        assert!(!state(0, 524).crossed_first_gate(&th));
+        assert!(state(0, 525).crossed_first_gate(&th));
+        // The second gate is a second compile: it gets the same floor, and
+        // 300 is below its corners (1024 / 2048), so it is unchanged.
+        assert!(!state(1023, 0).crossed_second_gate(&th));
+        assert!(state(1024, 0).crossed_second_gate(&th));
+        assert!(state(0, 2048).crossed_second_gate(&th));
     }
 
     /// The eager base is exempt: the host asked for the code at the first
@@ -459,7 +561,8 @@ mod tests {
             measured_work: Some(1),
         };
         let th = inputs.thresholds(1, 1, BASE.2, BASE.3, 300);
-        assert_eq!((th.calls, th.loops), (1, 1));
+        assert!(state(1, 0).crossed_first_gate(&th));
+        assert!(state(0, 1).crossed_first_gate(&th));
     }
 
     #[test]

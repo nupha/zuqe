@@ -44,8 +44,8 @@ let mut rt = zuqe::Runtime::create()?;
 let mut ctx = rt.create_context(zuqe::ScopedContext::ECMA_CONTEXT_SETUP)?;
 let jit = Jit::attach_to(&rt, JitConfig::builder()
     .tier_policy(JitTierPolicy::Automatic)   // production default
-    .call_threshold(32)                      // gate 1: queue the function
-    .loop_threshold(56)                      // gate 1: a back edge queues it
+    .call_threshold(32)                      // gate 1: 32 entries alone queue the function
+    .loop_threshold(56)                      // …or 56 back edges; mixed counts share one budget
     .tier2_call_threshold(1024)              // gate 2: promote to the optimizing tier
     .tier2_loop_threshold(2048)              // gate 2: …or this many back edges
     .build())?;
@@ -81,7 +81,10 @@ println!("{:?}", jit.metrics());
 - Tiers: `Interpreter` (hooks inert), `Tier1` (baseline only), `Tier2` (always
   specialize what feedback recorded), `Automatic` (default; two gates — the
   first compiles the baseline tier, the second promotes the function to the
-  optimizing tier, and the specialization is gated on evidence).
+  optimizing tier, and the specialization is gated on evidence). Each gate is a
+  single weighted budget over entries and back edges: `L×calls + C×loops ≥ C×L`
+  for a configured `(C, L)` pair, so the corners `C` calls and `L` back edges
+  fire as before and a mix of both fires earlier.
 
 ## How it works
 

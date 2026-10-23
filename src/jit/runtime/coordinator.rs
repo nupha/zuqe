@@ -754,6 +754,30 @@ mod tests {
         assert_eq!(m.distinct_functions, 1);
     }
 
+    /// T8 end to end: the two interpreter hooks feed **one** weighted budget.
+    /// 16 entries plus 28 back edges cross the 32/56 line although neither
+    /// counter has reached its own corner (16 < 32, 28 < 56) — the wiring the
+    /// `hotness` unit tests cannot see.
+    #[test]
+    fn mixed_calls_and_loops_share_one_budget() {
+        let mut c = two_tier(32, 56, 1024, 2048, 4);
+        let mut m = JitMetrics::default();
+        let opcodes = [crate::bytecode::opcodes::OP_return_undef];
+        for _ in 0..15 {
+            assert!(c.record_call(&mut m, 7, &opcodes, 0).is_none());
+        }
+        for _ in 0..28 {
+            assert!(
+                c.record_loop(&mut m, 7, &opcodes, 0).is_none(),
+                "15×56 + 28×32 is still under the budget"
+            );
+        }
+        assert!(
+            c.record_call(&mut m, 7, &opcodes, 0).is_some(),
+            "16×56 + 28×32 crosses the budget with neither corner reached"
+        );
+    }
+
     /// The map's hash has to spread the node addresses over the buckets.
     /// They are aligned pointers, so a hash that keeps their low bits would
     /// file them all under one bucket and turn every lookup into a walk over
