@@ -52,6 +52,45 @@ const CASES: &[(&str, &str)] = &[
     ("plain_object", "var o = { 0: 7, 1: 8 }; o[1];"),
     // A typed array: a different class, and a different element width.
     ("typed_array", "var t = new Int32Array(4); t[1] = 5; t[1];"),
+    // T11: `a[k]++` (the `get_array_el3` shape). The key is normalised once
+    // and reused for the write.
+    (
+        "post_inc_int",
+        "var a = [1, 2, 3]; var s = 0; for (var i = 0; i < 10; i++){ s += a[i % 3]++; } s + ':' + a.join(',');",
+    ),
+    (
+        "post_inc_string_key",
+        "var a = [1, 2]; a['1']++; a.join(',');",
+    ),
+    (
+        "post_inc_float_key",
+        "var a = [1, 2]; a[1.0]++; a.join(',');",
+    ),
+    (
+        "post_inc_bool_key",
+        "var a = [1, 2]; a[true] = 3; a[true]++; a['true'];",
+    ),
+    ("post_inc_bigint_key", "var a = [1, 2]; a[1n]++; a[1];"),
+    (
+        "post_inc_symbol_key",
+        "var s = Symbol('x'); var o = {}; o[s] = 1; o[s]++; o[s];",
+    ),
+    (
+        "compound_object_key_once",
+        "var n = 0; var k = { toString: function(){ n++; return '0'; } }; var a = [5]; a[k] += 1; a[0] + ':' + n;",
+    ),
+    (
+        "post_inc_conversion_throws",
+        "var a = [1]; try { a[{ toString: function(){ throw new Error('k'); } }]++; } catch (e) { e.message; }",
+    ),
+    (
+        "post_inc_prototype_setter",
+        "var a = [1]; var got = 0; Object.defineProperty(Object.getPrototypeOf(a), '9', { set: function(v){ got = v; }, configurable: true }); a[9]++; got;",
+    ),
+    (
+        "post_inc_nonfast_array",
+        "var a = [1, 2, 3]; delete a[1]; a.length = 3; a[0]++; a[2]++; a.join(',');",
+    ),
     // The `length` property rewritten: the elements are unaffected.
     ("length_rewritten", "var a = [1, 2, 3]; a.length = 1; a[0];"),
     // A frozen array.
@@ -184,9 +223,9 @@ fn run(mode: Mode, setup: &str, main: &str) -> (String, JitMetrics) {
 #[test]
 fn the_inline_guard_keeps_every_result() {
     for (label, script) in CASES {
-        let (expected, _) = run(Mode::Interpreter, script, "");
+        let (expected, _) = run(Mode::Interpreter, "", script);
         for mode in MODES {
-            let (got, metrics) = run(mode, script, "");
+            let (got, metrics) = run(mode, "", script);
             assert_eq!(
                 got, expected,
                 "{label}: {mode:?} disagrees with the interpreter"
@@ -659,5 +698,69 @@ fn the_arguments_object_is_written_inline() {
         if mode != Mode::Interpreter {
             assert!(metrics.functions_compiled > 0, "{mode:?} compiled nothing");
         }
+    }
+}
+
+/// `get_array_el3` (the read half of `a[k]++` / compound assignment) keeps the
+/// property key for the later write, so `ToPropertyKey` must run **once** per
+/// evaluation. A primitive target used to skip the conversion and let both the
+/// read and the write convert again — the key's `valueOf` ran twice.
+#[test]
+fn a_post_increment_converts_the_key_once() {
+    let setup = "\
+        var calls = 0, got = 0; \
+        Object.defineProperty(Number.prototype, 'p', { \
+          get: function(){ return 1; }, \
+          set: function(v){ got = v; }, \
+          configurable: true }); \
+        var key = { toString: function(){ calls++; return 'p'; } }; \
+        function f(){ for (var i = 0; i < 10; i++){ (5)[key]++; } return calls + ':' + got; } \
+        f();";
+    let main = "f();";
+    // One conversion per evaluation: ten calls, not twenty (the read and the
+    // write used to convert the key again each).
+    for mode in MODES {
+        let (got, _) = run(mode, setup, main);
+        assert_eq!(got, "str:20:2", "{mode:?}: expected one key conversion");
+    }
+}
+
+/// The target's null/undefined check comes **before** `ToPropertyKey`: the key
+/// expression has already been evaluated, but its `toString` must not run.
+#[test]
+fn a_null_target_does_not_convert_the_key() {
+    let setup = "\
+        var calls = 0; \
+        var key = { toString: function(){ calls++; return 'x'; } }; \
+        function f(){ try { (null)[key]++; } catch (e) { return (e instanceof TypeError) + ':' + calls; } } \
+        f();";
+    for mode in MODES {
+        let (got, _) = run(mode, setup, "f();");
+        assert_eq!(got, "str:true:0", "{mode:?}: the key was converted first");
+    }
+}
+
+/// A key conversion that throws must leave the generated frame in a state the
+/// interpreter can catch from (the helper exits without touching the stack),
+/// and the loop must keep going afterwards.
+#[test]
+fn a_throwing_key_leaves_the_stack_sane() {
+    let setup = "\
+        function f(){ \
+          var a = [1]; \
+          var n = 0; \
+          for (var i = 0; i < 10; i++){ \
+            try { \
+              a[{ toString: function(){ if (i & 1) throw new Error('key'); return '0'; } }]++; \
+            } catch (e) { n++; } \
+          } \
+          return a[0] + ':' + n; \
+        } f();";
+    for mode in MODES {
+        let (got, _) = run(mode, setup, "f();");
+        assert_eq!(
+            got, "str:6:5",
+            "{mode:?}: the throwing key corrupted the loop"
+        );
     }
 }

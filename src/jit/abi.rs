@@ -1019,12 +1019,19 @@ unsafe extern "C" fn h_get_array_el3(f: *mut JitExecFrame) -> u32 {
         let f = &mut *f;
         let scope = scope_of(f);
         let array = *f.sp.offset(-2);
-        if !array.is_int() && !array.is_string_or_symbol() {
-            if array.is_undefined_or_null() {
-                let _ = scope.throw_type_error("value has no property ");
-                return HELPER_EXCEPTION;
-            }
-            let Ok(prop1) = (*f.sp.offset(-1)).to_propkey(scope) else {
+        // The target's null/undefined check comes first: a null target throws
+        // before `ToPropertyKey` can run user code.
+        if array.is_undefined_or_null() {
+            let _ = scope.throw_type_error("value has no property ");
+            return HELPER_EXCEPTION;
+        }
+        // Normalise the key **once**: the read and the later `put_array_el`
+        // must use the same property key, or `a[k]++` would run the key's
+        // `toString`/`valueOf` twice. An Int/String/Symbol key is already the
+        // form both paths handle, so it needs no allocation.
+        let prop = *f.sp.offset(-1);
+        if !prop.is_int() && !prop.is_string_or_symbol() {
+            let Ok(prop1) = prop.to_propkey(scope) else {
                 return HELPER_EXCEPTION;
             };
             *f.sp.offset(-1) = prop1;

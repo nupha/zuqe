@@ -197,6 +197,19 @@ const KERNELS: &[Kernel] = &[
                    return s + store[0]; } workload(10, 1);",
         work: "workload(2000000, 1);",
     },
+    // The read/write pair of `a[i]++`: `get_array_el3` keeps the key for the
+    // write, so an Int key must not be turned into a fresh property-key string
+    // on every iteration (T11).
+    Kernel {
+        name: "array-post-inc",
+        define: "function workload(iterations){ \
+                   var post = new Array(1024); \
+                   for (var i = 0; i < post.length; i++) post[i] = i; \
+                   var s = 0; \
+                   for (var i = 0; i < iterations; i++){ s += post[i & 1023]++; } \
+                   return s + post[0]; } workload(10);",
+        work: "workload(2000000);",
+    },
     // scalar-control-flow.js: both branch exits establish numeric values whose
     // join feeds the same multiply.
     Kernel {

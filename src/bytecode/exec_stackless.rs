@@ -2484,14 +2484,22 @@ impl Bytecode {
                         let ic_idx = PC_FETCH!(u16) as usize;
                         let arr = SP_REF!(-2);
 
-                        if !arr.is_int() && !arr.is_string_or_symbol() {
-                            // must be tested before ToPropertyKey
-                            if arr.is_undefined_or_null() {
-                                let _ = realm_scope.throw_type_error("value has no property ");
-                                break ExecAction::Exception;
-                            }
+                        // A null/undefined target throws before `ToPropertyKey`
+                        // can run user code (the key is already evaluated, but
+                        // its conversion must not happen).
+                        if arr.is_undefined_or_null() {
+                            let _ = realm_scope.throw_type_error("value has no property ");
+                            break ExecAction::Exception;
+                        }
 
-                            let Ok(prop1) = SP_VAL!(-1).to_propkey(realm_scope) else {
+                        // Normalise the key **once**: the read and the later
+                        // `put_array_el` must use the same property key, or
+                        // `a[k]++` would run the key's `toString`/`valueOf`
+                        // twice. An Int/String/Symbol key needs no conversion
+                        // and no allocation.
+                        let prop = SP_VAL!(-1);
+                        if !prop.is_int() && !prop.is_string_or_symbol() {
+                            let Ok(prop1) = prop.to_propkey(realm_scope) else {
                                 break ExecAction::Exception;
                             };
                             SP_PUT!(-1, prop1);
