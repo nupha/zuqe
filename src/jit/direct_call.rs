@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! The direct call (D-6 route B): a monomorphic call site enters the
+//! The direct call: a monomorphic call site enters the
 //! callee's compiled code without the interpreter's call protocol.
 //!
-//! The general path (route A) runs every call through `call_internal` → the
+//! The general path runs every call through `call_internal` → the
 //! trampoline → the interpreter's frame prologue → the compiled entry. The
 //! direct path skips the middle: the callee gets its own arena frame — so its
 //! captured variables, its closures and the GC see it exactly as they would
@@ -69,7 +69,7 @@ pub(crate) fn call_native_direct(
     if bc.func_kind() != FunctionKind::Normal || bc.realm() != scope.ctx_ptr {
         return DirectCall::Fallback;
     }
-    if bc.jit.entry().is_none() {
+    if !bc.jit.has_code() {
         return DirectCall::Fallback;
     }
 
@@ -235,7 +235,7 @@ pub(crate) fn call_native_direct(
                 }
             }
         }
-        // The baseline never emits these two (epic E4's protocol is unused),
+        // The baseline never emits these two (the bytecode ABI's protocol is unused),
         // so this arm is unreachable; if it ever fires, the call fails rather
         // than re-running the callee (a fallback would call it twice).
         crate::jit::JitExitKind::CallBytecode | crate::jit::JitExitKind::TailCall => {

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! Published machine-code memory, bounded by a byte quota (epic D4).
+//! Published machine-code memory, bounded by a byte quota.
 //!
-//! Ownership (epic D-16) is split: the function's [`FunctionSlot`] holds the
+//! Ownership is split: the function's [`FunctionSlot`] holds the
 //! strong `Rc<CodeSlot>`, and the cache only keeps a `Weak`. A mapping can
 //! therefore only be freed (a) when the last `BytecodeImpl` that could call it
 //! is collected, or (b) by an explicit eviction that clears the slot first.
@@ -63,6 +63,9 @@ pub(crate) struct CodeSlot {
     /// least recently used live mapping.
     clock: Rc<Cell<u64>>,
     last_use: Cell<u64>,
+    /// Whether the mapping was ever entered. Retiring or replacing code that
+    /// never ran is compile budget spent for nothing.
+    entered: Cell<bool>,
 }
 
 impl CodeSlot {
@@ -72,6 +75,7 @@ impl CodeSlot {
             code: UnsafeCell::new(Some(code)),
             clock,
             last_use: Cell::new(now),
+            entered: Cell::new(false),
         }
     }
 
@@ -81,6 +85,7 @@ impl CodeSlot {
     /// Single-threaded, like the rest of the JIT: the write is a short,
     /// non-reentrant update with no aliasing reference held across it.
     pub(crate) fn entry(&self) -> Option<*const u8> {
+        self.entered.set(true);
         let now = self.clock.get().wrapping_add(1);
         self.clock.set(now);
         self.last_use.set(now);
@@ -88,6 +93,11 @@ impl CodeSlot {
         unsafe { &*self.code.get() }
             .as_ref()
             .map(|code| code.entry())
+    }
+
+    /// Whether this mapping was ever entered.
+    pub(crate) fn entered(&self) -> bool {
+        self.entered.get()
     }
 
     pub(crate) fn has_code(&self) -> bool {
@@ -106,7 +116,7 @@ impl CodeSlot {
         self.last_use.get()
     }
 
-    /// Retire the code (D-16). The mapping is unmapped as soon as the last
+    /// Retire the code. The mapping is unmapped as soon as the last
     /// `Rc<CodeBlock>` goes away.
     fn evict(&self) {
         // SAFETY: single-threaded; the caller is `Jit::poll`, between native
@@ -118,6 +128,14 @@ impl CodeSlot {
 struct CachedCode {
     slot: Weak<CodeSlot>,
     bytes: usize,
+}
+
+/// The live mappings one insert retired to make room, and how many of them
+/// never ran.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Retired {
+    pub(crate) ids: Vec<u64>,
+    pub(crate) unused: u64,
 }
 
 /// Tracks all published code and enforces `max_bytes`.
@@ -148,16 +166,18 @@ impl CodeCache {
     /// function falls back to the interpreter); the retired ids are returned so
     /// the caller can reset their hotness. `Err` only when the artifact alone
     /// does not fit the whole budget.
-    pub(crate) fn insert(&mut self, id: u64, slot: &Rc<CodeSlot>) -> Result<Vec<u64>, CacheError> {
+    pub(crate) fn insert(&mut self, id: u64, slot: &Rc<CodeSlot>) -> Result<Retired, CacheError> {
         self.sweep();
         let bytes = slot.bytes();
-        let mut evicted = Vec::new();
+        let mut retired = Retired::default();
         while bytes > self.max_bytes.saturating_sub(self.used) {
             let Some(victim) = self.lru_victim() else {
                 break;
             };
-            self.retire(victim);
-            evicted.push(victim);
+            if self.retire(victim) {
+                retired.unused = retired.unused.saturating_add(1);
+            }
+            retired.ids.push(victim);
         }
         if bytes > self.max_bytes.saturating_sub(self.used) {
             return Err(CacheError::ArtifactTooLarge);
@@ -172,7 +192,7 @@ impl CodeCache {
             self.used = self.used.saturating_sub(old.bytes);
         }
         self.used = self.used.saturating_add(bytes);
-        Ok(evicted)
+        Ok(retired)
     }
 
     /// Drop every entry whose owner is already gone and return the reclaimed
@@ -214,13 +234,18 @@ impl CodeCache {
     }
 
     /// Clear `id`'s slot and drop its accounting, so the freed bytes are usable.
-    fn retire(&mut self, id: u64) {
-        if let Some(entry) = self.entries.remove(&id) {
-            self.used = self.used.saturating_sub(entry.bytes);
-            if let Some(slot) = entry.slot.upgrade() {
-                slot.evict();
-            }
-        }
+    /// Returns whether the retired mapping had never been entered.
+    fn retire(&mut self, id: u64) -> bool {
+        let Some(entry) = self.entries.remove(&id) else {
+            return false;
+        };
+        self.used = self.used.saturating_sub(entry.bytes);
+        let Some(slot) = entry.slot.upgrade() else {
+            return false;
+        };
+        let unused = !slot.entered();
+        slot.evict();
+        unused
     }
 
     pub(crate) const fn used_bytes(&self) -> u64 {
@@ -258,7 +283,7 @@ mod tests {
         assert!(!cache.contains(1));
     }
 
-    /// D-16 retirement of a live function: a short budget clears the least
+    /// Single-owner retirement of a live function: a short budget clears the least
     /// recently used slot instead of refusing the compile. The cleared slot
     /// holds no entry, so the function can only fall back to the interpreter —
     /// its old `NativeEntry` can no longer be called.
@@ -266,12 +291,16 @@ mod tests {
     fn a_short_budget_retires_the_live_lru_entry() {
         let mut cache = CodeCache::new(8 * 1024);
         let first = slot(&cache, 8 * 1024);
-        assert_eq!(cache.insert(1, &first), Ok(Vec::new()));
+        assert_eq!(cache.insert(1, &first), Ok(Retired::default()));
         assert_eq!(cache.used_bytes(), 8 * 1024);
 
         let second = slot(&cache, 1);
         let evicted = cache.insert(2, &second).expect("live retire");
-        assert_eq!(evicted, vec![1]);
+        assert_eq!(evicted.ids, vec![1]);
+        assert_eq!(
+            evicted.unused, 1,
+            "the retired mapping never ran a native entry"
+        );
         assert!(!cache.contains(1));
         assert_eq!(cache.used_bytes(), second.bytes() as u64);
 
@@ -279,13 +308,13 @@ mod tests {
         assert!(!first.has_code());
     }
 
-    /// D-16 retirement when the owner is collected: its bytes come back and the
+    /// Single-owner retirement when the owner is collected: its bytes come back and the
     /// entry disappears without any eviction.
     #[test]
     fn a_dropped_owner_reclaims_its_bytes() {
         let mut cache = CodeCache::new(8 * 1024);
         let first = slot(&cache, 8 * 1024);
-        assert_eq!(cache.insert(1, &first), Ok(Vec::new()));
+        assert_eq!(cache.insert(1, &first), Ok(Retired::default()));
 
         // Live owner: nothing to reclaim.
         assert_eq!(cache.reclaim(), 0);
@@ -297,7 +326,7 @@ mod tests {
 
         // The reclaimed budget is usable again.
         let second = slot(&cache, 8 * 1024);
-        assert_eq!(cache.insert(2, &second), Ok(Vec::new()));
+        assert_eq!(cache.insert(2, &second), Ok(Retired::default()));
     }
 
     /// Re-inserting the same function replaces the old mapping's accounting
@@ -306,9 +335,9 @@ mod tests {
     fn reinstalling_the_same_id_replaces_its_bytes() {
         let mut cache = CodeCache::new(8 * 1024);
         let first = slot(&cache, 64);
-        assert_eq!(cache.insert(7, &first), Ok(Vec::new()));
+        assert_eq!(cache.insert(7, &first), Ok(Retired::default()));
         let second = slot(&cache, 64);
-        assert_eq!(cache.insert(7, &second), Ok(Vec::new()));
+        assert_eq!(cache.insert(7, &second), Ok(Retired::default()));
         // One page either way (`CodeMem` rounds up), and only one entry.
         assert_eq!(cache.used_bytes(), second.bytes() as u64);
         assert_eq!(cache.len(), 1);
@@ -321,12 +350,12 @@ mod tests {
         let mut cache = CodeCache::new(16 * 1024);
         let first = slot(&cache, 8 * 1024);
         let second = slot(&cache, 8 * 1024);
-        assert_eq!(cache.insert(1, &first), Ok(Vec::new()));
-        assert_eq!(cache.insert(2, &second), Ok(Vec::new()));
+        assert_eq!(cache.insert(1, &first), Ok(Retired::default()));
+        assert_eq!(cache.insert(2, &second), Ok(Retired::default()));
         // Touch `1`, so `2` (inserted later) is the LRU one.
         first.entry();
         let third = slot(&cache, 1);
-        assert_eq!(cache.insert(3, &third).unwrap(), vec![2]);
+        assert_eq!(cache.insert(3, &third).unwrap().ids, vec![2]);
         assert!(first.has_code(), "the recently used entry stays");
         assert!(!second.has_code());
     }

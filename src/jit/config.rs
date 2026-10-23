@@ -13,7 +13,7 @@ pub(crate) type MetricsSink = Box<dyn Fn(&JitMetrics)>;
 const DEFAULT_CALL_THRESHOLD: u32 = 32;
 const DEFAULT_LOOP_THRESHOLD: u32 = 56;
 /// Second gate: the invocation count that promotes an already-compiled
-/// function to the optimizing tier (plan §13.6.5 item 1). The first gate
+/// function to the optimizing tier. The first gate
 /// compiles the baseline; this one recompiles it with the tier-2
 /// specialization. 1024 sits in the mainstream band (V8 Maglev 400/1000,
 /// SpiderMonkey Ion 1500, JSC DFG 1000).
@@ -26,7 +26,7 @@ const DEFAULT_TIER2_LOOP_THRESHOLD: u32 = 2048;
 /// stops the promotion and the tier-down from chasing each other.
 const DEFAULT_TIER2_MIN_INVOCATIONS: u32 = 500;
 /// Evidence a site must show before `Automatic` pays for a speculative fast
-/// path (epic F5). Default 8 matches the reference's "at least 8 executions
+/// path. Default 8 matches the reference's "at least 8 executions
 /// before a trial": with the stock thresholds (32 calls / 56 backedges) a
 /// genuinely hot site clears it for free, while a one-off observation in a
 /// cold branch no longer earns a guard-miss path.
@@ -38,7 +38,7 @@ const DEFAULT_WORKERS: usize = 1;
 const DEFAULT_COMPILE_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_MAX_COMPILE_ATTEMPTS: u32 = 4;
 /// The default estimate of what one bytecode of native execution saves
-/// (plan §13.6.4: the interpreter spends ~20–50 ns per bytecode, the machine
+/// (the compile-cost model: the interpreter spends ~20–50 ns per bytecode, the machine
 /// code ~10–30 ns of that is saved). It is the benefit side of the cost
 /// gate; the cost side is measured at run time.
 const DEFAULT_NATIVE_SAVING_NS_PER_BYTECODE: u64 = 20;
@@ -50,8 +50,8 @@ pub enum JitTierPolicy {
     Interpreter,
     /// Baseline translation only.
     Tier1,
-    /// Optimizing tier only. Fixed policy: every int-monomorphic site F1
-    /// recorded is specialized, regardless of the profitability gate. There
+    /// Optimizing tier only. Fixed policy: every int-monomorphic site the
+    /// feedback recorded is specialized, regardless of the profitability gate. There
     /// is no tiering: the function is compiled at the first gate.
     Tier2,
     /// Pick the tier automatically from the hotness feedback: the first gate
@@ -71,7 +71,7 @@ pub struct JitConfig {
     pub(crate) call_threshold: u32,
     pub(crate) loop_threshold: u32,
     /// Second gate: the invocation count that promotes a compiled function to
-    /// the optimizing tier (plan §13.6.5 item 1). Only the `Automatic` policy
+    /// the optimizing tier. Only the `Automatic` policy
     /// promotes; the forced policies compile their tier right away.
     pub(crate) tier2_call_threshold: u32,
     /// The back-edge counterpart of [`Self::tier2_call_threshold`].
@@ -81,7 +81,7 @@ pub struct JitConfig {
     pub(crate) tier2_min_invocations: u32,
     pub(crate) tier_policy: JitTierPolicy,
     /// Minimum feedback samples a site needs before `Automatic` specializes
-    /// it (epic F5). Forced `Tier2` ignores it.
+    /// it (the profitability gate). Forced `Tier2` ignores it.
     pub(crate) specialization_min_samples: u32,
     pub(crate) max_code_bytes: usize,
     pub(crate) max_metadata_bytes: usize,
@@ -107,14 +107,14 @@ pub struct JitConfig {
     pub(crate) compile_timeout_ms: u64,
     pub(crate) max_compile_attempts: u32,
     /// The host's estimate of how many nanoseconds one bytecode of native
-    /// execution saves over running it in the interpreter (plan §13.6.4:
+    /// execution saves over running it in the interpreter (the compile-cost model:
     /// the interpreter runs a bytecode in ~20–50 ns, the machine code saves
     /// ~10–30 ns of that).
     ///
     /// It is the *benefit* side of the cost gate: with the **measured** cost
     /// side (how long a compile takes, `jit::rate`), the JIT can tell whether
-    /// a compile can pay for itself and hold back the ones that cannot
-    /// (IMP-2, P1-3). `0` turns the gate off: every function that crosses
+    /// a compile can pay for itself and hold back the ones that cannot.
+    /// `0` turns the gate off: every function that crosses
     /// the configured thresholds is compiled.
     pub(crate) native_saving_ns_per_bytecode: u64,
     /// Sink for human-readable diagnostics.
@@ -185,7 +185,7 @@ impl JitConfig {
     }
 
     /// Second gate: the invocation count that promotes a compiled function to
-    /// the optimizing tier (plan §13.6.5 item 1).
+    /// the optimizing tier.
     pub const fn tier2_call_threshold(&self) -> u32 {
         self.tier2_call_threshold
     }
@@ -205,7 +205,7 @@ impl JitConfig {
         self.tier_policy
     }
 
-    /// Profitability gate for `Automatic` (epic F5): the samples a feedback
+    /// Profitability gate for `Automatic`: the samples a feedback
     /// site must have before it earns a speculative fast path.
     pub const fn specialization_min_samples(&self) -> u32 {
         self.specialization_min_samples
@@ -291,7 +291,7 @@ impl JitConfigBuilder {
     }
 
     /// Samples a feedback site needs before `Automatic` specializes it
-    /// (epic F5). Clamped to `>= 1`; `Tier2` ignores this entirely.
+    /// Clamped to `>= 1`; `Tier2` ignores this entirely.
     pub fn specialization_min_samples(mut self, n: u32) -> Self {
         self.0.specialization_min_samples = n.max(1);
         self

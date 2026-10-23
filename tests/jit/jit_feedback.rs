@@ -306,8 +306,7 @@ fn f2_baseline_policies_never_specialize() {
 fn an_overflowing_result_is_not_specialized() {
     const CLEAN: &str =
         "function f(){ var i = 0; for (var k = 0; k < 30; k++){} i++; return i + k; } f();";
-    const OVERFLOW: &str =
-        "function f(){ var i = 2147483647; for (var k = 0; k < 30; k++){} i++; return i + k; } f();";
+    const OVERFLOW: &str = "function f(){ var i = 2147483647; for (var k = 0; k < 30; k++){} i++; return i + k; } f();";
 
     let (clean_out, clean) = run_script(JitTierPolicy::Tier2, CLEAN, "f()");
     let (over_out, over) = run_script(JitTierPolicy::Tier2, OVERFLOW, "f()");
@@ -598,6 +597,10 @@ fn the_second_gate_promotes_a_hot_function() {
     assert_eq!(
         second.functions_recompiled, 1,
         "the promotion is a recompile (metrics: {second:?})"
+    );
+    assert_eq!(
+        second.code_replaced, 1,
+        "the promotion replaced the baseline mapping (metrics: {second:?})"
     );
 
     // The promotion must not change the answer.

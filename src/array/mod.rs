@@ -25,7 +25,7 @@ use crate::{
 
 pub use crate::object::Array;
 
-/// The elements of a fast array, in the layout the JIT reads (P1-1).
+/// The elements of a fast array, in the layout the JIT reads (the property inline guard).
 ///
 /// The JIT's inline guard loads the data pointer and the length at fixed
 /// offsets, so this is `#[repr(C)]` and the offsets are published below.
@@ -50,7 +50,7 @@ pub(crate) const ELEMENTS_VIEW_OFFSET: i32 = std::mem::offset_of!(ArrayPayload, 
 #[repr(C)]
 #[derive(Debug)]
 pub struct ArrayPayload {
-    /// The elements, as the JIT sees them (P1-1). A mirror of `values`; the
+    /// The elements, as the JIT sees them (the property inline guard). A mirror of `values`; the
     /// JIT reads it instead of walking the vector's internals.
     view: ElementsView,
     /// The elements themselves.
@@ -82,7 +82,7 @@ impl ArrayPayload {
         }
     }
 
-    /// Refresh the mirror the JIT reads (P1-1). Every method that changes the
+    /// Refresh the mirror the JIT reads (the property inline guard). Every method that changes the
     /// vector's length or its buffer must call this.
     const fn sync_view(&mut self) {
         self.view = ElementsView {
@@ -160,7 +160,7 @@ impl ArrayPayload {
         self.sync_view();
     }
 
-    /// Drop the elements from `from` on (P1-1: the mirror follows).
+    /// Drop the elements from `from` on (the property inline guard: the mirror follows).
     #[inline(always)]
     pub(crate) fn drain_tail(&mut self, from: usize) {
         self.values.drain(from..);
@@ -168,7 +168,7 @@ impl ArrayPayload {
     }
 
     /// Replace the elements with `values`, padded with `JSValue::UNDEFINED`
-    /// to `length` (P1-1: the mirror follows).
+    /// to `length` (the property inline guard: the mirror follows).
     ///
     /// No write barrier needed: all elements come from the array itself,
     /// their reference relations were already established on initial insertion.
@@ -184,7 +184,7 @@ impl ArrayPayload {
     }
 
     /// Take the elements out of the payload (the caller owns them now). The
-    /// payload is left empty, and the mirror follows (P1-1) so the JIT's
+    /// payload is left empty, and the mirror follows (the property inline guard) so the JIT's
     /// bounds check rejects the array until it is filled again.
     #[inline(always)]
     pub(crate) fn take_values(&mut self) -> Vec<JSValue> {
@@ -198,7 +198,7 @@ impl ArrayPayload {
 mod tests {
     use super::*;
 
-    /// The layout the JIT's inline guard reads (P1-1). The offsets are
+    /// The layout the JIT's inline guard reads. The offsets are
     /// computed, so a field moving does not break the JIT — but the *order*
     /// and the *widths* are a contract: the generated code loads the data
     /// pointer as a 64-bit pointer and the length as a 32-bit count, in that

@@ -767,6 +767,12 @@ struct Run {
     compile_nanos: u64,
     /// Compile attempts that were measured.
     compile_attempts: u64,
+    /// Mappings the code cache retired for quota.
+    retired: u64,
+    /// Installed mappings a recompile replaced.
+    replaced: u64,
+    /// Installations retired or replaced without ever running.
+    never_entered: u64,
 }
 
 fn run_kernel(kernel: &Kernel, mode: Mode, th: &Thresholds) -> Run {
@@ -826,6 +832,9 @@ fn run_kernel(kernel: &Kernel, mode: Mode, th: &Thresholds) -> Run {
         specialized: metrics.specialized_ops,
         compile_nanos: metrics.compile_nanos,
         compile_attempts: metrics.compile_attempts,
+        retired: metrics.code_retired,
+        replaced: metrics.code_replaced,
+        never_entered: metrics.code_never_entered,
     }
 }
 
@@ -866,14 +875,18 @@ fn run_one(args: &[String]) -> bool {
     });
     let run = run_kernel(kernel, mode, &parse_thresholds(args));
     println!(
-        "ms={} result={:016x} compiled={} promoted={} specialized={} compile_ns={} compile_attempts={}",
+        "ms={} result={:016x} compiled={} promoted={} specialized={} compile_ns={} compile_attempts={} \
+         retired={} replaced={} never_entered={}",
         run.median.as_secs_f64() * 1e3,
         run.result,
         run.compiled,
         run.promotions,
         run.specialized,
         run.compile_nanos,
-        run.compile_attempts
+        run.compile_attempts,
+        run.retired,
+        run.replaced,
+        run.never_entered
     );
     true
 }
@@ -941,6 +954,8 @@ fn run_process_protocol(show: &[Mode], rounds: usize, th: &Thresholds, kernels: 
     let mut compiled: Vec<(Mode, u64)> = run.iter().map(|&m| (m, 0)).collect();
     // The compile cost of every child, summed per mode (P0-1).
     let mut compile: Vec<(Mode, u64, u64)> = run.iter().map(|&m| (m, 0, 0)).collect();
+    // Code retired / replaced / never entered, summed per mode.
+    let mut code_usage: Vec<(Mode, [u64; 3])> = run.iter().map(|&m| (m, [0; 3])).collect();
     // The child re-parses the thresholds, so a sweep runs the same
     // configuration in every fresh process.
     let th_args: Vec<String> = vec![
@@ -995,6 +1010,12 @@ fn run_process_protocol(show: &[Mode], rounds: usize, th: &Thresholds, kernels: 
                 cslot.2 += fields["compile_attempts"]
                     .parse::<u64>()
                     .expect("compile_attempts");
+                let usage = code_usage.iter_mut().find(|(m, _)| m == mode).unwrap();
+                usage.1[0] += fields["retired"].parse::<u64>().expect("retired");
+                usage.1[1] += fields["replaced"].parse::<u64>().expect("replaced");
+                usage.1[2] += fields["never_entered"]
+                    .parse::<u64>()
+                    .expect("never_entered");
                 samples
                     .iter_mut()
                     .find(|(m, _)| m == mode)
@@ -1039,6 +1060,20 @@ fn run_process_protocol(show: &[Mode], rounds: usize, th: &Thresholds, kernels: 
         .join(" ");
     println!("functions_compiled: {summary}");
     println!("{}", compile_summary_line(&compile));
+    println!("{}", code_usage_line(&code_usage));
+}
+
+/// The code that was compiled but not used: retired for quota, replaced by a
+/// recompile (a tier-2 promotion or a tier-down), and never entered at all.
+fn code_usage_line(entries: &[(Mode, [u64; 3])]) -> String {
+    let summary: String = entries
+        .iter()
+        .map(|(m, [retired, replaced, unused])| {
+            format!("{}={retired}/{replaced}/{unused}", m.label())
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("code_usage (retired/replaced/never_entered): {summary}")
 }
 
 /// The compile cost per mode: total time, number of attempts, mean per
@@ -1127,6 +1162,8 @@ fn main() {
     let mut specialized: Vec<(Mode, u64)> = run.iter().map(|&m| (m, 0)).collect();
     // The compile cost per mode (P0-1): nanoseconds and attempts.
     let mut compile: Vec<(Mode, u64, u64)> = run.iter().map(|&m| (m, 0, 0)).collect();
+    // Code retired / replaced / never entered, per mode.
+    let mut code_usage: Vec<(Mode, [u64; 3])> = run.iter().map(|&m| (m, [0; 3])).collect();
     for kernel in &kernels {
         let runs: Vec<(Mode, Run)> = run
             .iter()
@@ -1179,6 +1216,10 @@ fn main() {
             let cost = compile.iter_mut().find(|(cm, _, _)| cm == m).unwrap();
             cost.1 += r.compile_nanos;
             cost.2 += r.compile_attempts;
+            let usage = code_usage.iter_mut().find(|(um, _)| um == m).unwrap();
+            usage.1[0] += r.retired;
+            usage.1[1] += r.replaced;
+            usage.1[2] += r.never_entered;
         }
     }
 
@@ -1206,4 +1247,5 @@ fn main() {
             .join(" ")
     );
     println!("{}", compile_summary_line(&compile));
+    println!("{}", code_usage_line(&code_usage));
 }

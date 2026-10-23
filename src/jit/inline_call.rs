@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! D-6 route B, step 2: copy an inlinable callee's body into the caller.
+//! The inlined call path: copy an inlinable callee's body into the caller.
 //!
 //! The first step enters the callee's own compiled code; this step removes
 //! that code's arena frame as well. The callee's arguments, locals and
@@ -17,24 +17,24 @@
 //! the whole call to the general path, which re-runs the callee from scratch
 //! with the untouched call window. That is why a bailout is safe without a
 //! deopt map: the inline path has no observable side effect, so nothing
-//! observable has happened. D-25's flush rule still holds: no register-resident
+//! observable has happened. The flush rule still holds: no register-resident
 //! value ever crosses a helper or an exit.
 //!
 //! The extensions are independent (T7):
 //!
-//! * **Loops** (T7.1): a backward edge polls the caller frame's safepoint
+//! * **Loops**: a backward edge polls the caller frame's safepoint
 //!   first; the inline body carries only integer-domain values (or copies of
 //!   the original arguments, still in the call window), so the caller frame is
 //!   a complete GC root set without a frame of its own. A non-zero status —
 //!   and a poisoned back edge — bails to the general path.
-//! * **Calls** (T7.2): a monomorphic nested site copies its callee too (the
+//! * **Calls**: a monomorphic nested site copies its callee too (the
 //!   snapshot carries the body and its own sites, depth ≤2). The nested guard
 //!   compares the live callee's bytecode identity with a compile-time
 //!   constant; a miss bails.
-//! * **Exceptions** (T7.3): `catch`/`nip_catch` only keep the stack height
+//! * **Exceptions**: `catch`/`nip_catch` only keep the stack height
 //!   right; every `throw` bails, so the interpreter's catch scan (including a
 //!   handler inside the callee) owns the semantics.
-//! * **Allocation** (T7.4): only `{}` and `[]` are in the subset. The helper
+//! * **Allocation**: only `{}` and `[]` are in the subset. The helper
 //!   writes the new object to the frame scratch slot; that is safe because an
 //!   allocation never collects (it only sets `gc_req`), so a copied subtree
 //!   that allocates must contain no safepoint (`hazards`).
@@ -53,10 +53,10 @@ use super::{
 const UNDEFINED: i64 = 3 << 48;
 const NULL: i64 = 2 << 48;
 const BOOL_TAG: i64 = 1 << 48;
-/// The nested guard's hit counter (T7.2 instrumentation).
+/// The nested guard's hit counter (nested-inline instrumentation).
 const O_NESTED_INLINE_HITS: i32 =
     std::mem::offset_of!(crate::jit::abi::JitExecFrame, nested_inline_hits) as i32;
-/// The allocation helper's result slot (T7.4).
+/// The allocation helper's result slot.
 const O_SCRATCH: i32 = std::mem::offset_of!(crate::jit::abi::JitExecFrame, scratch) as i32;
 
 /// Bounds on a copied body. They keep the caller's generated code (and the
@@ -65,7 +65,7 @@ const O_SCRATCH: i32 = std::mem::offset_of!(crate::jit::abi::JitExecFrame, scrat
 const MAX_INSTRUCTIONS: usize = 96;
 const MAX_BLOCKS: usize = 16;
 
-/// One verified body plus its nested monomorphic call sites (T7.2). The plan is
+/// One verified body plus its nested monomorphic call sites. The plan is
 /// built once per top-level inline site and consumed by [`lower`].
 pub(super) struct Plan {
     pub(super) body: VerifiedFunction,
@@ -1035,7 +1035,7 @@ mod tests {
         assert_body(if_false, 0, 0, &[], int(1));
     }
 
-    /// A backward edge is in the subset now (T7.1). This body's loop arm is
+    /// A backward edge is in the subset now. This body's loop arm is
     /// statically reachable but never taken, so the harness never executes the
     /// safepoint call (which needs a real frame) while still compiling it.
     #[test]
@@ -1309,7 +1309,7 @@ mod tests {
             33
         ));
 
-        // A loop is inside the subset now (T7.1): its back edge polls the
+        // A loop is inside the subset now: its back edge polls the
         // caller frame, so the eligibility gate no longer rejects it.
         let mut loop_forever = Asm::new();
         loop_forever.branch(op::OP_goto, 0);
@@ -1387,7 +1387,7 @@ mod tests {
         );
     }
 
-    /// T7.2: a call inside a copied body emits the nested body too.
+    /// Nested inlining: a call inside a copied body emits the nested body too.
     #[test]
     fn nested_inline_bodies_are_emitted() {
         let leaf = bytes(&[&push(1), &[op::OP_return]]);

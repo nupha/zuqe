@@ -8,22 +8,32 @@ use std::rc::Rc;
 use crate::{
     function::Bytecode,
     jit::{
-        code_cache::{CodeBlock, CodeCache, CodeSlot},
+        code_cache::{CodeBlock, CodeCache, CodeSlot, Retired},
         platform::CodeMem,
     },
 };
 
+/// What one publish did, for the counters.
+pub(crate) struct Published {
+    /// Live mappings the cache retired to make room; the caller resets them to
+    /// `Cold` so they can recompile.
+    pub(crate) evicted: Retired,
+    /// The install replaced existing code.
+    pub(crate) replaced: bool,
+    /// The replaced code had never been entered.
+    pub(crate) replaced_unused: bool,
+}
+
 /// Map, publish and install `bytes` for `bytecode`. Returns `None` when nothing
 /// was installed (the mapping failed or the artifact does not fit the whole
-/// budget); otherwise the ids of the live mappings the cache retired to make
-/// room, which the caller resets to `Cold` so they can recompile. The
-/// function's slot owns the mapping (D-16); the cache only tracks its bytes.
+/// budget). The function's slot owns the mapping; the cache only tracks its
+/// bytes.
 pub(crate) fn publish(
     cache: &mut CodeCache,
     id: u64,
     bytecode: &Bytecode,
     bytes: &[u8],
-) -> Option<Vec<u64>> {
+) -> Option<Published> {
     let Ok(mem) = CodeMem::alloc(bytes.len()) else {
         return None;
     };
@@ -33,6 +43,10 @@ pub(crate) fn publish(
     let block = Rc::new(CodeBlock::new(mem));
     let slot = Rc::new(CodeSlot::new(block, cache.clock()));
     let evicted = cache.insert(id, &slot).ok()?;
-    bytecode.jit.install(slot);
-    Some(evicted)
+    let replaced = bytecode.jit.install(slot);
+    Some(Published {
+        evicted,
+        replaced: replaced.is_some(),
+        replaced_unused: replaced.is_some_and(|old| !old.entered()),
+    })
 }

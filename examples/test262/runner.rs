@@ -143,6 +143,9 @@ fn record_jit_metrics(m: &zuqe::JitMetrics) {
     t.functions_rejected += m.functions_rejected;
     t.functions_verified += m.functions_verified;
     t.functions_compiled += m.functions_compiled;
+    t.code_retired += m.code_retired;
+    t.code_replaced += m.code_replaced;
+    t.code_never_entered += m.code_never_entered;
     t.native_entries += m.native_entries;
     t.native_interrupts += m.native_interrupts;
     t.compile_failures += m.compile_failures;

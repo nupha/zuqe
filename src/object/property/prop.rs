@@ -274,7 +274,7 @@ impl JSPropertyDescriptor {
     }
 }
 
-/// The variant tags of [`JSProperty`] — the contract with the JIT (P1-1).
+/// The variant tags of [`JSProperty`] — the contract with the JIT (the property inline guard).
 ///
 /// The inline property guard reads the tag byte of a slot and compares it
 /// with [`PROP_TAG_NORMAL`]: a slot that carries anything else is not a data
@@ -289,7 +289,7 @@ pub(crate) const PROP_TAG_DELETED: u8 = 4;
 
 /// Property content
 ///
-/// The layout is a contract with the JIT (P1-1): the inline property guard
+/// The layout is a contract with the JIT: the inline property guard
 /// reads the variant's tag and, for a `Normal` slot, the value — at fixed
 /// offsets. `#[repr(C, u8)]` puts the tag in a byte at offset 0 and the
 /// variant's payload right after it (at the union's alignment), so the
@@ -353,8 +353,8 @@ impl Default for JSProperty {
 }
 
 impl JSProperty {
-    /// The offset of the variant's tag (P1-1: the JIT's inline property guard
-    /// reads it to tell a data property from an accessor or a tombstone).
+    /// The offset of the variant's tag; the JIT's inline property guard
+    /// reads it to tell a data property from an accessor or a tombstone.
     pub(crate) const fn tag_offset() -> i32 {
         0
     }
@@ -618,7 +618,7 @@ pub(crate) const fn check_define_prop_flags(prop_flags: u32, flags: u32) -> bool
 mod tests {
     use super::*;
 
-    /// The layout the JIT's inline property guard reads (P1-1): the variant's
+    /// The layout the JIT's inline property guard reads: the variant's
     /// tag, and the value inside a `Normal` slot.
     ///
     /// The offsets are fixed by `#[repr(C, u8)]`, but *which* variant carries

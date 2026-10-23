@@ -247,7 +247,7 @@ impl ObjectImpl {
         // compact prop_values
         self.prop_values
             .retain(|p| !matches!(p, JSProperty::Deleted));
-        // P1-1: the mirror the JIT reads follows the slots.
+        // The property inline guard: the mirror the JIT reads follows the slots.
         self.sync_prop_view();
 
         self.deleted_slot_count = 0;

@@ -7,8 +7,8 @@
 /// counts the attempts that took **less** than `COMPILE_BUCKET_EDGES_NS[i]`;
 /// the last bucket counts the rest (the overflow bucket).
 ///
-/// The edges straddle the measured compile cost (1.0–1.4 ms per function,
-/// plan §13.6.4), so a run shows whether the cost is dominated by a few slow
+/// The edges straddle the measured compile cost (1.0–1.4 ms per function), so a run
+/// shows whether the cost is dominated by a few slow
 /// functions or is spread out.
 pub const COMPILE_BUCKET_EDGES_NS: [u64; 5] = [
     100_000,    // < 0.1 ms
@@ -53,11 +53,11 @@ pub struct JitMetrics {
     /// the optimizing tier, or a tier-down). The compile count minus this is
     /// the number of functions that got native code for the first time.
     pub functions_recompiled: u64,
-    /// Functions promoted to the optimizing tier (plan §13.6.5 item 1): the
+    /// Functions promoted to the optimizing tier: the
     /// second gate fired and the function was recompiled with the tier-2
     /// specialization.
     pub tier2_promotions: u64,
-    /// Functions demoted by the tier-down (P7 7.2): their speculative fast
+    /// Functions demoted by a tier-down: their speculative fast
     /// paths missed too often, so they were recompiled without speculation.
     pub tier_downs: u64,
     /// Times a compiled entry was invoked.
@@ -74,29 +74,39 @@ pub struct JitMetrics {
     /// Functions permanently parked in the interpreter: rejected, or out of
     /// compile attempts.
     pub functions_settled: u64,
-    /// Deoptimizations back to the interpreter. Always `0`: D-25 rejected the
+    /// Deoptimizations back to the interpreter. Always `0`: frame authority rejected the
     /// whole-frame deopt / `DeoptMap` design, so a guard miss falls back to the
     /// interpreter helper *inside* the native frame instead of unwinding. The
     /// field stays for API stability but is never written.
     pub deopts: u64,
     /// Machine code bytes currently published.
     pub code_bytes: u64,
-    /// Distinct tier-2 feedback sites recorded (epic F1). Zero under
+    /// Mappings the code cache retired to stay within its byte budget. Each one
+    /// handed its function back to the interpreter.
+    pub code_retired: u64,
+    /// Installed mappings replaced by a newer compile of the same function (a
+    /// tier-2 promotion, or a tier-down).
+    pub code_replaced: u64,
+    /// Installations that never ran: retired or replaced before a single
+    /// native entry. A high count means the compile budget went to code
+    /// nobody called.
+    pub code_never_entered: u64,
+    /// Distinct tier-2 feedback sites recorded. Zero under
     /// `Interpreter`/`Tier1` policies, which never record.
     pub feedback_sites: u64,
     /// Binary ops whose feedback was int-monomorphic and that therefore got a
-    /// speculative inline int fast path instead of a helper call (epic F2).
+    /// speculative inline int fast path instead of a helper call.
     /// Zero under `Interpreter`/`Tier1` policies, and under `Automatic` until a
-    /// site clears the profitability gate (epic F5,
+    /// site clears the profitability gate,
     /// `JitConfig::specialization_min_samples`).
     pub specialized_ops: u64,
-    /// Times an installed speculative int fast path (epic F2) bailed to its
-    /// helper because the runtime value was not the assumed `Int` (P7 7.2
+    /// Times an installed speculative int fast path bailed to its
+    /// helper because the runtime value was not the assumed `Int` (tier-down
     /// instrumentation). Read together with `specialized_ops`: a high ratio
     /// means the tier-2 specialization is paying more guards than it saves,
     /// which is the evidence `tier-down` would need.
     pub specialized_guard_misses: u64,
-    /// Property accesses the inline guard answered on its own (P1-1): an own
+    /// Property accesses the inline guard answered on its own: an own
     /// data property, read or written straight out of the object's slot.
     ///
     /// Read together with [`Self::property_guard_misses`]: a hit is the guard
@@ -105,7 +115,7 @@ pub struct JitMetrics {
     /// is a site the guard cannot serve — the reason to look at *what* it
     /// touches.
     pub property_guard_hits: u64,
-    /// Property accesses the inline guard handed back to the helper (P1-1).
+    /// Property accesses the inline guard handed back to the helper.
     ///
     /// A miss is expected and common (it is not a defect), so it never feeds
     /// the tier-down — that is [`Self::specialized_guard_misses`]' job.
@@ -118,20 +128,20 @@ pub struct JitMetrics {
     /// Global-variable accesses handed back to the helper (T10): an unbound
     /// name, a TDZ slot, a read-only binding, an accessor, or a shape change.
     pub global_guard_misses: u64,
-    /// Calls at a monomorphic site that took the fast path (D-6 route B):
-    /// either the callee's compiled code was entered directly (step 1) or the
-    /// inline guard passed and the copied body ran in the caller (step 2).
+    /// Calls at a monomorphic site that took the fast path (the direct-call path):
+    /// either the callee's compiled code was entered directly or the
+    /// inline guard passed and the copied body ran in the caller.
     pub inline_call_hits: u64,
     /// Calls whose site passed the inline guard and ran the callee's body
-    /// inside the caller (D-6 route B, step 2). The body may still bail to the
+    /// inside the caller (the inlined call path). The body may still bail to the
     /// general path on an operand the inline subset does not implement; this
     /// counter only says the guard was passed.
     pub frame_inline_hits: u64,
     /// Nested call sites inside a copied body whose constant-identity guard
-    /// passed (D-6 route B, step 2, T7.2).
+    /// passed (the inlined call path).
     pub nested_inline_hits: u64,
-    /// Calls at a monomorphic site that took the general call path (D-6 route
-    /// B): the guard missed (the callee was not the recorded one), or the
+    /// Calls at a monomorphic site that took the general call path: the guard
+    /// missed (the callee was not the recorded one), or the
     /// callee could not run directly (a generator, a cross-realm callee, one
     /// that allocates GC nodes).
     pub inline_call_misses: u64,

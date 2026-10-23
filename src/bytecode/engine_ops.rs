@@ -10,7 +10,7 @@
 //! operand-stack movement stays in the caller — each function below states the
 //! opcode's window and the net `sp` delta the caller applies.
 //!
-//! * `throw` / `throw_error` — raising (todo 2.6, the last opcodes that used
+//! * `throw` / `throw_error` — raising (the last opcodes that used
 //!   to exit the native frame on every execution).
 //! * `regexp` — build the `RegExp` object for a pattern the parser already
 //!   precompiled.

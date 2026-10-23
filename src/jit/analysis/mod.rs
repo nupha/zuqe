@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! The function-scoped analysis the lowering consults (decision D-13).
+//! The function-scoped analysis the lowering consults.
 //!
 //! **Terminology**: in this crate "IR" means the **Cranelift IR** (clif) the
 //! lowering produces; this layer is the *analysis* layer, and it produces
 //! **facts**, not instructions.
 //!
 //! The baseline lowers [`VerifiedFunction`] straight to Cranelift. That is
-//! enough for a faithful translation, but the remaining F4 work — cross-block
+//! enough for a faithful translation, but the remaining register-cache work — cross-block
 //! local residency, dead-store elimination, loop-level optimization — needs a
 //! *data-flow* view the bytecode does not hand over directly: which block reads
 //! or writes which frame slot, which block dominates which, which blocks form a
@@ -16,15 +16,15 @@
 //!
 //! This module builds exactly that from the verified bytecode — no separate
 //! instruction representation, no SSA remapping, no deopt map. The value model
-//! stays the frame (D-25): a slot is "live" in the ordinary compiler sense
+//! stays the frame: a slot is "live" in the ordinary compiler sense
 //! (read before the next write on some path), and the passes that consume the
 //! IR answer questions the lowering asks at the point it needs them:
 //!
-//! * [`Analysis::block_index`] / [`Analysis::live_out`] — DCE of a local store (`1.2`).
+//! * [`Analysis::block_index`] / [`Analysis::live_out`] — DCE of a local store.
 //! * [`Analysis::blocks`] `uses` — which locals a block reads before writing, so the
-//!   edge machinery can carry them in a register (`1.1`).
+//!   edge machinery can carry them in a register.
 //! * [`Analysis::loops`] — natural loops, for the loop-level passes still to come
-//!   (`1.3` BCE / loop-invariant loads).
+//!   (bounds-check elimination / loop-invariant loads).
 //!
 //! Liveness is exact only when the function neither raises/catches in-frame nor
 //! contains an opcode the baseline would `Resume` at; otherwise a resume can
@@ -179,12 +179,12 @@ impl Analysis {
         self.live_out[block].contains(&slot)
     }
 
-    #[allow(dead_code)] // Consumed by the upcoming loop passes (1.3 BCE).
+    #[allow(dead_code)] // Consumed by the upcoming loop passes (bounds-check elimination).
     pub(crate) fn loops(&self) -> &[LoopInfo] {
         &self.loops
     }
 
-    #[allow(dead_code)] // Consumed by the upcoming loop passes (1.3 BCE).
+    #[allow(dead_code)] // Consumed by the upcoming loop passes (bounds-check elimination).
     pub(crate) fn immediate_dominator(&self, block: usize) -> Option<usize> {
         self.idom[block]
     }
@@ -205,7 +205,7 @@ impl Analysis {
         false
     }
 
-    /// Epic S2 (1.2): the `put_loc`/`set_loc` pcs whose store is dead — the slot
+    /// Dead-store elimination: the `put_loc`/`set_loc` pcs whose store is dead — the slot
     /// is not read again before it is redefined on any path (no later read in
     /// the block, and not live out of it). The lowering skips memory writes for
     /// these pcs. `gate` must encode "liveness is trustworthy here" (the

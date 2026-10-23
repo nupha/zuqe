@@ -8,9 +8,9 @@
 //! with the data cache — flush the i-cache for the published range. The rest of
 //! the cross-platform layer (macOS `MAP_JIT` write protection, Windows
 //! `VirtualAlloc`/`VirtualProtect`/`FlushInstructionCache`, W^X splitting) is
-//! epic G1's remaining work; this covers the Unix hosts the JIT can target.
+//! the remaining platform work; this covers the Unix hosts the JIT can target.
 //!
-//! Epic G1 portability notes (what the remaining hosts need):
+//! Portability notes (what the remaining hosts need):
 //! * **macOS**: `mmap(..., MAP_JIT)` — required on Apple Silicon; writes go
 //!   through `pthread_jit_write_protect_np` (or the `pthread_jit_write_with_callback_np`
 //!   allow-list callback when the process is not entitled), and the flush is

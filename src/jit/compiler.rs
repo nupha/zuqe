@@ -8,15 +8,15 @@
 //! [`super::analysis`] and are called *analysis*, not IR.
 //!
 //! Values live in the frame buffer, exactly where the interpreter keeps them —
-//! with one exception (epic F4): inside a basic block a stack slot may live
+//! with one exception (the stack-slot register cache): inside a basic block a stack slot may live
 //! only in a register, and is written back before anything can observe the
 //! frame (helper calls, exits, branch terminators, end of block). Across a
 //! block edge the slots the successor reads in registers travel as block
-//! parameters instead of a store/load pair (epic F4 step 2, see
+//! parameters instead of a store/load pair (the stack-slot register cache, see
 //! [`carried_sets`]). Every observation point still flushes first, so the frame
 //! stays authoritative and an exit needs no pc-keyed deopt map — materializing
-//! *is* the flush, keyed by the verifier's proven stack heights (D-25 extended
-//! to cross-block residency). The operand-stack pointer is an SSA value; it is
+//! *is* the flush, keyed by the verifier's proven stack heights (frame authority
+//! extended to cross-block residency). The operand-stack pointer is an SSA value; it is
 //! written back to `StackFrame.cur_sp_offset` before any helper call and before
 //! any exit, the only moments a collection can observe it. Anything the
 //! baseline cannot translate terminates the native run with `Resume`, and the
@@ -52,7 +52,7 @@ use crate::{
     vm_stack::ExecMode,
 };
 
-/// The inline-cache site's layout (P1-1): the inline property guard reads
+/// The inline-cache site's layout: the inline property guard reads
 /// the site's first way.
 #[cfg(feature = "inline_cache")]
 use crate::function::jit_layout as ic_layout;
@@ -125,10 +125,10 @@ const FLOAT64_ADDEND: i64 = 0xFFF9 << 48;
 const JS_NAN_U64_BITS: i64 = 0x7FFF_0000_0000_0000;
 /// The lowest raw tag that carries a GC node pointer (`Symbol` = -8 ..
 /// `Object` = -1, i.e. 0xfff8..=0xffff). A value with such a tag needs the
-/// collector's write barrier when it is stored (P1-1).
+/// collector's write barrier when it is stored (the property inline guard).
 const GC_NODE_TAG: i64 = 0xFFF8;
 /// The write guard reads the class id and the fast-array bit in one word
-/// (P1-1): a fast plain `Array` is `fast | Array`, a fast `arguments` object
+/// (the property inline guard): a fast plain `Array` is `fast | Array`, a fast `arguments` object
 /// is `fast | Arguments`.
 const WRITE_CLASS_MASK: i64 = jit_layout::CLASS_ID_MASK | jit_layout::FAST_ARRAY_MASK;
 /// The masked flags word of a fast plain `Array`.
@@ -152,10 +152,10 @@ const O_PC: i32 = offset_of!(JitExecFrame, pc) as i32;
 const O_OUT_VALUE: i32 = offset_of!(JitExecFrame, out_value) as i32;
 const O_OUT_PC: i32 = offset_of!(JitExecFrame, out_pc) as i32;
 const O_OUT_SP: i32 = offset_of!(JitExecFrame, out_sp) as i32;
-/// The inline-cache sites (P1-1). Only with the `inline_cache` feature.
+/// The inline-cache sites. Only with the `inline_cache` feature.
 #[cfg(feature = "inline_cache")]
 const O_IC_SITES: i32 = offset_of!(JitExecFrame, ic_sites) as i32;
-/// The property guard's hit counter (P1-1 instrumentation).
+/// The property guard's hit counter.
 #[cfg(feature = "inline_cache")]
 const O_PROPERTY_HITS: i32 = offset_of!(JitExecFrame, property_guard_hits) as i32;
 /// The property guard's miss counter.
@@ -233,7 +233,7 @@ fn supported(name: &str) -> bool {
                 | "catch"
                 | "gosub"
                 | "ret"
-                // D-6: the four call opcodes run the callee through a call
+                // The direct-call design: the four call opcodes run the callee through a call
                 // helper on the same frame (no per-call exit).
                 | "call"
                 | "call_method"
@@ -278,7 +278,7 @@ fn helper_for(name: &str) -> Option<usize> {
         "delete" => HELPER_DELETE,
         // `delete name` on the global object; the fall-through of `with_delete_var`.
         "delete_var" => HELPER_DELETE_VAR,
-        // The engine-generated opcodes (todo 2.6). `throw_error` and
+        // The engine-generated opcodes. `throw_error` and
         // `push_bigint_i32` carry an immediate, so they have explicit arms in
         // `lower_insn` and are only listed here for `supported()`.
         "throw" => HELPER_THROW,
@@ -403,8 +403,8 @@ fn fast_op(name: &str) -> Option<(FastOp, usize)> {
     })
 }
 
-/// Whether an opcode is one of the pure binaries the CSE pass numbers (epic S2
-/// 1.5). It is exactly the set [`fast_op`] lowers, so the pass can neither plan
+/// Whether an opcode is one of the pure binaries the CSE pass numbers. It is
+/// exactly the set [`fast_op`] lowers, so the pass can neither plan
 /// a reuse the lowering would not honor nor miss a site it does.
 pub(crate) fn is_cse_expression(name: &str) -> bool {
     fast_op(name).is_some()
@@ -477,7 +477,7 @@ struct State<'a> {
     blocks: HashMap<u32, Block>,
     pending: Vec<u32>,
     feedback: &'a [(u32, SiteFeedback)],
-    /// The number of inline-cache sites the function has (P1-1). The inline
+    /// The number of inline-cache sites the function has. The inline
     /// property guard reads a site's first way, so it may only be emitted for
     /// a site that exists — a function restored from a persistent blob has no
     /// inline cache at all (its sites are not restored), and its reads then
@@ -488,31 +488,31 @@ struct State<'a> {
     /// and its global accesses keep the helper.
     global_cache_count: u32,
     specialized: &'a Cell<u64>,
-    /// Whether tier-2 specialization is allowed (epic 7.2 tier-down). False
+    /// Whether tier-2 specialization is allowed (tier-down). False
     /// after a function's speculative sites missed too often: the recompile
     /// keeps the int fast paths but drops the speculation.
     speculate: bool,
-    /// Block-local write-back cache for operand-stack slots (epic F4).
+    /// Block-local write-back cache for operand-stack slots (the stack-slot register cache).
     stack: StackCache,
-    /// Epic F4 step 2: per block start pc, the slots its code reads in
+    /// Cross-block carry: per block start pc, the slots its code reads in
     /// registers before it can observe the frame. Each is a block parameter
     /// that every incoming edge supplies (see [`State::edge_args`]).
     carried: HashMap<u32, Vec<u32>>,
-    /// Epic S2 (1.1): per block start pc, the locals/arguments its code reads
+    /// Carried locals: per block start pc, the locals/arguments its code reads
     /// before writing. They cross the incoming edges as block parameters too,
     /// so the successor's first read is a register, not a frame load.
     carried_locals: HashMap<u32, Vec<LocalRef>>,
-    /// Epic S2 (1.2): pcs whose local store is dead (no read before redefinition
+    /// Dead-store elimination: pcs whose local store is dead (no read before redefinition
     /// on any path), so the lowering skips the memory write. Empty unless the
     /// analysis' liveness is exact.
     dead_stores: HashSet<u32>,
-    /// Epic S2 (1.5): the value numbering's CSE plan (which expressions are
+    /// The CSE pass: the value numbering's CSE plan (which expressions are
     /// repeats of an earlier one) and, per block, the registers those earlier
     /// computations published. Both are block-scoped like [`LocalCache`]: a
     /// value does not cross an edge as a register.
     cse: RedundantExpressions,
     cse_regs: HashMap<u32, Value>,
-    /// Register copies of local/argument slots (epic F4: fewer loads in a
+    /// Register copies of local/argument slots (the stack-slot register cache: fewer loads in a
     /// block). Cleared at every block entry — see [`LocalCache`].
     locals: LocalCache,
     /// The pool's constant tags, for the `Int`-constant guard fact.
@@ -521,16 +521,16 @@ struct State<'a> {
     /// so it addresses the frame fallback loads even when the model's own
     /// height is stale (a helper-terminated block never re-anchors).
     entry_heights: HashMap<u32, u16>,
-    /// The write barrier's helper signature (`frame`, owner, value) — P1-1's
+    /// The write barrier's helper signature (`frame`, owner, value) — the property inline guard's
     /// inline store calls the barrier with its own arguments, so it needs a
     /// signature of its own.
     barrier_sig: cranelift_codegen::ir::SigRef,
-    /// The monomorphic call sites (D-6 route B): the opcode offset -> the site
+    /// The monomorphic call sites (the direct-call path): the opcode offset -> the site
     /// id the compiled code carries. A site that saw more than one callee is
     /// not here: its guard would miss every time.
     call_sites: HashMap<u32, u32>,
     /// Monomorphic sites whose callee body is copied into this function
-    /// (D-6 route B, step 2). The value is the verified plan (the body plus
+    /// (the inlined call path). The value is the verified plan (the body plus
     /// its own nested sites); a site not in here keeps the direct-call helper.
     inline_sites: HashMap<u32, super::inline_call::Plan>,
     /// Call sites the interpreter only ever saw a non-bytecode callee at. The
@@ -543,7 +543,7 @@ struct State<'a> {
     inline_tag: u32,
 }
 
-/// Block-local register copies of local/argument slots (epic F4, the read half
+/// Block-local register copies of local/argument slots (the stack-slot register cache, the read half
 /// of "locals in registers"): a `get_loc`/`get_arg` that repeats one already in
 /// a register skips its load.
 ///
@@ -650,7 +650,7 @@ fn cacheable_slots(verified: &VerifiedFunction) -> (bool, bool) {
 /// formals (see `src/function/argument.rs`).
 const MAPPED_ARGUMENTS: u8 = 1;
 
-/// Write-back cache for operand-stack slots (epic F4 steps 1 and 2).
+/// Write-back cache for operand-stack slots (the stack-slot register cache).
 ///
 /// A slot index is 1-based from the stack bottom and is re-anchored from the
 /// verifier's proven height at the start of every instruction, so entries
@@ -835,7 +835,7 @@ impl StackCache {
 
     /// Record that the current top slot (key `height`) is a known `Int`,
     /// without changing the height or `sp`. Only sound when *every* path that
-    /// reaches the slot boxes an `Int` (epic 1.4 item 1: `shl`/`sar`).
+    /// reaches the slot boxes an `Int` (the local phi design: `shl`/`sar`).
     fn result_int(&mut self, sp: Value, value: Value) -> Value {
         self.entries.insert(
             self.height,
@@ -904,10 +904,10 @@ impl<'a> State<'a> {
             return *block;
         }
         let block = b.create_block();
-        // Epic F4 step 2: the slots this block consumes in registers are block
+        // Cross-block carry: the slots this block consumes in registers are block
         // parameters. They are appended here, before any edge exists, so every
         // edge to this block sees the same signature (`edge_args` supplies it).
-        // Stack slots come first, then the carried locals (epic S2 / 1.1).
+        // Stack slots come first, then the carried locals.
         for _ in 0..self.carried_for(pc).len() {
             b.append_block_param(block, types::I64);
         }
@@ -926,7 +926,7 @@ impl<'a> State<'a> {
     }
 
     /// Locals/arguments block `pc` reads before writing — carried as block
-    /// parameters right after the carried stack slots (epic S2 / 1.1).
+    /// parameters right after the carried stack slots.
     fn carried_locals_for(&self, pc: u32) -> &[LocalRef] {
         self.carried_locals.get(&pc).map_or(&[], Vec::as_slice)
     }
@@ -993,7 +993,7 @@ impl<'a> State<'a> {
                 };
                 args.push(value);
             }
-            // Epic S2 / 1.1: the carried locals follow, in the same order
+            // The carried locals follow, in the same order
             // `block_for` appended their parameters. Memory is authoritative
             // here (every write stores), so a miss is a plain frame load.
             for slot in self.carried_locals_for(pc) {
@@ -1018,7 +1018,7 @@ impl<'a> State<'a> {
         out
     }
 
-    /// Epic F2: did F1 feedback observe *only* `Int` at this site? Feedback is
+    /// Speculative fast path: did type feedback observe *only* `Int` at this site? Feedback is
     /// sorted by pc, so a binary search answers it. `both` is false for
     /// single-value sites (`inc_loc`/`dec_loc`), whose `rhs` slot stays 0.
     /// Always false once tier-down disabled specialization for this function.
@@ -1030,7 +1030,7 @@ impl<'a> State<'a> {
         self.specialized.set(self.specialized.get() + 1);
     }
 
-    /// Epic S2 (1.5): the register holding the value this instruction is a
+    /// The CSE pass: the register holding the value this instruction is a
     /// repeat of, if the pass planned a reuse and the definition actually ran on
     /// the path taken to here (an OSR entry in the middle of the block skips
     /// it, and then the instruction computes normally).
@@ -1187,7 +1187,7 @@ fn safepoint(
 /// [`compile`] refuses deterministically, so callers should settle the function
 /// fail-closed rather than retry.
 ///
-/// Since D-6 lowered the last four `Helper` opcodes (`call`/`call_method`/
+/// Since the direct-call design lowered the last four `Helper` opcodes (`call`/`call_method`/
 /// `call_constructor`/`apply`), every opcode a *verified* function can contain
 /// is supported — the only unsupported names are policy `Reject`, which
 /// `verify` refuses before compilation (see
@@ -1203,7 +1203,7 @@ pub(crate) fn entry_is_translatable(verified: &VerifiedFunction) -> bool {
 /// Compile one verified function. Returns code bytes for the caller to publish.
 ///
 /// `specialized_ops` accumulates how many sites got a tier-2 speculative fast
-/// path (epic F2), so the caller can report it in metrics.
+/// path (the speculative tier), so the caller can report it in metrics.
 pub(crate) fn compile(
     verified: &VerifiedFunction,
     isa: &dyn TargetIsa,
@@ -1358,11 +1358,11 @@ fn collect_osr_pcs(verified: &VerifiedFunction) -> Vec<u32> {
 /// function's length.
 const OSR_TAIL_BUDGET: usize = 256;
 
-/// Epic F2: did F1 feedback observe *only* `Int` at this site? Feedback is
+/// Speculative fast path: did type feedback observe *only* `Int` at this site? Feedback is
 /// sorted by pc, so a binary search answers it. `both` is false for
 /// single-value sites (`inc_loc`/`dec_loc`), whose `rhs` slot stays 0.
 ///
-/// Epic P7 (task 7.1): the *result* class must be `Int` too. F2's inline int
+/// Result classes: the *result* class must be `Int` too. The inline int
 /// path bails to the helper on `i32` overflow, so a site whose result is always
 /// a `Float64` (an accumulator that overflows every trip) would pay that bail
 /// every iteration — speculation would lose to the plain helper. The result
@@ -1377,7 +1377,7 @@ fn int_only(feedback: &[(u32, SiteFeedback)], pc: u32, both: bool) -> bool {
 }
 
 /// What one instruction does to the slots below its entry height before it can
-/// observe the frame (epic F4 step 2). Mirrors `lower_insn`'s dispatch order; a
+/// observe the frame (the stack-slot register cache). Mirrors `lower_insn`'s dispatch order; a
 /// misclassification only costs the carry, never correctness — every edge
 /// materializes what it does not pass (see [`State::edge_args`]).
 enum Touch {
@@ -1437,7 +1437,7 @@ fn touch(name: &str, h: u32, strict: bool, feedback: &[(u32, SiteFeedback)], pc:
     }
 }
 
-/// Epic F4 step 2: for every block, the operand-stack slots its code reads
+/// Cross-block carry: for every block, the operand-stack slots its code reads
 /// from registers *before* the first instruction that can observe the frame.
 /// Those cross each incoming edge as block parameters instead of a store/load
 /// pair; everything else is written back on the edge exactly as before.
@@ -1510,7 +1510,7 @@ fn mark(marked: &mut [bool], entry_h: u16, k: u32) {
     }
 }
 
-/// Epic S2 (1.1): the locals/arguments each block reads before writing, sorted
+/// Carried locals: the locals/arguments each block reads before writing, sorted
 /// so the parameter order is stable. The entry block has no incoming edge, and
 /// aliased slots are skipped for the same reason the local cache is disabled for
 /// them (`cacheable_slots`: a `VarRef` can rewrite the frame out of sight).
@@ -1546,7 +1546,7 @@ fn carried_local_sets(
     carried
 }
 
-/// Epic S2 (1.2): the set of `put_loc`/`set_loc` pcs whose store the lowering
+/// Dead-store elimination: the set of `put_loc`/`set_loc` pcs whose store the lowering
 /// should skip (see [`Analysis::dead_local_stores`]). `gate` is the caller's
 /// "the liveness is trustworthy for a skipped write": resume-free,
 /// exception-free and with no way to alias a frame slot.
@@ -1594,7 +1594,7 @@ fn emit_osr_prologue(
         let byte_off = b.ins().ishl_imm(slots64, 3);
         let sp_osr = b.ins().iadd(fv.sp_base, byte_off);
         b.def_var(sp_var, sp_osr);
-        // Epic F4 step 2: the interpreter left every slot in the frame, so the
+        // Cross-block carry: the interpreter left every slot in the frame, so the
         // carried parameters are frame loads at the proven entry height.
         let args = state
             .edge_args(b, fv, sp_osr, &[(target, pc_val)])
@@ -1613,7 +1613,7 @@ fn emit_osr_prologue(
 }
 
 #[allow(clippy::too_many_arguments)]
-/// The monomorphic call sites (D-6 route B): the opcode offset -> the site id
+/// The monomorphic call sites (the direct-call path): the opcode offset -> the site id
 /// the compiled code carries in `imm2`.
 ///
 /// A site is monomorphic when the interpreter only ever saw one callee there.
@@ -1644,7 +1644,7 @@ fn native_call_sites(verified: &VerifiedFunction) -> HashSet<u32> {
 }
 
 /// The monomorphic sites whose callee the compiler can copy into the caller
-/// (D-6 route B, step 2). The callee's snapshot was taken while the runtime
+/// (the inlined call path). The callee's snapshot was taken while the runtime
 /// thread held the bytecode; verify it here, off-thread, exactly like any
 /// other function, and keep only bodies inside the inline subset.
 fn inline_call_sites(verified: &VerifiedFunction) -> HashMap<u32, super::inline_call::Plan> {
@@ -1664,7 +1664,7 @@ fn inline_call_sites(verified: &VerifiedFunction) -> HashMap<u32, super::inline_
     sites
 }
 
-/// Verify one callee and its own monomorphic callees (T7.2). A nested site
+/// Verify one callee and its own monomorphic callees. A nested site
 /// that cannot be planned simply stays out of `sites`, which makes the
 /// enclosing body ineligible at its `call` opcode.
 fn build_inline_plan(callee: &InlineCallee, identity: u64) -> Option<super::inline_call::Plan> {
@@ -1704,7 +1704,7 @@ fn lower(
     let cfg = verified.control_flow_graph();
     let (carried, entry_heights) = carried_sets(verified, osr_pcs, strict);
     let (locals_cacheable, args_cacheable) = cacheable_slots(verified);
-    // Epic S2 (1.1): the function-scoped analysis (D-13) supplies which locals each
+    // Carried locals: the function-scoped analysis supplies which locals each
     // block reads before writing, so they can cross the edges as parameters.
     let resume_free = instructions.iter().all(|i| supported(i.name()));
     let analysis = Analysis::build(verified, resume_free);
@@ -1760,7 +1760,7 @@ fn lower(
         };
         let cranelift_block = state.blocks[&start_pc];
         b.switch_to_block(cranelift_block);
-        // Epic F4 step 2: slots carried across the incoming edges arrive as
+        // Cross-block carry: slots carried across the incoming edges arrive as
         // block parameters — re-seed the model from them. The model itself
         // never crosses a block; every edge delivers it through `edge_args`.
         state.stack.entries.clear();
@@ -1781,7 +1781,7 @@ fn lower(
         for (&k, &v) in carried.iter().zip(&params[..carried.len()]) {
             state.stack.entries.insert(k, CachedSlot::unknown(v));
         }
-        // Epic S2 (1.1): re-seed the local cache from the carried parameters —
+        // Carried locals: re-seed the local cache from the carried parameters —
         // the successor's first read of a live-in local is a register now.
         for (slot, &v) in carried_locals.iter().zip(&params[carried.len()..]) {
             state.locals.fill(slot.is_arg, slot.idx, v);
@@ -2010,14 +2010,14 @@ fn lower_insn(
             );
             return Step::Continue(sp);
         }
-        // D-6: the four call opcodes. The helper performs the whole JS call on
+        // The direct-call design: the four call opcodes. The helper performs the whole JS call on
         // the current frame through `call_internal`, so the caller never exits
         // natively; `imm` carries the argument count (`call`/`call_method`/
         // `call_constructor`) or `apply`'s magic. `call_stack_helper` flushes
         // the operand stack and reloads `sp` from the frame (the helper popped
         // the call window and pushed the result).
         //
-        // D-6 route B: a *monomorphic* site (the interpreter only ever saw
+        // The direct-call path: a *monomorphic* site (the interpreter only ever saw
         // one callee there) gets the direct-call helper: it enters that
         // callee's compiled code without the interpreter's call protocol. The
         // site id travels in `imm2`; the helper guards on the callee and falls
@@ -2028,7 +2028,7 @@ fn lower_insn(
             let method = name == "call_method";
             let argc = u32::from(insn.operand_u16(1));
 
-            // D-6 route B, step 2: a monomorphic site whose callee is inside
+            // The inlined call path: a monomorphic site whose callee is inside
             // the inline subset runs that body here. The guard is the same
             // recorded-callee check the direct helper makes; a miss (or any
             // operand the subset cannot serve) takes the general path.
@@ -2091,7 +2091,7 @@ fn lower_insn(
                 };
                 let base = b.ins().iadd_imm(sp, -(window * 8));
                 // The callee's declared arguments, read from the call window
-                // (missing ones are `undefined`). T7.2 nested copies reuse the
+                // (missing ones are `undefined`). Nested copies reuse the
                 // same lowering with register arguments.
                 let arg_base = b.ins().iadd_imm(base, if method { 16 } else { 8 });
                 let undefined = b.ins().iconst(types::I64, UNDEFINED_BITS);
@@ -2319,14 +2319,14 @@ fn lower_insn(
         _ => {}
     }
 
-    // Epic N1: `div` always yields a `Float64` (Int/Int divides as `f64`), so
+    // Float fast path: `div` always yields a `Float64` (Int/Int divides as `f64`), so
     // it gets a dedicated numeric arm instead of a `FastOp`. It is not a CSE
     // candidate (`is_cse_expression` stays exactly the `fast_op` set).
     if name == "div" {
         return lower_fast_div(state, b, fv, sp_var, helper_sig, sp, insn);
     }
     if let Some((op, helper_id)) = fast_op(name) {
-        // Epic S2 (1.5): a repeat of an expression the same block already
+        // The CSE pass: a repeat of an expression the same block already
         // computed over the same proven-numeric values. The result is still in
         // a register, and the copy *is* the instruction — no tag checks, no
         // arithmetic, no helper fallback.
@@ -2364,7 +2364,7 @@ fn lower_insn(
         "nop" => Step::Continue(sp),
         "push_i32" => {
             // The literal is an `Int` by construction: no tag check needed
-            // wherever it is consumed (epic F4's guard elimination).
+            // wherever it is consumed (the stack-slot register cache's guard elimination).
             let v = b.ins().iconst(types::I64, i64::from(insn.operand_u32(1)));
             Step::Continue(state.stack.push_int(b, sp, v))
         }
@@ -2553,7 +2553,7 @@ fn lower_insn(
             Step::Continue(sp)
         }
         "get_array_el" | "get_array_el2" | "get_array_el3" | "put_array_el" => {
-            // P1-1: the read from a packed array with an integer index is
+            // The property inline guard: the read from a packed array with an integer index is
             // inlined (the guard + the load), and so is the write into one
             // (the guard + the store). The other two read shapes keep the
             // helper.
@@ -2601,7 +2601,7 @@ fn lower_insn(
             Step::Continue(sp)
         }
         "get_field" | "get_field2" | "put_field" => {
-            // P1-1: the read of an own data property and the write into one
+            // The property inline guard: the read of an own data property and the write into one
             // are inlined (the guard + the load / the store). `get_field2`
             // (the method-call shape) keeps the helper.
             #[cfg(feature = "inline_cache")]
@@ -2649,7 +2649,7 @@ fn lower_insn(
         "add_loc" => {
             // Both paths (specialized and helper) write the local slot.
             state.locals.drop_slot(false, u32::from(insn.operand_u8(1)));
-            // Epic F2: F1 proved this site int-monomorphic, so speculate an
+            // Speculative fast path: type feedback proved this site int-monomorphic, so speculate an
             // inline int add. A non-int operand or overflow hands the op back
             // to the helper (still in native code).
             if state.int_only(pc, true) {
@@ -2683,7 +2683,7 @@ fn lower_insn(
             state.stack.drop_top();
             Step::Continue(b.ins().iadd_imm(sp, -8))
         }
-        // Local/argument reads and writes keep a register copy (epic F4's
+        // Local/argument reads and writes keep a register copy (the stack-slot register cache's
         // `LocalCache`): a repeated read in the same block skips its load, and
         // the store still happens, so memory stays authoritative.
         "get_loc" => {
@@ -2691,7 +2691,7 @@ fn lower_insn(
             let v = state
                 .locals
                 .read(b, fv.var_base, false, idx, loc_offset_u16(insn));
-            // Epic 1.4 item 3: a slot the verifier proves `Int32` is a known
+            // Local liveness: a slot the verifier proves `Int32` is a known
             // `Int`. Only trusted when no reference can alias a local (the same
             // condition the local cache uses), because a `VarRef` write out of
             // sight would invalidate the proof.
@@ -2717,7 +2717,7 @@ fn lower_insn(
             let idx = u32::from(insn.operand_u16(1));
             let (sp, v) = state.stack.pop(b, sp);
             if state.dead_stores.contains(&pc) {
-                // Epic S2 (1.2): the value is dead before any read, so the frame
+                // Dead-store elimination: the value is dead before any read, so the frame
                 // write is dropped. The register copy must go too — memory keeps
                 // the old value and a stale cache entry would shadow it.
                 state.locals.drop_slot(false, idx);
@@ -2739,7 +2739,7 @@ fn lower_insn(
             let idx = u32::from(insn.operand_u16(1));
             let v = state.stack.read_top(b, sp);
             if state.dead_stores.contains(&pc) {
-                // Dead store (epic S2 / 1.2): see the `put_loc` arm.
+                // Dead store: see the `put_loc` arm.
                 state.locals.drop_slot(false, idx);
             } else {
                 b.ins()
@@ -2765,7 +2765,7 @@ fn lower_insn(
             } else {
                 super::abi::HELPER_DEC_LOCAL
             };
-            // Epic F2: F1 proved this site int-monomorphic, so speculate an
+            // Speculative fast path: type feedback proved this site int-monomorphic, so speculate an
             // inline int increment. A non-int local or overflow hands the op
             // back to the helper (still in native code).
             if state.int_only(pc, false) {
@@ -3086,7 +3086,7 @@ fn box_float64_from_f64(b: &mut FunctionBuilder, d: Value) -> Value {
     b.ins().select(neg_zero, boxed, integral)
 }
 
-/// Epic S2 (1.5): this instruction is a repeat — the same block computed the
+/// The CSE pass: this instruction is a repeat — the same block computed the
 /// same expression over the same proven-numeric values, and its result is still
 /// in `reg`. Copying it into the result slot is the whole instruction: the tag
 /// checks, the arithmetic and the helper fallback are all skipped, which makes
@@ -3117,10 +3117,10 @@ fn lower_fast_binary(
     // Operand slots: `(top-1)` is the left operand, `top` the right one. Both
     // may live only in registers; the slow path flushes them before the helper.
     let top = state.stack.height;
-    // Epic S2 (1.5): a later instruction reuses this one's result, so it must
+    // The CSE pass: a later instruction reuses this one's result, so it must
     // leave that value in a register (`cont` carries it as a parameter).
     let keep_id = state.cse_keep(insn.pc());
-    // Epic F4 (guard elimination): an operand the compiler itself produced — a
+    // The stack-slot register cache (guard elimination): an operand the compiler itself produced — a
     // `push_i32` literal or an `Int` constant — is statically an `Int`, so its
     // tag check is not emitted at all. Everything else (a local, a helper
     // result, `box_bit_result`, which may be a Float64) is still checked.
@@ -3154,7 +3154,7 @@ fn lower_fast_binary(
     // the new `sp`) and are flushed by the helper's own preamble on the slow
     // path, which is the only path that still reads them.
     state.stack.flush_except(b, sp, &[top - 1, top]);
-    // Epic N1: `add`/`sub`/`mul` over two numbers where at least one is a
+    // Float fast path: `add`/`sub`/`mul` over two numbers where at least one is a
     // `Float64` get an inline arm too. Bitwise/shift/comparison ops stay
     // Int-only, and two operands the compiler proved Int never need it.
     let float_ok = matches!(op, FastOp::Add | FastOp::Sub | FastOp::Mul);
@@ -3316,7 +3316,7 @@ fn lower_fast_binary(
     if let (Some(keep_id), Some(&value)) = (keep_id, b.block_params(cont).first()) {
         state.cse_regs.insert(keep_id, value);
     }
-    // Epic 1.4 item 1: `shl`/`sar` box `From<i32>`, so *both* paths deliver an
+    // Local phi design: `shl`/`sar` box `From<i32>`, so *both* paths deliver an
     // `Int` — the merged slot is a known-Int fact with no phi needed.
     if matches!(op, FastOp::Shl | FastOp::Sar) {
         let sp_next = b.use_var(sp_var);
@@ -3326,7 +3326,7 @@ fn lower_fast_binary(
     Step::Continue(b.use_var(sp_var))
 }
 
-/// The layout contracts between the engine and the JIT (P1-1).
+/// The layout contracts between the engine and the JIT.
 ///
 /// The generated code reads the engine's memory directly, so every field it
 /// touches is a contract between the engine and the JIT. **Changing the layout
@@ -3507,7 +3507,7 @@ impl ArrayRead {
     }
 }
 
-/// P1-1: the inline fast path for `get_array_el` — a read from a **packed**
+/// The property inline guard: the inline fast path for `get_array_el` — a read from a **packed**
 /// array with an **integer** index.
 ///
 /// The guard checks, in order: the key's tag (`Int`), the target's tag
@@ -3848,7 +3848,7 @@ fn barrier_sig(
     b.import_signature(sig)
 }
 
-/// P1-1 (the write half): the inline fast path for `put_array_el` — a store
+/// The property inline guard (the write half): the inline fast path for `put_array_el` — a store
 /// into a **packed** array with an **integer** index.
 ///
 /// The guard mirrors the engine's own fast write
@@ -4278,7 +4278,7 @@ fn lower_put_array_el_fast(
     Step::Continue(b.use_var(sp_var))
 }
 
-/// P1-1 (the property half): the inline fast path for `get_field` — the read
+/// The property inline guard (the property half): the inline fast path for `get_field` — the read
 /// of an own **data** property.
 ///
 /// The guard checks, in order: the target's tag (`Object`), the object's shape
@@ -4519,7 +4519,7 @@ fn lower_get_field_fast(
         let value = b.ins().uextend(types::I64, len);
         b.ins()
             .store(MemFlags::new(), value, sp, shape.result_offset());
-        // P1-1 instrumentation: the guard answered this read on its own.
+        // Property-guard instrumentation: the guard answered this read on its own.
         let hits = b
             .ins()
             .load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_HITS);
@@ -4587,7 +4587,7 @@ fn lower_get_field_fast(
     // it (`get_field2`, the method-call shape).
     b.ins()
         .store(MemFlags::new(), value, sp, shape.result_offset());
-    // P1-1 instrumentation: the guard answered this read on its own.
+    // Property-guard instrumentation: the guard answered this read on its own.
     let hits = b
         .ins()
         .load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_HITS);
@@ -4602,7 +4602,7 @@ fn lower_get_field_fast(
     b.ins().jump(cont, &[]);
 
     b.switch_to_block(slow);
-    // P1-1 instrumentation: the guard handed this read back to the helper.
+    // Property-guard instrumentation: the guard handed this read back to the helper.
     let misses = b
         .ins()
         .load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_MISSES);
@@ -4635,7 +4635,7 @@ fn lower_get_field_fast(
     Step::Continue(b.use_var(sp_var))
 }
 
-/// P1-1 (the write half): the inline fast path for `put_field` — the write
+/// The property inline guard (the write half): the inline fast path for `put_field` — the write
 /// of an own **data** property.
 ///
 /// The guard is the property read guard plus the two things a write needs: the
@@ -4801,7 +4801,7 @@ fn lower_put_field_fast(
         addr,
         JSProperty::normal_value_offset(),
     );
-    // P1-1 instrumentation: the guard answered this write on its own.
+    // Property-guard instrumentation: the guard answered this write on its own.
     let hits = b
         .ins()
         .load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_HITS);
@@ -4832,7 +4832,7 @@ fn lower_put_field_fast(
     b.ins().jump(cont, &[]);
 
     b.switch_to_block(slow);
-    // P1-1 instrumentation: the guard handed this write back to the helper.
+    // Property-guard instrumentation: the guard handed this write back to the helper.
     let misses = b
         .ins()
         .load(types::I32, MemFlags::new(), fv.frame, O_PROPERTY_MISSES);
@@ -5213,7 +5213,7 @@ fn lower_put_var_fast(
     Step::Continue(b.use_var(sp_var))
 }
 
-/// Epic N1: inline `Float64` division. `div` always produces a `Float64`
+/// Float fast path: inline `Float64` division. `div` always produces a `Float64`
 /// (`Int/Int` divides as `f64` in the interpreter: `TwoNumbers::div`), so there
 /// is no Int arm — any two proven numbers convert to `f64` and divide.
 /// Everything else (BigInt, string, `ToPrimitive`) falls back to the helper.
@@ -5285,8 +5285,8 @@ fn lower_fast_div(
     Step::Continue(b.use_var(sp_var))
 }
 
-/// Epic F2: speculative inline `int` fast path for `local += operand`, emitted
-/// only when F1 feedback proved the site int-monomorphic.
+/// Speculative `int` fast path for `local += operand`, emitted
+/// only when type feedback proved the site int-monomorphic.
 ///
 /// A non-int operand or an `i32` overflow falls back to the `add_loc` helper —
 /// which is the interpreter's own `arith_add` operating on the same frame — so
@@ -5322,7 +5322,7 @@ fn lower_add_loc_int(
     let slow = b.create_block();
     let cont = b.create_block();
     // The new local value travels to `cont` so a later read in the block reuses
-    // it (epic 1.4 item 2). Both paths write the same slot, so a phi is exact.
+    // it (the local phi design). Both paths write the same slot, so a phi is exact.
     b.append_block_param(cont, types::I64);
     // Like `lower_fast_binary`: materialize everything but the operand, which
     // only the slow path's helper still needs in memory.
@@ -5348,7 +5348,7 @@ fn lower_add_loc_int(
     // re-derives the full `arith_add` semantics (string concat, ToPrimitive, …).
     let imm = b.ins().iconst(types::I32, i64::from(idx));
     b.ins().store(MemFlags::new(), imm, fv.frame, O_IMM);
-    // P7 7.2 instrumentation: mark this helper call as the bail of the int fast
+    // Tier-down instrumentation: mark this helper call as the bail of the int fast
     // path, so the helper tallies it as a guard miss.
     let miss = b.ins().iconst(types::I32, i64::from(SPEC_MISS_IMM2 as i32));
     b.ins().store(MemFlags::new(), miss, fv.frame, O_IMM2);
@@ -5369,8 +5369,8 @@ fn lower_add_loc_int(
     Step::Continue(b.use_var(sp_var))
 }
 
-/// Epic F2: speculative inline `int` fast path for `local++`/`local--`, emitted
-/// only when F1 feedback proved the site int-monomorphic. The stack is
+/// Speculative `int` fast path for `local++`/`local--`, emitted
+/// only when type feedback proved the site int-monomorphic. The stack is
 /// untouched; a non-int local or an `i32` overflow falls back to the
 /// `inc_loc`/`dec_loc` helper (see [`lower_add_loc_int`] for why that is a
 /// helper call rather than an interpreter exit).
@@ -5398,8 +5398,7 @@ fn lower_incdec_loc_int(
     let fast = b.create_block();
     let slow = b.create_block();
     let cont = b.create_block();
-    // Carry the new local value across the merge for a later read (epic 1.4
-    // item 2).
+    // Carry the new local value across the merge for a later read.
     b.append_block_param(cont, types::I64);
     // No stack operand here, but the model still has to match both paths:
     // materialize before the split, where the stores dominate it.
@@ -5427,7 +5426,7 @@ fn lower_incdec_loc_int(
     b.switch_to_block(slow);
     let imm = b.ins().iconst(types::I32, i64::from(idx));
     b.ins().store(MemFlags::new(), imm, fv.frame, O_IMM);
-    // P7 7.2 instrumentation: mark this helper call as the bail of the int fast
+    // Tier-down instrumentation: mark this helper call as the bail of the int fast
     // path, so the helper tallies it as a guard miss.
     let miss = b.ins().iconst(types::I32, i64::from(SPEC_MISS_IMM2 as i32));
     b.ins().store(MemFlags::new(), miss, fv.frame, O_IMM2);
@@ -5637,7 +5636,7 @@ mod tests {
             .len()
     }
 
-    /// Epic S2 (1.5): a repeated numeric expression is computed once — the
+    /// The CSE pass: a repeated numeric expression is computed once — the
     /// second occurrence copies the register the first one left, so its tag
     /// checks, arithmetic and helper fallback disappear. The same shape over a
     /// *different* local cannot reuse anything and keeps all of that.
@@ -5670,7 +5669,7 @@ mod tests {
         );
     }
 
-    /// Epic F4 (guard elimination), measured deterministically: the same op
+    /// The stack-slot register cache (guard elimination), measured deterministically: the same op
     /// sequence needs a tag check for an operand that is *not* statically known.
     /// An `Int` constant from the pool is known, a `Float64` one is not, so the
     /// two compilations differ exactly by the check the second one emits.
@@ -5692,7 +5691,7 @@ mod tests {
         );
     }
 
-    /// Epic 1.4 item 1: `shl`/`sar` box `From<i32>` on *both* paths, so their
+    /// Local phi design: `shl`/`sar` box `From<i32>` on *both* paths, so their
     /// merged result is a known `Int` and the consumer skips its tag check.
     /// `shr` boxes `From<u32>` (possibly a Float64), so the identical shape is
     /// bigger by exactly that check.
@@ -5718,13 +5717,13 @@ mod tests {
         );
     }
 
-    /// Epic S2 (1.6): a local's `Int32` proof survives a **loop header** when
+    /// Cross-block facts: a local's `Int32` proof survives a **loop header** when
     /// every edge into it agrees, so a loop-invariant bound is known-Int on every
     /// iteration and the comparison in the header needs no tag check.
     ///
     /// The two compilations are the *same bytes* and differ only in the tag the
     /// pool constant carries (0 = Int, 8 = Float64), so the byte gap is exactly
-    /// the check the cross-block fact removes. Before 1.6 the header was widened
+    /// the check the cross-block fact removes. Before this fact the header was widened
     /// on the way in, and both shapes compiled identically.
     #[test]
     fn a_loop_invariant_int_bound_keeps_its_fact() {
@@ -5779,7 +5778,7 @@ mod tests {
         );
     }
 
-    /// Epic 1.4 item 3: a local the verifier proves `Int32` carries the fact
+    /// Local liveness: a local the verifier proves `Int32` carries the fact
     /// through `get_loc`, so its consumer skips a check. The two shapes are the
     /// same bytecode; only the initializing producer differs, so the byte-size
     /// gap is the checks the `Int32` proof removes.
@@ -6071,7 +6070,7 @@ mod tests {
             cases.push((name, seq(&[&push_i32(1), &[*code], &ret]), 0, 0));
         }
 
-        // Epic E3: array-element helpers. Stack effects differ per opcode.
+        // Array-element helpers. Stack effects differ per opcode.
         cases.push((
             "get_array_el",
             seq(&[
@@ -6118,7 +6117,7 @@ mod tests {
             0,
         ));
 
-        // Epic E2: property helpers (`get_field`/`get_field2`/`put_field`).
+        // Property helpers (`get_field`/`get_field2`/`put_field`).
         // Stack effects differ; the operand is atom + (inline_cache) ic index.
         let get_field = field(op::OP_get_field, 0);
         let get_field2 = field(op::OP_get_field2, 0);
@@ -6137,7 +6136,7 @@ mod tests {
             0,
         ));
 
-        // Completing E1: the remaining stack ops.
+        // The remaining stack ops.
         cases.push((
             "pow",
             seq(&[&push_i32(2), &push_i32(3), &[op::OP_pow], &ret]),
@@ -6225,7 +6224,7 @@ mod tests {
             1,
         ));
 
-        // Sync iteration (S3 2.4.1): real `for-of`/`for-in` shapes. The
+        // Sync iteration: real `for-of`/`for-in` shapes. The
         // iterator window is [iter_obj, next, catch_offset]; `for_of_next`
         // appends value/done and `iterator_close` drops the window.
         cases.push((
@@ -6309,7 +6308,7 @@ mod tests {
             0,
         ));
 
-        // Class / object-literal / private-field machinery (S3 2.4.3). Each
+        // Class / object-literal / private-field machinery. Each
         // entry pushes as many operands as the opcode pops, applies the opcode,
         // then drops whatever it left (so a `pops`/`pushes` mismatch fails to
         // even verify).
@@ -6407,7 +6406,7 @@ mod tests {
             cases.push((name, bytes, 0, 1));
         }
 
-        // Ref-cell family (S3 2.5): `make_*_ref` push the ref object and its
+        // Ref-cell family: `make_*_ref` push the ref object and its
         // property name; `get`/`put_ref_value` read/write through them. The
         // indices must fit their space (local/argument/closure).
         cases.push((
@@ -6469,7 +6468,7 @@ mod tests {
             0,
         ));
 
-        // `with_*` (S3 2.4): the environment object(s) are the entry window, the
+        // `with_*`: the environment object(s) are the entry window, the
         // label is the hit edge, and the fall-through runs the ordinary variable
         // access the opcode guards. That access is sized so both edges reach the
         // label at the same height.
@@ -6503,7 +6502,7 @@ mod tests {
             cases.push((name, bytes, 0, 0));
         }
 
-        // Epic E5: exception regions. `catch` pushes the handler sentinel;
+        // Exception regions. `catch` pushes the handler sentinel;
         // `gosub`/`ret` are the `finally` subroutine.
         let gosub_ret = seq(&[
             &branch(op::OP_gosub, 5),
@@ -6518,7 +6517,7 @@ mod tests {
         ]);
         cases.push(("catch", catch_body, 0, 0));
 
-        // The engine-generated opcodes (todo 2.6). `throw` pops its operand and
+        // The engine-generated opcodes. `throw` pops its operand and
         // ends the block; `throw_error` moves nothing. `regexp` replaces the
         // slot below its id, `push_bigint_i32` pushes one value.
         cases.push(("throw", seq(&[&push_i32(1), &[op::OP_throw]]), 0, 0));
@@ -6536,7 +6535,7 @@ mod tests {
         push_bigint.extend_from_slice(&i32b(-7));
         cases.push(("push_bigint_i32", seq(&[&push_bigint, &ret]), 0, 0));
 
-        // D-6 call opcodes: the helper takes the whole call window off the
+        // The direct-call design covers the call opcodes: the helper takes the whole call window off the
         // operand stack, so just enough operands are pushed for the verifier.
         // `call`/`call_method`/`call_constructor` carry an NPOP argc (0 here);
         // `apply` a `U16` magic.
@@ -6629,7 +6628,7 @@ mod tests {
         compile(&verified, isa.as_ref(), &Cell::new(0))
             .expect("a call-heavy straight-line block compiles");
 
-        // Epic E3: global-variable helpers need a non-zero global-var-ref count,
+        // Global-variable helpers need a non-zero global-var-ref count,
         // so they use their own snapshot shape.
         let globals: &[(&str, u8)] = &[
             ("get_var", op::OP_get_var),
@@ -6665,7 +6664,7 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("opcode delete_var failed to lower: {e:?}"));
 
-        // Closure var refs (epic 2.1) need a non-zero closure-var count.
+        // Closure variable refs need a non-zero closure-var count.
         for (name, code) in [
             ("get_var_ref", op::OP_get_var_ref),
             ("get_var_ref_check", op::OP_get_var_ref_check),
@@ -6694,7 +6693,7 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("opcode set_var_ref failed to lower: {e:?}"));
 
-        // `make_var_ref_ref` (S3 2.5) needs the closure-var space to be non-empty.
+        // `make_var_ref_ref` needs the closure-var space to be non-empty.
         compile_bytes_gv(
             seq(&[
                 &[op::OP_make_var_ref_ref],
@@ -6708,7 +6707,7 @@ mod tests {
         )
         .unwrap_or_else(|e| panic!("opcode make_var_ref_ref failed to lower: {e:?}"));
 
-        // TDZ-checked local ops (epic 2.3).
+        // TDZ-checked local ops.
         for (name, code) in [
             ("put_loc_check", op::OP_put_loc_check),
             ("put_loc_check_init", op::OP_put_loc_check_init),
@@ -6740,7 +6739,7 @@ mod tests {
             .unwrap_or_else(|e| panic!("opcode get_loc_checkthis failed to lower: {e:?}"));
     }
 
-    /// Epic 2.3: policy promises `Native` must mean "the baseline lowers it".
+    /// TDZ-checked locals: policy promises `Native` must mean "the baseline lowers it".
     /// Every opcode the generated table calls `Native` must pass [`supported`];
     /// otherwise it silently degrades to an instruction-level `Resume` (the
     /// function compiles, but re-enters the interpreter at that op). This is
@@ -6762,9 +6761,9 @@ mod tests {
     }
 
     /// `Helper` opcodes the baseline deliberately does **not** lower. Empty
-    /// since D-6 lowered the last four (`call`/`call_method`/`call_constructor`/
+    /// since the direct-call design lowered the last four (`call`/`call_method`/`call_constructor`/
     /// `apply`); every `Helper` opcode now has a lowering. `delete_var` was in
-    /// this set by accident until 2.6 lowered it —
+    /// this set by accident until it was lowered —
     /// `every_native_policy_opcode_is_lowered` cannot catch that class of
     /// mistake because it only guards `Native`.
     #[test]
@@ -6787,7 +6786,7 @@ mod tests {
         );
     }
 
-    /// D-6 completes the coverage: every opcode the verifier accepts is lowered,
+    /// The direct-call design completes the coverage: every opcode the verifier accepts is lowered,
     /// so the `Resume` fallback in `lower_insn` is unreachable for verified
     /// bytecode. The only unsupported names are policy `Reject`, which `verify`
     /// refuses before lowering (this test pins that equality so a new `Reject`
@@ -6855,7 +6854,7 @@ mod tests {
     }
 
     /// A small pre-tested/loop/body/exit function: `i = 0`; `while (i < 3) i++`.
-    /// The header reads `i` before writing it, so 1.1 carries it; the body
+    /// The header reads `i` before writing it, so the carried-local pass carries it; the body
     /// writes it, so the back edge re-carries the written value.
     fn loop_bytes() -> Vec<u8> {
         seq(&[
@@ -6877,7 +6876,7 @@ mod tests {
             .unwrap_or_else(|e| panic!("verify rejected: {e:?}"))
     }
 
-    /// Epic S2 (1.1): the loop header reads `i` before writing it, so the block
+    /// Carried locals: the loop header reads `i` before writing it, so the block
     /// declares it carried; a block that writes before reading does not.
     #[test]
     fn the_loop_header_carries_its_induction_local() {
@@ -6894,7 +6893,7 @@ mod tests {
         assert!(!carried.contains_key(&0));
     }
 
-    /// Epic S2 (1.2): an unread local store is dead; a read one is not; and the
+    /// Dead-store elimination: an unread local store is dead; a read one is not; and the
     /// gate (no resume points / exact liveness) turns the pass off entirely.
     #[test]
     fn dead_local_stores_are_elided_only_when_read_free() {
@@ -6927,8 +6926,8 @@ mod tests {
         assert!(!hints.contains(&5), "put_loc 0 at pc 5 is read back");
     }
 
-    /// Epic P7 (task 7.1): a site whose *result* was observed as `Float64` (an
-    /// always-overflowing accumulator) is not `int_only`, so F2 never pays its
+    /// Result classes: a site whose *result* was observed as `Float64` (an
+    /// always-overflowing accumulator) is not `int_only`, so the speculative path never pays its
     /// overflow bail every trip.
     #[test]
     fn an_overflowing_site_is_not_int_only() {
@@ -6948,7 +6947,7 @@ mod tests {
         assert!(!int_only(&[site(CLASS_FLOAT)], 0, true));
     }
 
-    /// Epic S2 (1.2): a read in a *later block* keeps the store alive through
+    /// Dead-store elimination: a read in a *later block* keeps the store alive through
     /// the analysis' liveness (not just the block-local scan).
     #[test]
     fn a_store_read_in_a_successor_block_stays_live() {
@@ -6980,7 +6979,7 @@ mod tests {
         assert!(compile(&verified, isa.as_ref(), &Cell::new(0)).is_ok());
     }
 
-    /// `fclosure` (epic F §6.12) reads a nested bytecode out of the constant
+    /// `fclosure` (the bytecode contract) reads a nested bytecode out of the constant
     /// pool, so it needs the same non-empty pool `push_const` does.
     #[test]
     fn fclosure_lowers_against_the_constant_pool() {
@@ -6993,7 +6992,7 @@ mod tests {
 
     /// Why [`entry_is_translatable`] cannot fire today: the only opcodes the
     /// baseline could refuse are policy `Reject`, and every surviving opcode is
-    /// lowered (D-6); a `Reject` opcode at pc 0 fails verification before the
+    /// lowered (the direct-call design); a `Reject` opcode at pc 0 fails verification before the
     /// entry check is reached. The check stays as the fail-closed net for a
     /// future operand-free unsupported opcode.
     #[test]
@@ -7003,7 +7002,7 @@ mod tests {
         // `Reject` opcodes that pop no operand are the only ones that could start
         // a verified function; none of them lower, so `entry_is_translatable`
         // stays unreachable. `apply`/`call`/`call_constructor`/`call_method` pop
-        // at least one operand each (D-6 note moved to
+        // at least one operand each (the note on the direct-call design moved to
         // `every_opcode_the_verifier_accepts_is_lowered`).
         const PINNED: &[&str] = &["apply", "call", "call_constructor", "call_method"];
         for name in PINNED {
@@ -7020,7 +7019,7 @@ mod tests {
         }
     }
 
-    // ── Epic F4: the block-local operand-stack cache (unit level) ──
+    // ── The stack-slot register cache (unit level) ──
 
     /// Emit one block through `f` and hand back the printed IR, so a test can
     /// assert on what the cache emitted — or deliberately did not emit.
@@ -7101,7 +7100,7 @@ mod tests {
         assert_eq!(count(&ir, "load"), 1, "only the loaded operand:\n{ir}");
     }
 
-    /// Epic F4: a slot read twice in one block is loaded once — the second read
+    /// The stack-slot register cache: a slot read twice in one block is loaded once — the second read
     /// reuses the register the first one filled (`LocalCache`).
     #[test]
     fn local_cache_reads_a_slot_once_per_block() {
@@ -7323,7 +7322,7 @@ mod tests {
         });
     }
 
-    // ── Epic F4 step 2: cross-block carry (unit level) ──
+    // ── Cross-block carry (unit level) ──
 
     /// Verify a hand-built function and run the carry walk over it.
     fn carried_of(
@@ -7428,7 +7427,7 @@ mod tests {
     /// operand against an `Int32` literal, the shape every short-circuit and
     /// `??` produces (`x || 5`, `x ?? 7`, `c ? x : 7`) — widens the operand to
     /// `Tagged` and verifies; the whole function then compiles. Before the
-    /// widening it was rejected fail-closed, which is why the F4 carry cases
+    /// widening it was rejected fail-closed, which is why the register-cache carry cases
     /// cross every join with same-kind operands.
     #[test]
     fn join_of_tagged_and_int32_operands_widens_to_tagged() {

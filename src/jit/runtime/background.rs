@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! Background compiler workers (feature `jit_background`; plan §12).
+//! Background compiler workers (feature `jit_background`).
 //!
 //! Verify + Cranelift lowering move off the runtime thread; the runtime thread
 //! stays the **single writer** of everything shared (the `jit` slots, the code

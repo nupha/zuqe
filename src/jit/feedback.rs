@@ -1,29 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! Tier-2 type feedback (epic F1).
+//! Tier-2 type feedback.
 //!
 //! While a function is interpreted, the interpreter records the observed type
 //! classes of operand values at arithmetic, comparison, conversion and branch
 //! sites. The table hangs off `BytecodeImpl` (no per-op hash lookup: the site
 //! key *is* the bytecode pc) and is copied into `CompileSnapshot` at compile
-//! time, where tier-2 specialization (epic F2) turns it into speculative
+//! time, where tier-2 specialization (speculative fast paths) turns it into speculative
 //! unboxed code with guards.
 //!
-//! Recording is observation-only — it can never change a result. Per plan D-5
+//! Recording is observation-only — it can never change a result. Per the tier policy
 //! it runs only when the `jit` feature is on and the tier policy can still
 //! reach tier 2 (`Tier2`/`Automatic`); `Interpreter` and `Tier1` record nothing.
-//! Copying the table into a snapshot applies the epic F5 profitability gate:
+//! Copying the table into a snapshot applies the profitability gate:
 //! under `Automatic` only sites with enough samples reach the compiler, while
 //! forced `Tier2` keeps every recorded site.
 //!
-//! Shape/array feedback stays absent on purpose. Epic F3 made the inline
+//! Shape/array feedback stays absent on purpose. The property inline cache made the inline
 //! cache itself polymorphic (up to `IC_WAYS` shapes per site, in the shared
-//! interpreter/JIT helper), and D-21 keeps guards out of generated code — so
+//! interpreter/JIT helper), and the helper-guard split keeps guards out of generated code — so
 //! the compiler has no consumer for observed shapes, and the runtime cache
 //! already is the shape feedback.
 //!
-//! # Call-site feedback (D-6 route B)
+//! # Call-site feedback (the direct-call path)
 //!
 //! A second table records, per call site, the callee the interpreter saw
 //! there. A site that only ever calls one bytecode function is *monomorphic*:
@@ -77,7 +77,7 @@ pub(crate) fn type_class(v: JSValue) -> u16 {
 /// position plus a saturating sample count. Branch and conversion sites record
 /// a single operand (`lhs` only, `rhs == 0`).
 ///
-/// `result` is the class of the *computed value* (epic P7 / task 7.1). It lets
+/// `result` is the class of the *computed value* (result classes). It lets
 /// the tier-2 gate tell "this `add_loc`/`inc_loc` site only ever produces
 /// `Int`" from "it overflows to `Float64` every iteration" — the second keeps
 /// speculating and pays its overflow bail on every trip (see
@@ -97,11 +97,11 @@ pub(crate) struct SiteFeedback {
 /// (or key the cap to bytecode size) if large bodies ever miss specialization.
 const MAX_SITES: usize = 1024;
 
-/// How many call sites one function may record (D-6 route B). Same shortcut as
+/// How many call sites one function may record. Same shortcut as
 /// [`MAX_SITES`]: a fixed per-function bound.
 const MAX_CALL_SITES: usize = 256;
 
-// ── Call sites (D-6 route B) ──
+// ── Call sites (the direct-call path) ──
 
 /// One call site: the callee the interpreter saw there.
 #[derive(Debug)]
@@ -140,7 +140,7 @@ pub(crate) struct CallSite {
     /// Whether a second, different callee turned up at this site.
     pub(crate) polymorphic: bool,
     /// Index into `CompileSnapshot::inline_callees` when the compiler may
-    /// inline the callee's body at this site (D-6 route B, step 2).
+    /// inline the callee's body at this site.
     pub(crate) inline: Option<u32>,
 }
 
@@ -163,7 +163,7 @@ pub(crate) struct FeedbackTable {
     /// as "measured work" (one add per recorded opcode, no scan of the sites);
     /// a function that already executed a lot is worth compiling sooner.
     total_samples: u32,
-    /// The call sites (D-6 route B), in the order they were first seen. The
+    /// The call sites (the direct-call path), in the order they were first seen. The
     /// index in this vector is the *site id* the compiled code carries: the
     /// helper reads the expected callee back through it.
     calls: Vec<CallSiteFeedback>,
@@ -201,7 +201,7 @@ impl FeedbackTable {
     }
 
     /// Sites sorted by pc, for `CompileSnapshot` (the compiler looks sites up
-    /// by instruction pc). `min_samples` is the epic F5 profitability gate:
+    /// by instruction pc). `min_samples` is the profitability gate:
     /// sites the interpreter observed fewer than that many times are dropped,
     /// so a one-off observation can never buy a speculative fast path. Forced
     /// `Tier2` passes 1 and keeps everything.
@@ -216,7 +216,7 @@ impl FeedbackTable {
         sites
     }
 
-    /// Record the callee seen at the call site `pc` (D-6 route B).
+    /// Record the callee seen at the call site `pc` (the direct-call path).
     ///
     /// Returns true when the site is new. A site that saw two different
     /// callees is polymorphic from then on — the monomorphic guard would miss
@@ -343,7 +343,7 @@ impl FeedbackSlot {
     }
 
     /// Copy the recorded sites (sorted by pc) for `CompileSnapshot`, keeping
-    /// only sites with at least `min_samples` observations (epic F5 gate).
+    /// only sites with at least `min_samples` observations.
     pub(crate) fn snapshot(&self, min_samples: u32) -> Vec<(u32, SiteFeedback)> {
         // SAFETY: single-threaded; called from `Jit::poll`, never mid-opcode.
         match unsafe { &*self.0.get() } {
@@ -372,7 +372,7 @@ impl FeedbackSlot {
     }
 
     /// The callee recorded at the call site `id` — the monomorphic guard
-    /// (D-6 route B) compares the live callee against it.
+    /// (the direct-call path) compares the live callee against it.
     pub(crate) fn call_callee(&self, id: u32) -> Option<Bytecode> {
         // SAFETY: single-threaded; a plain read of the table.
         match unsafe { &*self.0.get() } {
@@ -431,7 +431,7 @@ mod tests {
         assert_eq!(snapshot[0].1.samples, 3);
     }
 
-    /// Epic P7 (task 7.1): the result class merges like the operand masks, so a
+    /// Result classes: the result class merges like the operand masks, so a
     /// site that ever overflowed to `Float64` stays visibly non-int-only and the
     /// compiler's speculation gate can refuse it.
     #[test]
@@ -468,7 +468,7 @@ mod tests {
         assert_eq!(pcs, vec![3, 32, 64]);
     }
 
-    /// Epic F5: the profitability gate drops thin evidence, while `min_samples`
+    /// The profitability gate drops thin evidence, while `min_samples`
     /// of 1 (what forced `Tier2` passes) keeps every site.
     #[test]
     fn snapshot_applies_the_profitability_gate() {
@@ -506,7 +506,7 @@ mod tests {
         assert_eq!(table.snapshot(1)[0].1.samples, u16::MAX);
     }
 
-    /// D-6 route B: a site that keeps seeing the same callee stays
+    /// The direct-call path: a site that keeps seeing the same callee stays
     /// monomorphic; a second, different callee makes it polymorphic.
     #[test]
     fn a_second_callee_makes_the_site_polymorphic() {

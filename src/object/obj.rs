@@ -168,7 +168,7 @@ impl ObjectFlags {
     }
 }
 
-/// The property slots, as the JIT sees them (P1-1).
+/// The property slots, as the JIT sees them (the property inline guard).
 ///
 /// The JIT's inline property guard loads the slots' data pointer and their
 /// count at fixed offsets, so this is `#[repr(C)]` and the offsets are
@@ -196,7 +196,7 @@ pub struct ObjectImpl {
     /// property value slots
     pub(super) prop_values: Vec<JSProperty>,
 
-    /// The slots, as the JIT sees them (P1-1): a mirror of `prop_values`.
+    /// The slots, as the JIT sees them (the property inline guard): a mirror of `prop_values`.
     pub(crate) prop_view: PropView,
 
     /// Number of slots marked as JSProperty::Deleted.
@@ -399,7 +399,7 @@ impl ObjectImpl {
         // `ObjectImpl::class_id()` is an O(1) field load (no payload match).
         flags.set_class_id(class_id);
 
-        // The mirror the JIT reads (P1-1): the slots as they are now.
+        // The mirror the JIT reads (the property inline guard): the slots as they are now.
         let prop_view = PropView {
             data: prop_values.as_ptr() as *mut JSProperty,
             len: prop_values.len() as u32,
@@ -442,7 +442,7 @@ impl ObjectImpl {
         self as *const Self as usize
     }
 
-    /// Refresh the mirror the JIT reads (P1-1). Every method that changes the
+    /// Refresh the mirror the JIT reads (the property inline guard). Every method that changes the
     /// slots' length or their buffer must call this.
     ///
     /// Inlined on purpose: it is a cold path, and a separate symbol would

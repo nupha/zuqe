@@ -4,7 +4,7 @@
 //! Frontend: turn a pointer-free [`CompileSnapshot`](crate::jit::snapshot::CompileSnapshot)
 //! into a [`VerifiedFunction`] the compiler may consume, or reject it.
 
-// The compiler that reads these accessors arrives in epic C.
+// The JIT compiler reads these accessors.
 #![allow(dead_code)]
 
 pub(crate) mod cfg;

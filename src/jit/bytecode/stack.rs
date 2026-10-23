@@ -108,12 +108,12 @@ pub(crate) struct StateProof {
     pub(crate) visited: BTreeSet<u32>,
     pub(crate) handlers: BTreeMap<u32, ExceptionHandler>,
     /// Operand-stack height *before* each instruction, indexed by instruction
-    /// index (epic F4). Unvisited (unreachable) instructions stay 0 and are
+    /// index (the stack-slot register cache). Unvisited (unreachable) instructions stay 0 and are
     /// never lowered. Bounded by the u16 `stack_size`, which `check_stack_size`
     /// enforces after every transfer.
     pub(crate) heights: Vec<u16>,
     /// Verifier-proven local kinds *before* each `get_loc`-family instruction,
-    /// keyed by pc (epic 1.4 item 3). Only reads record here, so the map stays
+    /// keyed by pc (the local liveness map). Only reads record here, so the map stays
     /// small; the lowering feeds `Int32` slots into its guard-elimination fact.
     pub(crate) local_kinds: BTreeMap<u32, Box<[SlotKind]>>,
 }
@@ -547,9 +547,9 @@ pub(crate) fn prove(
         let range = block.instruction_range();
         for (offset, instruction) in instructions[range.clone()].iter().enumerate() {
             budget.charge(instruction.pc(), 1usize.saturating_add(state.cell_count()))?;
-            // Epic F4: the lowering keys its stack cache by this height.
+            // The stack-slot register cache: the lowering keys its stack cache by this height.
             heights[range.start + offset] = state.stack.len() as u16;
-            // Epic 1.4 item 3: record the proven local kinds for reads only.
+            // Local liveness: record the proven local kinds for reads only.
             if instruction.name().starts_with("get_loc") {
                 local_kinds.insert(instruction.pc(), state.locals.clone().into_boxed_slice());
             }
@@ -655,7 +655,7 @@ pub(crate) fn prove(
                 budget.charge(*successor, incoming.cell_count())?;
                 check_stack_size(snapshot, tail, &incoming)?;
             }
-            // Epic S2 (1.6): a block's entry facts are the join over **all** its
+            // Dataflow: a block's entry facts are the join over **all** its
             // incoming edges, and the worklist below re-processes the block
             // whenever a merge widens it — so "every predecessor agrees" falls
             // out of the fixpoint on its own. A loop header used to be widened

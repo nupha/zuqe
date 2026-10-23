@@ -146,7 +146,7 @@ impl ObjectImpl {
     pub(crate) fn extend_prop_slot(&mut self, extra: usize) {
         self.prop_values
             .extend(std::iter::from_fn(|| Some(JSProperty::default())).take(extra));
-        // P1-1: the mirror the JIT reads follows the slots.
+        // The property inline guard: the mirror the JIT reads follows the slots.
         self.sync_prop_view();
     }
 

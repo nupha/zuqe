@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! Hotness state machine (epic D1).
+//! Hotness state machine.
 //!
 //! The interpreter counts entries and backward branches here; when a function
 //! crosses its threshold it is queued for compilation exactly once. Thresholds
 //! start from the configured base. The function's static shape (bytecode size,
 //! helper density) can raise them on any tier; measured work — the Tier 2
-//! feedback table (epic F1) supplies it — can lower them further.
+//! feedback table (type feedback) supplies it — can lower them further.
 //!
-//! Two gates, two tiers (plan §13.6.5 item 1): the first gate compiles the
+//! Two gates, two tiers: the first gate compiles the
 //! **baseline** tier, the second one promotes the function to the **optimizing**
-//! tier. Each gate is one **weighted budget** (plan §13.6.5 item 3): an entry
+//! tier. Each gate is one **weighted budget**: an entry
 //! weighs as much as the configured loop threshold, a back edge as much as the
 //! call threshold, and the gate fires once the sum reaches their product —
 //! `loops_weight × calls + calls_weight × loops ≥ budget`. The line runs
@@ -38,7 +38,7 @@ pub(crate) enum HotReason {
     HelperDensity,
 }
 
-/// The tier a function's code is at (plan §13.6.5 item 1).
+/// The tier a function's code is at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Tier {
     /// Not compiled yet.
@@ -49,7 +49,7 @@ pub(crate) enum Tier {
     Tier2,
 }
 
-/// One gate's weighted budget (plan §13.6.5 item 3): the `calls ∨ loops`
+/// One gate's weighted budget: the `calls ∨ loops`
 /// crossing becomes `calls_weight × calls + loops_weight × loops ≥ budget`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct GateBudget {
@@ -76,7 +76,7 @@ pub(crate) struct HotThresholds {
 /// The size factor's fixed-point scale: the factor is kept in 1/16ths so the
 /// thresholds stay exact integers.
 const SIZE_SCALE: u32 = 16;
-/// The cap of the size factor: 4x the base (plan §13.6.5 item 2).
+/// The cap of the size factor: 4x the base.
 const SIZE_FACTOR_MAX: u32 = 4 * SIZE_SCALE;
 
 impl GateBudget {
@@ -115,7 +115,7 @@ pub(crate) struct AdaptiveInputs {
     pub(crate) instruction_count: u32,
     pub(crate) helper_ops: u32,
     /// Interpreter work measured for this function. `None` until Tier 2
-    /// feedback exists (epic F1); while it is `None` the thresholds are the
+    /// feedback exists (type feedback); while it is `None` the thresholds are the
     /// configured base, exactly as before.
     pub(crate) measured_work: Option<u32>,
 }
@@ -147,7 +147,7 @@ impl AdaptiveInputs {
         }
     }
 
-    /// Attach the interpreter's measurement (epic F5): the hottest hooks pass
+    /// Attach the interpreter's measurement: the hottest hooks pass
     /// the feedback table's observation count. `0` means "nothing recorded"
     /// (a baseline tier never records), which keeps the thresholds neutral
     /// instead of pretending the function was measured as doing no work.
@@ -156,7 +156,7 @@ impl AdaptiveInputs {
         self
     }
 
-    /// The continuous size factor (plan §13.6.5 item 2): `1 + bytes/1024`,
+    /// The continuous size factor: `1 + bytes/1024`,
     /// capped at 4x, in 1/16ths. A 500-byte function and a 4000-byte one no
     /// longer get the same treatment — the compile cost grows with the size,
     /// the benefit does not.
@@ -183,7 +183,7 @@ impl AdaptiveInputs {
     /// helper-dominated function doubles that factor on top (the total stays
     /// capped at 4x).
     ///
-    /// `payback` is the **cost gate** (P1-3): the number of activations a
+    /// `payback` is the **cost gate**: the number of activations a
     /// function must be observed at before its compile can pay for itself,
     /// derived from the measured cost of a compile and the host's estimate of
     /// what native execution saves. It is a floor under the thresholds, so a
@@ -233,7 +233,7 @@ impl AdaptiveInputs {
         } else {
             self.size_factor()
         };
-        // The cost gate (P1-3): a floor under the pair, budget line through it.
+        // The cost gate: a floor under the pair, budget line through it.
         // `u32::max(0)` is the identity, so `payback == 0` (the gate off) needs
         // no branch.
         let calls = (base_calls.saturating_mul(factor) / SIZE_SCALE).max(payback);
@@ -300,7 +300,7 @@ impl HotnessState {
         self.loops
     }
 
-    /// Whether the first gate is crossed (plan §13.6.5 item 3): the weighted
+    /// Whether the first gate is crossed: the weighted
     /// budget `loops_weight × calls + calls_weight × loops ≥ budget`, with the
     /// entry heavier than a back edge (its weight is the configured loop
     /// threshold).
@@ -325,7 +325,7 @@ impl HotnessState {
 mod tests {
     use super::*;
 
-    /// The production base plus the second gate (plan §13.6.5 item 1).
+    /// The production base plus the second gate.
     const BASE: (u32, u32, u32, u32) = (32, 56, 1024, 2048);
 
     /// The crossing checks are the gate's contract; the budget line itself is
@@ -433,7 +433,7 @@ mod tests {
         );
     }
 
-    /// The size factor is **continuous** (plan §13.6.5 item 2): `1 + bytes/1024`,
+    /// The size factor is **continuous**: `1 + bytes/1024`,
     /// capped at 4x. The old rule was a one-shot `bytes >= 4096 → ×2`, so a
     /// 500-byte and a 4000-byte function got the same treatment.
     #[test]
@@ -519,7 +519,7 @@ mod tests {
         assert!(state(0, 1).crossed_first_gate(&th));
     }
 
-    /// P1-3: the cost gate is a **floor** under the thresholds. A function
+    /// The compile-rate gate: the cost gate is a **floor** under the thresholds. A function
     /// that is called a handful of times cannot pay for a compile, so it is
     /// not compiled at all — whatever the configured thresholds say. With T8
     /// the floor lifts the pair first and the budget line follows it.

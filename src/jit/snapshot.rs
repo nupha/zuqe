@@ -10,7 +10,7 @@
 //! themselves stay in the runtime and are read through `ResolveConst` at
 //! execution time.
 
-// Several fields describe the frame for codegen (epic C) and are not read yet.
+// Several fields describe the frame for codegen and are not read yet.
 #![allow(dead_code)]
 
 use crate::{
@@ -51,27 +51,27 @@ pub(crate) struct CompileSnapshot {
     /// restore (the cache is not serialized); the compiler then keeps the
     /// helper for every global access.
     pub(crate) global_cache_count: u32,
-    /// Tier-2 type feedback (epic F1): `(pc, observations)` sorted by pc,
+    /// Tier-2 type feedback: `(pc, observations)` sorted by pc,
     /// copied out of the bytecode's feedback table at snapshot time, already
-    /// filtered by the epic F5 profitability gate. Empty under
+    /// filtered by the profitability gate. Empty under
     /// `Interpreter`/`Tier1` policies, which never record.
     pub(crate) feedback: Box<[(u32, SiteFeedback)]>,
-    /// Call-site feedback (D-6 route B): the callee each call site saw, in
+    /// Call-site feedback (the direct-call path): the callee each call site saw, in
     /// site-id order — the index in this box is the site id the compiled code
     /// carries, and the helper reads the expected callee back through it.
     pub(crate) call_sites: Box<[CallSite]>,
-    /// The callees the compiler may copy into this function (D-6 route B,
-    /// step 2). A site's `CallSite::inline` indexes this box; no pointer is
+    /// The callees the compiler may copy into this function (the direct-call
+    /// path). A site's `CallSite::inline` indexes this box; no pointer is
     /// kept, so the snapshot still crosses to the compiler thread.
     pub(crate) inline_callees: Box<[InlineCallee]>,
-    /// Whether the compiler may speculatively specialize this function (epic
-    /// F2). Cleared after tier-down (P7 7.2) observed too many guard misses at
+    /// Whether the compiler may speculatively specialize this function. Cleared
+    /// after a tier-down observed too many guard misses at
     /// its sites: the recompile keeps the int fast paths but not the
     /// speculation, so the guards stop being paid.
     pub(crate) speculate: bool,
 }
 
-/// A callee the compiler may inline into its caller (D-6 route B, step 2).
+/// A callee the compiler may inline into its caller.
 ///
 /// This is the callee's own snapshot metadata, copied while the runtime
 /// thread still owns the bytecode. The compiler verifies it like any other
@@ -79,7 +79,7 @@ pub(crate) struct CompileSnapshot {
 /// the caller's code.
 ///
 /// `call_sites` / `inline_callees` are the callee's *own* monomorphic sites
-/// (T7.2): a call inside the copied body can be copied too. The nesting is
+/// a call inside the copied body can be copied too. The nesting is
 /// bounded at snapshot time.
 #[derive(Clone, Debug)]
 pub(crate) struct InlineCallee {
@@ -97,7 +97,7 @@ pub(crate) struct InlineCallee {
     pub(crate) inline_callees: Box<[InlineCallee]>,
 }
 
-/// How many copied bodies may be stacked at one call site (T7.2). Deeper
+/// How many copied bodies may be stacked at one call site. Deeper
 /// call chains stay on the direct path.
 const MAX_INLINE_DEPTH: u8 = 2;
 /// Total bytecode bytes one snapshot may spend on nested copies. The
@@ -167,7 +167,7 @@ impl InlineCallee {
 
     /// The callee as a standalone snapshot, for the compiler's verifier. The
     /// nested call-site tables travel with it, so a copied body can copy its
-    /// own monomorphic callees (T7.2).
+    /// own monomorphic callees.
     pub(crate) fn snapshot(&self, function_id: u64) -> CompileSnapshot {
         CompileSnapshot {
             function_id,
@@ -195,7 +195,7 @@ impl CompileSnapshot {
     /// Copy pointer-free details out of a live bytecode function. `function_id`
     /// is the identity the interpreter's hotness hooks use (the node address,
     /// stable for the runtime's lifetime because the GC never moves nodes).
-    /// `min_samples` is the epic F5 profitability gate applied to the feedback
+    /// `min_samples` is the profitability gate applied to the feedback
     /// copied in: sites observed fewer times never reach the compiler.
     pub(crate) fn from_bytecode(function_id: u64, bc: &BytecodeImpl, min_samples: u32) -> Self {
         #[cfg(feature = "inline_cache")]
@@ -211,7 +211,7 @@ impl CompileSnapshot {
         #[cfg(not(feature = "jit"))]
         let global_cache_count = 0;
 
-        // D-6 route B step 2: keep a copy of each monomorphic callee whose
+        // The direct-call path: keep a copy of each monomorphic callee whose
         // shape the compiler may inline. The call-site table holds the callee
         // alive, so the identity the guard carries stays valid.
         let mut call_sites = bc.feedback.snapshot_calls();

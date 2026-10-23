@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! Runtime coordination for the JIT (epic D).
+//! Runtime coordination for the JIT.
 //!
 //! - [`hotness`] decides when a function is worth compiling.
 //! - [`coordinator`] owns the request queue and each function's lifecycle.

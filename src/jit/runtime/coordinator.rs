@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! Compilation queue and per-function lifecycle (epic D2).
+//! Compilation queue and per-function lifecycle.
 //!
 //! Hotness decides *when* a function is worth compiling; this module owns the
 //! request queue and the states a function moves through. Verification and
-//! codegen run inline in `JitState::poll` (epic D3 is a documented deviation —
+//! codegen run inline in `JitState::poll` (inline compilation is a documented deviation —
 //! no background thread yet), so the coordinator itself never touches code.
 //!
 //! While a function is queued or compiling the coordinator pins its `Bytecode`
@@ -43,7 +43,7 @@ pub(crate) enum Lifecycle {
     Settled,
 }
 
-/// How the two gates map onto the two tiers (plan §13.6.5 item 1).
+/// How the two gates map onto the two tiers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Tiering {
     /// One tier only: every compile produces it. The forced policies ask for
@@ -93,9 +93,8 @@ struct FunctionRecord {
     verify_counted: bool,
     /// Held while `Queued`/`Compiling` so the GC cannot free the function.
     pinned: Option<Bytecode>,
-    /// Speculative guard misses observed in this function's native code (P7
-    /// 7.2). Past [`TIER_DOWN_MISSES`] the function is recompiled without
-    /// speculation.
+    /// Speculative guard misses observed in this function's native code. Past
+    /// [`TIER_DOWN_MISSES`] the function is recompiled without speculation.
     guard_misses: u64,
     /// Tier-down requested: the next compile must not speculate.
     tier_down: bool,
@@ -105,10 +104,10 @@ struct FunctionRecord {
     cooldown: u32,
     /// Work the function did since it was queued (entries + back edges). Zero
     /// means it has not run since: it is idle, and the queue may drop it for
-    /// a hotter newcomer (plan §13.6.5 item 4).
+    /// a hotter newcomer (the queue admission policy).
     work_since_queue: u32,
     /// The size of the function's bytecode, in bytes. The cost gate needs it
-    /// to weigh a compile against the work the function does (P1-3).
+    /// to weigh a compile against the work the function does (the compile-rate gate).
     bytecode_bytes: u32,
 }
 
@@ -123,7 +122,7 @@ impl FunctionRecord {
     }
 }
 
-/// P7 7.2: how many speculative guard misses one function may take before it is
+/// Tier-down: how many speculative guard misses one function may take before it is
 /// recompiled without speculation. Shortcut: a fixed threshold instead of a
 /// per-site profitability model; raise/lower it if the guard-miss metric shows
 /// the wrong trade-off.
@@ -143,7 +142,7 @@ pub(crate) struct Coordinator {
     max_attempts: u32,
     timeout: Duration,
     /// The host's estimate of what one bytecode of native execution saves;
-    /// the benefit side of the cost gate (P1-3). `0` turns the gate off.
+    /// The benefit side of the cost gate. `0` turns the gate off.
     native_saving_ns_per_bytecode: u64,
 }
 
@@ -181,7 +180,7 @@ impl Coordinator {
         self.timeout
     }
 
-    /// The cost gate (P1-3): how many activations a function must be observed
+    /// The cost gate: how many activations a function must be observed
     /// at before its compile can pay for itself. It combines the **measured**
     /// cost of a compile (`jit::rate`) with the host's estimate of what
     /// native execution saves. `0` means "no gate".
@@ -361,7 +360,7 @@ impl Coordinator {
     /// - a queued function that has **stopped running** (no calls since it
     ///   was queued) is dropped instead, so the compile budget goes to the
     ///   function that is still hot — dropping a function that is no longer
-    ///   called buys nothing, dropping a live one does (plan §13.6.5 item 4);
+    ///   called buys nothing, dropping a live one does (the queue admission policy);
     /// - when every queued function is still running, the newcomer is the
     ///   coldest one and is dropped itself.
     ///
@@ -532,7 +531,7 @@ impl Coordinator {
 
     /// Return a function to `Cold` after its code was discarded, so it can be
     /// compiled again if it becomes hot. Called when the code cache retires a
-    /// live mapping (D-16). The hotness counters go with it: the code is
+    /// live mapping (single-owner mapping). The hotness counters go with it: the code is
     /// gone, so the function has to become hot again from scratch.
     pub(crate) fn invalidate(&mut self, id: u64) {
         if let Some(record) = self.records.get_mut(&id) {
@@ -547,7 +546,7 @@ impl Coordinator {
         }
     }
 
-    /// P7 7.2: count this activation's speculative guard misses. Once the total
+    /// Tier-down: count this activation's speculative guard misses. Once the total
     /// crosses [`TIER_DOWN_MISSES`], ask for a non-speculative recompile.
     pub(crate) fn note_guard_misses(&mut self, id: u64, misses: u32) {
         if misses == 0 {
@@ -569,7 +568,7 @@ impl Coordinator {
     }
 
     /// Whether an installed function should be re-queued for a non-speculative
-    /// recompile (P7 7.2).
+    /// recompile (tier-down).
     pub(crate) fn needs_tier_down_requeue(&self, id: u64) -> bool {
         self.records.get(&id).is_some_and(|record| {
             record.tier_down
@@ -690,7 +689,7 @@ mod tests {
         let _ = c.begin_next();
     }
 
-    /// Epic F5 wiring: the interpreter's measurement reaches the thresholds. A
+    /// Profitability-gate wiring: the interpreter's measurement reaches the thresholds. A
     /// helper-dominated function (every opcode a `Helper`) is expensive to
     /// compile, so its static shape doubles the base; proven work (4096
     /// observations) halves it instead. An eager base (`1`, what the diagnostic
@@ -828,7 +827,7 @@ mod tests {
         assert_eq!(c.queue_len(), 1);
     }
 
-    /// P0-3 (plan §13.6.5 item 4): a full queue does not drop the newcomer
+    /// The queue admission policy: a full queue does not drop the newcomer
     /// blindly. A queued function that has **stopped running** is dropped
     /// instead, so the compile budget goes to the function that is still hot.
     #[test]
@@ -977,7 +976,7 @@ mod tests {
         );
     }
 
-    /// TH2: the first gate compiles the baseline tier, the second one
+    /// The first gate compiles the baseline tier, the second one
     /// promotes the function to the optimizing tier. The promotion is driven
     /// by the counts the *native* tier reports back, because the interpreter
     /// stops counting once the code is installed.
@@ -1015,7 +1014,7 @@ mod tests {
         assert_eq!(m.functions_compiled, 2);
     }
 
-    /// TH2: a demoted function (P7 7.2 tier-down) must not be promoted right
+    /// A demoted function (tier-down) must not be promoted right
     /// back — the cooldown keeps the two recompiles from chasing each other.
     #[test]
     fn a_demoted_function_waits_before_it_is_promoted_again() {

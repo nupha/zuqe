@@ -75,7 +75,7 @@ pub(crate) mod object {
         use super::*;
         use crate::object::ObjectFlags;
 
-        /// The JIT's masks must be **the engine's** masks (P1-1): the generated
+        /// The JIT's masks must be **the engine's** masks (the property inline guard): the generated
         /// code reads the class id and the fast-array flag out of the flags
         /// word with them. A change on either side without the other would
         /// make the guard read the wrong bits — silently (a wrong guard, not a
@@ -87,7 +87,7 @@ pub(crate) mod object {
             assert_eq!(EXTENSIBLE_MASK, i64::from(ObjectFlags::MASK_EXTENSIBLE));
         }
 
-        /// The layout the JIT's inline property guard reads (P1-1): the
+        /// The layout the JIT's inline property guard reads: the
         /// shape's unique id, and the payload pointer the inline cache
         /// records.
         ///
@@ -287,7 +287,7 @@ pub(crate) mod typed_array {
     mod tests {
         use super::*;
 
-        /// The layout the JIT's typed-array guard reads (P1-1) must stay what
+        /// The layout the JIT's typed-array guard reads must stay what
         /// the guard assumes. The offsets are computed, so a field that
         /// *moves* is fine — but two fields sharing an offset, or a field
         /// that changes its width, would make the generated code read the
@@ -354,7 +354,7 @@ pub(crate) mod array_buffer {
     mod tests {
         use super::*;
 
-        /// The layout the JIT's typed-array guard reads (P1-1): the data
+        /// The layout the JIT's typed-array guard reads: the data
         /// pointer first, the length second, the "directly readable" flag
         /// third. The generated code loads them in that order and with those
         /// widths.

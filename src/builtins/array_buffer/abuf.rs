@@ -39,7 +39,7 @@ pub(crate) enum ABufData {
     Raw(NonNull<u8>, usize, Option<JSFreeArrayBufferDataFunc>),
 }
 
-/// The buffer's bytes, in the layout the JIT reads (P1-1).
+/// The buffer's bytes, in the layout the JIT reads (the property inline guard).
 ///
 /// `ABufData` is an enum, so where its payload sits is not portable: the JIT
 /// cannot read a data pointer out of it. The payload therefore keeps a
@@ -155,7 +155,7 @@ impl ABufData {
 
 #[derive(Debug)]
 pub struct ArrayBufferPayload {
-    /// The bytes as the JIT sees them (P1-1) — a mirror of `data`.
+    /// The bytes as the JIT sees them (the property inline guard) — a mirror of `data`.
     pub(crate) view: BufferView,
     data: ABufData,
     /// if is shared, the array buffer cannot be detached
@@ -175,7 +175,7 @@ impl ArrayBufferPayload {
         self.view
     }
 
-    /// Refresh the mirror the JIT reads (P1-1). Every mutation of the
+    /// Refresh the mirror the JIT reads (the property inline guard). Every mutation of the
     /// buffer's data must call this.
     fn sync_view(&mut self) {
         self.view = self.data.view();

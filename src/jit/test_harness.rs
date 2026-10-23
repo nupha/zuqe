@@ -420,7 +420,7 @@ pub(crate) fn compile_caller_with_inline(
 }
 
 /// Like [`compile_caller_with_inline`], with each site's callee carrying its
-/// own `(pc, body)` nested sites (T7.2).
+/// own `(pc, body)` nested sites.
 pub(crate) fn compile_caller_with_nested_inline(
     caller: &[u8],
     args: u16,

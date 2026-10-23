@@ -367,13 +367,13 @@ impl Bytecode {
             };
         }
 
-        // Epic 1.7: set when a native (C/Rust) callee ran inline through
+        // Native re-entry: set when a native (C/Rust) callee ran inline through
         // `call_internal`, so the dispatch loop retries native at the post-call
         // pc. Without it the interpreter would stay in the interpreter for the
         // rest of the frame after any builtin/method call.
         #[cfg(feature = "jit")]
         let mut jit_retry_native = false;
-        // Epic 1.7: a native callee runs inline via `call_internal`, so mark the
+        // Native re-entry: a native callee runs inline via `call_internal`, so mark the
         // frame for a native retry at the post-call pc (no-op without the JIT).
         #[cfg(feature = "jit")]
         macro_rules! jit_mark_native_call {
@@ -394,9 +394,9 @@ impl Bytecode {
 
         save_sp!(sp_offset as i32);
 
-        // Epic N3: a taken loop back edge asks the JIT whether this frame can
+        // Back-edge OSR: a taken loop back edge asks the JIT whether this frame can
         // switch to its native entry at the loop header. If so, the dispatch
-        // loop's native-retry path (1.7) enters it. `cur_sp_offset` is synced
+        // loop's native-retry path enters it. `cur_sp_offset` is synced
         // first because the OSR prologue takes the resume stack pointer from it
         // and a few opcodes (the bitwise family) leave it one slot above `sp` —
         // harmless to the interpreter (it only scans one more slot), exact for
@@ -439,7 +439,7 @@ impl Bytecode {
             // interrupt raised inside a callee unwinds that frame and a
             // `catch` in the caller would swallow it, so a direct call would
             // behave differently from a call that nests a new trampoline
-            // (D-6's call helpers, or a native callback host).
+            // (the direct-call helpers, or a native callback host).
             if rt.interrupt_code.is_some() {
                 return ExecAction::Unwind;
             }
@@ -529,7 +529,7 @@ impl Bytecode {
         // The native code (and its helpers) reborrowed the context through a
         // raw pointer, so the original `&mut` is stale under Stacked Borrows.
         // Re-derive it once before entering the interpreter loop, and again in
-        // the dispatch loop after every native re-entry (epic 1.7).
+        // the dispatch loop after every native re-entry.
         #[cfg(feature = "jit")]
         #[allow(unused_mut)]
         let mut realm_scope = unsafe { &mut *(jit_scope_ptr as *mut ScopedContext) };
@@ -707,7 +707,7 @@ impl Bytecode {
                 if let Some(initial) = jit_initial_action.take() {
                     break initial;
                 }
-                // Epic 1.7: a native callee just returned inline; retry native
+                // Native re-entry: a native callee just returned inline; retry native
                 // at the post-call pc so the rest of the frame stays native.
                 // The compiled entry exits `Retry` for a pc it has no entry for,
                 // which rewinds to the same pc and we carry on interpreting.
@@ -854,7 +854,7 @@ impl Bytecode {
                                 }
                             }
                             SpecialObject::MappedArguments => {
-                                // Shared with the JIT helper (epic F §6.12).
+                                // Shared with the JIT helper (the bytecode contract).
                                 match js_build_mapped_arguments(
                                     realm_scope,
                                     args,
@@ -1131,7 +1131,7 @@ impl Bytecode {
 
                         let func = unsafe { *call_argv.offset(-1) };
 
-                        // D-6 route B: record the callee at this call site, so
+                        // The direct-call path: record the callee at this call site, so
                         // the compiler can tell a monomorphic site (one callee,
                         // always) from a polymorphic one.
                         #[cfg(feature = "jit")]
@@ -1404,7 +1404,7 @@ impl Bytecode {
                         let func = unsafe { *call_argv.offset(-1) };
                         let method_this = unsafe { *call_argv.offset(-2) };
 
-                        // D-6 route B: record the callee at this call site (see
+                        // The direct-call path: record the callee at this call site (see
                         // the CALL arm).
                         #[cfg(feature = "jit")]
                         crate::jit::note_call(
@@ -1590,7 +1590,7 @@ impl Bytecode {
                             })
                         {
                             // Tier-2 feedback: the updated local before and after
-                            // (P7-7.1 — the result class exposes overflow).
+                            // (result classes — the result class exposes overflow).
                             #[cfg(feature = "jit")]
                             crate::jit::note_local_update(&rt, self, site, *op1, res);
                             *op1 = res;
@@ -2188,7 +2188,7 @@ impl Bytecode {
                             {
                                 let shape_ptr = unsafe { shape.gc_ref().as_ptr().as_ptr() };
 
-                                // The site holds up to IC_WAYS shapes (epic F3).
+                                // The site holds up to IC_WAYS shapes (the property inline cache).
                                 if let Some((slot, _)) =
                                     ic_cache[ic_idx].find(shape_ptr, shape.uid, atom.id())
                                 {
@@ -2343,7 +2343,7 @@ impl Bytecode {
                             OpCode::POW => JSValue::arith_pow(realm_scope, op1, op2),
                             _ => unreachable!(),
                         };
-                        // Tier-2 feedback (F1 + P7-7.1): operands and the result
+                        // Tier-2 feedback (type feedback and result classes): operands and the result
                         // (the result class exposes int overflow to the gate).
                         #[cfg(feature = "jit")]
                         if let Ok(val) = res {
@@ -2693,7 +2693,7 @@ impl Bytecode {
                         if let Ok(obj) = result {
                             // Restore the catch offset so that NIP_CATCH
                             // (emitted for `return` inside the loop body)
-                            // can find it.  See P5 nip_catch bug.
+                            // can find it.  See the nip_catch bug.
                             SP_PUT!(-1, saved_catch);
                             SP_PUT!(0, obj);
                             SP_GO!(1);
@@ -3592,7 +3592,7 @@ pub(crate) fn execute_trampoline(
     let mut args;
 
     'trampoline: loop {
-        // P6 5.1: a loop back edge inside the frame we just ran may have queued
+        // Deferred polling: a loop back edge inside the frame we just ran may have queued
         // a function; polling here (between `execute_with_arena` calls) is a
         // safe point, so hot functions can run natively inside this `eval`.
         #[cfg(feature = "jit")]

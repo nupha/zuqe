@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright © 2026 John Ray <996351336@qq.com>
 
-//! Epic S2 (1.5): value numbering for the operand stack, and the redundant
+//! The CSE pass: value numbering for the operand stack, and the redundant
 //! numeric expressions it exposes (CSE).
 //!
 //! The bytecode is a stack machine, so the *identity* of a value is written

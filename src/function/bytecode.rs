@@ -51,7 +51,7 @@ pub(crate) struct InlineCacheEntry {
     pub(crate) flags: u8,
 }
 
-/// The kind of an inline-cache entry (P1-1's tail): the ordinary one (an own
+/// The kind of an inline-cache entry (the property inline guard's tail): the ordinary one (an own
 /// property, cached by its slot) or a typed array's `length`.
 ///
 /// The typed array's `length` lives on the prototype, so the ordinary slot
@@ -64,7 +64,7 @@ pub(crate) struct InlineCacheEntry {
 pub(crate) const IC_FLAG_TYPED_ARRAY_LENGTH: u8 = 0x80;
 
 /// Distinct shapes one inline-cache site may hold before it starts evicting
-/// (epic F3). 4 keeps a monomorphic site a single compare on `ways[0]` while
+/// (the property inline cache). 4 keeps a monomorphic site a single compare on `ways[0]` while
 /// covering the small polymorphic loops real code produces; past it a site
 /// round-robin evicts, which is correct but stops being a win.
 #[cfg(feature = "inline_cache")]
@@ -84,7 +84,7 @@ pub(crate) struct InlineCacheSite {
     cursor: u8,
 }
 
-/// The layout the JIT's inline property guard reads (P1-1).
+/// The layout the JIT's inline property guard reads.
 ///
 /// The guard reads a site's **first way** — the shape the site saw last — to
 /// learn in which slot the property lives, so it needs the offsets of that
@@ -188,7 +188,7 @@ impl InlineCacheSite {
         }
     }
 
-    /// Record a typed array's `length` read (P1-1's tail).
+    /// Record a typed array's `length` read (the property inline guard's tail).
     ///
     /// The property lives on the prototype, so the ordinary slot cache cannot
     /// serve it. The entry keeps two tokens instead:
@@ -368,7 +368,7 @@ pub struct BytecodeImpl {
 
     /// Inline-cache entries for GET_FIELD_IC / GET_FIELD2_IC instructions.
     /// Indexed by the ic_index embedded in each IC instruction; each element is
-    /// one [`InlineCacheSite`] holding up to [`IC_WAYS`] shapes (epic F3).
+    /// one [`InlineCacheSite`] holding up to [`IC_WAYS`] shapes (the property inline cache).
     /// Empty / zero-initialized when the compiled function has no IC sites.
     ///
     /// Wrapped in UnsafeCell for interior mutability: the interpreter owns the
@@ -407,7 +407,7 @@ pub struct BytecodeImpl {
     pub(crate) global_var_cache: UnsafeCell<Box<[crate::jit::GlobalVarCache]>>,
 
     /// JIT state for this function (feature `jit`): the installed native-entry
-    /// slot, which also owns the published code mapping (a strong `Rc`, D-16).
+    /// slot, which also owns the published code mapping (a strong `Rc`, so the slot owns it).
     /// Interior-mutable because the interpreter reaches it through `&Bytecode`.
     /// Deliberately **not** visited by `GcTrace`: the mapping holds no GC
     /// reference, and tracing it would keep a stale entry alive — the pool of
@@ -415,7 +415,7 @@ pub struct BytecodeImpl {
     #[cfg(feature = "jit")]
     pub(crate) jit: crate::jit::FunctionSlot,
 
-    /// Tier-2 type feedback for this function (feature `jit`, epic F1): the
+    /// Tier-2 type feedback for this function (feature `jit`): the
     /// types the interpreter observed at each feedback site (bytecode pc).
     /// Like `jit` it holds no GC reference and is not traced.
     #[cfg(feature = "jit")]
@@ -458,7 +458,7 @@ impl GcTrace for BytecodeImpl {
             x.trace(gcx)
         }
 
-        // The call-site feedback holds the recorded callees (D-6 route B): they
+        // The call-site feedback holds the recorded callees (the direct-call path): they
         // are GC nodes, and holding them is what keeps a recorded identity
         // unique.
         #[cfg(feature = "jit")]
@@ -558,7 +558,7 @@ impl BytecodeImpl {
         self.attrs.gc_scope_kind
     }
 
-    /// The inline-cache sites, for the JIT's inline property guard (P1-1).
+    /// The inline-cache sites, for the JIT's inline property guard.
     ///
     /// The array never moves (the sites are allocated once, with the
     /// function), so the pointer stays valid for the function's life.
@@ -940,7 +940,7 @@ mod inline_cache_site_tests {
         site.insert(shape_at(seed as usize), seed, seed, slot, 0);
     }
 
-    /// The layout the JIT's inline property guard reads (P1-1): the first
+    /// The layout the JIT's inline property guard reads: the first
     /// way's shape pointer, shape id and slot index.
     ///
     /// The guard reads a site's first way to learn in which slot the property

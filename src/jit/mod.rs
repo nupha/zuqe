@@ -87,7 +87,7 @@ use crate::{
     runtime::{Runtime, RuntimeImpl},
 };
 
-/// How the two gates map onto the two tiers (plan §13.6.5 item 1).
+/// How the two gates map onto the two tiers.
 ///
 /// The forced policies ask for a fixed tier, so there is only one gate. The
 /// `Automatic` policy runs the two gates — unless the host asked for an eager
@@ -124,11 +124,11 @@ pub(crate) struct JitState {
     #[cfg(feature = "jit_background")]
     background: RefCell<BackgroundCompiler>,
     /// Set by a loop back edge when there is queued work; the interpreter's
-    /// trampoline polls at its next safe iteration (P6 5.1) so functions hot
+    /// trampoline polls at its next safe iteration (deferred polling) so functions hot
     /// inside one `eval` can run natively.
     poll_requested: Cell<bool>,
     /// Number of native activations currently on the Rust stack. Automatic
-    /// polling is only allowed at zero: retiring a live mapping (D-16) while
+    /// polling is only allowed at zero: retiring a live mapping (single-owner mapping) while
     /// generated code still runs would free the code under it.
     native_depth: Cell<u32>,
     limits: VerifyLimits,
@@ -182,7 +182,7 @@ impl JitState {
         self.isa.as_ref()
     }
 
-    /// Whether this policy can still reach tier 2 (plan D-5): only then is
+    /// Whether this policy can still reach tier 2: only then is
     /// feedback worth its per-site recording cost.
     const fn records_feedback(&self) -> bool {
         matches!(
@@ -191,7 +191,7 @@ impl JitState {
         )
     }
 
-    /// Record the operand types seen at a binary site (epic F1).
+    /// Record the operand types seen at a binary site (type feedback).
     fn note_binary(&self, bc: &Bytecode, site: u32, lhs: JSValue, rhs: JSValue, result: JSValue) {
         if !self.records_feedback() {
             return;
@@ -207,7 +207,7 @@ impl JitState {
     }
 
     /// Record the type seen at a single-value site: a branch condition or a
-    /// local update (epic F1). Branch conditions have no result, so the result
+    /// local update (type feedback). Branch conditions have no result, so the result
     /// class stays 0.
     fn note_value(&self, bc: &Bytecode, site: u32, value: JSValue) {
         if !self.records_feedback() {
@@ -220,7 +220,7 @@ impl JitState {
     }
 
     /// Record a `inc_loc`/`dec_loc` site: the slot's value before the update and
-    /// the value it holds after (epic P7 / task 7.1 — the result class tells
+    /// the value it holds after (the result class tells
     /// overflow from a clean int update).
     fn note_local_update(&self, bc: &Bytecode, site: u32, before: JSValue, after: JSValue) {
         if !self.records_feedback() {
@@ -242,7 +242,7 @@ impl JitState {
         self.metrics.set(m);
     }
 
-    /// Record the callee seen at a call site (D-6 route B's call feedback).
+    /// Record the callee seen at a call site (the direct-call path's call feedback).
     ///
     /// Only while the function is still interpreted: once its code is
     /// installed, the recorded sites are baked into that code, and recording
@@ -250,7 +250,7 @@ impl JitState {
     /// *monomorphic* — one callee, always — which is the premise of the
     /// direct call the compiler emits for such a site.
     fn note_call(&self, bc: &Bytecode, site: u32, callee: JSValue) {
-        if self.disabled() || bc.jit.entry().is_some() {
+        if self.disabled() || bc.jit.has_code() {
             return;
         }
         // The callee's identity is its bytecode node: two closures over one
@@ -290,7 +290,7 @@ impl JitState {
     ///
     /// The interpreter only counts entries and back edges of *interpreted*
     /// frames, so a compiled function's counters would freeze at the moment
-    /// its code was installed — and the second gate (plan §13.6.5 item 1)
+    /// its code was installed — and the second gate
     /// would never be crossed. The native tier therefore reports the
     /// activations it ran and the back edges its loops took.
     ///
@@ -332,7 +332,7 @@ impl JitState {
         bytecode.jit.set_promotable(promotable);
     }
 
-    /// P7 7.2: fold one activation's speculative guard misses into the
+    /// Tier-down: fold one activation's speculative guard misses into the
     /// function's record and, once the threshold is crossed, queue the
     /// non-speculative recompile. A function with installed code never reaches
     /// `note_enter`, so this (not the interpreter hook) is what triggers
@@ -356,8 +356,7 @@ impl JitState {
     }
 
     /// Record a taken loop back edge and report whether the frame should
-    /// re-enter its native code at that loop header (epic N3, inline back-edge
-    /// OSR).
+    /// re-enter its native code at that loop header (back-edge OSR).
     ///
     /// A top-level hot loop never crosses a frame boundary, so the trampoline
     /// never polls inside the `eval` and the frame would stay interpreted to the
@@ -383,17 +382,17 @@ impl JitState {
         if let Some(tier) = coordinator.record_loop(&mut m, id, bc.opcodes(), measured) {
             coordinator.enqueue(&mut m, id, Some(*bc), tier);
         }
-        // P6 5.1: there is work for the compiler; ask the trampoline to poll at
+        // Deferred polling: there is work for the compiler; ask the trampoline to poll at
         // its next safe iteration (a no-op unless the host opted in).
         if coordinator.queue_len() > 0 {
             self.poll_requested.set(true);
         }
         drop(coordinator);
         self.metrics.set(m);
-        // N3: compile here, not at the next frame boundary, or the rest of this
+        // Back-edge OSR: compile here, not at the next frame boundary, or the rest of this
         // loop stays interpreted. Gated like the other automatic polls.
         self.poll_deferred();
-        bc.jit.entry().is_some()
+        bc.jit.has_code()
     }
 
     /// The in-eval half of the automatic poll: the interpreter's trampoline runs
@@ -480,7 +479,7 @@ impl JitState {
         let mut m = self.metrics.get();
 
         // Abandon whatever is past the budget before draining, so a result that
-        // only arrived because the host was slow is discarded (plan §12.5.4).
+        // only arrived because the host was slow is discarded (the background compile model).
         // The worker keeps running; its late completion is dropped by attempt
         // id.
         //
@@ -552,11 +551,11 @@ impl JitState {
         let outcome = match completion.result {
             JobResult::Compiled { bytes, specialized } => {
                 m.specialized_ops = m.specialized_ops.saturating_add(specialized);
-                // The pin is dropped by `invalidate` (D-16); without it there is
+                // The pin is dropped by `invalidate` (single-owner mapping); without it there is
                 // no slot to install into, so the result is discarded as a
                 // failure (and the record is resolved rather than stranded).
                 match pinned {
-                    Some(bytecode) => self.install(id, &bytecode, &bytes),
+                    Some(bytecode) => self.install(id, &bytecode, &bytes, m),
                     None => CompileOutcome::Failed,
                 }
             }
@@ -570,7 +569,7 @@ impl JitState {
     }
 
     /// Build the pointer-free snapshot of a request: the tier-2 profitability
-    /// gate (epic F5) plus the P7 7.2 tier-down decision. Shared by both models;
+    /// gate plus the tier-down decision. Shared by both models;
     /// the snapshot is all a worker needs.
     fn snapshot_for(&self, request: &runtime::Request) -> CompileSnapshot {
         // Forced `Tier2` feeds the compiler every recorded site (gate = 1
@@ -592,18 +591,38 @@ impl JitState {
     }
 
     /// Publish `bytes` into the function's slot and reset any mappings the code
-    /// cache retired to fit (D-16). The single writer of the slot and the cache.
-    fn install(&self, id: u64, bytecode: &Bytecode, bytes: &[u8]) -> CompileOutcome {
+    /// cache retired to fit (single-owner mapping). The single writer of the slot and the cache.
+    fn install(
+        &self,
+        id: u64,
+        bytecode: &Bytecode,
+        bytes: &[u8],
+        m: &mut JitMetrics,
+    ) -> CompileOutcome {
         let mut cache = self.cache.borrow_mut();
         let published = runtime::publish(&mut cache, id, bytecode, bytes);
         drop(cache);
         match published {
-            Some(evicted) => {
-                // D-16: the cache retired these live mappings to fit. Clear
+            Some(published) => {
+                // Code the compile budget paid for but nobody entered is
+                // reported separately from the recompile itself.
+                if published.replaced {
+                    m.code_replaced = m.code_replaced.saturating_add(1);
+                }
+                if published.replaced_unused {
+                    m.code_never_entered = m.code_never_entered.saturating_add(1);
+                }
+                m.code_retired = m
+                    .code_retired
+                    .saturating_add(published.evicted.ids.len() as u64);
+                m.code_never_entered = m
+                    .code_never_entered
+                    .saturating_add(published.evicted.unused);
+                // The cache retired these live mappings to fit. Clear
                 // their hotness so becoming hot again recompiles them.
-                if !evicted.is_empty() {
+                if !published.evicted.ids.is_empty() {
                     let mut coordinator = self.coordinator.borrow_mut();
-                    for id in evicted {
+                    for id in published.evicted.ids {
                         coordinator.invalidate(id);
                     }
                 }
@@ -618,7 +637,7 @@ impl JitState {
     fn finish_poll(&self, m: &mut JitMetrics) {
         m.polls = m.polls.saturating_add(1);
         m.queue_len = self.coordinator.borrow().queue_len() as u64;
-        // D-16: reclaim the budget of mappings whose function is already gone,
+        // Reclaim the budget of mappings whose function is already gone,
         // so a long-running process can keep compiling after churn.
         self.cache.borrow_mut().reclaim();
         m.code_bytes = self.cache.borrow().used_bytes();
@@ -642,7 +661,7 @@ impl JitState {
         ) {
             Lowered::Compiled { bytes, specialized } => {
                 m.specialized_ops = m.specialized_ops.saturating_add(specialized);
-                self.install(request.function_id, &request.bytecode, &bytes)
+                self.install(request.function_id, &request.bytecode, &bytes, m)
             }
             Lowered::Rejected => CompileOutcome::Rejected,
             Lowered::Failed => CompileOutcome::Failed,
@@ -652,7 +671,7 @@ impl JitState {
     }
 
     /// Account for one compile attempt: the per-runtime metrics and the
-    /// process-wide compile rate (the cost gate's input, P1-3).
+    /// process-wide compile rate (the cost gate's input).
     fn note_compile_cost(&self, m: &mut JitMetrics, id: u64, nanos: u64) {
         m.note_compile(nanos);
         let bytes = self.coordinator.borrow().bytecode_bytes(id);
@@ -681,7 +700,7 @@ pub(crate) enum Lowered {
 /// is the whole cross-thread contract.
 ///
 /// `elapsed_ns` receives the time the attempt took (verification + codegen),
-/// so the caller can account for the compile cost (IMP-2).
+/// so the caller can account for the compile cost (the cost gate).
 fn lower(
     snapshot: CompileSnapshot,
     limits: VerifyLimits,
@@ -777,7 +796,7 @@ impl Jit {
     /// process-wide. `None` while too few compiles have been measured to
     /// trust the estimate.
     ///
-    /// It is the *cost* side of the cost gate (P1-3): with the host's
+    /// It is the *cost* side of the cost gate: with the host's
     /// estimate of what native execution saves
     /// ([`JitConfig::native_saving_ns_per_bytecode`]), it says how many
     /// times a function must run before its compile pays for itself.
@@ -802,7 +821,7 @@ pub(crate) fn note_enter(rt: &RuntimeImpl, bc: &Bytecode) {
 }
 
 /// Called when a backward branch is taken (loop back edge). Returns whether the
-/// interpreter should try the frame's native code at that loop header (N3).
+/// interpreter should try the frame's native code at that loop header (back-edge OSR).
 #[inline]
 pub(crate) fn note_backedge(rt: &RuntimeImpl, bc: &Bytecode, pc: usize) -> bool {
     match rt.jit.as_deref() {
@@ -811,7 +830,7 @@ pub(crate) fn note_backedge(rt: &RuntimeImpl, bc: &Bytecode, pc: usize) -> bool 
     }
 }
 
-/// Poll from the interpreter's trampoline if a back edge asked for it (P6 5.1).
+/// Poll from the interpreter's trampoline if a back edge asked for it (deferred polling).
 #[cfg(feature = "jit")]
 #[inline]
 pub(crate) fn poll_deferred(rt: &RuntimeImpl) {
@@ -833,7 +852,7 @@ pub(crate) fn poll_if_queued(rt: &RuntimeImpl) {
 }
 
 /// Tier-2 feedback hook: record the operand types and the result type of a
-/// binary site (epic F1 / P7-7.1). A no-op unless a JIT is attached under a
+/// binary site (type feedback / result classes). A no-op unless a JIT is attached under a
 /// tier-2-capable policy.
 #[inline]
 pub(crate) fn note_binary(
@@ -850,7 +869,7 @@ pub(crate) fn note_binary(
 }
 
 /// Tier-2 feedback hook: record the type of a single-value site — a branch
-/// condition or a local update (epic F1).
+/// condition or a local update (type feedback).
 #[inline]
 pub(crate) fn note_value(rt: &RuntimeImpl, bc: &Bytecode, site: u32, value: JSValue) {
     if let Some(state) = rt.jit.as_deref() {
@@ -859,7 +878,7 @@ pub(crate) fn note_value(rt: &RuntimeImpl, bc: &Bytecode, site: u32, value: JSVa
 }
 
 /// Tier-2 feedback hook: record an `inc_loc`/`dec_loc` site — the value before
-/// the update and the value after it (P7-7.1).
+/// the update and the value after it.
 #[inline]
 pub(crate) fn note_local_update(
     rt: &RuntimeImpl,
@@ -873,8 +892,8 @@ pub(crate) fn note_local_update(
     }
 }
 
-/// Call-site feedback hook: record the callee seen at a call site (D-6 route
-/// B). A no-op unless a JIT is attached and the function is still interpreted.
+/// Call-site feedback hook: record the callee seen at a call site (the direct-call path).
+/// A no-op unless a JIT is attached and the function is still interpreted.
 #[inline]
 pub(crate) fn note_call(rt: &RuntimeImpl, bc: &Bytecode, site: u32, callee: JSValue) {
     if let Some(state) = rt.jit.as_deref() {
@@ -888,7 +907,7 @@ pub(crate) fn note_call(rt: &RuntimeImpl, bc: &Bytecode, site: u32, callee: JSVa
 ///
 /// `pc` is 0 at the function entry, or the OSR resume point otherwise: the pc
 /// after a call the trampoline performed for us, or a loop header the
-/// interpreter's back edge reported (N3, inline OSR). The compiled dispatch
+/// interpreter's back edge reported (back-edge OSR). The compiled dispatch
 /// selects the block for it and exits `Retry` for a pc it has no entry for.
 ///
 /// # Safety
@@ -992,11 +1011,11 @@ pub(crate) fn invoke_native(
         native_interrupts: m
             .native_interrupts
             .saturating_add(u64::from(kind == JitExitKind::Interrupt)),
-        // P7 7.2: this activation's speculative guard misses.
+        // Tier-down: this activation's speculative guard misses.
         specialized_guard_misses: m
             .specialized_guard_misses
             .saturating_add(u64::from(frame.guard_misses)),
-        // P1-1: this activation's property-guard hits and misses. They are
+        // The property inline guard: this activation's property-guard hits and misses. They are
         // observability only — a property-guard miss never feeds the
         // tier-down (it is expected, not a defect).
         property_guard_hits: m
@@ -1012,7 +1031,7 @@ pub(crate) fn invoke_native(
         global_guard_misses: m
             .global_guard_misses
             .saturating_add(u64::from(frame.global_guard_misses)),
-        // D-6 route B: the monomorphic call sites' direct path.
+        // The direct-call path: the monomorphic call sites' fast path.
         inline_call_hits: m
             .inline_call_hits
             .saturating_add(u64::from(frame.inline_call_hits)),
@@ -1027,12 +1046,12 @@ pub(crate) fn invoke_native(
             .saturating_add(u64::from(frame.inline_call_misses)),
         ..m
     });
-    // P7 7.2: feed the same count to the function's record so a function whose
+    // Tier-down: feed the same count to the function's record so a function whose
     // guards miss too often is recompiled without speculation.
     state.note_guard_misses(bc, frame.guard_misses);
     // The native tier's own work: the interpreter stopped counting this
     // function's entries and back edges when the code was installed, so the
-    // second gate (plan §13.6.5 item 1) is fed from here. Only a function
+    // second gate is fed from here. Only a function
     // that may still be promoted reports at all, so the check is a load next
     // to the entry pointer.
     if bc.jit.promotable() {
@@ -1046,7 +1065,7 @@ pub(crate) fn invoke_native(
 mod tests {
     use super::*;
 
-    /// The layout contract the array guard reads (P1-1), end to end: a
+    /// The layout contract the array guard reads, end to end: a
     /// `JSValue` holds the **GC node** pointer, and the offsets in
     /// `object::jit_layout` are relative to *that*. Reading the fields at the
     /// node pointer must land on the flags word and the payload — the mistake
@@ -1118,7 +1137,7 @@ mod tests {
         assert_eq!(third, object.payload_array().unwrap().values()[2].0);
     }
 
-    /// The typed array's layout contract, end to end (P1-1): the view's
+    /// The typed array's layout contract, end to end (the property inline guard): the view's
     /// buffer, the element count and the buffer's bytes must be where the
     /// generated code reads them.
     #[test]
@@ -1182,7 +1201,7 @@ mod tests {
         assert_eq!(object.payload_typed_array().unwrap().count(), 3);
     }
 
-    /// The layout contract the inline property guard reads (P1-1), end to
+    /// The layout contract the inline property guard reads, end to
     /// end: the object's shape pointer, the shape's id, and the property
     /// slots — read exactly the way the generated code reads them.
     #[test]
@@ -1639,7 +1658,7 @@ mod tests {
         );
     }
 
-    /// N3 inline back-edge OSR: a top-level loop is never re-entered and never
+    /// Inline back-edge OSR: a top-level loop is never re-entered and never
     /// crosses a frame boundary, so the trampoline cannot poll inside the
     /// `eval`; the back edge is what compiles the frame and hands it to its
     /// native loop header. The signal is the same as the other native tests —
@@ -1698,8 +1717,8 @@ mod tests {
 
     /// Contention between the runtime thread and the workers: they compile
     /// while the interpreter keeps running, while the GC traces and collects,
-    /// and while a tight code-cache quota retires live mappings (D-16
-    /// `invalidate`) — with several workers and host polls interleaved.
+    /// and while a tight code-cache quota retires live mappings (dropping them
+    /// through `invalidate`) — with several workers and host polls interleaved.
     ///
     /// The design makes a data race impossible (only `Send`, pointer-free
     /// snapshots cross; the runtime thread is the sole writer), so this test
@@ -1803,7 +1822,7 @@ mod tests {
         );
     }
 
-    /// D-16 retirement end to end: with a budget of one code page, compiling a
+    /// Single-owner retirement end to end: with a budget of one code page, compiling a
     /// second function retires the first live mapping instead of refusing the
     /// compile. The retired function must fall back to the interpreter and
     /// still return the right answer (a stale entry would be a UAF, not a
@@ -1857,6 +1876,14 @@ mod tests {
         assert!(
             after_b.code_bytes <= 4096,
             "the retired mapping was not reclaimed ({after_b:?})"
+        );
+        assert!(
+            after_b.code_retired >= 1,
+            "the retirement was not counted ({after_b:?})"
+        );
+        assert!(
+            after_b.code_never_entered >= 1,
+            "compiled code that never ran should be counted ({after_b:?})"
         );
 
         // `a`'s code is gone; running it again must not call the freed mapping.

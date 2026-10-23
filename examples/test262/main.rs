@@ -677,7 +677,8 @@ async fn main_impl() {
             Some(m) => eprintln!(
                 "JIT metrics: functions_queued={} functions_verified={} functions_rejected={} \
                  functions_compiled={} native_entries={} function_entries={} \
-                 compile_failures={} polls={} queue_drops={}",
+                 compile_failures={} polls={} queue_drops={} code_retired={} \
+                 code_replaced={} code_never_entered={}",
                 m.functions_queued,
                 m.functions_verified,
                 m.functions_rejected,
@@ -687,6 +688,9 @@ async fn main_impl() {
                 m.compile_failures,
                 m.polls,
                 m.queue_drops,
+                m.code_retired,
+                m.code_replaced,
+                m.code_never_entered,
             ),
             None => eprintln!("JIT metrics: none recorded (no tests ran)"),
         }

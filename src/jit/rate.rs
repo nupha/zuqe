@@ -4,7 +4,7 @@
 //! The process-wide compile rate: how many nanoseconds one bytecode of
 //! compiled code costs.
 //!
-//! This is the input of the **cost gate** (plan §13.6.5 / IMP-2): a compile
+//! This is the input of the **cost gate**: a compile
 //! only pays for itself if the function runs often enough. The rate is a
 //! property of the engine and the machine, not of one runtime, so it is
 //! measured **process-wide** — the test262 runner builds a fresh runtime per
@@ -59,7 +59,7 @@ pub(crate) fn ns_per_bytecode() -> Option<u64> {
 /// break-even is a single number: `rate / saving` activations.
 ///
 /// `saving` is the host's estimate of how much faster native code is per
-/// bytecode (plan §13.6.4: the interpreter runs a bytecode in ~20–50 ns, the
+/// bytecode (the compile-cost model: the interpreter runs a bytecode in ~20–50 ns, the
 /// machine code saves ~10–30 ns of that).
 pub(crate) const fn payback_activations(
     rate_ns_per_bytecode: u64,

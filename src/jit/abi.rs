@@ -42,7 +42,7 @@ pub(crate) const HELPER_WITH_MISS: u32 = 3;
 
 /// What the native entry returns. Stored as a `u32` so the ABI is a single
 /// register (a big `#[repr(C)]` struct return would need an sret pointer).
-/// `CallBytecode`/`TailCall` are emitted by epic E4; the baseline never uses
+/// `CallBytecode`/`TailCall` are emitted by the bytecode ABI; the baseline never uses
 /// them yet.
 #[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,7 +170,7 @@ pub(crate) struct JitExecFrame {
     /// scalar (global-variable names; the inline cache). Valid for the whole
     /// call: the frame's `func_obj` keeps it reachable.
     pub bytecode: *const crate::function::BytecodeImpl,
-    /// The running function's inline-cache sites (P1-1). The inline property
+    /// The running function's inline-cache sites. The inline property
     /// guard reads the site's first way to learn in which slot the property
     /// lives.
     #[cfg(feature = "inline_cache")]
@@ -196,18 +196,18 @@ pub(crate) struct JitExecFrame {
     pub new_target: JSValue,
     /// The activation's `[[HomeObject]]`, when the callee is a method.
     pub home_obj: Option<Object>,
-    /// P7 7.2 instrumentation: speculative int fast paths that bailed to their
+    /// Tier-down instrumentation: speculative int fast paths that bailed to their
     /// helper during this activation. `invoke_native` folds it into
     /// `JitMetrics::specialized_guard_misses` after the call returns; counting
     /// per activation (not per function) keeps recursive calls from
     /// double-counting.
     pub guard_misses: u32,
-    /// P1-1 instrumentation: property accesses the inline guard answered
+    /// Property-guard instrumentation: property accesses the inline guard answered
     /// directly (an own data property in the shape the site recorded — a read
     /// or a write).
     /// `invoke_native` folds it into `JitMetrics::property_guard_hits`.
     pub property_guard_hits: u32,
-    /// P1-1 instrumentation: property accesses the inline guard handed back
+    /// Property-guard instrumentation: property accesses the inline guard handed back
     /// to the helper (a prototype-chain property, an accessor, a non-object
     /// target, …). `invoke_native` folds it into
     /// `JitMetrics::property_guard_misses`.
@@ -226,24 +226,24 @@ pub(crate) struct JitExecFrame {
     /// Loop back edges this activation ran. The safepoint helper counts them
     /// (it runs on every back edge), and `invoke_native` folds the count into
     /// the function's hotness counters: the interpreter stops counting once
-    /// the code is installed, so the second gate (plan §13.6.5 item 1) needs
+    /// the code is installed, so the second gate needs
     /// the native tier's own back-edge count.
     pub backedges: u32,
-    /// D-6 route B: calls at a monomorphic site that took the direct path (the
+    /// Calls at a monomorphic site that took the direct path (the
     /// callee's compiled code was entered without the interpreter's call
-    /// protocol), or step 2's guard-passed inline site.
+    /// protocol), or the guard-passed inline site.
     pub inline_call_hits: u32,
-    /// D-6 route B, step 2: calls whose site passed the inline guard and ran
+    /// The inlined call path: calls whose site passed the inline guard and ran
     /// the callee's body copied into the caller.
     pub frame_inline_hits: u32,
-    /// D-6 route B, step 2 (T7.2): nested call sites inside a copied body
+    /// The inlined call path: nested call sites inside a copied body
     /// whose constant-identity guard passed. Counted by the generated code.
     pub nested_inline_hits: u32,
-    /// D-6 route B: calls at a monomorphic site whose guard missed (the callee
+    /// Calls at a monomorphic site whose guard missed (the callee
     /// was not the recorded one), or whose callee the direct path could not
     /// serve — those took the general call path.
     pub inline_call_misses: u32,
-    /// D-6 route B, step 2 (T7.4): the value an allocation helper produced for
+    /// The inlined call path: the value an allocation helper produced for
     /// an inlined body. The generated code reads it immediately; no GC point
     /// can run between the helper and the read.
     pub scratch: JSValue,
@@ -281,7 +281,7 @@ pub(crate) type NativeEntry = unsafe extern "C" fn(*mut JitExecFrame) -> u32;
 
 /// `imm2` value the speculative `add_loc`/`inc_loc`/`dec_loc` slow paths write
 /// before calling their helper, so the helper knows this call is a guard miss
-/// (P7 7.2) and not the ordinary helper path. Chosen out of range of the other
+/// (tier-down) and not the ordinary helper path. Chosen out of range of the other
 /// `imm2` users (`get_field`/`put_field` inline-cache indices).
 pub(crate) const SPEC_MISS_IMM2: u32 = u32::MAX;
 
@@ -289,14 +289,14 @@ pub(crate) const SPEC_MISS_IMM2: u32 = u32::MAX;
 /// `BytecodeImpl`. `None` until a compile installs one. It holds a strong `Rc`
 /// to its [`CodeSlot`], so the mapping lives exactly as long as a function that
 /// can call it exists and is freed when the last `BytecodeImpl` is collected
-/// (D-16). Written through `&Bytecode` (interior mutability); all access happens
+/// when the last `BytecodeImpl` is collected. Written through `&Bytecode` (interior mutability); all access happens
 /// on the single runtime thread.
 ///
 /// [`CodeSlot`]: crate::jit::code_cache::CodeSlot
 pub(crate) struct FunctionSlot {
     slot: std::cell::UnsafeCell<Option<std::rc::Rc<crate::jit::code_cache::CodeSlot>>>,
     /// Whether the installed code is at the **baseline** tier, i.e. whether
-    /// it may still be promoted to the optimizing tier (TH2's second gate).
+    /// it may still be promoted to the optimizing tier (the second gate).
     /// Only such a function needs the native tier's per-call bookkeeping —
     /// the flag sits next to the entry pointer, so the check is a cache hit.
     promotable: std::cell::Cell<bool>,
@@ -326,16 +326,28 @@ impl FunctionSlot {
         Some(unsafe { std::mem::transmute::<*const u8, NativeEntry>(code) })
     }
 
+    /// Whether code is installed, without counting a native entry. The
+    /// presence checks (`note_call`, `note_loop`, the direct-call path) must
+    /// use this: reading the entry pointer alone does not mean the code ran.
+    pub(crate) fn has_code(&self) -> bool {
+        // SAFETY: single-threaded read.
+        let slot = unsafe { &*self.slot.get() }.as_ref();
+        slot.is_some_and(|slot| slot.has_code())
+    }
+
     /// Publish `slot` (whose code is already executable). `poll` is the only
     /// caller and runs between native activations, so no in-flight call
-    /// observes the swap.
-    pub(crate) fn install(&self, slot: std::rc::Rc<crate::jit::code_cache::CodeSlot>) {
+    /// observes the swap. Returns the mapping it replaced, if any.
+    pub(crate) fn install(
+        &self,
+        slot: std::rc::Rc<crate::jit::code_cache::CodeSlot>,
+    ) -> Option<std::rc::Rc<crate::jit::code_cache::CodeSlot>> {
         // SAFETY: single-threaded; see the type's note.
-        unsafe { *self.slot.get() = Some(slot) };
+        unsafe { (*self.slot.get()).replace(slot) }
     }
 
     /// Whether the installed code may still be promoted to the optimizing
-    /// tier (TH2's second gate).
+    /// tier (the second gate).
     #[inline]
     pub(crate) fn promotable(&self) -> bool {
         self.promotable.get()
@@ -622,7 +634,7 @@ unsafe extern "C" fn h_push_atom(f: *mut JitExecFrame) -> u32 {
     }
 }
 
-/// P7 7.2 instrumentation: count one speculative guard miss when the frame
+/// Tier-down instrumentation: count one speculative guard miss when the frame
 /// marks this helper call as the bail of an `int` fast path. The count lives in
 /// the activation, so `invoke_native` can fold it without double-counting
 /// recursive calls.
@@ -1087,7 +1099,7 @@ unsafe extern "C" fn h_put_array_el(f: *mut JitExecFrame) -> u32 {
     }
 }
 
-/// P1-1 (the write half): the collector's write barrier for the inline
+/// The property inline guard (the write half): the collector's write barrier for the inline
 /// `put_array_el`.
 ///
 /// The generated code stored a value into an array's elements. When that value
@@ -1146,7 +1158,7 @@ unsafe fn field_get(f: *mut JitExecFrame, push: bool) -> u32 {
                 && let Some(shape) = o.shape()
             {
                 let shape_ptr = shape.gc_ref().as_ptr().as_ptr();
-                // The site holds up to IC_WAYS shapes (epic F3).
+                // The site holds up to IC_WAYS shapes (the property inline cache).
                 if let Some((slot, _)) = cache[ic_idx].find(shape_ptr, shape.uid, atom.id()) {
                     let slot = slot as usize;
                     if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
@@ -1179,7 +1191,7 @@ unsafe fn field_get(f: *mut JitExecFrame, push: bool) -> u32 {
                             );
                         }
                     }
-                    // The typed array's `length` (P1-1's tail): the property
+                    // The typed array's `length` (the property inline guard's tail): the property
                     // lives on the prototype, so the ordinary slot cache
                     // cannot serve it. The site records the instance's shape
                     // and the shape that owns `length` in the chain; the
@@ -1593,7 +1605,7 @@ unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
         let f = &mut *f;
         // The back edge is the native tier's hotness signal: the interpreter
         // stops counting them once the code is installed, and the second
-        // gate (plan §13.6.5 item 1) needs them.
+        // gate needs them.
         f.backedges = f.backedges.saturating_add(1);
         let scope = scope_of(f);
         if scope.poll_interrupts() {
@@ -2208,7 +2220,7 @@ unsafe extern "C" fn h_object(f: *mut JitExecFrame) -> u32 {
     }
 }
 
-/// `object` inside an inlined body (T7.4): allocate an empty object and leave
+/// `object` inside an inlined body: allocate an empty object and leave
 /// it in `scratch` instead of the caller's operand stack. The helper cannot
 /// collect (an allocation only sets `gc_req`), so the unrooted scratch slot is
 /// safe until the generated code reads it in the same basic block.
@@ -2227,7 +2239,7 @@ unsafe extern "C" fn h_alloc_object(f: *mut JitExecFrame) -> u32 {
     }
 }
 
-/// `array_from 0` inside an inlined body (T7.4): an empty array in `scratch`.
+/// `array_from 0` inside an inlined body: an empty array in `scratch`.
 unsafe extern "C" fn h_alloc_array0(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
@@ -2578,7 +2590,7 @@ unsafe extern "C" fn h_push_bigint_i32(f: *mut JitExecFrame) -> u32 {
     }
 }
 
-/// `call <argc>`: `[func, arg1..argN, ^] -> [ret, ^]` (D-6).
+/// `call <argc>`: `[func, arg1..argN, ^] -> [ret, ^]` (the direct-call design).
 ///
 /// The callee runs through the interpreter's own `call_internal` on this very
 /// frame, so the operand stack stays authoritative and a callee with a native
@@ -2610,7 +2622,7 @@ unsafe extern "C" fn h_call(f: *mut JitExecFrame) -> u32 {
     }
 }
 
-/// `call_method <argc>`: `[this, func, arg1..argN, ^] -> [ret, ^]` (D-6). Same
+/// `call_method <argc>`: `[this, func, arg1..argN, ^] -> [ret, ^]` (the direct-call design). Same
 /// frame/native-entry contract as [`h_call`]; `this` is the receiver below the
 /// callee.
 unsafe extern "C" fn h_call_method(f: *mut JitExecFrame) -> u32 {
@@ -2633,7 +2645,7 @@ unsafe extern "C" fn h_call_method(f: *mut JitExecFrame) -> u32 {
     }
 }
 
-/// `call <argc>` at a *monomorphic* site (D-6 route B):
+/// `call <argc>` at a *monomorphic* site (the direct-call path):
 /// `[func, arg1..argN, ^] -> [ret, ^]`.
 ///
 /// The interpreter recorded one callee for this site, so the helper can enter
@@ -2658,7 +2670,7 @@ unsafe extern "C" fn h_call_inline(f: *mut JitExecFrame) -> u32 {
                 Err(status) => status,
             };
         }
-        // The general path (D-6 route A).
+        // The general path.
         match func.call_internal(scope_of(f), JSValue::UNDEFINED, JSValue::UNDEFINED, args, 0) {
             Ok(value) => {
                 *base = value;
@@ -2670,7 +2682,7 @@ unsafe extern "C" fn h_call_inline(f: *mut JitExecFrame) -> u32 {
     }
 }
 
-/// `call_method <argc>` at a *monomorphic* site (D-6 route B):
+/// `call_method <argc>` at a *monomorphic* site (the direct-call path):
 /// `[this, func, arg1..argN, ^] -> [ret, ^]`. Same guard and fallback as
 /// [`h_call_inline`]; the receiver is the callee's `this`.
 unsafe extern "C" fn h_call_method_inline(f: *mut JitExecFrame) -> u32 {
@@ -2691,7 +2703,7 @@ unsafe extern "C" fn h_call_method_inline(f: *mut JitExecFrame) -> u32 {
                 Err(status) => status,
             };
         }
-        // The general path (D-6 route A).
+        // The general path.
         match func.call_internal(scope_of(f), method_this, JSValue::UNDEFINED, args, 0) {
             Ok(value) => {
                 *base = value;
@@ -2703,7 +2715,7 @@ unsafe extern "C" fn h_call_method_inline(f: *mut JitExecFrame) -> u32 {
     }
 }
 
-/// Run the callee through the direct path (D-6 route B): enter its compiled
+/// Run the callee through the direct path: enter its compiled
 /// code without the interpreter's call protocol.
 ///
 /// `None` means "the general path must serve this call": the guard missed
@@ -2755,7 +2767,7 @@ unsafe fn try_direct_call(
     }
 }
 
-/// The callee the interpreter recorded at this call site (D-6 route B's
+/// The callee the interpreter recorded at this call site (the direct-call path's
 /// guard). `imm2` carries the site id the compiled code baked in.
 unsafe fn recorded_callee(f: &JitExecFrame) -> Option<crate::function::Bytecode> {
     unsafe { recorded_callee_at(f, f.imm2) }
@@ -2782,7 +2794,7 @@ fn callee_is(func: JSValue, recorded: crate::function::Bytecode) -> bool {
 /// below the callee); the low bits are the call-site id.
 pub(crate) const INLINE_METHOD_BIT: u32 = 1 << 31;
 
-/// The guard for an *inlined* call site (D-6 route B, step 2).
+/// The guard for an *inlined* call site.
 ///
 /// Returns 1 when the callee on the stack is the recorded one: the caller's
 /// generated code then runs the callee's body inline. A miss returns 0 and the
@@ -2813,7 +2825,7 @@ unsafe extern "C" fn h_inline_guard(f: *mut JitExecFrame) -> u32 {
 }
 
 /// `call_constructor <argc>`: `[func, new_target, arg1..argN, ^] -> [ret, ^]`
-/// (D-6). `call_internal` owns the constructor protocol (legacy instance
+/// (the direct-call path). `call_internal` owns the constructor protocol (legacy instance
 /// creation, derived-constructor `this`, `super()` prototype fix-up).
 unsafe extern "C" fn h_call_constructor(f: *mut JitExecFrame) -> u32 {
     unsafe {
@@ -2841,7 +2853,7 @@ unsafe extern "C" fn h_call_constructor(f: *mut JitExecFrame) -> u32 {
     }
 }
 
-/// `apply <magic>`: `[func, this_arg, array_arg, ^] -> [ret, ^]` (D-6), reusing
+/// `apply <magic>`: `[func, this_arg, array_arg, ^] -> [ret, ^]` (the direct-call design), reusing
 /// the interpreter's `js_function_apply` (which flattens `array_arg` through
 /// `build_arg_list`). Mirroring the interpreter's observable result, the
 /// window is kept until success so the failure exit reports the
@@ -3232,20 +3244,18 @@ pub(crate) const HELPER_APPLY: usize = 118;
 /// Index of [`h_gc_bind`], called with the barrier's own signature
 /// (`frame`, owner node, stored value).
 pub(crate) const HELPER_GC_BIND: usize = 119;
-/// Index of [`h_call_inline`], the direct call at a monomorphic site (D-6
-/// route B).
+/// Index of [`h_call_inline`], the direct call at a monomorphic site.
 pub(crate) const HELPER_CALL_INLINE: usize = 120;
 /// Index of [`h_call_method_inline`], the direct method call at a monomorphic
-/// site (D-6 route B).
+/// site (the direct-call path).
 pub(crate) const HELPER_CALL_METHOD_INLINE: usize = 121;
 /// Index of [`h_inline_guard`], the guard an inlined monomorphic call site
-/// tests before running the callee's body in the caller (D-6 route B, step 2).
+/// tests before running the callee's body in the caller (the inlined call path).
 pub(crate) const HELPER_INLINE_GUARD: usize = 122;
 /// Index of [`h_alloc_object`], an empty object literal inside an inlined
-/// body (T7.4). The value is read back from `JitExecFrame::scratch`.
+/// body. The value is read back from `JitExecFrame::scratch`.
 pub(crate) const HELPER_ALLOC_OBJECT: usize = 123;
-/// Index of [`h_alloc_array0`], an empty array literal inside an inlined body
-/// (T7.4).
+/// Index of [`h_alloc_array0`], an empty array literal inside an inlined body.
 pub(crate) const HELPER_ALLOC_ARRAY0: usize = 124;
 /// Index of [`h_call_apply`], a native-callee method site's fast path for
 /// `Function.prototype.apply`.
