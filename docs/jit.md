@@ -188,8 +188,7 @@ is not a preemptive deadline (compilation is inline).
 
 | Document | Contents |
 |---|---|
-| [`memo/jit_plan.md`](../memo/jit_plan.md) | Plan, design, decisions (§9), enhancement directions (§13), background thread (§12). |
-| [`memo/jit_handover.md`](../memo/jit_handover.md) | Per-item progress log (§6.x): what was built, measurements, acceptance. |
+| [`memo/jit_impl.md`](../memo/jit_impl.md) | The single implementation guide: design, pipeline, optimizations, thresholds, traps, decisions, platform notes, and a compressed history. Start here. |
 | [`memo/jit_todo.md`](../memo/jit_todo.md) | Status only: implemented / not implemented / next steps. |
 
 ## Code map

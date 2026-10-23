@@ -1,7 +1,7 @@
 # M2b / S4 4.2: the {off,on} x {linux x86_64, linux aarch64, macOS arm64}
 # feature-gating matrix. Each row runs the same entry points the maintainer
 # runs locally (`tests/jit/ci-gate.sh`, `tests/jit/ci-sanitize.sh`), so a row
-# that is green here is exactly what `memo/jit_handover.md` records.
+# that is green here is exactly what `memo/jit_impl.md` §9.4 records.
 #
 # `tests/jit/ci-gate.sh` spells the `off` leg's feature list explicitly because
 # D-19 keeps `jit` in `default`; it also asserts cranelift is unreachable with

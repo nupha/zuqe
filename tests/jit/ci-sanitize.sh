@@ -60,7 +60,7 @@ if ! RUSTFLAGS="-Zsanitizer=address" ASAN_OPTIONS=detect_leaks=0 \
     echo "SKIP address sanitizer: the engine cannot create a context under ASan."
     echo "      Reproduces with no JIT attached (tests/jit/sanitizer_probe.rs), so it is"
     echo "      an engine/upstream limitation, not a JIT defect; recorded in"
-    echo "      memo/jit_handover.md (M2b-8)."
+    echo "      memo/jit_impl.md §9.3."
     grep -E "panicked at|context: " "$PROBE_LOG" | head -3
     rm -f "$PROBE_LOG"
     echo "OK (sanitizer skipped, probe evidence above)"
