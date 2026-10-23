@@ -38,7 +38,8 @@ use cranelift_codegen::{
     control::ControlPlane,
     ir::JumpTableData,
     ir::{
-        AbiParam, Block, InstBuilder, MemFlags, Signature, UserFuncName, Value, condcodes::IntCC,
+        AbiParam, Block, InstBuilder, MemFlags, Signature, UserFuncName, Value,
+        condcodes::{FloatCC, IntCC},
         types,
     },
     isa::TargetIsa,
@@ -2996,6 +2997,31 @@ fn box_float64(b: &mut FunctionBuilder, d: Value) -> Value {
     b.ins().select(nan, canonical, encoded)
 }
 
+/// T9: box a typed array's float element the way `From<f64> for JSValue`
+/// (`number/num.rs`) does — an integral value that fits an `i32`, and is not
+/// `-0.0`, is an `Int`; everything else is a `Float64`. The interpreter reads
+/// elements through `JSValue::from`, so the differential suite compares per
+/// tag and the generated read must agree. The saturating i32 round trip
+/// (`fcvt` → `fcvt` back, compare) disqualifies NaN, ±Inf, fractions and
+/// out-of-range magnitudes on its own; only the zero's sign bit needs a
+/// separate test.
+fn box_float64_from_f64(b: &mut FunctionBuilder, d: Value) -> Value {
+    let boxed = box_float64(b, d);
+    let iv = b.ins().fcvt_to_sint_sat(types::I32, d);
+    let back = b.ins().fcvt_from_sint(types::F64, iv);
+    let exact = b.ins().fcmp(FloatCC::Equal, back, d);
+    // `-0.0`: integral and in range, but `JSValue::from` keeps it a `Float64`
+    // (`-0.0` and `0` compare equal, yet `1/-0.0 === -Infinity` tells them
+    // apart). `Float64(-d).to_bits()` is exactly `i64::MIN`.
+    let bits = b.ins().bitcast(types::I64, MemFlags::new(), d);
+    let neg_zero = b
+        .ins()
+        .icmp_imm(IntCC::Equal, bits, (-0.0f64).to_bits() as i64);
+    let as_int = b.ins().uextend(types::I64, iv);
+    let integral = b.ins().select(exact, as_int, boxed);
+    b.ins().select(neg_zero, boxed, integral)
+}
+
 /// Epic S2 (1.5): this instruction is a repeat — the same block computed the
 /// same expression over the same proven-numeric values, and its result is still
 /// in `reg`. Copying it into the result slot is the whole instruction: the tag
@@ -3280,9 +3306,9 @@ enum TaElement {
     /// An unsigned 32-bit integer → an `Int`, or a `Float64` when the sign bit
     /// is set (the engine's `From<u32> for JSValue`).
     U32,
-    /// A 32-bit float → a `Float64`.
+    /// A 32-bit float → `From<f64> for JSValue` (an `Int`, or a `Float64`).
     F32,
-    /// A 64-bit float → a `Float64`.
+    /// A 64-bit float → `From<f64> for JSValue` (an `Int`, or a `Float64`).
     F64,
 }
 
@@ -3344,11 +3370,11 @@ fn lower_typed_array_element(
         6 => {
             let raw = b.ins().load(types::F32, MemFlags::new(), addr, 0);
             let wide = b.ins().fpromote(types::F64, raw);
-            box_float64(b, wide)
+            box_float64_from_f64(b, wide)
         }
         _ => {
             let raw = b.ins().load(types::F64, MemFlags::new(), addr, 0);
-            box_float64(b, raw)
+            box_float64_from_f64(b, raw)
         }
     }
 }

@@ -69,6 +69,24 @@ const CASES: &[(&str, &str)] = &[
         "typed_float64",
         "var t = new Float64Array(4); t[1] = 1.5; t[1];",
     ),
+    // T9: the float read folds integral elements to `Int`, exactly like the
+    // interpreter's `JSValue::from(f64)` — `-0.0` and out-of-`i32` stay `f64`.
+    (
+        "typed_float64_integral",
+        "var t = new Float64Array(4); t[1] = 3; t[1];",
+    ),
+    (
+        "typed_float32_integral",
+        "var t = new Float32Array(4); t[1] = 7; t[1];",
+    ),
+    (
+        "typed_float64_negative_zero",
+        "var t = new Float64Array(4); t[1] = -0; t[1];",
+    ),
+    (
+        "typed_float64_out_of_int_range",
+        "var t = new Float64Array(4); t[1] = 2147483648; t[1];",
+    ),
     (
         "typed_int32_negative",
         "var t = new Int32Array(4); t[1] = -5; t[1];",

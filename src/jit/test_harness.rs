@@ -535,8 +535,12 @@ mod tests {
         globalThis.c8 = new Uint8ClampedArray([250, 7]); \
         globalThis.f32 = new Float32Array([1.5, 7.5]); \
         globalThis.f32f = new Float32Array([0.1, 7.5]); \
+        globalThis.f32i = new Float32Array([100, 7.5]); \
         globalThis.f64 = new Float64Array([1.5, 7.5]); \
         globalThis.f64i = new Float64Array([3, 7.5]); \
+        globalThis.f64z = new Float64Array([-0, 7.5]); \
+        globalThis.f64big = new Float64Array([2147483648, 7.5]); \
+        globalThis.f64min = new Float64Array([-2147483648, 7.5]); \
         globalThis.off = new Int32Array(new ArrayBuffer(32), 8); off[1] = 77;";
 
     fn eval_setup(ctx: &mut Context) {
@@ -709,10 +713,10 @@ mod tests {
     }
 
     /// The typed array read's width / byte-offset / `Uint32` sign paths run in
-    /// the generated code, with the exact tags the JIT produces (every float
-    /// element is a `Float64` — the documented tag difference from the
-    /// interpreter's `JSValue::from(f64)`, which folds integral values to
-    /// `Int`).
+    /// the generated code, with the exact tags the JIT produces. Every float
+    /// element follows `From<f64> for JSValue` (T9): an integral value that
+    /// fits an `i32` folds to an `Int`, `-0.0` and out-of-`i32` magnitudes stay
+    /// `Float64`.
     #[test]
     fn typed_array_reads_use_the_inline_path() {
         let mut rt = Runtime::create().unwrap();
@@ -733,8 +737,15 @@ mod tests {
             ("c8", 0, int(250)),
             ("f32", 0, float(1.5)),
             ("f32f", 0, float(f64::from(0.1f32))),
+            // T9: the integral folds run in the generated code too.
+            ("f32i", 0, int(100)),
             ("f64", 0, float(1.5)),
-            ("f64i", 0, float(3.0)),
+            ("f64i", 0, int(3)),
+            // `-0.0` keeps the float tag (`1/-0.0 === -Infinity`).
+            ("f64z", 0, float(-0.0)),
+            // The `i32` boundary: inside folds to `Int`, outside stays `f64`.
+            ("f64min", 0, int(i32::MIN)),
+            ("f64big", 0, float(2147483648.0)),
             // The view's byte offset is part of the address.
             ("off", 1, int(77)),
         ];
