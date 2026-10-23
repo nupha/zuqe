@@ -55,21 +55,18 @@ use crate::{
 /// The inline-cache site's layout (P1-1): the inline property guard reads
 /// the site's first way.
 #[cfg(feature = "inline_cache")]
-use crate::{
-    function::jit_layout as ic_layout,
-    object::{
-        JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_WRITABLE, JSProperty,
-        PROP_TAG_NORMAL,
-    },
+use crate::function::jit_layout as ic_layout;
+use crate::object::{
+    JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_WRITABLE, JSProperty, PROP_TAG_NORMAL,
 };
 
 use super::{
     abi::{
-        HELPER_ADD, HELPER_ADD_BRAND, HELPER_ADD_LOC, HELPER_AND, HELPER_APPEND, HELPER_APPLY,
-        HELPER_ARRAY_FROM, HELPER_CALL, HELPER_CALL_CONSTRUCTOR, HELPER_CALL_INLINE,
-        HELPER_CALL_METHOD, HELPER_CALL_METHOD_INLINE, HELPER_CHECK_BRAND, HELPER_CHECK_CTOR,
-        HELPER_CHECK_CTOR_RETURN, HELPER_CLOSE_LOC, HELPER_COPY_DATA_PROPERTIES, HELPER_DEC,
-        HELPER_DEFINE_ARRAY_EL, HELPER_DEFINE_CLASS, HELPER_DEFINE_CLASS_COMPUTED,
+        GLOBAL_CACHE_LEXICAL, HELPER_ADD, HELPER_ADD_BRAND, HELPER_ADD_LOC, HELPER_AND,
+        HELPER_APPEND, HELPER_APPLY, HELPER_ARRAY_FROM, HELPER_CALL, HELPER_CALL_CONSTRUCTOR,
+        HELPER_CALL_INLINE, HELPER_CALL_METHOD, HELPER_CALL_METHOD_INLINE, HELPER_CHECK_BRAND,
+        HELPER_CHECK_CTOR, HELPER_CHECK_CTOR_RETURN, HELPER_CLOSE_LOC, HELPER_COPY_DATA_PROPERTIES,
+        HELPER_DEC, HELPER_DEFINE_ARRAY_EL, HELPER_DEFINE_CLASS, HELPER_DEFINE_CLASS_COMPUTED,
         HELPER_DEFINE_FIELD, HELPER_DEFINE_METHOD, HELPER_DEFINE_METHOD_COMPUTED,
         HELPER_DEFINE_PRIVATE_FIELD, HELPER_DELETE, HELPER_DELETE_VAR, HELPER_DIV, HELPER_EQ,
         HELPER_FOR_IN_NEXT, HELPER_FOR_IN_START, HELPER_FOR_OF_NEXT, HELPER_FOR_OF_START,
@@ -102,8 +99,8 @@ use super::{
     error::JitError,
     feedback::{CLASS_FLOAT, CLASS_INT, SiteFeedback},
     layout::{
-        array as array_layout, array_buffer as buffer_layout, object as jit_layout,
-        typed_array as ta_layout,
+        array as array_layout, array_buffer as buffer_layout, global_var as gv_layout,
+        object as jit_layout, typed_array as ta_layout,
     },
 };
 
@@ -161,9 +158,16 @@ const O_IC_SITES: i32 = offset_of!(JitExecFrame, ic_sites) as i32;
 /// The property guard's hit counter (P1-1 instrumentation).
 #[cfg(feature = "inline_cache")]
 const O_PROPERTY_HITS: i32 = offset_of!(JitExecFrame, property_guard_hits) as i32;
-/// The property guard's miss counter (P1-1 instrumentation).
+/// The property guard's miss counter.
 #[cfg(feature = "inline_cache")]
 const O_PROPERTY_MISSES: i32 = offset_of!(JitExecFrame, property_guard_misses) as i32;
+/// The global-variable guard's counters (T10).
+const O_GLOBAL_GUARD_HITS: i32 = offset_of!(JitExecFrame, global_guard_hits) as i32;
+const O_GLOBAL_GUARD_MISSES: i32 = offset_of!(JitExecFrame, global_guard_misses) as i32;
+/// The global objects and the global-variable site caches (T10).
+const O_GLOBAL_OBJ: i32 = offset_of!(JitExecFrame, global_obj) as i32;
+const O_GLOBAL_VAR_OBJ: i32 = offset_of!(JitExecFrame, global_var_obj) as i32;
+const O_GLOBAL_CACHE: i32 = offset_of!(JitExecFrame, global_var_cache) as i32;
 
 /// Whether the baseline can translate this opcode. Everything else is a
 /// `Resume` exit: the interpreter runs that instruction and continues.
@@ -462,6 +466,11 @@ struct FrameVals {
     cur_sp: Value,
     helpers: Value,
     this: Value,
+    /// T10: the two global objects (tagged) and the site cache. Functions with
+    /// no global access pay three loads once per activation.
+    global_obj: Value,
+    global_var_obj: Value,
+    global_cache: Value,
 }
 
 struct State<'a> {
@@ -474,6 +483,10 @@ struct State<'a> {
     /// inline cache at all (its sites are not restored), and its reads then
     /// keep the helper.
     ic_count: u32,
+    /// The number of global-variable site caches (T10). A site is only inlined
+    /// when its index is inside this count: a persistent restore has no cache,
+    /// and its global accesses keep the helper.
+    global_cache_count: u32,
     specialized: &'a Cell<u64>,
     /// Whether tier-2 specialization is allowed (epic 7.2 tier-down). False
     /// after a function's speculative sites missed too often: the recompile
@@ -1243,6 +1256,15 @@ pub(crate) fn compile(
         cur_sp: b.ins().load(types::I64, MemFlags::new(), frame, O_CUR_SP),
         helpers: b.ins().load(types::I64, MemFlags::new(), frame, O_HELPERS),
         this: b.ins().load(types::I64, MemFlags::new(), frame, O_THIS),
+        global_obj: b
+            .ins()
+            .load(types::I64, MemFlags::new(), frame, O_GLOBAL_OBJ),
+        global_var_obj: b
+            .ins()
+            .load(types::I64, MemFlags::new(), frame, O_GLOBAL_VAR_OBJ),
+        global_cache: b
+            .ins()
+            .load(types::I64, MemFlags::new(), frame, O_GLOBAL_CACHE),
     };
     b.def_var(sp_var, fv.sp_base);
 
@@ -1680,6 +1702,7 @@ fn lower(
         pending: Vec::new(),
         feedback: &verified.snapshot().feedback,
         ic_count: verified.snapshot().ic_count,
+        global_cache_count: verified.snapshot().global_cache_count,
         specialized: specialized_ops,
         speculate: verified.snapshot().speculate,
         stack: StackCache::default(),
@@ -2448,6 +2471,23 @@ fn lower_insn(
             Step::Continue(state.stack.push(b, sp, boxed))
         }
         "get_var" | "get_var_undef" | "put_var" | "put_var_init" => {
+            // T10: an own data property of one of the two global objects is
+            // read/written inline behind a shape + slot guard. A function with
+            // no cache (a persistent restore) keeps the helper.
+            if u32::from(insn.operand_u16(1)) < state.global_cache_count {
+                return match name {
+                    "get_var" => {
+                        lower_get_var_fast(state, b, fv, helper_sig, sp_var, sp, insn, true)
+                    }
+                    "get_var_undef" => {
+                        lower_get_var_fast(state, b, fv, helper_sig, sp_var, sp, insn, false)
+                    }
+                    "put_var" => {
+                        lower_put_var_fast(state, b, fv, helper_sig, sp_var, sp, insn, false)
+                    }
+                    _ => lower_put_var_fast(state, b, fv, helper_sig, sp_var, sp, insn, true),
+                };
+            }
             let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
             b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM);
             let id = match name {
@@ -4775,6 +4815,362 @@ fn lower_put_field_fast(
     state.stack.consumed_pair();
     let sp_next = b.ins().iadd_imm(sp, -16);
     b.def_var(sp_var, sp_next);
+    Step::Continue(b.use_var(sp_var))
+}
+
+/// The global-variable guard's shared prologue (T10).
+///
+/// Emits the site's cache loads and the checks that must pass before the slot
+/// may be touched: the entry is filled, the owning object's shape and id
+/// match, `global_var_obj`'s shape and id match (a lexical binding shadows a
+/// global-object property), the cached slot is in range, and the slot still
+/// holds a plain data property. On success it returns with the builder in the
+/// slot block; every miss branches to `slow`.
+///
+/// Everything is re-read on every access — a shape write, a `delete`, an
+/// `eval` that adds a binding or a flag change is a miss, never a stale read.
+struct GlobalGuard {
+    /// The owning object (a node pointer): `global_var_obj` for a lexical
+    /// binding, `global_obj` otherwise.
+    owner: Value,
+    /// The address of the property slot.
+    slot_addr: Value,
+    /// The cached property flags.
+    flags: Value,
+    /// The cache entry's kind ([`GLOBAL_CACHE_LEXICAL`]/[`GLOBAL_CACHE_GLOBAL`]).
+    kind: Value,
+    slow: Block,
+    cont: Block,
+}
+
+fn emit_global_guard(b: &mut FunctionBuilder, fv: &FrameVals, insn: &Instruction) -> GlobalGuard {
+    let idx = i64::from(insn.operand_u16(1));
+    let site = b
+        .ins()
+        .iadd_imm(fv.global_cache, idx * gv_layout::ENTRY_SIZE);
+    let kind = b
+        .ins()
+        .load(types::I8, MemFlags::new(), site, gv_layout::KIND_OFFSET);
+    let owner_shape = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        site,
+        gv_layout::OWNER_SHAPE_OFFSET,
+    );
+    let lexical_shape = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        site,
+        gv_layout::LEXICAL_SHAPE_OFFSET,
+    );
+    let owner_uid = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        site,
+        gv_layout::OWNER_UID_OFFSET,
+    );
+    let lexical_uid = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        site,
+        gv_layout::LEXICAL_UID_OFFSET,
+    );
+    let slot = b
+        .ins()
+        .load(types::I32, MemFlags::new(), site, gv_layout::SLOT_OFFSET);
+    let flags = b
+        .ins()
+        .load(types::I8, MemFlags::new(), site, gv_layout::FLAGS_OFFSET);
+
+    // The two global objects, as tagged values; the low 48 bits are the node
+    // pointer the loads below use.
+    let gobj_value = fv.global_obj;
+    let gv_value = fv.global_var_obj;
+    let node_mask = 0x0000_ffff_ffff_ffff_i64;
+    let gv = b.ins().band_imm(gv_value, node_mask);
+    let is_lexical = b
+        .ins()
+        .icmp_imm(IntCC::Equal, kind, i64::from(GLOBAL_CACHE_LEXICAL));
+    let owner_value = b.ins().select(is_lexical, gv_value, gobj_value);
+    let owner = b.ins().band_imm(owner_value, node_mask);
+
+    // The owning object's shape: the object holds the shape's *node* pointer,
+    // the cache records the *payload* pointer.
+    let owner_shape_node =
+        b.ins()
+            .load(types::I64, MemFlags::new(), owner, jit_layout::SHAPE_OFFSET);
+    let owner_shape_payload = b.ins().iadd_imm(
+        owner_shape_node,
+        i64::from(jit_layout::SHAPE_PAYLOAD_OFFSET),
+    );
+    let same_owner = b.ins().icmp(IntCC::Equal, owner_shape, owner_shape_payload);
+
+    // `global_var_obj` shadows the global object: a global-object entry also
+    // proves the shadowing object still looks the way it did.
+    let gv_shape_node = b
+        .ins()
+        .load(types::I64, MemFlags::new(), gv, jit_layout::SHAPE_OFFSET);
+    let gv_shape_payload = b
+        .ins()
+        .iadd_imm(gv_shape_node, i64::from(jit_layout::SHAPE_PAYLOAD_OFFSET));
+    let same_lexical = b.ins().icmp(IntCC::Equal, lexical_shape, gv_shape_payload);
+
+    let used = b.ins().icmp_imm(IntCC::NotEqual, kind, 0);
+    let pointers_ok = b.ins().band(used, same_owner);
+    let pointers_ok = b.ins().band(pointers_ok, same_lexical);
+
+    let slow = b.create_block();
+    let shapes = b.create_block();
+    // The ids are loaded only after the pointers match: an object without a
+    // shape has a null shape pointer, and reading its "id" would be a wild
+    // load. A matched pointer guarantees the node is a live shape (the object
+    // holds it), so the load below is safe.
+    b.ins().brif(pointers_ok, shapes, &[], slow, &[]);
+
+    b.switch_to_block(shapes);
+    let live_owner_uid = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        owner_shape_node,
+        jit_layout::SHAPE_UID_OFFSET,
+    );
+    let live_lexical_uid = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        gv_shape_node,
+        jit_layout::SHAPE_UID_OFFSET,
+    );
+    let same_owner_uid = b.ins().icmp(IntCC::Equal, owner_uid, live_owner_uid);
+    let same_lexical_uid = b.ins().icmp(IntCC::Equal, lexical_uid, live_lexical_uid);
+    let ids_ok = b.ins().band(same_owner_uid, same_lexical_uid);
+
+    let matched = b.create_block();
+    b.ins().brif(ids_ok, matched, &[], slow, &[]);
+
+    b.switch_to_block(matched);
+    // The slot the cache recorded must still be there, and must still be a
+    // plain data property (`delete` leaves a tombstone; an accessor, a
+    // variable reference and a lazy initializer have their own tags).
+    let slot64 = b.ins().uextend(types::I64, slot);
+    let count = b.ins().load(
+        types::I32,
+        MemFlags::new(),
+        owner,
+        jit_layout::PROP_LEN_OFFSET,
+    );
+    let count64 = b.ins().uextend(types::I64, count);
+    let in_range = b.ins().icmp(IntCC::UnsignedLessThan, slot64, count64);
+    let slots = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        owner,
+        jit_layout::PROP_DATA_OFFSET,
+    );
+    let addr = {
+        let offset = b.ins().imul_imm(slot64, JSProperty::slot_size());
+        b.ins().iadd(slots, offset)
+    };
+    let tag = b
+        .ins()
+        .load(types::I8, MemFlags::new(), addr, JSProperty::tag_offset());
+    let is_data = b
+        .ins()
+        .icmp_imm(IntCC::Equal, tag, i64::from(PROP_TAG_NORMAL));
+    let slot_ok = b.ins().band(in_range, is_data);
+    let value_ok = b.create_block();
+    b.ins().brif(slot_ok, value_ok, &[], slow, &[]);
+
+    b.switch_to_block(value_ok);
+    GlobalGuard {
+        owner,
+        slot_addr: addr,
+        flags,
+        kind,
+        slow,
+        cont: b.create_block(),
+    }
+}
+
+/// `get_var` / `get_var_undef` (T10): read an own data property of one of the
+/// two global objects inline, behind [`emit_global_guard`]. A TDZ slot, an
+/// unbound name and everything the guard declines take the helper, which owns
+/// the full semantics (errors included).
+fn lower_get_var_fast(
+    state: &mut State,
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    helper_sig: cranelift_codegen::ir::SigRef,
+    sp_var: Variable,
+    sp: Value,
+    insn: &Instruction,
+    throw: bool,
+) -> Step {
+    let pc_after = insn.pc() + insn.size() as u32;
+    // Every register-resident stack slot must be in the frame before the
+    // branch: the helper path flushes, and the merge must not read a stale
+    // slot the fast path never wrote.
+    state.stack.flush(b, sp);
+    let guard = emit_global_guard(b, fv, insn);
+
+    let value = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        guard.slot_addr,
+        JSProperty::normal_value_offset(),
+    );
+    // A TDZ slot (`let`/`const` before its initializer) is not a value: the
+    // helper raises the ReferenceError.
+    let uninitialized = b.ins().icmp_imm(IntCC::Equal, value, UNINITIALIZED_BITS);
+    let push = b.create_block();
+    b.ins().brif(uninitialized, guard.slow, &[], push, &[]);
+
+    b.switch_to_block(push);
+    b.ins().store(MemFlags::new(), value, sp, 0);
+    let sp_next = b.ins().iadd_imm(sp, 8);
+    b.def_var(sp_var, sp_next);
+    let hits = b
+        .ins()
+        .load(types::I32, MemFlags::new(), fv.frame, O_GLOBAL_GUARD_HITS);
+    let hits = b.ins().iadd_imm(hits, 1);
+    b.ins()
+        .store(MemFlags::new(), hits, fv.frame, O_GLOBAL_GUARD_HITS);
+    b.ins().jump(guard.cont, &[]);
+
+    b.switch_to_block(guard.slow);
+    let misses = b
+        .ins()
+        .load(types::I32, MemFlags::new(), fv.frame, O_GLOBAL_GUARD_MISSES);
+    let misses = b.ins().iadd_imm(misses, 1);
+    b.ins()
+        .store(MemFlags::new(), misses, fv.frame, O_GLOBAL_GUARD_MISSES);
+    let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
+    b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM);
+    let helper = if throw {
+        HELPER_GET_VAR
+    } else {
+        HELPER_GET_VAR_UNDEF
+    };
+    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, helper, pc_after);
+    b.def_var(sp_var, sp_slow);
+    b.ins().jump(guard.cont, &[]);
+
+    b.switch_to_block(guard.cont);
+    state.stack.adjust(1);
+    Step::Continue(b.use_var(sp_var))
+}
+
+/// `put_var` / `put_var_init` (T10): write an own **writable** data property of
+/// one of the two global objects inline, behind [`emit_global_guard`].
+///
+/// A lexical binding's `init` skips the TDZ and writability checks exactly like
+/// `set_global_var`'s `Init` mode; every other shape (an unbound name, a
+/// read-only property, an accessor, a strict-mode add) takes the helper.
+fn lower_put_var_fast(
+    state: &mut State,
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    helper_sig: cranelift_codegen::ir::SigRef,
+    sp_var: Variable,
+    sp: Value,
+    insn: &Instruction,
+    init: bool,
+) -> Step {
+    let pc_after = insn.pc() + insn.size() as u32;
+    let top = state.stack.height;
+    state.stack.flush(b, sp);
+    let value = state.stack.read(b, sp, top);
+    let guard = emit_global_guard(b, fv, insn);
+
+    let writable_bit = b.ins().band_imm(guard.flags, i64::from(JS_PROP_WRITABLE));
+    let writable = b.ins().icmp_imm(IntCC::NotEqual, writable_bit, 0);
+    // `put_var_init` initializes a lexical binding: the slot may still be
+    // uninitialized and the binding may be a `const`.
+    let rights = if init {
+        let lexical = b
+            .ins()
+            .icmp_imm(IntCC::Equal, guard.kind, i64::from(GLOBAL_CACHE_LEXICAL));
+        b.ins().bor(lexical, writable)
+    } else {
+        writable
+    };
+    // Writing `length` resizes an array; the global object is not one, but the
+    // cached flags are checked anyway so the guard never implies a fast path
+    // the engine's own write would not take.
+    let length_bit = b.ins().band_imm(guard.flags, i64::from(JS_PROP_LENGTH));
+    let not_length = b.ins().icmp_imm(IntCC::Equal, length_bit, 0);
+    let current = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        guard.slot_addr,
+        JSProperty::normal_value_offset(),
+    );
+    let uninitialized = b.ins().icmp_imm(IntCC::Equal, current, UNINITIALIZED_BITS);
+    let tdz_ok = if init {
+        b.ins().iconst(types::I8, 1)
+    } else {
+        b.ins().icmp_imm(IntCC::Equal, uninitialized, 0)
+    };
+    let ok = b.ins().band(rights, not_length);
+    let ok = b.ins().band(ok, tdz_ok);
+    let store = b.create_block();
+    b.ins().brif(ok, store, &[], guard.slow, &[]);
+
+    b.switch_to_block(store);
+    b.ins().store(
+        MemFlags::new(),
+        value,
+        guard.slot_addr,
+        JSProperty::normal_value_offset(),
+    );
+    let hits = b
+        .ins()
+        .load(types::I32, MemFlags::new(), fv.frame, O_GLOBAL_GUARD_HITS);
+    let hits = b.ins().iadd_imm(hits, 1);
+    b.ins()
+        .store(MemFlags::new(), hits, fv.frame, O_GLOBAL_GUARD_HITS);
+    let sp_next = b.ins().iadd_imm(sp, -8);
+    b.def_var(sp_var, sp_next);
+    // The collector's write barrier: only a value that references a GC node
+    // needs it (the same leaf helper the inline array store uses).
+    let value_tag = b.ins().ushr_imm(value, 48);
+    let needs_bind = b
+        .ins()
+        .icmp_imm(IntCC::UnsignedGreaterThanOrEqual, value_tag, GC_NODE_TAG);
+    let bind = b.create_block();
+    b.ins().brif(needs_bind, bind, &[], guard.cont, &[]);
+
+    b.switch_to_block(bind);
+    let callee = b.ins().load(
+        types::I64,
+        MemFlags::new(),
+        fv.helpers,
+        (HELPER_GC_BIND * 8) as i32,
+    );
+    let barrier_sig = state.barrier_sig;
+    b.ins()
+        .call_indirect(barrier_sig, callee, &[fv.frame, guard.owner, value]);
+    b.ins().jump(guard.cont, &[]);
+
+    b.switch_to_block(guard.slow);
+    let misses = b
+        .ins()
+        .load(types::I32, MemFlags::new(), fv.frame, O_GLOBAL_GUARD_MISSES);
+    let misses = b.ins().iadd_imm(misses, 1);
+    b.ins()
+        .store(MemFlags::new(), misses, fv.frame, O_GLOBAL_GUARD_MISSES);
+    let idx = b.ins().iconst(types::I32, i64::from(insn.operand_u16(1)));
+    b.ins().store(MemFlags::new(), idx, fv.frame, O_IMM);
+    let helper = if init {
+        HELPER_PUT_VAR_INIT
+    } else {
+        HELPER_PUT_VAR
+    };
+    let sp_slow = call_stack_helper(state, b, fv, helper_sig, sp, helper, pc_after);
+    b.def_var(sp_var, sp_slow);
+    b.ins().jump(guard.cont, &[]);
+
+    b.switch_to_block(guard.cont);
+    state.stack.drop_top();
     Step::Continue(b.use_var(sp_var))
 }
 

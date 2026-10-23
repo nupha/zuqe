@@ -334,6 +334,12 @@ impl FunctionDef {
             }
         }
 
+        #[cfg(feature = "jit")]
+        if global_var_ref_count > 0 {
+            let cache = vec![crate::jit::GlobalVarCache::default(); global_var_ref_count as usize];
+            *bc_impl.global_var_cache.get_mut() = cache.into_boxed_slice();
+        }
+
         if !self.attrs.exec_mode.contains(ExecMode::STRIP) {
             // setup debug info
             let debug = bc_impl.debug.as_mut().unwrap();

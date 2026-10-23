@@ -9,6 +9,14 @@ use crate::{
 
 use smallvec::SmallVec;
 
+/// The next shape id, for in-place shape mutations. Inline caches key on
+/// `(shape pointer, uid)`, so an in-place content change must move the id.
+fn fresh_shape_uid(ctx: &mut ScopedContext) -> u32 {
+    let uid = ctx.rt_mut().next_shape_uid.get();
+    ctx.rt_mut().next_shape_uid.set(uid.wrapping_add(1));
+    uid
+}
+
 impl ObjectImpl {
     /// modify object's shape by closure.
     /// an exclusive, unregistered shape is passed to closure as argument.
@@ -24,9 +32,12 @@ impl ObjectImpl {
             // shape is shared: dup to new
             self.shape().unwrap().dup(ctx)?
         } else {
-            // shape is exclusive
-            let sh = self.take_shape().unwrap();
+            // shape is exclusive: mutated in place, so mint a fresh id.
+            // Inline guards key their cache on `(shape pointer, uid)`; without
+            // a new id an in-place content change would look like a hit.
+            let mut sh = self.take_shape().unwrap();
             ctx.rt_mut().unregister_shape(&sh);
+            sh.uid = fresh_shape_uid(ctx);
             sh
         };
 
@@ -92,9 +103,11 @@ impl ObjectImpl {
             // current shape is shared, dup to new without register.
             self.shape().unwrap().dup(ctx)?
         } else {
-            // current shape is exclusive, unregister and use it.
-            let sh = self.take_shape().unwrap();
+            // current shape is exclusive: mutated in place, so mint a fresh id
+            // (an inline guard's `(shape pointer, uid)` cache key must see it).
+            let mut sh = self.take_shape().unwrap();
             ctx.rt_mut().unregister_shape(&sh);
+            sh.uid = fresh_shape_uid(ctx);
             sh
         };
 

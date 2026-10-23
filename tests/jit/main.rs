@@ -30,6 +30,7 @@ mod jit_differential;
 mod jit_feedback;
 mod jit_field;
 mod jit_frame_inline;
+mod jit_global;
 mod jit_inline_call;
 mod jit_interrupt;
 mod jit_opcodes;

@@ -471,6 +471,11 @@ impl Bytecode {
             inline_cache: UnsafeCell::new(Box::new([])),
 
             #[cfg(feature = "jit")]
+            // The cache is not serialized: the restored function keeps the
+            // helper for global accesses until it is compiled here.
+            global_var_cache: UnsafeCell::new(Box::new([])),
+
+            #[cfg(feature = "jit")]
             jit: crate::jit::FunctionSlot::default(),
 
             #[cfg(feature = "jit")]

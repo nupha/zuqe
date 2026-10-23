@@ -110,6 +110,14 @@ pub struct JitMetrics {
     /// A miss is expected and common (it is not a defect), so it never feeds
     /// the tier-down — that is [`Self::specialized_guard_misses`]' job.
     pub property_guard_misses: u64,
+    /// Global-variable accesses the inline guard answered on its own (T10): an
+    /// own data property of `global_obj` (`var`/`function`) or
+    /// `global_var_obj` (`let`/`const`), read or written straight out of its
+    /// slot.
+    pub global_guard_hits: u64,
+    /// Global-variable accesses handed back to the helper (T10): an unbound
+    /// name, a TDZ slot, a read-only binding, an accessor, or a shape change.
+    pub global_guard_misses: u64,
     /// Calls at a monomorphic site that took the fast path (D-6 route B):
     /// either the callee's compiled code was entered directly (step 1) or the
     /// inline guard passed and the copied body ran in the caller (step 2).

@@ -46,6 +46,11 @@ pub(crate) struct CompileSnapshot {
     pub(crate) gc_scope_kind: GcScopeKind,
     pub(crate) const_meta: Box<[ConstMeta]>,
     pub(crate) ic_count: u32,
+    /// The number of global-variable site caches the live bytecode has (T10).
+    /// Zero for a function with no global references and for a persistent
+    /// restore (the cache is not serialized); the compiler then keeps the
+    /// helper for every global access.
+    pub(crate) global_cache_count: u32,
     /// Tier-2 type feedback (epic F1): `(pc, observations)` sorted by pc,
     /// copied out of the bytecode's feedback table at snapshot time, already
     /// filtered by the epic F5 profitability gate. Empty under
@@ -177,6 +182,7 @@ impl InlineCallee {
             gc_scope_kind: self.gc_scope_kind,
             const_meta: self.const_meta.clone(),
             ic_count: 0,
+            global_cache_count: 0,
             feedback: Box::new([]),
             call_sites: self.call_sites.clone(),
             inline_callees: self.inline_callees.clone(),
@@ -199,6 +205,11 @@ impl CompileSnapshot {
         };
         #[cfg(not(feature = "inline_cache"))]
         let ic_count = 0;
+
+        #[cfg(feature = "jit")]
+        let global_cache_count = unsafe { (&*bc.global_var_cache.get()).len() as u32 };
+        #[cfg(not(feature = "jit"))]
+        let global_cache_count = 0;
 
         // D-6 route B step 2: keep a copy of each monomorphic callee whose
         // shape the compiler may inline. The call-site table holds the callee
@@ -244,6 +255,7 @@ impl CompileSnapshot {
                 })
                 .collect(),
             ic_count,
+            global_cache_count,
             feedback: bc.feedback.snapshot(min_samples).into_boxed_slice(),
             call_sites: call_sites.into_boxed_slice(),
             inline_callees: inline_callees.into_boxed_slice(),
@@ -282,6 +294,7 @@ impl CompileSnapshot {
             gc_scope_kind: GcScopeKind::Full,
             const_meta: Box::new([]),
             ic_count: 0,
+            global_cache_count: 0,
             feedback: Box::new([]),
             call_sites: Box::new([]),
             inline_callees: Box::new([]),

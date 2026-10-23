@@ -255,12 +255,17 @@ pub(crate) fn run_function(body: &[u8], args: u16, vars: u16, arguments: &[u64])
         guard_misses: 0,
         property_guard_hits: 0,
         property_guard_misses: 0,
+        global_guard_hits: 0,
+        global_guard_misses: 0,
         backedges: 0,
         inline_call_hits: 0,
         frame_inline_hits: 0,
         nested_inline_hits: 0,
         inline_call_misses: 0,
         scratch: JSValue::UNDEFINED,
+        global_obj: JSValue::UNDEFINED,
+        global_var_obj: JSValue::UNDEFINED,
+        global_var_cache: std::ptr::null_mut(),
     };
 
     let mem = publish(&compiled);
@@ -472,6 +477,7 @@ pub(crate) fn compile_caller_with_nested_inline(
         gc_scope_kind: GcScopeKind::None,
         const_meta: Box::new([]),
         ic_count: 0,
+        global_cache_count: 0,
         feedback: Box::new([]),
         call_sites: call_sites.into_boxed_slice(),
         inline_callees: callees.into_boxed_slice(),

@@ -53,7 +53,7 @@ pub use {
 /// this.
 pub use compiler::shuffle_opcodes;
 
-pub(crate) use abi::{FunctionSlot, JitExitKind};
+pub(crate) use abi::{FunctionSlot, GlobalVarCache, JitExitKind};
 pub(crate) use direct_call::DirectCall;
 pub(crate) use feedback::FeedbackSlot;
 
@@ -915,6 +915,20 @@ pub(crate) fn invoke_native(
 ) -> Option<(JitExitKind, JitExecFrame)> {
     let state = rt.jit.as_deref()?;
     let entry = bc.jit.entry()?;
+    // T10: the two global objects are context roots, so the frame can hold them
+    // as plain values (no tracing); the sites' shapes are re-checked on every
+    // access.
+    let (global_obj, global_var_obj) = if scope.is_null() {
+        (JSValue::UNDEFINED, JSValue::UNDEFINED)
+    } else {
+        // SAFETY: `scope` is the running `ScopedContext` (see the contract
+        // above); it outlives this call.
+        let scope = unsafe { &*(scope as *const crate::ScopedContext) };
+        (
+            JSValue::from(scope.global_obj()),
+            JSValue::from(scope.global_var_obj()),
+        )
+    };
     let mut frame = JitExecFrame {
         scope,
         arg_base,
@@ -943,12 +957,17 @@ pub(crate) fn invoke_native(
         guard_misses: 0,
         property_guard_hits: 0,
         property_guard_misses: 0,
+        global_guard_hits: 0,
+        global_guard_misses: 0,
         backedges: 0,
         inline_call_hits: 0,
         frame_inline_hits: 0,
         nested_inline_hits: 0,
         inline_call_misses: 0,
         scratch: JSValue::UNDEFINED,
+        global_obj,
+        global_var_obj,
+        global_var_cache: bc.global_var_cache_sites(),
     };
     // SAFETY: `entry` was produced by `compile` for this exact bytecode layout
     // and ABI, and the slot is only populated while the code cache keeps the
@@ -986,6 +1005,13 @@ pub(crate) fn invoke_native(
         property_guard_misses: m
             .property_guard_misses
             .saturating_add(u64::from(frame.property_guard_misses)),
+        // T10: the global-variable guard's hits and misses (observability only).
+        global_guard_hits: m
+            .global_guard_hits
+            .saturating_add(u64::from(frame.global_guard_hits)),
+        global_guard_misses: m
+            .global_guard_misses
+            .saturating_add(u64::from(frame.global_guard_misses)),
         // D-6 route B: the monomorphic call sites' direct path.
         inline_call_hits: m
             .inline_call_hits

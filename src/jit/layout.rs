@@ -198,6 +198,70 @@ pub(crate) mod function {
     }
 }
 
+/// The global-variable site cache's layout (T10): the owning shape, the
+/// shadowing `global_var_obj` shape, the slot and the flags. The generated
+/// guard reads one entry per access.
+pub(crate) mod global_var {
+    use crate::jit::abi::GlobalVarCache;
+
+    /// The size of one site's cache entry.
+    pub(crate) const ENTRY_SIZE: i64 = std::mem::size_of::<GlobalVarCache>() as i64;
+    /// The offset of the owning object's shape (payload pointer).
+    pub(crate) const OWNER_SHAPE_OFFSET: i32 =
+        std::mem::offset_of!(GlobalVarCache, owner_shape) as i32;
+    /// The offset of `global_var_obj`'s shape (payload pointer).
+    pub(crate) const LEXICAL_SHAPE_OFFSET: i32 =
+        std::mem::offset_of!(GlobalVarCache, lexical_shape) as i32;
+    /// The offset of the owning shape's id.
+    pub(crate) const OWNER_UID_OFFSET: i32 = std::mem::offset_of!(GlobalVarCache, owner_uid) as i32;
+    /// The offset of `global_var_obj`'s shape id.
+    pub(crate) const LEXICAL_UID_OFFSET: i32 =
+        std::mem::offset_of!(GlobalVarCache, lexical_uid) as i32;
+    /// The offset of the property slot.
+    pub(crate) const SLOT_OFFSET: i32 = std::mem::offset_of!(GlobalVarCache, slot) as i32;
+    /// The offset of the kind byte (`0` empty, `1` lexical, `2` global object).
+    pub(crate) const KIND_OFFSET: i32 = std::mem::offset_of!(GlobalVarCache, kind) as i32;
+    /// The offset of the cached property flags.
+    pub(crate) const FLAGS_OFFSET: i32 = std::mem::offset_of!(GlobalVarCache, flags) as i32;
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::jit::abi::{GLOBAL_CACHE_GLOBAL, GLOBAL_CACHE_LEXICAL};
+
+        /// The generated code reads these fields at fixed widths. The offsets
+        /// must stay inside the entry and must not overlap: the guard loads
+        /// each one independently.
+        #[test]
+        fn the_global_cache_layout_is_stable() {
+            assert_eq!(ENTRY_SIZE, 32);
+            assert_eq!(KIND_OFFSET, 28);
+            assert_eq!(FLAGS_OFFSET, 29);
+            assert!(GLOBAL_CACHE_LEXICAL != 0 && GLOBAL_CACHE_GLOBAL != 0);
+            assert_ne!(GLOBAL_CACHE_LEXICAL, GLOBAL_CACHE_GLOBAL);
+            let mut offsets = [
+                OWNER_SHAPE_OFFSET,
+                LEXICAL_SHAPE_OFFSET,
+                OWNER_UID_OFFSET,
+                LEXICAL_UID_OFFSET,
+                SLOT_OFFSET,
+                KIND_OFFSET,
+                FLAGS_OFFSET,
+            ];
+            for offset in offsets {
+                assert!(
+                    offset >= 0 && i64::from(offset) < ENTRY_SIZE,
+                    "the guard would read outside the entry"
+                );
+            }
+            offsets.sort_unstable();
+            for pair in offsets.windows(2) {
+                assert!(pair[0] < pair[1], "two fields share an offset");
+            }
+        }
+    }
+}
+
 /// The typed array's layout: the view's buffer, its start offset, its lengths
 /// and its out-of-bounds flag.
 pub(crate) mod typed_array {

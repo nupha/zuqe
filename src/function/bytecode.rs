@@ -399,6 +399,13 @@ pub struct BytecodeImpl {
     #[cfg(feature = "inline_cache")]
     pub(crate) inline_cache: UnsafeCell<Box<[InlineCacheSite]>>,
 
+    /// Global-variable site caches (T10), one per `global_var_refs` entry. The
+    /// inline guard reads the entry's shape/slot; the `get_var`/`put_var`
+    /// helpers refresh it. Not traced: the entries hold compare-only shape
+    /// pointers, and both global objects are context roots anyway.
+    #[cfg(feature = "jit")]
+    pub(crate) global_var_cache: UnsafeCell<Box<[crate::jit::GlobalVarCache]>>,
+
     /// JIT state for this function (feature `jit`): the installed native-entry
     /// slot, which also owns the published code mapping (a strong `Rc`, D-16).
     /// Interior-mutable because the interpreter reaches it through `&Bytecode`.
@@ -513,6 +520,9 @@ impl BytecodeImpl {
             inline_cache: UnsafeCell::new(Box::new([])),
 
             #[cfg(feature = "jit")]
+            global_var_cache: UnsafeCell::new(Box::new([])),
+
+            #[cfg(feature = "jit")]
             jit: crate::jit::FunctionSlot::default(),
 
             #[cfg(feature = "jit")]
@@ -557,6 +567,16 @@ impl BytecodeImpl {
     pub(crate) fn inline_cache_sites(&self) -> *const InlineCacheSite {
         // SAFETY: single-threaded; the sites live as long as the function.
         unsafe { (*self.inline_cache.get()).as_ptr() }
+    }
+
+    /// The global-variable site caches, for the JIT's inline guard (T10). Empty
+    /// when the function has no global references (or was restored from a
+    /// persistent blob, which does not carry the cache).
+    #[cfg(feature = "jit")]
+    #[inline(always)]
+    pub(crate) fn global_var_cache_sites(&self) -> *mut crate::jit::GlobalVarCache {
+        // SAFETY: single-threaded; the cache lives as long as the function.
+        unsafe { (*self.global_var_cache.get()).as_mut_ptr() }
     }
 
     #[inline(always)]
