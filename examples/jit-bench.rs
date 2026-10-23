@@ -210,6 +210,87 @@ const KERNELS: &[Kernel] = &[
                    return s + post[0]; } workload(10);",
         work: "workload(2000000);",
     },
+    // T12 probe: a monomorphic constructor per iteration (`call_constructor`
+    // is still the general helper; the own-field reads use the property guard).
+    Kernel {
+        name: "ctor-heavy",
+        define: "function Vec(x, y){ this.x = x; this.y = y; } \
+                 function workload(iterations){ var s = 0; \
+                   for (var i = 0; i < iterations; i++){ var v = new Vec(i, s); s = (s + v.x + v.y) | 0; } \
+                   return s; } workload(10);",
+        work: "workload(2000000);",
+    },
+    // T12 control: the same loop with an object literal instead of `new`.
+    Kernel {
+        name: "ctor-control",
+        define: "function workload(iterations){ var s = 0; \
+                   for (var i = 0; i < iterations; i++){ var v = { x: i, y: s }; s = (s + v.x + v.y) | 0; } \
+                   return s; } workload(10);",
+        work: "workload(2000000);",
+    },
+    // T12 probe: a monomorphic `apply` per iteration.
+    Kernel {
+        name: "apply-heavy",
+        define: "function add(a, b){ return (a + b) | 0; } \
+                 function workload(iterations){ var args = [0, 0]; var s = 0; \
+                   for (var i = 0; i < iterations; i++){ args[0] = s; args[1] = i & 7; s = add.apply(null, args); } \
+                   return s; } workload(10);",
+        work: "workload(1000000);",
+    },
+    // T12 control: the same loop and argument reads, but a direct call (the
+    // direct path T12 would extend to `apply`).
+    Kernel {
+        name: "apply-control",
+        define: "function add(a, b){ return (a + b) | 0; } \
+                 function workload(iterations){ var args = [0, 0]; var s = 0; \
+                   for (var i = 0; i < iterations; i++){ args[0] = s; args[1] = i & 7; s = add(args[0], args[1]); } \
+                   return s; } workload(10);",
+        work: "workload(1000000);",
+    },
+    // T13 control: the same method call with an **own** method on a global
+    // receiver (the `get_field2` guard hits; `call_method` is the direct path).
+    Kernel {
+        name: "method-own-global",
+        define: "var v = { x: 3, y: 4 }; \
+                 v.dot = function (o){ return (this.x * o.x + this.y * o.y) | 0; }; \
+                 var o = { x: 1, y: 2 }; \
+                 function workload(iterations){ var s = 0; \
+                   for (var i = 0; i < iterations; i++){ s = (s + v.dot(o)) | 0; } \
+                   return s; } workload(10);",
+        work: "workload(2000000);",
+    },
+    // T13 probe: the same call with the method on the prototype.
+    Kernel {
+        name: "proto-method-global",
+        define: "function Vec(x, y){ this.x = x; this.y = y; } \
+                 Vec.prototype.dot = function (o){ return (this.x * o.x + this.y * o.y) | 0; }; \
+                 var v = new Vec(3, 4); var o = { x: 1, y: 2 }; \
+                 function workload(iterations){ var s = 0; \
+                   for (var i = 0; i < iterations; i++){ s = (s + v.dot(o)) | 0; } \
+                   return s; } workload(10);",
+        work: "workload(2000000);",
+    },
+    // T13 probe: a data property that lives on the prototype (the guard only
+    // serves own data properties today, so every read is a helper call).
+    Kernel {
+        name: "proto-data",
+        define: "function P(){} P.prototype.x = 1; P.prototype.y = 2; \
+                 function workload(iterations){ var p = new P(); var s = 0; \
+                   for (var i = 0; i < iterations; i++){ s = (s + p.x + p.y) | 0; } \
+                   return s; } workload(10);",
+        work: "workload(2000000);",
+    },
+    // T13 probe: a method on the prototype (`get_field2` misses the own guard,
+    // then `call_method` runs).
+    Kernel {
+        name: "proto-method",
+        define: "function Vec(x, y){ this.x = x; this.y = y; } \
+                 Vec.prototype.dot = function (o){ return (this.x * o.x + this.y * o.y) | 0; }; \
+                 function workload(iterations){ var v = new Vec(3, 4); var o = { x: 1, y: 2 }; var s = 0; \
+                   for (var i = 0; i < iterations; i++){ s = (s + v.dot(o)) | 0; } \
+                   return s; } workload(10);",
+        work: "workload(2000000);",
+    },
     // scalar-control-flow.js: both branch exits establish numeric values whose
     // join feeds the same multiply.
     Kernel {
