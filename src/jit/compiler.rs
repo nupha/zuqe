@@ -63,33 +63,33 @@ use crate::object::{
 use super::{
     abi::{
         GLOBAL_CACHE_LEXICAL, HELPER_ADD, HELPER_ADD_BRAND, HELPER_ADD_LOC, HELPER_AND,
-        HELPER_APPEND, HELPER_APPLY, HELPER_ARRAY_FROM, HELPER_CALL, HELPER_CALL_CONSTRUCTOR,
-        HELPER_CALL_INLINE, HELPER_CALL_METHOD, HELPER_CALL_METHOD_INLINE, HELPER_CHECK_BRAND,
-        HELPER_CHECK_CTOR, HELPER_CHECK_CTOR_RETURN, HELPER_CLOSE_LOC, HELPER_COPY_DATA_PROPERTIES,
-        HELPER_DEC, HELPER_DEFINE_ARRAY_EL, HELPER_DEFINE_CLASS, HELPER_DEFINE_CLASS_COMPUTED,
-        HELPER_DEFINE_FIELD, HELPER_DEFINE_METHOD, HELPER_DEFINE_METHOD_COMPUTED,
-        HELPER_DEFINE_PRIVATE_FIELD, HELPER_DELETE, HELPER_DELETE_VAR, HELPER_DIV, HELPER_EQ,
-        HELPER_FOR_IN_NEXT, HELPER_FOR_IN_START, HELPER_FOR_OF_NEXT, HELPER_FOR_OF_START,
-        HELPER_GC_BIND, HELPER_GET_ARRAY_EL, HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3,
-        HELPER_GET_FIELD, HELPER_GET_FIELD2, HELPER_GET_PRIVATE_FIELD, HELPER_GET_REF_VALUE,
-        HELPER_GET_SUPER, HELPER_GET_SUPER_VALUE, HELPER_GET_VAR, HELPER_GET_VAR_REF,
-        HELPER_GET_VAR_REF_CHECK, HELPER_GET_VAR_UNDEF, HELPER_GT, HELPER_GTE, HELPER_IN,
-        HELPER_INC, HELPER_INIT_CTOR, HELPER_INLINE_GUARD, HELPER_INSTANCEOF, HELPER_ITERATOR_CALL,
-        HELPER_ITERATOR_CHECK_OBJECT, HELPER_ITERATOR_CLOSE, HELPER_ITERATOR_GET_VALUE_DONE,
-        HELPER_ITERATOR_NEXT, HELPER_LNOT, HELPER_LT, HELPER_LTE, HELPER_MAKE_ARG_REF,
-        HELPER_MAKE_LOC_REF, HELPER_MAKE_VAR_REF, HELPER_MAKE_VAR_REF_REF, HELPER_MOD, HELPER_MUL,
-        HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH, HELPER_NOT, HELPER_OBJECT, HELPER_OK, HELPER_OR,
-        HELPER_PLUS, HELPER_POST_DEC, HELPER_POST_INC, HELPER_POW, HELPER_PRIVATE_IN,
-        HELPER_PRIVATE_SYMBOL, HELPER_PUSH_BIGINT_I32, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD,
-        HELPER_PUT_PRIVATE_FIELD, HELPER_PUT_REF_VALUE, HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR,
-        HELPER_PUT_VAR_INIT, HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK,
-        HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_REGEXP, HELPER_SAFEPOINT, HELPER_SAR,
-        HELPER_SET_HOME_OBJECT, HELPER_SET_NAME_COMPUTED, HELPER_SET_PROTO, HELPER_SET_VAR_REF,
-        HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ, HELPER_STRICT_NEQ, HELPER_SUB, HELPER_THROW,
-        HELPER_THROW_ERROR, HELPER_TO_BOOL, HELPER_TO_OBJECT, HELPER_TO_PROPKEY, HELPER_TYPEOF,
-        HELPER_WITH_DELETE_VAR, HELPER_WITH_GET_REF, HELPER_WITH_GET_VAR, HELPER_WITH_MAKE_REF,
-        HELPER_WITH_MISS, HELPER_WITH_PUT_VAR, HELPER_XOR, INLINE_METHOD_BIT, JitExecFrame,
-        SPEC_MISS_IMM2,
+        HELPER_APPEND, HELPER_APPLY, HELPER_ARRAY_FROM, HELPER_CALL, HELPER_CALL_APPLY,
+        HELPER_CALL_CONSTRUCTOR, HELPER_CALL_INLINE, HELPER_CALL_METHOD, HELPER_CALL_METHOD_INLINE,
+        HELPER_CHECK_BRAND, HELPER_CHECK_CTOR, HELPER_CHECK_CTOR_RETURN, HELPER_CLOSE_LOC,
+        HELPER_COPY_DATA_PROPERTIES, HELPER_DEC, HELPER_DEFINE_ARRAY_EL, HELPER_DEFINE_CLASS,
+        HELPER_DEFINE_CLASS_COMPUTED, HELPER_DEFINE_FIELD, HELPER_DEFINE_METHOD,
+        HELPER_DEFINE_METHOD_COMPUTED, HELPER_DEFINE_PRIVATE_FIELD, HELPER_DELETE,
+        HELPER_DELETE_VAR, HELPER_DIV, HELPER_EQ, HELPER_FOR_IN_NEXT, HELPER_FOR_IN_START,
+        HELPER_FOR_OF_NEXT, HELPER_FOR_OF_START, HELPER_GC_BIND, HELPER_GET_ARRAY_EL,
+        HELPER_GET_ARRAY_EL2, HELPER_GET_ARRAY_EL3, HELPER_GET_FIELD, HELPER_GET_FIELD2,
+        HELPER_GET_PRIVATE_FIELD, HELPER_GET_REF_VALUE, HELPER_GET_SUPER, HELPER_GET_SUPER_VALUE,
+        HELPER_GET_VAR, HELPER_GET_VAR_REF, HELPER_GET_VAR_REF_CHECK, HELPER_GET_VAR_UNDEF,
+        HELPER_GT, HELPER_GTE, HELPER_IN, HELPER_INC, HELPER_INIT_CTOR, HELPER_INLINE_GUARD,
+        HELPER_INSTANCEOF, HELPER_ITERATOR_CALL, HELPER_ITERATOR_CHECK_OBJECT,
+        HELPER_ITERATOR_CLOSE, HELPER_ITERATOR_GET_VALUE_DONE, HELPER_ITERATOR_NEXT, HELPER_LNOT,
+        HELPER_LT, HELPER_LTE, HELPER_MAKE_ARG_REF, HELPER_MAKE_LOC_REF, HELPER_MAKE_VAR_REF,
+        HELPER_MAKE_VAR_REF_REF, HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH,
+        HELPER_NOT, HELPER_OBJECT, HELPER_OK, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC,
+        HELPER_POST_INC, HELPER_POW, HELPER_PRIVATE_IN, HELPER_PRIVATE_SYMBOL,
+        HELPER_PUSH_BIGINT_I32, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD, HELPER_PUT_PRIVATE_FIELD,
+        HELPER_PUT_REF_VALUE, HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR, HELPER_PUT_VAR_INIT,
+        HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK, HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_REGEXP,
+        HELPER_SAFEPOINT, HELPER_SAR, HELPER_SET_HOME_OBJECT, HELPER_SET_NAME_COMPUTED,
+        HELPER_SET_PROTO, HELPER_SET_VAR_REF, HELPER_SHL, HELPER_SHR, HELPER_STRICT_EQ,
+        HELPER_STRICT_NEQ, HELPER_SUB, HELPER_THROW, HELPER_THROW_ERROR, HELPER_TO_BOOL,
+        HELPER_TO_OBJECT, HELPER_TO_PROPKEY, HELPER_TYPEOF, HELPER_WITH_DELETE_VAR,
+        HELPER_WITH_GET_REF, HELPER_WITH_GET_VAR, HELPER_WITH_MAKE_REF, HELPER_WITH_MISS,
+        HELPER_WITH_PUT_VAR, HELPER_XOR, INLINE_METHOD_BIT, JitExecFrame, SPEC_MISS_IMM2,
     },
     analysis::{Analysis, LocalRef, RedundantExpressions},
     bytecode::{
@@ -533,6 +533,11 @@ struct State<'a> {
     /// (D-6 route B, step 2). The value is the verified plan (the body plus
     /// its own nested sites); a site not in here keeps the direct-call helper.
     inline_sites: HashMap<u32, super::inline_call::Plan>,
+    /// Call sites the interpreter only ever saw a non-bytecode callee at. The
+    /// one such callee the compiler can serve directly is the builtin
+    /// `Function.prototype.apply`: its helper recognizes it at run time, so no
+    /// callee identity is baked in.
+    native_sites: HashSet<u32>,
     /// Counter for the variable-id block an inlined body owns. Every emission
     /// gets a fresh block: Cranelift forbids declaring a variable twice.
     inline_tag: u32,
@@ -1626,6 +1631,18 @@ fn monomorphic_call_sites(verified: &VerifiedFunction) -> HashMap<u32, u32> {
         .collect()
 }
 
+/// The call sites that only ever called a non-bytecode callee. `call_method`
+/// there may be `Function.prototype.apply`; its helper decides at run time.
+fn native_call_sites(verified: &VerifiedFunction) -> HashSet<u32> {
+    verified
+        .snapshot()
+        .call_sites
+        .iter()
+        .filter(|site| !site.polymorphic && site.callee == 0)
+        .map(|site| site.pc)
+        .collect()
+}
+
 /// The monomorphic sites whose callee the compiler can copy into the caller
 /// (D-6 route B, step 2). The callee's snapshot was taken while the runtime
 /// thread held the bytecode; verify it here, off-thread, exactly like any
@@ -1720,6 +1737,7 @@ fn lower(
         barrier_sig: barrier_sig(b, helper_sig),
         call_sites: monomorphic_call_sites(verified),
         inline_sites: inline_call_sites(verified),
+        native_sites: native_call_sites(verified),
         inline_tag: 0,
     };
     let entry_block = state.block_for(b, 0);
@@ -2129,6 +2147,12 @@ fn lower_insn(
                         "call_method" => HELPER_CALL_METHOD_INLINE,
                         _ => id,
                     }
+                }
+                // A native-callee site: `f.apply(thisArg, args)` lands here,
+                // and the helper serves the builtin without the interpreter's
+                // two call layers.
+                None if name == "call_method" && state.native_sites.contains(&pc) => {
+                    HELPER_CALL_APPLY
                 }
                 None => id,
             };

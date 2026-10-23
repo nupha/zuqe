@@ -209,6 +209,176 @@ fn the_callees_frame_is_in_the_backtrace() {
     );
 }
 
+// ── Function.prototype.apply ──
+
+/// A native-callee method site whose callee is `Function.prototype.apply`
+/// flattens a packed argument array and enters the receiver's compiled code
+/// directly. The elements are borrowed, so the result must still be the
+/// interpreter's.
+#[test]
+fn apply_takes_the_direct_path() {
+    let setup = "\
+        function add(a, b){ return (a + b) | 0; } \
+        function caller(n){ var args = [0, 0]; var s = 0; \
+          for (var i = 0; i < n; i++){ args[0] = s; args[1] = i & 7; s = add.apply(null, args); } \
+          return s; } \
+        caller(8);";
+    let main = "caller(50)";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    assert_eq!(result, "int:169", "apply must not change the result");
+    assert!(
+        metrics.inline_call_hits > 0,
+        "the apply builtin never took the direct path: {metrics:?}"
+    );
+    assert_eq!(
+        metrics.inline_call_misses, 0,
+        "the apply builtin never missed: {metrics:?}"
+    );
+}
+
+/// The apply shapes the fast path must leave alone (or serve through the
+/// general path) all agree with the interpreter.
+#[test]
+fn apply_shapes_agree() {
+    let setup = "\
+        function add(a, b){ return a + b; } \
+        function receiver(){ return this.x; } \
+        function three(a, b, c){ return a + ':' + b + ':' + c; } \
+        function viaArgs(){ return add.apply(null, arguments); } \
+        function* gen(){ yield 1; } \
+        function probe(){ var out = []; \
+          out.push(receiver.apply({ x: 7 }, [])); \
+          out.push(add.apply(null, [3, 4])); \
+          out.push(add.apply(null, { length: 2, 0: 5, 1: 6 })); \
+          out.push(String(add.apply(null))); \
+          out.push(String(add.apply(null, [,,3]))); \
+          try { add.apply(null, 5); } catch (e) { out.push(e.name); } \
+          try { ({}).apply(null, []); } catch (e) { out.push(e.name); } \
+          out.push(Math.max.apply(null, [1, 5, 3])); \
+          out.push(add.bind(null, 10).apply(null, [5])); \
+          out.push(gen.apply(null, []).next().value); \
+          out.push(viaArgs(2, 3)); \
+          out.push(Reflect.apply(add, null, [2, 3])); \
+          try { class C {} C.apply(null, []); } catch (e) { out.push(e.name); } \
+          out.push(three.apply(null, [1])); \
+          var grown = [1]; grown.length = 2; out.push(String(add.apply(null, grown))); \
+          return out.join('|'); } \
+        probe();";
+    let main = "probe()";
+    let expected =
+        "str:7|7|11|NaN|NaN|TypeError|TypeError|5|15|1|5|5|TypeError|1:undefined:undefined|NaN";
+
+    for mode in MODES {
+        let (result, _) = run(mode, setup, main);
+        assert_eq!(
+            result,
+            expected,
+            "{} disagrees on apply shapes",
+            mode.label()
+        );
+    }
+}
+
+/// `f.apply` can be replaced after the caller compiled: the same site then
+/// calls a bytecode function and must fall back to the general path.
+#[test]
+fn apply_falls_back_when_the_builtin_is_replaced() {
+    let setup = "\
+        function add(a, b){ return a + b; } \
+        function caller(f, args){ return f.apply(null, args); } \
+        caller(add, [1, 2]);";
+    let main = "\
+        var first = caller(add, [1, 2]); \
+        add.apply = function(a, b){ return a * 100 + b; }; \
+        first + ':' + caller(add, [3, 4])";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    // The override is called as a method of `add`: its arguments are
+    // `(thisArg, argumentArray)`, not the applied arguments.
+    assert_eq!(result, "str:3:03,4");
+    assert!(
+        metrics.inline_call_hits > 0,
+        "the recorded builtin never took the direct path: {metrics:?}"
+    );
+    assert!(
+        metrics.inline_call_misses > 0,
+        "the replaced builtin never fell back: {metrics:?}"
+    );
+}
+
+/// An exception in the applied callee reaches the caller's `catch`, and its
+/// frame is in the backtrace.
+#[test]
+fn apply_carries_the_callees_exception() {
+    let setup = "\
+        function boom(x){ if (x > 2) { throw new Error('boom'); } return x; } \
+        function caller(x){ try { return 'v:' + boom.apply(null, [x]); } catch (e) { return e.message + '|' + e.stack; } } \
+        caller(1);";
+    let main = "caller(5)";
+
+    let (result, _) = run(Mode::Tier1, setup, main);
+    assert!(
+        result.starts_with("str:boom|") && result.contains("boom"),
+        "the exception must come from the applied callee: {result}"
+    );
+}
+
+/// The applied callee can hit an opcode the JIT hands back to the
+/// interpreter (a TDZ read): that callee must resume there, not fail.
+#[test]
+fn apply_callee_resumes_in_the_interpreter() {
+    let setup = "\
+        function tdz(n){ if (n > 0) { let a = n; return a; } { b; let b = 1; return b; } } \
+        function caller(n){ try { return 'v:' + tdz.apply(null, [n]); } catch (e) { return 'e:' + e.name; } } \
+        caller(1);";
+    let main = "caller(0)";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    assert_eq!(result, "str:e:ReferenceError");
+    assert!(
+        metrics.inline_call_hits > 0,
+        "the applied callee did not take the direct path: {metrics:?}"
+    );
+}
+
+/// An applied callee that allocates GC nodes needs its own scope; the direct
+/// path creates and promotes it exactly as the trampoline does.
+#[test]
+fn apply_callee_that_allocates_agrees() {
+    let setup = "\
+        function alloc(n){ var o = { v: n }; return o.v + 1; } \
+        function caller(n){ var s = 0; \
+          for (var i = 0; i < n; i++){ s = (s + alloc.apply(null, [i])) | 0; } \
+          return s; } \
+        caller(8);";
+    let main = "caller(50)";
+
+    let (result, metrics) = run(Mode::Tier1, setup, main);
+    assert_eq!(result, "int:1275");
+    assert!(
+        metrics.inline_call_hits > 0,
+        "the allocating callee did not take the direct path: {metrics:?}"
+    );
+}
+
+/// The length getter is observable: the fast path reads it once and must not
+/// run it again on a fallback (the interpreter's `build_arg_list` reads it
+/// once too).
+#[test]
+fn apply_reads_the_length_once() {
+    let setup = "\
+        var reads = 0; \
+        function add(a, b){ return a + b; } \
+        function caller(){ var a = { get length(){ reads++; throw new Error('len'); } }; \
+          try { add.apply(null, a); } catch (e) { return e.message; } } \
+        caller();";
+    let main = "caller() + ':' + reads";
+
+    let (result, _) = run(Mode::Tier1, setup, main);
+    assert_eq!(result, "str:len:2");
+}
+
 /// A callee that hits a temporal dead zone reads its binding through a guard
 /// that hands the op back to the interpreter — the direct path must resume
 /// that callee there, and the error must be the interpreter's.

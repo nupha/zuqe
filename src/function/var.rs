@@ -9,7 +9,7 @@ use crate::{
 
 use super::ARG_SCOPE_INDEX;
 
-pub(super) const JS_MAX_LOCAL_VARS: u16 = 65535;
+pub(crate) const JS_MAX_LOCAL_VARS: u16 = 65535;
 
 pub(crate) const DEFINE_GLOBAL_LEX_VAR: u8 = 1 << 7;
 pub(crate) const DEFINE_GLOBAL_FUNC_VAR: u8 = 1 << 6;

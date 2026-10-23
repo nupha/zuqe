@@ -18,8 +18,9 @@ use crate::{
     },
     context::GlobalVarSetMode,
     function::{
-        BCWrapper, CallContext, GcScopeKind, JS_CALL_FLAG_CONSTRUCTOR, VarRef, js_build_arguments,
-        js_build_mapped_arguments, js_function_apply,
+        BCWrapper, CallContext, Callback, GcScopeKind, JS_CALL_FLAG_CONSTRUCTOR, JS_MAX_LOCAL_VARS,
+        NativeFunction, VarRef, build_arg_list, js_build_arguments, js_build_mapped_arguments,
+        js_function_apply,
     },
     gc::GcHeapExt,
     object::{JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object, ThrowPolicy},
@@ -2869,8 +2870,153 @@ unsafe extern "C" fn h_apply(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// `call_method <argc>` at a site that only ever called a native builtin:
+/// `[this, func, arg1..argN, ^] -> [ret, ^]`.
+///
+/// The builtin worth recognizing here is `Function.prototype.apply`: its whole
+/// body is a call, and the general path reaches it through `call_internal` →
+/// the native frame → `js_function_apply` → `build_arg_list` → `call_internal`
+/// again. When the receiver is a bytecode function with installed code and
+/// `arguments[1]` is a packed array, its elements already are the argument
+/// list: borrow them and enter the receiver's compiled code directly. Every
+/// other shape (another native, a replaced `apply`, a sparse array-like, a
+/// receiver the direct path cannot serve) takes the general path below, which
+/// owns the full apply semantics.
+unsafe extern "C" fn h_call_apply(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let argc = f.imm as usize;
+        let base = f.sp.offset(-(argc as isize) - 2);
+        let method_this = *base;
+        let func = *base.add(1);
+        let window = std::slice::from_raw_parts(base.add(2), argc);
+        let this_arg = window.first().copied().unwrap_or(JSValue::UNDEFINED);
+        let array_arg = window.get(1).copied().unwrap_or(JSValue::UNDEFINED);
+
+        if let Some(result) = try_builtin_apply(f, method_this, func, this_arg, array_arg) {
+            return match result {
+                Ok(value) => {
+                    *base = value;
+                    f.sp = base.add(1);
+                    HELPER_OK
+                }
+                Err(status) => status,
+            };
+        }
+
+        // The general path (the call_method helper's body).
+        match func.call_internal(scope_of(f), method_this, JSValue::UNDEFINED, window, 0) {
+            Ok(value) => {
+                *base = value;
+                f.sp = base.add(1);
+                HELPER_OK
+            }
+            Err(_) => HELPER_EXCEPTION,
+        }
+    }
+}
+
+/// Serve `Function.prototype.apply` when `func` is that builtin. `None` leaves
+/// the call to the general path.
+#[inline]
+unsafe fn try_builtin_apply(
+    f: &mut JitExecFrame,
+    method_this: JSValue,
+    func: JSValue,
+    this_arg: JSValue,
+    array_arg: JSValue,
+) -> Option<Result<JSValue, u32>> {
+    let Ok(native) = NativeFunction::try_from(func) else {
+        f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+        return None;
+    };
+    if native.payload().callback != Callback::Func(js_function_apply) {
+        f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+        return None;
+    }
+
+    let scope = unsafe { scope_of(f) };
+    // `js_function_apply` resolves the receiver first: a non-callable receiver
+    // must throw before the argument array is touched.
+    let Ok(func_obj) = method_this.ensure_callable(scope) else {
+        return Some(Err(HELPER_EXCEPTION));
+    };
+    if array_arg.is_undefined_or_null() {
+        return Some(apply_direct_call(f, scope, func_obj, this_arg, &[]));
+    }
+    let Some(array_obj) = array_arg.as_object() else {
+        let _ = scope.throw_type_error_not_an_object();
+        return Some(Err(HELPER_EXCEPTION));
+    };
+    // Same length rule as `build_arg_list`; a proxy or a getter can run here.
+    let length = match array_obj.get_length_prop(scope) {
+        Ok(length) => length as u32,
+        Err(_) => return Some(Err(HELPER_EXCEPTION)),
+    };
+    if length > JS_MAX_LOCAL_VARS as u32 {
+        let _ = scope.throw_internal_error("too many arguments");
+        return Some(Err(HELPER_EXCEPTION));
+    }
+    // A packed array's elements are the argument list. The callee's frame
+    // copies them before any user code runs, and the caller's operand stack
+    // keeps the array (and its elements) alive for the whole call.
+    if array_obj.is_fast_array()
+        && let Some(elements) = array_obj.payload_array()
+        && elements.len() == length as usize
+    {
+        return Some(apply_direct_call(
+            f,
+            scope,
+            func_obj,
+            this_arg,
+            elements.values(),
+        ));
+    }
+    match build_arg_list(scope, array_arg) {
+        Ok(args) => Some(apply_direct_call(f, scope, func_obj, this_arg, &args)),
+        Err(_) => Some(Err(HELPER_EXCEPTION)),
+    }
+}
+
+/// Call the receiver of `Function.prototype.apply`: its compiled code when it
+/// has one, the general call otherwise.
+fn apply_direct_call(
+    f: &mut JitExecFrame,
+    scope: &mut ScopedContext,
+    func_obj: Object,
+    this_arg: JSValue,
+    args: &[JSValue],
+) -> Result<JSValue, u32> {
+    match crate::jit::direct_call::call_native_direct(
+        scope,
+        func_obj.into(),
+        this_arg,
+        JSValue::UNDEFINED,
+        args,
+    ) {
+        crate::jit::DirectCall::Done(value) => {
+            f.inline_call_hits = f.inline_call_hits.saturating_add(1);
+            Ok(value)
+        }
+        crate::jit::DirectCall::Exception => {
+            f.inline_call_hits = f.inline_call_hits.saturating_add(1);
+            Err(HELPER_EXCEPTION)
+        }
+        crate::jit::DirectCall::Interrupt => {
+            f.inline_call_hits = f.inline_call_hits.saturating_add(1);
+            Err(HELPER_INTERRUPT)
+        }
+        crate::jit::DirectCall::Fallback => {
+            f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+            func_obj
+                .call(scope, this_arg, args)
+                .map_err(|_| HELPER_EXCEPTION)
+        }
+    }
+}
+
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 125;
+pub(crate) const HELPER_COUNT: usize = 126;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -3101,6 +3247,9 @@ pub(crate) const HELPER_ALLOC_OBJECT: usize = 123;
 /// Index of [`h_alloc_array0`], an empty array literal inside an inlined body
 /// (T7.4).
 pub(crate) const HELPER_ALLOC_ARRAY0: usize = 124;
+/// Index of [`h_call_apply`], a native-callee method site's fast path for
+/// `Function.prototype.apply`.
+pub(crate) const HELPER_CALL_APPLY: usize = 125;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -3234,4 +3383,5 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_inline_guard as *const (),
     h_alloc_object as *const (),
     h_alloc_array0 as *const (),
+    h_call_apply as *const (),
 ]);
