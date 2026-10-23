@@ -3542,6 +3542,13 @@ fn lower_get_array_el_fast(
     b.ins().brif(guard, fast, &[], slow, &[]);
 
     b.switch_to_block(fast);
+    // `get_array_el2` keeps the array below the value that replaces the key,
+    // but `cont` drops both register copies; memory must hold the array by
+    // then, or the next flush (the call helper right after) would see a stale
+    // slot. `Replace` overwrites the array's slot instead.
+    if shape == ArrayRead::Keep {
+        b.ins().store(MemFlags::new(), array, sp, -16);
+    }
     // The object's pointer: the low 48 bits of the tagged value.
     let obj = b.ins().band_imm(array, 0x0000_ffff_ffff_ffff);
     // Its flags word: the class id and the fast-array bit.
@@ -4303,6 +4310,14 @@ fn lower_get_field_fast(
     b.ins().brif(is_object, fast, &[], slow, &[]);
 
     b.switch_to_block(fast);
+    // `get_field2` keeps the target below the pushed value, but `cont` drops
+    // the target's register copy; memory must hold it by then, or the next
+    // flush (the call helper after `get_field2` in a method call) would write
+    // every other slot around a stale one. `Replace` writes the value into the
+    // target's own slot instead, so it needs no store.
+    if shape == FieldRead::Keep {
+        b.ins().store(MemFlags::new(), target, sp, -8);
+    }
     // The inline-cache site: its first way holds the shape the site saw last
     // and the slot the property was in. The sites live in the frame: the guard
     // reads them per access, so the load stays out of the entry block (which

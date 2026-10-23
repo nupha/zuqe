@@ -215,6 +215,17 @@ const CASES: &[(&str, &str, &str)] = &[
         "var o = { m: function(){ return 7; } }; function work(){ var s = 0; for (var i = 0; i < 10; i++) s += o.m(); return s; } work();",
         "work();",
     ),
+    // A method call on a **local** object whose body reads `this`, repeated
+    // past the point where the read site's inline cache is warm. `get_field2`
+    // keeps the receiver below the pushed callee for the `call_method` that
+    // follows; the guard must leave that kept slot in memory when it answers
+    // inline, or the call sees a stale receiver (B1: the sum collapsed to its
+    // last term once the guard started hitting).
+    (
+        "local_method_receiver_repeated",
+        "function workload(n){ var v = { x: 3, y: 4 }; v.dot = function(o){ return (this.x * o.x + this.y * o.y) | 0; }; var o = { x: 1, y: 2 }; var s = 0; for (var i = 0; i < n; i++){ s = (s + v.dot(o)) | 0; } return s + ':' + i; } workload(1000);",
+        "var out = []; for (var k = 0; k < 9; k++) out.push(workload(1000)); out.join(',');",
+    ),
     // A method on the prototype: the guard declines it (the helper walks the
     // chain), and the call still works.
     (
