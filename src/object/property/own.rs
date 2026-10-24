@@ -54,8 +54,10 @@ impl ObjectImpl {
             return Ok(());
         }
 
-        let extras: SmallVec<[(Atom, u32); 8]> =
-            props.iter().map(|(atom, flags, _)| (*atom, *flags)).collect();
+        let extras: SmallVec<[(Atom, u32); 8]> = props
+            .iter()
+            .map(|(atom, flags, _)| (*atom, *flags))
+            .collect();
         let len = self.modify_shape_add_props(ctx, &extras)?;
         debug_assert_eq!(self.prop_values.len(), len);
 
@@ -77,6 +79,24 @@ impl ObjectImpl {
             }
         }
         None
+    }
+
+    /// Check whether `prop`'s def is still carried by the shape while this
+    /// object's value slot is `Deleted`, i.e. the property was deleted but its
+    /// def remains (the shape may be shared with objects where the slot is
+    /// live).
+    ///
+    /// [`Self::find_shape_property`] hides such defs because the property no
+    /// longer exists. The add path needs them: a re-added property is a new
+    /// property, so the stale def must be dropped instead of reused.
+    #[inline]
+    pub(crate) fn has_deleted_shape_property(&self, prop: Atom) -> bool {
+        let Some(sh) = self.shape() else {
+            return false;
+        };
+        sh.prop_defs
+            .find_hash(prop.id())
+            .any(|(i, _)| matches!(self.prop_slot(i), JSProperty::Deleted))
     }
 
     /// Check if given property name exists in shape.

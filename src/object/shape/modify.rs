@@ -67,8 +67,10 @@ impl ObjectImpl {
     /// Append `extras` to shape as **one** transition: a single registry lookup
     /// and, on a miss, a single duplicate + register — no intermediate shapes.
     ///
-    /// `extras` must be non-empty, unique, and none may already exist in the
-    /// shape (callers verify that when resolving own-property semantics).
+    /// `extras` must be non-empty, unique, and none may already be *live* in
+    /// the shape (callers verify that when resolving own-property semantics).
+    /// A def may still be present with a `Deleted` slot (property deleted
+    /// earlier, def kept by the shape); such defs are dropped, not reused.
     pub(crate) fn modify_shape_add_props(
         &mut self,
         ctx: &mut ScopedContext,
@@ -82,10 +84,9 @@ impl ObjectImpl {
 
         #[cfg(debug_assertions)]
         {
-            let sh = self.shape().unwrap();
             for (i, (prop, _)) in extras.iter().enumerate() {
                 debug_assert!(
-                    sh.prop_defs.find_hash(prop.id()).next().is_none(),
+                    self.find_shape_property(*prop).is_none(),
                     "prop already in shape"
                 );
                 debug_assert!(
@@ -93,6 +94,20 @@ impl ObjectImpl {
                     "duplicate prop in batch"
                 );
             }
+        }
+
+        // A deleted property that is added back is a *new* property: per spec it
+        // goes to the end of the enumeration order, so its stale def (slot
+        // `Deleted`) must not be revived in place. That def also cannot be
+        // mutated — the shape may be shared with objects whose slot is live.
+        // `deleted_slot_count == 0` makes this a single field check on the hot
+        // add path.
+        if self.deleted_slot_count != 0
+            && extras
+                .iter()
+                .any(|(prop, _)| self.has_deleted_shape_property(*prop))
+        {
+            return self.re_add_deleted_props(ctx, extras);
         }
 
         // Registry dedup: try the transition even when this object is the only
@@ -130,6 +145,49 @@ impl ObjectImpl {
         self.set_shape(use_shape);
 
         Ok(new_len)
+    }
+
+    /// Add props whose previous defs are still carried by the shape with a
+    /// `Deleted` slot (the property was deleted, then added back).
+    ///
+    /// Drops every deleted def/slot pair (the stale defs can't be revived in
+    /// place: that would restore the old enumeration position, and the shape
+    /// may be shared with objects where the slot is still live), then appends
+    /// `extras` after the surviving props as one transition.
+    fn re_add_deleted_props(
+        &mut self,
+        ctx: &mut ScopedContext,
+        extras: &[(Atom, u32)],
+    ) -> Result<usize, i32> {
+        let mut use_shape = self.shape().unwrap().dup(ctx)?;
+        self.compact_deleted_slots(&mut use_shape);
+        // The copy now differs from its source by more than one appended prop,
+        // so the `parent` hint recorded by `dup` would be wrong. Drop it to
+        // keep `find_extend`'s fast path exact.
+        use_shape.parent = None;
+        use_shape.full_rehash();
+
+        if let Some(found) = ctx.rt().shape_registry.find_extend(&use_shape, extras) {
+            let len = found.len();
+            self.try_extend_prop_slot(extras.len())
+                .map_err(|_| ctx.throw_out_of_memory())?;
+            // Re-adding after a delete can recreate the shape the object
+            // currently has (e.g. `delete o.a` then `o.a = 1` on `{b, a}`);
+            // compaction already re-aligned the slots, so keep the shape.
+            if self.shape().is_none_or(|cur| *cur != found) {
+                self.set_shape(found);
+            }
+            return Ok(len);
+        }
+
+        self.try_extend_prop_slot(extras.len())
+            .map_err(|_| ctx.throw_out_of_memory())?;
+        use_shape.add_shape_properties(ctx, extras);
+        let len = use_shape.len();
+        ctx.rt_mut().register_shape(&use_shape)?;
+        self.set_shape(use_shape);
+
+        Ok(len)
     }
 
     /// Updates flag of a shape property.
@@ -218,6 +276,29 @@ impl ObjectImpl {
     /// Returns true if any deleted slot was actually removed (indices shifted).
     fn compact_deleted_slots(&mut self, shape: &mut ShapeImpl) -> bool {
         debug_assert!(shape.use_count == 1);
+        // `shape` must be a private copy of this object's current shape:
+        // `prop_defs` is index-aligned with `prop_values`, so compacting a
+        // shape from a different/older state would drop the wrong slots.
+        // Only flags/proto may differ (`update_fn` runs before compaction), not
+        // the atom sequence or the entry count.
+        debug_assert_eq!(shape.prop_defs.len(), self.prop_values.len());
+        // `dup` recomputes the hash from the copied props, so it matches the
+        // source here. `update_fn` may then change flags/proto without
+        // rehashing (`modify_shape` refreshes the hash after compaction), so
+        // this checks that `shape` is the source's copy — not that `hash` is
+        // current. A hash match alone proves nothing (32-bit fingerprint), the
+        // exact check below stays.
+        debug_assert_eq!(shape.hash, self.shape().unwrap().hash);
+        debug_assert_eq!(shape.prop_defs.count(), shape.prop_defs.len());
+        debug_assert!(
+            shape.prop_defs.iter().map(|(_, p)| p.atom).eq(self
+                .shape()
+                .unwrap()
+                .prop_defs
+                .iter()
+                .map(|(_, p)| p.atom)),
+            "shape is not a copy of this object's current shape"
+        );
 
         // Collect entries from prop_defs whose corresponding slot is Deleted
         let mut removed_indices: SmallVec<[usize; 8]> = SmallVec::new();
@@ -234,8 +315,7 @@ impl ObjectImpl {
         // Compaction reorders prop slots, so any cached `(shape, slot)` pair
         // (the bytecode `GET_FIELD_IC`) must be invalidated. The shape always
         // reaches here as a fresh duplicate (`modify_shape`), i.e. with a new
-        // pointer and a new uid, so those caches re-resolve by name — mirroring
-        // QuickJS, which allocates a brand-new `JSShape` on every modification.
+        // pointer and a new uid, so those caches re-resolve by name
 
         // Remove in reverse order to keep indices valid
         for idx in removed_indices.iter().rev() {
@@ -252,6 +332,14 @@ impl ObjectImpl {
             .retain(|p| !matches!(p, JSProperty::Deleted));
 
         self.deleted_slot_count = 0;
+
+        // The def/slot arrays must still be index-aligned afterwards.
+        debug_assert_eq!(shape.prop_defs.len(), self.prop_values.len());
+        debug_assert!(
+            self.prop_values
+                .iter()
+                .all(|p| !matches!(p, JSProperty::Deleted))
+        );
 
         true
     }
@@ -404,6 +492,101 @@ mod tests {
             for (i, sh) in shapes.iter().enumerate().skip(1) {
                 assert_eq!(*sh, shapes[0], "batch round {i} has its own shape");
             }
+            Ok(())
+        })
+    }
+
+    /// VM-B0: a deleted property that is added back is a *new* property, so it
+    /// moves to the end of the shape (ECMA own-property order). Its stale def
+    /// must be dropped, never revived: otherwise repeated delete/re-add would
+    /// grow the shape with duplicate atoms.
+    #[test]
+    fn delete_then_re_add_appends_and_does_not_grow_shape() -> Result<(), i32> {
+        use crate::function::prop_str_to_atom;
+
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        ctx.with_root_scope(|mut cx| {
+            let mut obj = cx.create_base_object()?;
+            obj.set_property_str(&mut cx, "a", JSValue::from(1))?;
+            obj.set_property_str(&mut cx, "b", JSValue::from(2))?;
+
+            let atom_a = prop_str_to_atom(&mut cx, "a")?;
+            let atom_b = prop_str_to_atom(&mut cx, "b")?;
+
+            for _ in 0..10_000 {
+                obj.delete_property_str(&mut cx, "a")?;
+                obj.set_property_str(&mut cx, "a", JSValue::from(3))?;
+            }
+
+            assert_eq!(obj.shape().unwrap().len(), 2, "shape grew");
+            assert_eq!(obj.prop_values.len(), 2, "prop slots grew");
+            assert_eq!(
+                obj.deleted_slot_count, 0,
+                "deleted slots were not compacted"
+            );
+
+            let atoms: Vec<_> = obj
+                .shape()
+                .unwrap()
+                .prop_defs
+                .iter()
+                .map(|(_, p)| p.atom)
+                .collect();
+            assert_eq!(
+                atoms,
+                [atom_b, atom_a],
+                "re-added prop did not move to the end"
+            );
+            assert_eq!(obj.get_property(&mut cx, atom_a)?.as_int(), Some(3));
+            assert_eq!(obj.get_property(&mut cx, atom_b)?.as_int(), Some(2));
+            Ok(())
+        })
+    }
+
+    /// The shape may be shared with objects whose slot is still live: delete +
+    /// re-add on one object must not touch the shared defs.
+    #[test]
+    fn delete_then_re_add_does_not_disturb_shared_shape() -> Result<(), i32> {
+        use crate::function::prop_str_to_atom;
+
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        ctx.with_root_scope(|mut cx| {
+            let proto = cx.create_base_object()?;
+            let mut a = cx.create_base_object_with_proto(Some(proto))?;
+            let mut b = cx.create_base_object_with_proto(Some(proto))?;
+            for obj in [&mut a, &mut b] {
+                obj.set_property_str(&mut cx, "p", JSValue::from(1))?;
+                obj.set_property_str(&mut cx, "q", JSValue::from(2))?;
+            }
+            assert_eq!(a.shape().unwrap().gc_ref(), b.shape().unwrap().gc_ref());
+
+            let atom_p = prop_str_to_atom(&mut cx, "p")?;
+            let atom_q = prop_str_to_atom(&mut cx, "q")?;
+
+            a.delete_property_str(&mut cx, "p")?;
+            a.set_property_str(&mut cx, "p", JSValue::from(5))?;
+
+            let a_atoms: Vec<_> = a
+                .shape()
+                .unwrap()
+                .prop_defs
+                .iter()
+                .map(|(_, x)| x.atom)
+                .collect();
+            assert_eq!(a_atoms, [atom_q, atom_p], "{a_atoms:?}");
+            let b_atoms: Vec<_> = b
+                .shape()
+                .unwrap()
+                .prop_defs
+                .iter()
+                .map(|(_, x)| x.atom)
+                .collect();
+            assert_eq!(b_atoms, [atom_p, atom_q], "{b_atoms:?}");
+            assert_eq!(b.get_property(&mut cx, atom_p)?.as_int(), Some(1));
             Ok(())
         })
     }

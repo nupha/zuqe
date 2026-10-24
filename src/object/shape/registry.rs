@@ -150,12 +150,15 @@ impl ShapeRegistry {
     /// Find a registered shape whose props are `base_shape`'s props followed by
     /// `extras`, appended in order.
     /// Returns the shape with `use_count` incremented, or `None`.
-    pub(crate) fn find_extend(
-        &self,
-        base_shape: &Shape,
-        extras: &[(Atom, u32)],
-    ) -> Option<Shape> {
+    pub(crate) fn find_extend(&self, base_shape: &Shape, extras: &[(Atom, u32)]) -> Option<Shape> {
         debug_assert!(!extras.is_empty());
+        #[cfg(debug_assertions)]
+        for (prop, _) in extras {
+            debug_assert!(
+                base_shape.prop_defs.find_hash(prop.id()).next().is_none(),
+                "find_extend: extra prop already in base shape"
+            );
+        }
 
         let mut hash = base_shape.hash;
         for (prop, prop_flags) in extras {
