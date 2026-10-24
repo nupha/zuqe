@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use smallvec::SmallVec;
+
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::Atom,
@@ -34,6 +36,33 @@ impl ObjectImpl {
         let len = self.modify_shape_add_prop(ctx, prop, prop_flags)?;
         debug_assert_eq!(self.prop_values.len(), len);
         self.set_prop_slot(len - 1, value);
+        Ok(())
+    }
+
+    /// Add several own **data** properties as one shape transition: one registry
+    /// lookup, and one shape allocation on a miss (no intermediate shapes).
+    ///
+    /// Props are added in slice order; none may already exist in the shape and
+    /// the names must be unique. Non-data properties (getters/setters, var
+    /// refs, lazy init) must go through [`Self::add_own_property`].
+    pub(crate) fn add_own_properties(
+        &mut self,
+        ctx: &mut ScopedContext,
+        props: &[(Atom, u32, JSValue)],
+    ) -> Result<(), i32> {
+        if props.is_empty() {
+            return Ok(());
+        }
+
+        let extras: SmallVec<[(Atom, u32); 8]> =
+            props.iter().map(|(atom, flags, _)| (*atom, *flags)).collect();
+        let len = self.modify_shape_add_props(ctx, &extras)?;
+        debug_assert_eq!(self.prop_values.len(), len);
+
+        let start = len - props.len();
+        for (i, (_, _, value)) in props.iter().enumerate() {
+            self.set_prop_slot(start + i, JSProperty::Normal(*value));
+        }
         Ok(())
     }
 

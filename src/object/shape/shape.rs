@@ -29,6 +29,14 @@ pub(crate) struct ShapeImpl {
     /// Used to chain shapes in the same hash bucket.
     /// Traced during GC to keep the chain alive while registered.
     pub(super) next: Option<GcRef<ShapeImpl>>,
+    /// Shape this one was duplicated from, as an `(address, uid)` identity
+    /// pair. Used as an O(1) transition-dedup hint: a child created by
+    /// `dup(parent)` + append has exactly `parent`'s props plus one prop.
+    ///
+    /// Deliberately **not** traced (it must not pin ancestors alive) and never
+    /// dereferenced: a stale pair only costs a fallback to the prop-by-prop
+    /// comparison, because a recycled address always carries a fresh `uid`.
+    pub(super) parent: Option<(GcRef<ShapeImpl>, u32)>,
 }
 
 impl fmt::Debug for ShapeImpl {
@@ -72,6 +80,7 @@ impl ShapeImpl {
             has_small_array_index: false,
             hash,
             next: None,
+            parent: None,
         })
     }
 
@@ -161,7 +170,15 @@ impl ShapeImpl {
             props.push(*prs);
         }
 
-        Shape::create_internal(ctx, self.proto, props)
+        let mut dup = Shape::create_internal(ctx, self.proto, props)?;
+        // `ShapeImpl::new` starts this at false; the copy has the same prop
+        // defs, so it must carry the source's flag as well.
+        dup.has_small_array_index = self.has_small_array_index;
+        // Record the source identity so appending a prop to this copy can be
+        // dedup'd in O(1) (see `ShapeRegistry::find_extend`).
+        dup.parent = Some((self.gc_ref(), self.uid));
+
+        Ok(dup)
     }
 }
 

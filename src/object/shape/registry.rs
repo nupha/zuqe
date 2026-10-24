@@ -14,18 +14,21 @@
 //! remaining shapes (which all have `use_count > 0`), following `registry_next`
 //! chains, keeping them alive.
 //!
-//! **Transaction safety**: The unregister-modify-register window in
-//! `modify_shape()` is GC-free, so the temporary absence from the registry
-//! is safe.
+//! **Transaction safety**: the dup/modify/register window in `modify_shape()`
+//! and `modify_shape_add_props()` is GC-free, so the temporary absence of the
+//! new shape from the registry is safe. Registered shapes are never modified in
+//! place: they are the canonical entry for their content, and a duplicate is
+//! registered under the new content instead.
 
 use gc_lite::{GcRef, GcTraceCtx};
+use hash_link::HashList;
 
 use crate::{
     RuntimeImpl,
     atom::Atom,
     object::{
         Object, Shape, ShapeImpl,
-        shape::{shape_hasher_u32, shape_initial_hash},
+        shape::{ShapeProperty, shape_hasher_u32, shape_initial_hash},
     },
 };
 
@@ -129,6 +132,12 @@ impl ShapeRegistry {
         }
     }
 
+    /// Number of shapes currently registered (tests only).
+    #[cfg(test)]
+    pub(crate) fn count(&self) -> usize {
+        self.count
+    }
+
     /// Trace all registered shapes through the GC trace context.
     /// Bucket heads (and their `registry_next` chains) are added to the
     /// traced set, which keeps them alive during the current GC cycle.
@@ -138,36 +147,44 @@ impl ShapeRegistry {
         }
     }
 
-    /// Find a registered shape matching `base_shape` extended by `(prop, prop_flags)`.
+    /// Find a registered shape whose props are `base_shape`'s props followed by
+    /// `extras`, appended in order.
     /// Returns the shape with `use_count` incremented, or `None`.
     pub(crate) fn find_extend(
         &self,
         base_shape: &Shape,
-        prop: Atom,
-        prop_flags: u32,
+        extras: &[(Atom, u32)],
     ) -> Option<Shape> {
+        debug_assert!(!extras.is_empty());
+
         let mut hash = base_shape.hash;
-        hash = shape_hasher_u32(hash, prop.id());
-        hash = shape_hasher_u32(hash, prop_flags);
+        for (prop, prop_flags) in extras {
+            hash = shape_hasher_u32(hash, prop.id());
+            hash = shape_hasher_u32(hash, *prop_flags);
+        }
 
         let idx = hash as usize & self.mask;
         let base_len = base_shape.prop_defs.len();
-        let ttl_len = base_len + 1;
+        let ttl_len = base_len + extras.len();
+        let parent = Some((base_shape.gc_ref(), base_shape.uid));
 
         let mut ptr = self.buckets[idx];
         while let Some(candidate) = ptr {
             let c = unsafe { candidate.as_ref() };
+
+            // Cheap filters first, then the appended tail. When the candidate
+            // records `base_shape` as its parent it was built by duplicating
+            // exactly this base and appending exactly these props, so the
+            // prop-by-prop prefix comparison is skipped.
+            //
+            // `parent` is an untraced `(address, uid)` identity that is never
+            // dereferenced; a recycled address carries a fresh uid and simply
+            // falls through to the full comparison.
             if c.hash == hash
                 && c.proto == base_shape.proto
                 && c.prop_defs.len() == ttl_len
-                && base_shape
-                    .prop_defs
-                    .iter()
-                    .zip(c.prop_defs.iter())
-                    .all(|((_, a), (_, b))| a == b)
-                && c.prop_defs
-                    .last()
-                    .is_some_and(|pr| pr.atom == prop && pr.flags() == prop_flags)
+                && tail_matches(&c.prop_defs, base_len, extras)
+                && (c.parent == parent || prefix_matches(base_shape, c))
             {
                 let mut sh = Shape::from(candidate);
                 sh.use_count += 1;
@@ -250,6 +267,24 @@ impl ShapeImpl {
     }
 }
 
+/// Compare the props appended after `base_len` with `extras`.
+#[inline]
+fn tail_matches(defs: &HashList<ShapeProperty>, base_len: usize, extras: &[(Atom, u32)]) -> bool {
+    extras.iter().enumerate().all(|(i, (prop, flags))| {
+        defs.get(base_len + i)
+            .is_some_and(|pr| pr.atom == *prop && pr.flags() == *flags)
+    })
+}
+
+/// Compare `c`'s leading props with `base`'s props.
+#[inline]
+fn prefix_matches(base: &Shape, c: &ShapeImpl) -> bool {
+    base.prop_defs
+        .iter()
+        .zip(c.prop_defs.iter())
+        .all(|((_, a), (_, b))| a == b)
+}
+
 impl RuntimeImpl {
     #[inline(always)]
     pub(crate) fn register_shape(&mut self, shape: &Shape) -> Result<(), i32> {
@@ -270,16 +305,5 @@ impl RuntimeImpl {
     #[inline(always)]
     pub(crate) fn find_shape_by_proto(&self, proto: Option<Object>) -> Option<Shape> {
         self.shape_registry.find_empty_by_proto(proto)
-    }
-
-    #[inline(always)]
-    pub(super) fn find_shape_with_extend_prop(
-        &self,
-        base_shape: &Shape,
-        prop: Atom,
-        prop_flags: u32,
-    ) -> Option<Shape> {
-        self.shape_registry
-            .find_extend(base_shape, prop, prop_flags)
     }
 }

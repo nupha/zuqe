@@ -11,7 +11,13 @@ use smallvec::SmallVec;
 
 impl ObjectImpl {
     /// modify object's shape by closure.
-    /// an exclusive, unregistered shape is passed to closure as argument.
+    /// The closure receives a private, unregistered copy of the shape.
+    ///
+    /// A registered shape is the registry's canonical entry for its content, so
+    /// it is never modified in place (`use_count == 1` does not mean private:
+    /// the registry's own reference is not counted). Consuming it in place
+    /// would make the transition unreusable and force every later object to
+    /// allocate a fresh shape (VM-P10).
     /// Returns true if deleted slots were compacted (property indices changed),
     /// false otherwise.
     pub(crate) fn modify_shape(
@@ -19,16 +25,7 @@ impl ObjectImpl {
         ctx: &mut ScopedContext,
         update_fn: impl FnOnce(&mut ShapeImpl),
     ) -> Result<bool, i32> {
-        let use_count = self.shape().unwrap().use_count;
-        let mut use_shape = if use_count > 1 {
-            // shape is shared: dup to new
-            self.shape().unwrap().dup(ctx)?
-        } else {
-            // shape is exclusive
-            let sh = self.take_shape().unwrap();
-            ctx.rt_mut().unregister_shape(&sh);
-            sh
-        };
+        let mut use_shape = self.shape().unwrap().dup(ctx)?;
 
         update_fn(&mut use_shape);
 
@@ -40,68 +37,93 @@ impl ObjectImpl {
             && self.deleted_slot_count >= (self.prop_values.len() / 2) as u16;
 
         let compacted = if should_compact {
-            self.compact_deleted_slots(ctx, &mut use_shape)
+            self.compact_deleted_slots(&mut use_shape)
         } else {
             false
         };
 
+        // Both `update_fn` and compaction change hash inputs (proto, flags,
+        // prop list); refresh the hash so it matches the contents and the
+        // registry bucket the shape is inserted into.
+        use_shape.full_rehash();
         ctx.rt_mut().register_shape(&use_shape)?;
         self.set_shape(use_shape);
 
         Ok(compacted)
     }
 
-    /// Append an extra property to shape
+    /// Append one extra property to shape.
+    /// Single-prop special case of [`Self::modify_shape_add_props`].
+    #[inline(always)]
     pub(crate) fn modify_shape_add_prop(
         &mut self,
         ctx: &mut ScopedContext,
         prop: Atom,
         prop_flags: u32,
     ) -> Result<usize, i32> {
-        let (old_len, use_count) = {
-            let sh = self.shape().unwrap();
-            (sh.len(), sh.use_count)
-        };
-        debug_assert_eq!(self.prop_values.len(), old_len);
-        let new_len = old_len + 1;
+        self.modify_shape_add_props(ctx, &[(prop, prop_flags)])
+    }
 
-        // Registry dedup: only meaningful when the source shape is shared
-        // (use_count != 1). An exclusive shape cannot have a pre-existing
-        // target because no other object shares the same source — the lookup
-        // would always miss, so skip it.
-        if use_count != 1
-            && let Some(found) =
-                ctx.rt()
-                    .find_shape_with_extend_prop(self.shape().unwrap(), prop, prop_flags)
+    /// Append `extras` to shape as **one** transition: a single registry lookup
+    /// and, on a miss, a single duplicate + register — no intermediate shapes.
+    ///
+    /// `extras` must be non-empty, unique, and none may already exist in the
+    /// shape (callers verify that when resolving own-property semantics).
+    pub(crate) fn modify_shape_add_props(
+        &mut self,
+        ctx: &mut ScopedContext,
+        extras: &[(Atom, u32)],
+    ) -> Result<usize, i32> {
+        debug_assert!(!extras.is_empty());
+
+        let old_len = self.shape().unwrap().len();
+        debug_assert_eq!(self.prop_values.len(), old_len);
+        let new_len = old_len + extras.len();
+
+        #[cfg(debug_assertions)]
+        {
+            let sh = self.shape().unwrap();
+            for (i, (prop, _)) in extras.iter().enumerate() {
+                debug_assert!(
+                    sh.prop_defs.find_hash(prop.id()).next().is_none(),
+                    "prop already in shape"
+                );
+                debug_assert!(
+                    extras[..i].iter().all(|(p, _)| p != prop),
+                    "duplicate prop in batch"
+                );
+            }
+        }
+
+        // Registry dedup: try the transition even when this object is the only
+        // user. `use_count == 1` does not make the source shape private — the
+        // registry reference is not counted — and a registered source must stay
+        // intact so later objects can reuse this transition.
+        if let Some(found) = ctx
+            .rt()
+            .shape_registry
+            .find_extend(self.shape().unwrap(), extras)
         {
             debug_assert_eq!(new_len, found.len());
-            self.try_extend_prop_slot(1)
+            self.try_extend_prop_slot(extras.len())
                 .map_err(|_| ctx.throw_out_of_memory())?;
             debug_assert_eq!(self.prop_values.len(), new_len);
             self.set_shape(found);
             return Ok(new_len);
         }
 
-        // Not found (or exclusive shape — lookup skipped above).
-        // Extend slot first, then branch by exclusivity.
-        self.try_extend_prop_slot(1)
+        // Not found: extend a private copy. The source shape is left untouched
+        // (registered, or a transient unregistered one) — see `modify_shape`.
+        let mut use_shape = self.shape().unwrap().dup(ctx)?;
+
+        self.try_extend_prop_slot(extras.len())
             .map_err(|_| ctx.throw_out_of_memory())?;
         debug_assert_eq!(self.prop_values.len(), new_len);
-
-        let mut use_shape = if use_count != 1 {
-            // current shape is shared, dup to new without register.
-            self.shape().unwrap().dup(ctx)?
-        } else {
-            // current shape is exclusive, unregister and use it.
-            let sh = self.take_shape().unwrap();
-            ctx.rt_mut().unregister_shape(&sh);
-            sh
-        };
 
         debug_assert!(!ctx.rt().is_shape_registered(&use_shape));
 
         // shape can be modified now.
-        use_shape.add_shape_properties(ctx, &[(prop, prop_flags)]);
+        use_shape.add_shape_properties(ctx, extras);
         // register the shape
         ctx.rt_mut().register_shape(&use_shape).unwrap();
         // object uses the shape
@@ -134,7 +156,6 @@ impl ObjectImpl {
         if prs_flag != new_flags {
             let compacted = self.modify_shape(ctx, |sh| {
                 sh.prop_defs.get_mut(idx).unwrap().set_flags(new_flags);
-                sh.full_rehash();
             })?;
 
             if compacted {
@@ -175,7 +196,6 @@ impl ObjectImpl {
         if flags != new_flags {
             let compacted = self.modify_shape(ctx, |sh| {
                 sh.prop_defs.get_mut(index).unwrap().set_flags(new_flags);
-                sh.full_rehash();
             })?;
 
             if compacted {
@@ -196,7 +216,7 @@ impl ObjectImpl {
     }
 
     /// Returns true if any deleted slot was actually removed (indices shifted).
-    fn compact_deleted_slots(&mut self, ctx: &mut ScopedContext, shape: &mut ShapeImpl) -> bool {
+    fn compact_deleted_slots(&mut self, shape: &mut ShapeImpl) -> bool {
         debug_assert!(shape.use_count == 1);
 
         // Collect entries from prop_defs whose corresponding slot is Deleted
@@ -212,14 +232,10 @@ impl ObjectImpl {
         }
 
         // Compaction reorders prop slots, so any cached `(shape, slot)` pair
-        // (the bytecode `GET_FIELD_IC`) becomes stale
-        // while the shape pointer stays the same on the exclusive path. Mint a
-        // fresh uid from the global counter so those caches detect the change
-        // and re-resolve the slot by name — mirroring QuickJS, which allocates
-        // a brand-new `JSShape` on every modification.
-        let uid = ctx.rt_mut().next_shape_uid.get();
-        ctx.rt_mut().next_shape_uid.set(uid.wrapping_add(1));
-        shape.uid = uid;
+        // (the bytecode `GET_FIELD_IC`) must be invalidated. The shape always
+        // reaches here as a fresh duplicate (`modify_shape`), i.e. with a new
+        // pointer and a new uid, so those caches re-resolve by name — mirroring
+        // QuickJS, which allocates a brand-new `JSShape` on every modification.
 
         // Remove in reverse order to keep indices valid
         for idx in removed_indices.iter().rev() {
@@ -238,5 +254,157 @@ impl ObjectImpl {
         self.deleted_slot_count = 0;
 
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{JSValue, Runtime, ScopedContext};
+
+    /// VM-P10: instances of the same prototype must share one registered shape
+    /// per transition. Before the fix, adding the first property consumed the
+    /// class default (registered) shape in place, so every instance allocated a
+    /// `ShapeImpl` of its own.
+    #[test]
+    fn instances_share_shape_after_prop_add() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        ctx.with_root_scope(|mut cx| {
+            let proto = cx.create_base_object()?;
+
+            // Keep every instance alive so no shape can be reclaimed between
+            // iterations: the shared shape must be observable directly.
+            let mut objs = Vec::new();
+            for i in 0..64 {
+                let mut obj = cx.create_base_object_with_proto(Some(proto))?;
+                obj.set_property_str(&mut cx, "a", JSValue::from(i as i64))?;
+                objs.push(obj);
+            }
+
+            let first = objs[0].shape().unwrap().gc_ref();
+            for (i, obj) in objs.iter().enumerate() {
+                assert_eq!(
+                    obj.shape().unwrap().gc_ref(),
+                    first,
+                    "instance {i} allocated its own shape"
+                );
+            }
+            Ok(())
+        })
+    }
+
+    /// `set_prototype` goes through `modify_shape`: the canonical empty shape
+    /// must be duplicated (and rehashed for the new proto) instead of being
+    /// consumed in place, so the next object with that proto reuses it.
+    #[test]
+    fn prop_of_shapes_reused_after_set_prototype() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        ctx.with_root_scope(|mut cx| {
+            let proto1 = cx.create_base_object()?;
+            let proto2 = cx.create_base_object()?;
+
+            let mut moved = cx.create_base_object_with_proto(Some(proto1))?;
+            moved.set_prototype(&mut cx, JSValue::from(proto2))?;
+
+            let reused = cx.create_base_object_with_proto(Some(proto2))?;
+            assert_eq!(
+                moved.shape().unwrap().gc_ref(),
+                reused.shape().unwrap().gc_ref(),
+                "proto2's empty shape was not registered under its new hash"
+            );
+            Ok(())
+        })
+    }
+
+    /// Multi-prop chains must dedup too: each appending transition is looked up
+    /// by hash and verified prop-by-prop, so verify the whole chain lands on one
+    /// canonical shape.
+    #[test]
+    fn instances_share_shape_after_multi_prop_chain() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        ctx.with_root_scope(|mut cx| {
+            let proto = cx.create_base_object()?;
+            let mut objs = Vec::new();
+            for i in 0..32 {
+                let mut obj = cx.create_base_object_with_proto(Some(proto))?;
+                for (k, name) in ["a", "b", "c", "d", "e", "f", "g", "h"].iter().enumerate() {
+                    obj.set_property_str(&mut cx, name, JSValue::from((i * 8 + k) as i64))?;
+                }
+                objs.push(obj);
+            }
+
+            let first = objs[0].shape().unwrap().gc_ref();
+            for (i, obj) in objs.iter().enumerate() {
+                assert_eq!(
+                    obj.shape().unwrap().gc_ref(),
+                    first,
+                    "instance {i} diverged after a multi-prop chain"
+                );
+            }
+            Ok(())
+        })
+    }
+
+    /// Batch add: the whole prop list is one transition — one shape allocated on
+    /// the first object, zero on every later one, and no intermediate shapes.
+    #[test]
+    fn batch_prop_add_creates_one_shape() -> Result<(), i32> {
+        use crate::{atom::Atom, function::prop_str_to_atom, object::JS_PROP_C_W_E};
+
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        ctx.with_root_scope(|mut cx| {
+            let proto = cx.create_base_object()?;
+
+            let mut atoms: Vec<Atom> = Vec::new();
+            for name in ["a", "b", "c", "d", "e", "f", "g", "h"] {
+                atoms.push(prop_str_to_atom(&mut cx, name)?);
+            }
+
+            let mut shapes = Vec::new();
+            for round in 0..4i64 {
+                let mut obj = cx.create_base_object_with_proto(Some(proto))?;
+                let before = cx.rt().shape_registry.count();
+
+                let props: Vec<(Atom, u32, JSValue)> = atoms
+                    .iter()
+                    .enumerate()
+                    .map(|(i, atom)| (*atom, JS_PROP_C_W_E, JSValue::from(round * 10 + i as i64)))
+                    .collect();
+                obj.add_own_properties(&mut cx, &props)?;
+
+                let created = cx.rt().shape_registry.count() - before;
+                assert_eq!(
+                    created,
+                    if round == 0 { 1 } else { 0 },
+                    "round {round}: batch add allocated {created} shapes"
+                );
+
+                for (i, atom) in atoms.iter().enumerate() {
+                    let got = obj.get_property(&mut cx, *atom)?;
+                    assert_eq!(
+                        got.as_int(),
+                        Some((round * 10 + i as i64) as i32),
+                        "round {round}: prop {i} value"
+                    );
+                    // Same flags `define_property_value(.., JS_PROP_C_W_E)` stores.
+                    let prs = obj.shape().unwrap().prop_defs.get(i).unwrap();
+                    assert_eq!(prs.flags(), JS_PROP_C_W_E);
+                }
+                shapes.push(obj.shape().unwrap().gc_ref());
+            }
+
+            // Every batch lands on the same canonical shape.
+            for (i, sh) in shapes.iter().enumerate().skip(1) {
+                assert_eq!(*sh, shapes[0], "batch round {i} has its own shape");
+            }
+            Ok(())
+        })
     }
 }
