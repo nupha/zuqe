@@ -577,12 +577,10 @@ impl Bytecode {
                     }
                     OpCode::PUSH_ATOM_VALUE => {
                         let a = PC_FETCH!(u32);
-                        SP_PUT!(
-                            0,
-                            Atom::from_id(a)
-                                .to_value(realm_scope)
-                                .unwrap_or(JSValue::EXCEPTION)
-                        );
+                        let Ok(val) = Atom::from_id(a).to_value(realm_scope) else {
+                            break ExecAction::Exception;
+                        };
+                        SP_PUT!(0, val);
                         SP_GO!(1);
                     }
                     OpCode::UNDEFINED => {
@@ -971,13 +969,12 @@ impl Bytecode {
                                     .is_err()
                                 {
                                     break ExecAction::Exception;
-                                } else {
-                                    SP_PUT!(
-                                        0,
-                                        atom.to_value(realm_scope).unwrap_or(JSValue::EXCEPTION)
-                                    );
-                                    SP_GO!(1);
                                 }
+                                let Ok(val) = atom.to_value(realm_scope) else {
+                                    break ExecAction::Exception;
+                                };
+                                SP_PUT!(0, val);
+                                SP_GO!(1);
                             }
                             Err(_) => {
                                 break ExecAction::Exception;
@@ -2876,13 +2873,18 @@ impl Bytecode {
                             no_add = true;
                         }
                         // SetMutableBinding step 2: HasProperty (ECMA-262 9.1.1.2.5)
-                        if let Ok(atom) = prop.to_atom(realm_scope) {
-                            match obj.has_property(realm_scope, atom) {
-                                Ok(false) | Err(_) if rt.is_strict_mode() => {
-                                    let _ = JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
-                                    break ExecAction::Exception;
-                                }
-                                _ => {}
+                        let Ok(atom) = prop.to_atom(realm_scope) else {
+                            break ExecAction::Exception;
+                        };
+                        match obj.has_property(realm_scope, atom) {
+                            Ok(false) if rt.is_strict_mode() => {
+                                let _ = JS_ThrowReferenceErrorNotDefined(realm_scope, atom);
+                                break ExecAction::Exception;
+                            }
+                            Ok(_) => {}
+                            Err(_) => {
+                                // A throwing `has` trap must propagate as-is.
+                                break ExecAction::Exception;
                             }
                         }
                         let ret = obj.set_property_value(
@@ -3193,8 +3195,12 @@ impl Bytecode {
                                         // 9.1.1.2.6 GetBindingValue steps 2-3). The getter
                                         // may have deleted the property. If so, return undefined
                                         // (non-strict) or throw ReferenceError (strict).
-                                        if !env_obj.has_property(realm_scope, atom).unwrap_or(false)
-                                        {
+                                        let Ok(has_prop) = env_obj.has_property(realm_scope, atom)
+                                        else {
+                                            // A throwing `has` trap must propagate as-is.
+                                            break ExecAction::Exception;
+                                        };
+                                        if !has_prop {
                                             if rt.is_strict_mode() {
                                                 let _ = JS_ThrowReferenceErrorNotDefined(
                                                     realm_scope,
@@ -3214,18 +3220,22 @@ impl Bytecode {
                                     OpCode::WITH_PUT_VAR => {
                                         // SetMutableBinding step 2: HasProperty (ECMA-262 9.1.1.2.5)
                                         match env_obj.has_property(realm_scope, atom) {
-                                            Ok(false) | Err(_) if rt.is_strict_mode() => {
+                                            Ok(false) if rt.is_strict_mode() => {
                                                 let _ = JS_ThrowReferenceErrorNotDefined(
                                                     realm_scope,
                                                     atom,
                                                 );
                                                 break ExecAction::Exception;
                                             }
-                                            _ => {}
+                                            Ok(_) => {}
+                                            Err(_) => {
+                                                // A throwing `has` trap must propagate as-is.
+                                                break ExecAction::Exception;
+                                            }
                                         }
-                                        let prop = atom
-                                            .to_value(realm_scope)
-                                            .unwrap_or(JSValue::EXCEPTION);
+                                        let Ok(prop) = atom.to_value(realm_scope) else {
+                                            break ExecAction::Exception;
+                                        };
                                         let val = SP_VAL!(-2);
                                         let ret = env_obj.set_property_value(
                                             realm_scope,
@@ -3248,20 +3258,25 @@ impl Bytecode {
                                     }
                                     OpCode::WITH_MAKE_REF => {
                                         // produce a pair object/propname on the stack
-                                        SP_PUT!(
-                                            0,
-                                            atom.to_value(realm_scope)
-                                                .unwrap_or(JSValue::EXCEPTION)
-                                        );
+                                        let Ok(prop) = atom.to_value(realm_scope) else {
+                                            break ExecAction::Exception;
+                                        };
+                                        SP_PUT!(0, prop);
                                         SP_GO!(1);
                                     }
                                     OpCode::WITH_GET_REF => {
                                         // GetBindingValue step 2: HasProperty (ECMA-262 9.1.1.2.6)
+                                        // A throwing `has`/`get` trap must propagate, not
+                                        // degrade to `undefined`.
                                         let val = match env_obj.has_property(realm_scope, atom) {
-                                            Ok(false) | Err(_) => JSValue::UNDEFINED,
-                                            _ => env_obj
-                                                .get_property(realm_scope, atom)
-                                                .unwrap_or(JSValue::UNDEFINED),
+                                            Ok(false) => JSValue::UNDEFINED,
+                                            Ok(true) => {
+                                                match env_obj.get_property(realm_scope, atom) {
+                                                    Ok(val) => val,
+                                                    Err(_) => break ExecAction::Exception,
+                                                }
+                                            }
+                                            Err(_) => break ExecAction::Exception,
                                         };
                                         SP_PUT!(0, val);
                                         SP_GO!(1);
