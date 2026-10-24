@@ -209,24 +209,28 @@ impl TwoNumbers {
         JSValue::from(a >> (b & 0x1f))
     }
 
+    // `& | ^` are defined on ToInt32 operands: the result is the bitwise
+    // operation reinterpreted as a signed 32-bit integer (ECMA-262 13.12).
+    // Boxing through `u32` would wrap negatives into huge positive floats;
+    // `f64_to_i32` performs the required modulo-2^32 truncation.
     pub fn and(self) -> JSValue {
         match self {
-            Self::Int(v1, v2) => JSValue::from((v1 as u32) & (v2 as u32)),
-            Self::Float(v1, v2) => JSValue::from((v1.trunc() as u32) & (v2.trunc() as u32)),
+            Self::Int(v1, v2) => JSValue::from(v1 & v2),
+            Self::Float(v1, v2) => JSValue::from(f64_to_i32(v1) & f64_to_i32(v2)),
         }
     }
 
     pub fn or(self) -> JSValue {
         match self {
-            Self::Int(v1, v2) => JSValue::from((v1 as u32) | (v2 as u32)),
-            Self::Float(v1, v2) => JSValue::from((v1.trunc() as u32) | (v2.trunc() as u32)),
+            Self::Int(v1, v2) => JSValue::from(v1 | v2),
+            Self::Float(v1, v2) => JSValue::from(f64_to_i32(v1) | f64_to_i32(v2)),
         }
     }
 
     pub fn xor(self) -> JSValue {
         match self {
-            Self::Int(v1, v2) => JSValue::from((v1 as u32) ^ (v2 as u32)),
-            Self::Float(v1, v2) => JSValue::from((v1.trunc() as u32) ^ (v2.trunc() as u32)),
+            Self::Int(v1, v2) => JSValue::from(v1 ^ v2),
+            Self::Float(v1, v2) => JSValue::from(f64_to_i32(v1) ^ f64_to_i32(v2)),
         }
     }
 }
@@ -1210,5 +1214,38 @@ fn cmp_bigint_number(bi: &BigIntRef, n: &IntOrFloat) -> Option<Ordering> {
                 crate::bigint::to_f64(bi).partial_cmp(f)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `& | ^` must follow ECMA-262 ToInt32: truncate toward zero, reduce
+    /// modulo 2^32, then reinterpret as a signed 32-bit integer. The result
+    /// always fits i32, so it is boxed as an Int (regression for VM-B1).
+    fn assert_int(v: JSValue, expected: i32) {
+        assert_eq!(v.as_int(), Some(expected), "value={v:?}");
+    }
+
+    #[test]
+    fn bitwise_ops_use_to_int32() {
+        // Int arm: the operation is already on i32 operands.
+        assert_int(TwoNumbers::Int(-1, 0).or(), -1);
+        assert_int(TwoNumbers::Int(-1, 0).xor(), -1);
+        assert_int(TwoNumbers::Int(-1, -1).and(), -1);
+
+        // Float arm: negatives, >= 2^32, fractional, NaN and infinities.
+        assert_int(TwoNumbers::Float(4294967296.0, 0.0).or(), 0);
+        assert_int(TwoNumbers::Float(2147483648.0, 0.0).or(), -2147483648);
+        assert_int(TwoNumbers::Float(-2147483649.0, 0.0).or(), 2147483647);
+        assert_int(TwoNumbers::Float(4294967295.0, 0.0).or(), -1);
+        assert_int(TwoNumbers::Float(3000000000.0, -1.0).and(), -1294967296);
+        assert_int(TwoNumbers::Float(-1.0, 0.0).xor(), -1);
+        assert_int(TwoNumbers::Float(2147483649.0, 0.0).xor(), -2147483647);
+        assert_int(TwoNumbers::Float(-3.7, 0.0).or(), -3);
+        assert_int(TwoNumbers::Float(f64::NAN, 0.0).or(), 0);
+        assert_int(TwoNumbers::Float(f64::INFINITY, 0.0).or(), 0);
+        assert_int(TwoNumbers::Float(f64::NEG_INFINITY, 0.0).or(), 0);
     }
 }
