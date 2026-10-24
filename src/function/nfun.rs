@@ -215,6 +215,7 @@ impl NativeFunction {
                 }
             };
             rt.vm_stack.frame_mut(idx).prev = prev_frame;
+            rt.vm_stack.frame_mut(idx).this_obj = this_obj;
             idx
         };
 
@@ -293,6 +294,7 @@ impl NativeFunction {
                 }
             };
             arena.frame_mut(idx).prev = saved_active;
+            arena.frame_mut(idx).this_obj = this_val;
             idx
         };
 

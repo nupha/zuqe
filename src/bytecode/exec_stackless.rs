@@ -260,7 +260,7 @@ impl Bytecode {
         realm_scope: &mut ScopedContext,
         arena: &mut VmStack,
         cur_frame_idx: FrameIndex,
-        gc_scope_kind: GcScopeKind,
+        gc_scope_base_depth: u32,
         this_obj: JSValue,
         new_target: JSValue,
         func_home_obj: Option<Object>,
@@ -1098,6 +1098,7 @@ impl Bytecode {
                                         bfun.into(),
                                         bc,
                                         args_slice,
+                                        JSValue::UNDEFINED,
                                     ) {
                                         Ok(idx) => idx,
                                         Err(e) => {
@@ -1234,6 +1235,7 @@ impl Bytecode {
                                 bfun.into(),
                                 bc,
                                 args_slice,
+                                callee_this,
                             ) {
                                 Ok(idx) => idx,
                                 Err(e) => {
@@ -1251,6 +1253,14 @@ impl Bytecode {
                                 }
                             };
                             frame_mut!(callee_frame_idx).prev = cur_frame_idx;
+
+                            // The fresh instance is now a traced root through the
+                            // callee frame's `this_obj`. Drop its LOCAL protection so
+                            // it no longer accumulates in the caller's scope for the
+                            // caller's whole lifetime (VM-B3 GC pathology).
+                            if let Some(node) = callee_this.as_gc_node() {
+                                realm_scope.remove_local(node);
+                            }
 
                             let return_sp = unsafe {
                                 sp.offset(-(call_argc as isize + 2)).offset_from(sp_base)
@@ -1338,6 +1348,7 @@ impl Bytecode {
                                         bfun.into(),
                                         bc,
                                         args_slice,
+                                        method_this,
                                     ) {
                                         Ok(idx) => idx,
                                         Err(e) => {
@@ -1988,6 +1999,7 @@ impl Bytecode {
                                         bfun.into(),
                                         bc,
                                         args_slice,
+                                        JSValue::UNDEFINED,
                                     ) {
                                         Ok(idx) => idx,
                                         Err(e) => {
@@ -3357,16 +3369,12 @@ impl Bytecode {
 
                 #[cfg(all(debug_assertions, feature = "debug_gc"))]
                 {
-                    if gc_scope_kind != GcScopeKind::None {
-                        realm_scope.clear_locals();
-                    }
+                    realm_scope.clear_locals_from_depth(gc_scope_base_depth);
                     rt.gc_collect();
                 }
                 #[cfg(not(all(debug_assertions, feature = "debug_gc")))]
                 if rt.gc_req {
-                    if gc_scope_kind != GcScopeKind::None {
-                        realm_scope.clear_locals();
-                    }
+                    realm_scope.clear_locals_from_depth(gc_scope_base_depth);
                     rt.gc_collect();
                 }
             }; // opcodes inner loop
@@ -3500,6 +3508,7 @@ fn build_callee_frame(
     func_obj: Object,
     bc: Bytecode,
     args: &[JSValue],
+    this_obj: JSValue,
 ) -> Result<FrameIndex, FrameAllocError> {
     // saturating_add: with VM_MAX_CALL_DEPTH = 0 (unlimited) an infinite tail-call
     // loop increments depth forever — saturate instead of overflowing u32.
@@ -3510,7 +3519,9 @@ fn build_callee_frame(
 
     let cap = std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
     let idx = arena.alloc_frame(func_obj, bc.mode(), cap)?;
-    arena.frame_mut(idx).depth = callee_depth;
+    let head = arena.frame_mut(idx);
+    head.depth = callee_depth;
+    head.this_obj = this_obj;
     arena.init_frame_args(idx, bc.arg_count, bc.var_count, args);
 
     Ok(idx)
@@ -3587,8 +3598,18 @@ pub(crate) fn execute_trampoline(
     // borrow conflicts between cur_trampoline_scope (which borrows rt) and arena access.
     let arena_ptr: *mut VmStack = &raw mut rt_ptr.vm_stack;
 
+    // Seed the start frame's `this` binding. It is a traced GC root, so the
+    // receiver survives collection even when the caller released its scope.
+    unsafe {
+        (*arena_ptr).frame_mut(start_frame_idx).this_obj = this_obj;
+    }
+
     let mut realm_ctx = start_bc.realm();
     let mut cur_trampoline_scope = unsafe { TrampolineScope::new(&mut realm_ctx) };
+    // Lowest GC scope owned by this trampoline. Safepoints release LOCAL
+    // protection for every scope at or above this depth, so a suspended
+    // caller's scope cannot accumulate garbage while a callee runs (VM-B3).
+    let gc_scope_base_depth = cur_trampoline_scope.depth();
 
     // Check for a pending runtime exception (e.g., .throw() on a suspended
     // async generator or async function). If present, the first
@@ -3641,7 +3662,7 @@ pub(crate) fn execute_trampoline(
             cur_trampoline_scope.scope_mut(),
             arena,
             cur_frame_idx,
-            cur_bc.gc_scope_kind(),
+            gc_scope_base_depth,
             this_obj,
             new_target,
             func_home_obj,
@@ -3752,6 +3773,7 @@ pub(crate) fn execute_trampoline(
                     callee_func_obj,
                     callee_bc,
                     &args,
+                    callee_this,
                 ) {
                     Ok(idx) => idx,
                     Err(e) => {
@@ -3899,6 +3921,9 @@ pub(crate) fn execute_trampoline(
 
                     cur_bc = caller_vf.caller_bc;
                     cur_frame_idx = caller_vf.frame_idx;
+                    // Restore the caller's `this` binding from its traced frame
+                    // slot (the trampoline's Rust copy still holds the callee's).
+                    this_obj = arena.frame(cur_frame_idx).this_obj;
 
                     let caller_head = arena.frame(caller_vf.frame_idx);
                     let sp_ptr = caller_head.stack_base_ptr();
@@ -3969,6 +3994,7 @@ pub(crate) fn execute_trampoline(
                 if let Some(caller_vf) = virtual_frames.pop() {
                     (cur_bc, cur_frame_idx, pc_offset, sp_offset) =
                         restore_caller_frame(caller_vf, &mut cur_trampoline_scope, arena);
+                    this_obj = arena.frame(cur_frame_idx).this_obj;
                     throwed = true;
 
                     continue 'trampoline;

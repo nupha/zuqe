@@ -211,6 +211,27 @@ impl<'a> ScopedContext<'a> {
         s.clear();
     }
 
+    /// Release LOCAL protection for every scope at or above `base_depth`.
+    ///
+    /// `base_depth` is the depth of the first GC scope owned by the running
+    /// trampoline. Scopes below it belong to the caller (a native callback or
+    /// an enclosing trampoline) and must keep their LOCAL protection. This is
+    /// used at GC safepoints: a callee runs in its own scope, so clearing only
+    /// the innermost scope would leave the caller's temporaries protected for
+    /// the caller's whole lifetime (VM-B3 GC pathology). Every value that must
+    /// survive the safepoint is reachable from a traced location (arena frames,
+    /// frame `this_obj`, objects, registries).
+    pub(crate) fn clear_locals_from_depth(&self, base_depth: u32) {
+        let stack_id = self.ctx_ptr.scope_stack_id();
+        let heap = self.ctx_ptr.gc_heap();
+        let max_depth = heap.scope_max_depth(stack_id);
+        for depth in base_depth..=max_depth {
+            if let Some(s) = heap.scope(stack_id, depth) {
+                s.clear();
+            }
+        }
+    }
+
     /// Run `f` with `active_frame_index` protected: the current value is
     /// saved before the closure runs and restored after it returns.
     ///

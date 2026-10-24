@@ -177,6 +177,16 @@ impl ObjectImpl {
             };
 
             if is_legacy_ctor {
+                // The fresh instance becomes a traced root through the callee
+                // frame's `this_obj` (set in `BytecodeFunction::call`). Release
+                // its LOCAL protection so it does not accumulate in the
+                // caller's scope for the caller's whole lifetime (VM-B3).
+                if let Some(node) = this.as_gc_node() {
+                    ctx.remove_local(node);
+                }
+            }
+
+            if is_legacy_ctor {
                 // legacy constructor behavior.
                 bfun.call(ctx, this, new_target, args, flags)
                     .map(|v| if v.is_object() { v } else { this })

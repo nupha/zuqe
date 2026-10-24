@@ -186,6 +186,7 @@ impl VmStack {
             state: FrameState::Active,
             mode,
             func_obj,
+            this_obj: JSValue::UNDEFINED,
             cur_pc_offset: 0,
             cur_sp_offset: 0,
             buf,
@@ -367,6 +368,7 @@ impl VmStack {
             depth: head.depth,
             state: FrameState::Active,
             func_obj: head.func_obj,
+            this_obj: head.this_obj,
             mode: head.mode,
             cur_pc_offset: head.cur_pc_offset,
             cur_sp_offset: head.cur_sp_offset,
@@ -538,6 +540,7 @@ impl GcTrace for VmStack {
             }
 
             frame.func_obj.trace(gcx);
+            frame.this_obj.trace(gcx);
 
             let data = self.data(frame);
             let data_end = frame.buf.capacity() as usize;

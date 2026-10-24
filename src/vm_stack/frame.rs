@@ -92,6 +92,15 @@ pub(crate) struct StackFrame {
     /// Associated function object (Bytecode or Native).
     pub(crate) func_obj: Object,
 
+    /// `this` binding of this frame.
+    ///
+    /// Traced by GC so that a callee keeps its receiver alive while it runs.
+    /// Constructor instances are created in the *caller's* GC scope and would
+    /// otherwise stay LOCAL there for the caller's whole lifetime (the callee
+    /// owns a different scope, so the safepoint never clears the caller's
+    /// cache) — see `CALL_CONSTRUCTOR` and `do_call_internal`.
+    pub(crate) this_obj: JSValue,
+
     /// Program counter offset within the bytecode stream.
     pub(crate) cur_pc_offset: usize,
     /// Stack pointer offset relative to stack_base_ptr.
