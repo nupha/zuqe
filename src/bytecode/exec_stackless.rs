@@ -1280,7 +1280,11 @@ impl Bytecode {
                             // it no longer accumulates in the caller's scope for the
                             // caller's whole lifetime (VM-B3 GC pathology).
                             if let Some(node) = callee_this.as_gc_node() {
-                                realm_scope.remove_local(node);
+                                let _b = realm_scope.remove_local(node);
+                                debug_assert!(
+                                    _b,
+                                    "fresh constructor instance was not LOCAL in the caller's scope"
+                                );
                             }
 
                             let return_sp = unsafe {
@@ -3681,6 +3685,14 @@ pub(crate) fn execute_trampoline(
 
         rt_ptr.active_frame_index = cur_frame_idx;
         debug_assert!(cur_trampoline_scope.is_arena_mode());
+        // Every frame the trampoline dispatches must be a bytecode carrier.
+        // `is_bytecode_frame_active` drives the caller-scope GC policy, so a
+        // frame that executes bytecode but is classified native would silently
+        // keep LOCAL protection and reintroduce the VM-B3 leak.
+        debug_assert!(
+            unsafe { (*rt_ptr).is_bytecode_frame_active() },
+            "trampoline frame is not classified as a bytecode frame"
+        );
 
         // Like exec.rs's execute_with_realm_scope, we use args directly.
         // Keep it in sync with the current frame — frames switch across

@@ -18,6 +18,7 @@ use crate::{
     },
     context::ContextPtr,
     error::Exception,
+    function::BCWrapper,
     gc::gc::{GC_TYPE_REGISTRY, GcTraceCallbackFn},
     module::{
         ModuleLoadFn, ModuleNormalizeFn, js_default_module_loader, js_default_module_normalizer,
@@ -672,6 +673,28 @@ impl RuntimeImpl {
     #[inline(always)]
     pub(crate) const fn vm_stack(&self) -> &VmStack {
         &self.vm_stack
+    }
+
+    /// Whether the innermost active frame executes JS bytecode.
+    ///
+    /// This answers "who owns the current GC scope", not "who called":
+    ///
+    /// - `true`  — the scope belongs to a JS frame. Values allocated there are
+    ///   backed by the traced arena stack once the frame stores them, so call
+    ///   results may drop their LOCAL protection while a callee runs.
+    /// - `false` — a native frame or a host context. Such scopes are
+    ///   short-lived, and the values they hold live in Rust locals that the GC
+    ///   cannot see, so LOCAL protection must be kept.
+    ///
+    /// `BCWrapper` (not the narrow `BytecodeFunction` cast) is used on purpose:
+    /// generator and async frames are bytecode carriers too, and classifying
+    /// them as native would silently reintroduce the caller-scope leak.
+    pub(crate) fn is_bytecode_frame_active(&self) -> bool {
+        !self.active_frame_index.is_null()
+            && BCWrapper::try_from(JSValue::from(
+                self.vm_stack.frame(self.active_frame_index).func_obj,
+            ))
+            .is_ok()
     }
 
     /// get current running function

@@ -199,8 +199,12 @@ impl<'a> ScopedContext<'a> {
     }
 
     /// remove the 'node' from scope protection.
-    pub fn remove_local(&mut self, node: NonNull<GcHead>) {
-        self.gc_state().remove_node(node);
+    ///
+    /// Returns `true` if the node was in this scope's cache; `false` if it was
+    /// already unprotected (e.g. a safepoint cleared the scope) or belongs to
+    /// another scope.
+    pub fn remove_local(&mut self, node: NonNull<GcHead>) -> bool {
+        self.gc_state().remove_node(node)
     }
 
     /// clear all protected nodes in scope.

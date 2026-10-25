@@ -222,6 +222,10 @@ impl NativeFunction {
         // Save/restore active_trampoline_frame so nested BytecodeFunction::call
         // sees this frame in the chain. (方案 C key step)
         rt.active_frame_index = frame_idx;
+        debug_assert!(
+            !rt.is_bytecode_frame_active(),
+            "native frame was classified as a bytecode frame"
+        );
 
         // Copy args into arena buffer; missing slots are padded with UNDEFINED
         // by init_frame_args (var_count = 0 = no var region).
@@ -299,6 +303,10 @@ impl NativeFunction {
         };
 
         rt.active_frame_index = frame_idx;
+        debug_assert!(
+            !rt.is_bytecode_frame_active(),
+            "native frame was classified as a bytecode frame"
+        );
 
         unsafe {
             let arena = &mut *arena_ptr;
