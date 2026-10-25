@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cmp, mem::ManuallyDrop, ptr::NonNull};
+use std::{cmp, ptr::NonNull};
 
 use fallible_collections::TryCollect;
 
@@ -112,26 +112,26 @@ pub(crate) enum ExecAction {
 
 /// A GC scope wrapper for trampoline use.
 ///
-/// Stores the real `GcScope` (from `new_scope()`) inside `ManuallyDrop` so the
-/// scope stays alive across trampoline iterations. On yield/complete, the
-/// `ScopedContext` is taken out of `ManuallyDrop` via `into_inner()` and
-/// dropped — this triggers `GcScope::Drop` which pops from the GC heap.
-/// On CALL, the `ScopedContext` is transferred to a `VirtualFrame`'s
-/// `ManuallyDrop` and restored on RETURN.
+/// `inner` is `Option` rather than `ManuallyDrop` so panic unwinding still
+/// drops the scope: `ScopedContext`'s `GcScope` pops itself on drop, keeping
+/// the GC scope stack LIFO even when the trampoline is torn down by a panic.
+/// Normal paths take the scope out via `into_inner()` (or move it into a
+/// `VirtualFrame`) and drop it explicitly.
 ///
 /// No `pop_scope()` is ever called explicitly — scopes are always popped by
-/// `GcScope::Drop` (the anti-forget of `ManuallyDrop::take` + `drop`).
+/// `GcScope::Drop`.
 ///
 /// # Safety of `'static` transmute
 ///
 /// The `'static` on `ScopedContext` is safe because:
 /// - `ContextPtr` is `Copy` (a raw pointer) — the ctx reference survives
 /// - `GcScope`'s lifetime is `PhantomData<&'s ()>` — zero runtime cost
-/// - `ManuallyDrop` prevents auto-drop at the wrong time
+/// - `Option` is always `Some` until ownership is transferred; a remaining
+///   scope is dropped (and popped) if the trampoline unwinds
 /// - All scopes are drained (into_inner + drop) before the GC heap is destroyed
 #[derive(Debug)]
 struct TrampolineScope {
-    inner: ManuallyDrop<ScopedContext<'static>>,
+    inner: Option<ScopedContext<'static>>,
 }
 
 impl TrampolineScope {
@@ -139,7 +139,7 @@ impl TrampolineScope {
     #[inline(always)]
     unsafe fn new(ctx: &mut ContextPtr) -> Self {
         Self {
-            inner: ManuallyDrop::new(unsafe {
+            inner: Some(unsafe {
                 std::mem::transmute::<ScopedContext<'_>, ScopedContext<'static>>(ctx.new_scope())
             }),
         }
@@ -148,7 +148,7 @@ impl TrampolineScope {
     /// Extract the inner ScopedContext, consuming this wrapper.
     /// The caller becomes responsible for dropping it (which pops the scope).
     fn into_inner(mut self) -> ScopedContext<'static> {
-        unsafe { ManuallyDrop::take(&mut self.inner) }
+        self.inner.take().expect("trampoline scope already taken")
     }
 
     /// Drop the current inner scope (popping it from the GC heap) and install
@@ -159,31 +159,69 @@ impl TrampolineScope {
     /// # Safety
     ///
     /// `saved` must be a scope previously extracted via `into_inner()` (or
-    /// `ManuallyDrop::into_inner` of a `VirtualFrame::caller_scope`) that sits
-    /// directly below the current scope on the GC scope stack.
+    /// taken from a `VirtualFrame::caller_scope`) that sits directly below the
+    /// current scope on the GC scope stack.
     #[inline(always)]
     unsafe fn swap_in_saved(&mut self, saved: ScopedContext<'static>) {
-        drop(unsafe { ManuallyDrop::take(&mut self.inner) });
-        self.inner = ManuallyDrop::new(saved);
+        drop(self.inner.take());
+        self.inner = Some(saved);
     }
 
     /// Borrow the inner scope mutably (for passing to `execute_with_arena`).
     #[inline(always)]
     fn scope_mut(&mut self) -> &mut ScopedContext<'static> {
-        &mut self.inner
+        self.inner.as_mut().expect("trampoline scope already taken")
     }
 }
 
 impl std::ops::Deref for TrampolineScope {
     type Target = ScopedContext<'static>;
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.inner.as_ref().expect("trampoline scope already taken")
     }
 }
 
 impl std::ops::DerefMut for TrampolineScope {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
+        self.inner.as_mut().expect("trampoline scope already taken")
+    }
+}
+
+/// Virtual call frames of one `execute_trampoline` invocation.
+///
+/// Owns the parked caller scopes. `Drop` drains them newest-first so the GC
+/// scope stack stays LIFO when a panic unwinds the trampoline: the active
+/// trampoline scope is declared *after* this guard, so Rust drops it first,
+/// then this drain pops the parked scopes from newest to oldest.
+#[derive(Debug)]
+struct VirtualFrames(Vec<VirtualFrame>);
+
+impl VirtualFrames {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl std::ops::Deref for VirtualFrames {
+    type Target = Vec<VirtualFrame>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for VirtualFrames {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Drop for VirtualFrames {
+    fn drop(&mut self) {
+        while let Some(mut vf) = self.0.pop() {
+            if let Some(scope) = vf.caller_scope.take() {
+                drop(scope);
+            }
+        }
     }
 }
 
@@ -3572,13 +3610,13 @@ fn build_callee_frame(
 
 /// Drop every caller scope still parked in the virtual call stack. Must run
 /// before the trampoline returns early (yield/await suspension or async
-/// completion): the scopes sit in `ManuallyDrop`, so skipping this drain
-/// would leak them and corrupt the GC scope stack.
+/// completion): the scopes are owned by `VirtualFrame`s, and leaving them
+/// parked would corrupt the GC scope stack.
 #[inline(always)]
-fn drain_saved_scopes(virtual_frames: &mut Vec<VirtualFrame>) {
-    while let Some(vf) = virtual_frames.pop() {
-        if let Some(scope) = vf.caller_scope {
-            drop(ManuallyDrop::into_inner(scope));
+fn drain_saved_scopes(virtual_frames: &mut VirtualFrames) {
+    while let Some(mut vf) = virtual_frames.pop() {
+        if let Some(scope) = vf.caller_scope.take() {
+            drop(scope);
         }
     }
 }
@@ -3600,7 +3638,7 @@ fn restore_caller_frame(
 ) -> (Bytecode, FrameIndex, usize, usize) {
     if let Some(saved_caller_scope) = caller_vf.caller_scope {
         // Full/Light: drop callee scope and restore caller.
-        unsafe { scope.swap_in_saved(ManuallyDrop::into_inner(saved_caller_scope)) };
+        unsafe { scope.swap_in_saved(saved_caller_scope) };
     }
     // NoScope: scope was never swapped — skip drop/restore.
 
@@ -3648,6 +3686,10 @@ pub(crate) fn execute_trampoline(
     }
 
     let mut realm_ctx = start_bc.realm();
+    // Declared before the active trampoline scope on purpose: on panic unwind
+    // Rust drops `cur_trampoline_scope` first, then this guard drains the
+    // parked caller scopes newest-first, keeping the GC scope stack LIFO.
+    let mut virtual_frames = VirtualFrames::new();
     let mut cur_trampoline_scope = unsafe { TrampolineScope::new(&mut realm_ctx) };
     // Lowest GC scope owned by this trampoline. Safepoints release LOCAL
     // protection for every scope at or above this depth, so a suspended
@@ -3668,8 +3710,6 @@ pub(crate) fn execute_trampoline(
         let head = arena.frame(start_frame_idx);
         (head.cur_pc_offset, head.cur_sp_offset as usize)
     };
-
-    let mut virtual_frames: Vec<VirtualFrame> = Vec::new();
 
     // args is derived from the current frame's arena data at the top of
     // each loop iteration — no need for an external parameter. This is
@@ -3759,10 +3799,10 @@ pub(crate) fn execute_trampoline(
                         let callee_trampoline_scope =
                             unsafe { TrampolineScope::new(&mut callee_realm_ctx) };
 
-                        Some(ManuallyDrop::new(
+                        Some(
                             std::mem::replace(&mut cur_trampoline_scope, callee_trampoline_scope)
                                 .into_inner(),
-                        ))
+                        )
                     }
                 };
 
@@ -3922,9 +3962,9 @@ pub(crate) fn execute_trampoline(
                     drop(cur_trampoline_scope.into_inner());
 
                     // Drain virtual_frames to drop saved caller scopes.
-                    // These were placed in ManuallyDrop during CallBytecode.
-                    // On early return (yield/await), we must explicitly drain
-                    // them to prevent GC scope stack corruption.
+                    // They are owned by the VirtualFrames guard; on early
+                    // return (yield/await) this explicit drain pops them before
+                    // the trampoline scope stack is abandoned.
                     drain_saved_scopes(&mut virtual_frames);
                     rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (ret_val, false);
@@ -3955,10 +3995,7 @@ pub(crate) fn execute_trampoline(
                     if let Some(saved_caller_scope) = caller_vf.caller_scope {
                         // Full/Light: promote, pop callee scope, restore caller.
                         ret_val.promote(&cur_trampoline_scope);
-                        unsafe {
-                            cur_trampoline_scope
-                                .swap_in_saved(ManuallyDrop::into_inner(saved_caller_scope))
-                        };
+                        unsafe { cur_trampoline_scope.swap_in_saved(saved_caller_scope) };
                     }
                     // NoScope: scope was never swapped —
                     // cur_trampoline_scope is already the caller's.
@@ -4084,10 +4121,10 @@ pub(crate) fn execute_trampoline(
                     let callee_trampoline_scope =
                         unsafe { TrampolineScope::new(&mut callee_realm_ctx) };
 
-                    Some(ManuallyDrop::new(
+                    Some(
                         std::mem::replace(&mut cur_trampoline_scope, callee_trampoline_scope)
                             .into_inner(),
-                    ))
+                    )
                 };
 
                 virtual_frames.push(VirtualFrame {
@@ -4107,5 +4144,84 @@ pub(crate) fn execute_trampoline(
                 new_target = callee_new_target;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    use crate::{
+        Context, Runtime,
+        atom::Atom,
+        context::ScopedContext,
+        error::JSResult,
+        eval::{EvalFlags, EvalName, EvalType},
+        function::{CallContext, Callback, NativeFunction},
+        object::JS_PROP_C_W_E,
+        value::JSValue,
+    };
+
+    /// A panic unwinding through `execute_trampoline` must pop every GC scope
+    /// it owns (active + parked) in LIFO order. Otherwise the outer eval scope
+    /// hits gc-lite's `GcScope dropped out of LIFO order` assertion, which
+    /// masks the original panic with a double panic abort.
+    #[test]
+    fn panic_in_trampoline_keeps_gc_scope_stack_balanced() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx: Context<'static> = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        ctx.with_root_scope(|mut root| -> Result<(), i32> {
+            let proto = root.function_proto();
+            let boom = NativeFunction::create(
+                &mut root,
+                Callback::Func(|_: &mut ScopedContext, _: CallContext| -> JSResult {
+                    panic!("intentional panic from native callback")
+                }),
+                Atom::CONST_empty_string,
+                0,
+                0,
+                proto,
+                None,
+            )?;
+            root.global_obj().define_property_value_str(
+                &mut root,
+                "boom",
+                JSValue::from(boom),
+                JS_PROP_C_W_E,
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let panicked = catch_unwind(AssertUnwindSafe(|| {
+            let _ = ctx.eval(
+                // Nested calls with object literals force Full GC scopes, so
+                // the trampoline has several scopes parked in virtual frames
+                // when the panic unwinds through them.
+                b"function level2() { const x = { a: 2 }; boom(); return x; }\n\
+                  function level1() { const x = { a: 1 }; level2(); return x; }\n\
+                  level1();",
+                &EvalName::Name("<panic-test>".into()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            );
+        }));
+        assert!(
+            panicked.is_err(),
+            "native callback must propagate its panic"
+        );
+
+        // If the trampoline had leaked a scope, this second eval's scope drop
+        // would trip the LIFO assertion added by gc-lite.
+        ctx.eval(
+            b"40 + 2",
+            &EvalName::Name("<after-panic>".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .expect("context must stay usable after a trampoline panic");
     }
 }

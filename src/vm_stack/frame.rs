@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::UnsafeCell, mem::ManuallyDrop};
+use std::cell::UnsafeCell;
 
 use crate::{
     Object, ScopedContext,
@@ -215,7 +215,10 @@ pub(crate) struct VirtualFrame {
     /// no scope was swapped, so no scope needs to be restored on return/unwind.
     /// `Some` means the callee was `GcScopeKind::Light` or `Full` — a new scope
     /// was pushed and the caller's scope was saved here for later restoration.
-    pub(crate) caller_scope: Option<ManuallyDrop<ScopedContext<'static>>>,
+    ///
+    /// The scope is dropped (popping it from the GC heap) if this frame is
+    /// dropped without restoring it, e.g. during panic unwinding.
+    pub(crate) caller_scope: Option<ScopedContext<'static>>,
     pub(crate) return_sp: usize,
     /// `Some(instance)` when the callee is a flattened legacy (non-derived)
     /// constructor call: on return, a non-object result is replaced with the
