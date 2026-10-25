@@ -44,22 +44,21 @@ pub(crate) fn in_env(
 /// `with_get_var`: the object's binding (`GetBindingValue`, ECMA-262 9.1.1.2.6).
 /// `HasProperty` is re-checked because `@@unscopables` may have run user code
 /// that deleted the key; a key that vanished is `undefined` in sloppy mode and
-/// a not-defined `ReferenceError` in strict mode. A failed first `has_property`
-/// is treated as "missing", exactly as the interpreter always did (the throw
-/// below replaces the pending exception).
+/// a not-defined `ReferenceError` in strict mode. A throwing `has` trap must
+/// propagate as-is.
 pub(crate) fn get_var(
     ctx: &mut ScopedContext,
     env_obj: JSValue,
     atom: Atom,
 ) -> Result<JSValue, i32> {
-    if env_obj.has_property(ctx, atom).unwrap_or(false) {
-        env_obj.get_property(ctx, atom)
-    } else if ctx.rt().is_strict_mode() {
-        let _ = JS_ThrowReferenceErrorNotDefined(ctx, atom);
-        Err(0)
-    } else {
-        Ok(JSValue::UNDEFINED)
+    if !env_obj.has_property(ctx, atom)? {
+        if ctx.rt().is_strict_mode() {
+            let _ = JS_ThrowReferenceErrorNotDefined(ctx, atom);
+            return Err(0);
+        }
+        return Ok(JSValue::UNDEFINED);
     }
+    env_obj.get_property(ctx, atom)
 }
 
 /// `with_put_var`: `HasProperty` then `Set` with `ThrowPolicy::StrictOnly`
@@ -73,13 +72,15 @@ pub(crate) fn put_var(
     val: JSValue,
 ) -> Result<(), i32> {
     match env_obj.has_property(ctx, atom) {
-        Ok(false) | Err(_) if ctx.rt().is_strict_mode() => {
+        Ok(false) if ctx.rt().is_strict_mode() => {
             let _ = JS_ThrowReferenceErrorNotDefined(ctx, atom);
             return Err(0);
         }
-        _ => {}
+        Ok(_) => {}
+        // A throwing `has` trap must propagate as-is.
+        Err(_) => return Err(0),
     }
-    let prop = atom.to_value(ctx).unwrap_or(JSValue::EXCEPTION);
+    let prop = atom.to_value(ctx)?;
     env_obj
         .set_property_value(ctx, prop, val, ThrowPolicy::StrictOnly, false)
         .map(|_| ())
@@ -95,21 +96,22 @@ pub(crate) fn delete_var(
     env_obj.delete_property(ctx, atom)
 }
 
-/// `with_make_ref`'s property name. The interpreter does not check this
-/// conversion (it stacks `EXCEPTION` and carries on), so neither does the
-/// caller — kept verbatim.
-pub(crate) fn prop_name(ctx: &mut ScopedContext, atom: Atom) -> JSValue {
-    atom.to_value(ctx).unwrap_or(JSValue::EXCEPTION)
+/// `with_make_ref`'s property name. A failed conversion is a pending exception:
+/// the caller must unwind with the operand stack untouched.
+pub(crate) fn prop_name(ctx: &mut ScopedContext, atom: Atom) -> Result<JSValue, i32> {
+    atom.to_value(ctx)
 }
 
 /// `with_get_ref`: `GetBindingValue` for a call target (ECMA-262 9.1.1.2.6
-/// step 2). A key that is gone, or a `Get` that fails, reads as `undefined` —
-/// the interpreter does not propagate the error here either.
-pub(crate) fn get_ref(ctx: &mut ScopedContext, env_obj: JSValue, atom: Atom) -> JSValue {
-    match env_obj.has_property(ctx, atom) {
-        Ok(false) | Err(_) => JSValue::UNDEFINED,
-        _ => env_obj
-            .get_property(ctx, atom)
-            .unwrap_or(JSValue::UNDEFINED),
+/// step 2). A key that is gone reads as `undefined`; a throwing `has`/`get`
+/// trap must propagate, not degrade to `undefined`.
+pub(crate) fn get_ref(
+    ctx: &mut ScopedContext,
+    env_obj: JSValue,
+    atom: Atom,
+) -> Result<JSValue, i32> {
+    if !env_obj.has_property(ctx, atom)? {
+        return Ok(JSValue::UNDEFINED);
     }
+    env_obj.get_property(ctx, atom)
 }

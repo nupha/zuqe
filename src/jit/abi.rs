@@ -2469,15 +2469,23 @@ unsafe fn with_var(f: *mut JitExecFrame, op: WithOp) -> u32 {
             }
             WithOp::MakeRef => {
                 // The object stays; its property name is appended above it.
-                *sp = crate::bytecode::with_ops::prop_name(scope, atom);
-                f.sp = sp.add(1);
-                HELPER_OK
+                match crate::bytecode::with_ops::prop_name(scope, atom) {
+                    Ok(prop) => {
+                        *sp = prop;
+                        f.sp = sp.add(1);
+                        HELPER_OK
+                    }
+                    Err(_) => HELPER_EXCEPTION,
+                }
             }
-            WithOp::GetRef => {
-                *sp = crate::bytecode::with_ops::get_ref(scope, env_obj, atom);
-                f.sp = sp.add(1);
-                HELPER_OK
-            }
+            WithOp::GetRef => match crate::bytecode::with_ops::get_ref(scope, env_obj, atom) {
+                Ok(value) => {
+                    *sp = value;
+                    f.sp = sp.add(1);
+                    HELPER_OK
+                }
+                Err(_) => HELPER_EXCEPTION,
+            },
         }
     }
 }

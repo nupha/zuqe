@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{mem::ManuallyDrop, ptr::NonNull};
+use std::ptr::NonNull;
 
 use fallible_collections::TryCollect;
 
@@ -32,12 +32,11 @@ use crate::{
         VarRef, build_arg_list, js_build_arguments, js_build_mapped_arguments, js_function_apply,
     },
     module::{js_dynamic_import, js_import_meta},
-    object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, JSProperty, Object, PayloadPtr, ThrowPolicy},
-    runtime::RuntimeImpl,
+    object::{JS_PROP_CONFIGURABLE, JSProperty, Object, PayloadPtr, ThrowPolicy},
     utils::{read_from_ptr, unlikely},
     value::JSValue,
     vm_stack::{
-        ExecMode, FrameAllocError, FrameIndex, FrameState, VM_MAX_CALL_DEPTH, VirtualFrame, VmStack,
+        ExecMode, FrameAllocError, FrameIndex, VM_MAX_CALL_DEPTH, VirtualFrame, VmStack,
     },
 };
 
@@ -96,15 +95,14 @@ pub(crate) enum ExecAction {
 
 /// A GC scope wrapper for trampoline use.
 ///
-/// Stores the real `GcScope` (from `new_scope()`) inside `ManuallyDrop` so the
-/// scope stays alive across trampoline iterations. On yield/complete, the
-/// `ScopedContext` is taken out of `ManuallyDrop` via `into_inner()` and
-/// dropped — this triggers `GcScope::Drop` which pops from the GC heap.
-/// On CALL, the `ScopedContext` is transferred to a `VirtualFrame`'s
-/// `ManuallyDrop` and restored on RETURN.
+/// `inner` is `Option` rather than `ManuallyDrop` so panic unwinding still
+/// drops the scope: `ScopedContext`'s `GcScope` pops itself on drop, keeping
+/// the GC scope stack LIFO even when the trampoline is torn down by a panic.
+/// Normal paths take the scope out via `into_inner()` (or move it into a
+/// `VirtualFrame`) and drop it explicitly.
 ///
 /// No `pop_scope()` is ever called explicitly — scopes are always popped by
-/// `GcScope::Drop` (the anti-forget of `ManuallyDrop::take` + `drop`).
+/// `GcScope::Drop`.
 ///
 /// The scope may also be *borrowed*: a `GcScopeKind::None` callee runs in the
 /// caller's scope (the interpreter's inlined NoScope call does the same), so
@@ -116,11 +114,12 @@ pub(crate) enum ExecAction {
 /// The `'static` on `ScopedContext` is safe because:
 /// - `ContextPtr` is `Copy` (a raw pointer) — the ctx reference survives
 /// - `GcScope`'s lifetime is `PhantomData<&'s ()>` — zero runtime cost
-/// - `ManuallyDrop` prevents auto-drop at the wrong time
+/// - `Option` is always `Some` until ownership is transferred; a remaining
+///   scope is dropped (and popped) if the trampoline unwinds
 /// - All scopes are drained (into_inner + drop) before the GC heap is destroyed
 #[derive(Debug)]
 pub(crate) struct TrampolineScope {
-    inner: ManuallyDrop<ScopedContext<'static>>,
+    inner: Option<ScopedContext<'static>>,
 }
 
 impl TrampolineScope {
@@ -128,7 +127,7 @@ impl TrampolineScope {
     #[inline(always)]
     pub(crate) unsafe fn new(ctx: &mut ContextPtr) -> Self {
         Self {
-            inner: ManuallyDrop::new(unsafe {
+            inner: Some(unsafe {
                 std::mem::transmute::<ScopedContext<'_>, ScopedContext<'static>>(ctx.new_scope())
             }),
         }
@@ -138,7 +137,7 @@ impl TrampolineScope {
     #[inline(always)]
     fn borrowed(scope: &ScopedContext<'_>) -> Self {
         Self {
-            inner: ManuallyDrop::new(scope.borrow_current_scope()),
+            inner: Some(scope.borrow_current_scope()),
         }
     }
 
@@ -146,7 +145,7 @@ impl TrampolineScope {
     /// The caller becomes responsible for dropping it (which pops the scope
     /// when the scope is owned).
     pub(crate) fn into_inner(mut self) -> ScopedContext<'static> {
-        unsafe { ManuallyDrop::take(&mut self.inner) }
+        self.inner.take().expect("trampoline scope already taken")
     }
 
     /// Drop the current inner scope (popping it from the GC heap) and install
@@ -157,31 +156,69 @@ impl TrampolineScope {
     /// # Safety
     ///
     /// `saved` must be a scope previously extracted via `into_inner()` (or
-    /// `ManuallyDrop::into_inner` of a `VirtualFrame::caller_scope`) that sits
-    /// directly below the current scope on the GC scope stack.
+    /// taken from a `VirtualFrame::caller_scope`) that sits directly below the
+    /// current scope on the GC scope stack.
     #[inline(always)]
     unsafe fn swap_in_saved(&mut self, saved: ScopedContext<'static>) {
-        drop(unsafe { ManuallyDrop::take(&mut self.inner) });
-        self.inner = ManuallyDrop::new(saved);
+        drop(self.inner.take());
+        self.inner = Some(saved);
     }
 
     /// Borrow the inner scope mutably (for passing to `execute_with_arena`).
     #[inline(always)]
     pub(crate) fn scope_mut(&mut self) -> &mut ScopedContext<'static> {
-        &mut self.inner
+        self.inner.as_mut().expect("trampoline scope already taken")
     }
 }
 
 impl std::ops::Deref for TrampolineScope {
     type Target = ScopedContext<'static>;
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        self.inner.as_ref().expect("trampoline scope already taken")
     }
 }
 
 impl std::ops::DerefMut for TrampolineScope {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
+        self.inner.as_mut().expect("trampoline scope already taken")
+    }
+}
+
+/// Virtual call frames of one `execute_trampoline` invocation.
+///
+/// Owns the parked caller scopes. `Drop` drains them newest-first so the GC
+/// scope stack stays LIFO when a panic unwinds the trampoline: the active
+/// trampoline scope is declared *after* this guard, so Rust drops it first,
+/// then this drain pops the parked scopes from newest to oldest.
+#[derive(Debug)]
+struct VirtualFrames(Vec<VirtualFrame>);
+
+impl VirtualFrames {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl std::ops::Deref for VirtualFrames {
+    type Target = Vec<VirtualFrame>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::ops::DerefMut for VirtualFrames {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Drop for VirtualFrames {
+    fn drop(&mut self) {
+        while let Some(mut vf) = self.0.pop() {
+            if let Some(scope) = vf.caller_scope.take() {
+                drop(scope);
+            }
+        }
     }
 }
 
@@ -273,13 +310,19 @@ impl Bytecode {
         realm_scope: &mut ScopedContext,
         arena: &mut VmStack,
         cur_frame_idx: FrameIndex,
-        gc_scope_kind: GcScopeKind,
+        gc_scope_base_depth: u32,
         this_obj: JSValue,
         new_target: JSValue,
         func_home_obj: Option<Object>,
         pc_offset: usize,
         sp_offset: usize,
-        args: &[JSValue],
+        // Start of the current frame's argument region, with `args_len`
+        // entries. Kept as a raw pointer (not `&[JSValue]`) because the
+        // interpreter writes that same region through `ARG_REF!`/`VarRef`
+        // while the slice would otherwise stay borrowed; a live shared slice
+        // across such writes is aliasing UB.
+        args_ptr: *const JSValue,
+        args_len: usize,
         throwed: bool,
     ) -> ExecAction {
         debug_assert!(realm_scope.is_arena_mode());
@@ -418,19 +461,37 @@ impl Bytecode {
         // Resolve captured_vars from the current frame's function object
         // (func_obj already extracted from the preamble frame lookup above).
         // Each function in the call chain has its own closure_var_refs.
-        // We re-derive the correct slice from the current frame's func_obj.
-        let captured_vars: &mut [VarRef] = {
+        //
+        // Held as a raw pointer and re-borrowed per use: the bytecode loop
+        // calls arbitrary runtime code (allocation, GC, closures) in between,
+        // so a `&mut [VarRef]` living across the whole loop would alias other
+        // accesses to the GC payload.
+        let captured_vars: *mut [VarRef] = {
             if let Ok(mut bfun) = BCWrapper::try_from(JSValue::from(func_obj)) {
                 // SAFETY: bfun is a Copy (GcRef), so payload_mut borrows GC-managed
                 // memory that outlives this function call. No GC runs during execution.
                 let cv: *mut [VarRef] = bfun.payload_mut().captured_vars_mut();
-                unsafe { &mut *cv }
+                cv
             } else {
                 // Non-bytecode functions have no closure_var_refs.
                 // But execute_with_arena should never be called for them.
-                &mut []
+                std::ptr::slice_from_raw_parts_mut(NonNull::<VarRef>::dangling().as_ptr(), 0)
             }
         };
+        macro_rules! captured_vars {
+            () => {
+                // SAFETY: see the raw-pointer note above; each borrow ends
+                // before the next runtime call can touch the payload.
+                unsafe { &mut *captured_vars }
+            };
+        }
+        macro_rules! args {
+            () => {
+                // SAFETY: `args_ptr`/`args_len` describe the current frame's
+                // argument region; the borrow is scoped to one use.
+                unsafe { std::slice::from_raw_parts(args_ptr, args_len) }
+            };
+        }
 
         if throwed {
             // An interrupt is control flow, not a JS exception: it bypasses
@@ -452,7 +513,7 @@ impl Bytecode {
             if let Exception::Error(err_val) = rt.exception()
                 && is_backtrace_needed(err_val)
             {
-                frame_mut!(cur_frame_idx).cur_pc_offset = cur_pc;
+                save_pc!(cur_pc);
                 realm_scope.build_backtrace_to(err_val, None, 0);
             }
 
@@ -781,12 +842,10 @@ impl Bytecode {
                     }
                     OpCode::PUSH_ATOM_VALUE => {
                         let a = PC_FETCH!(u32);
-                        SP_PUT!(
-                            0,
-                            Atom::from_id(a)
-                                .to_value(realm_scope)
-                                .unwrap_or(JSValue::EXCEPTION)
-                        );
+                        let Ok(val) = Atom::from_id(a).to_value(realm_scope) else {
+                            break ExecAction::Exception;
+                        };
+                        SP_PUT!(0, val);
                         SP_GO!(1);
                     }
                     OpCode::UNDEFINED => {
@@ -847,7 +906,7 @@ impl Bytecode {
                         );
                         match unsafe { std::mem::transmute::<u8, SpecialObject>(id) } {
                             SpecialObject::Arguments => {
-                                SP_PUT!(0, js_build_arguments(realm_scope, args));
+                                SP_PUT!(0, js_build_arguments(realm_scope, args!()));
                                 SP_GO!(1);
                                 if unlikely(SP_REF!(-1).is_exception()) {
                                     break ExecAction::Exception;
@@ -857,7 +916,7 @@ impl Bytecode {
                                 // Shared with the JIT helper (the bytecode contract).
                                 match js_build_mapped_arguments(
                                     realm_scope,
-                                    args,
+                                    args!(),
                                     arg_base_ptr,
                                     var_base_ptr,
                                     arena_mut!(),
@@ -923,7 +982,7 @@ impl Bytecode {
                     // ═══════════════════════════════════════════════════
                     OpCode::REST => {
                         let start = PC_FETCH!(u16);
-                        if let Ok(arr) = args
+                        if let Ok(arr) = args!()
                             .iter()
                             .skip(start as usize)
                             .copied()
@@ -1026,20 +1085,20 @@ impl Bytecode {
                     // ═══════════════════════════════════════════════════
                     OpCode::GET_VAR_REF => {
                         let idx = PC_FETCH!(u16);
-                        let val = captured_vars[idx as usize].value();
+                        let val = captured_vars!()[idx as usize].value();
                         SP_PUT!(0, val);
                         SP_GO!(1);
                     }
                     OpCode::PUT_VAR_REF => {
                         let idx = PC_FETCH!(u16);
-                        captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
+                        captured_vars!()[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                         SP_GO!(-1);
                     }
                     OpCode::SET_VAR_REF => {
                         // [value, ^] -> [value, ^]
                         // store stack top value to var_ref
                         let idx = PC_FETCH!(u16);
-                        captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
+                        captured_vars!()[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                     }
                     OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
@@ -1060,7 +1119,7 @@ impl Bytecode {
                             cur_frame_idx,
                             self.arg_count,
                             self.var_count,
-                            captured_vars,
+                            captured_vars!(),
                         ) {
                             Ok((obj, prop)) => {
                                 SP_PUT!(0, obj);
@@ -1195,6 +1254,7 @@ impl Bytecode {
                                         bfun.into(),
                                         bc,
                                         args_slice,
+                                        JSValue::UNDEFINED,
                                     ) {
                                         Ok(idx) => idx,
                                         Err(e) => {
@@ -1332,6 +1392,7 @@ impl Bytecode {
                                 bfun.into(),
                                 bc,
                                 args_slice,
+                                callee_this,
                             ) {
                                 Ok(idx) => idx,
                                 Err(e) => {
@@ -1349,6 +1410,18 @@ impl Bytecode {
                                 }
                             };
                             frame_mut!(callee_frame_idx).prev = cur_frame_idx;
+
+                            // The fresh instance is now a traced root through the
+                            // callee frame's `this_obj`. Drop its LOCAL protection so
+                            // it no longer accumulates in the caller's scope for the
+                            // caller's whole lifetime (VM-B3 GC pathology).
+                            if let Some(node) = callee_this.as_gc_node() {
+                                let _b = realm_scope.remove_local(node);
+                                debug_assert!(
+                                    _b,
+                                    "fresh constructor instance was not LOCAL in the caller's scope"
+                                );
+                            }
 
                             let return_sp = unsafe {
                                 sp.offset(-(call_argc as isize + 2)).offset_from(sp_base)
@@ -1447,6 +1520,7 @@ impl Bytecode {
                                         bfun.into(),
                                         bc,
                                         args_slice,
+                                        method_this,
                                     ) {
                                         Ok(idx) => idx,
                                         Err(e) => {
@@ -1858,7 +1932,7 @@ impl Bytecode {
                     }
                     OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                         let idx = PC_FETCH!(u16);
-                        let val = captured_vars[idx as usize].value();
+                        let val = captured_vars!()[idx as usize].value();
                         if unlikely(val.is_uninitialized()) {
                             let _ =
                                 realm_scope.throw_reference_error_uninitialized2(self, idx, true);
@@ -1867,18 +1941,18 @@ impl Bytecode {
                             SP_PUT!(0, val);
                             SP_GO!(1);
                         } else {
-                            captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
+                            captured_vars!()[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                             SP_GO!(-1);
                         }
                     }
                     OpCode::PUT_VAR_REF_CHECK_INIT => {
                         let idx = PC_FETCH!(u16);
-                        if unlikely(!captured_vars[idx as usize].value().is_uninitialized()) {
+                        if unlikely(!captured_vars!()[idx as usize].value().is_uninitialized()) {
                             let _ =
                                 realm_scope.throw_reference_error_uninitialized2(self, idx, true);
                             break ExecAction::Exception;
                         } else {
-                            captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
+                            captured_vars!()[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                             SP_GO!(-1);
                         }
                     }
@@ -1906,7 +1980,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::INIT_CTOR => {
-                        match class_ops::init_ctor(realm_scope, func_obj, new_target, args) {
+                        match class_ops::init_ctor(realm_scope, func_obj, new_target, args!()) {
                             Ok(val) => {
                                 jit_mark_native_call!();
                                 SP_PUT!(0, val);
@@ -2059,6 +2133,7 @@ impl Bytecode {
                                         bfun.into(),
                                         bc,
                                         args_slice,
+                                        JSValue::UNDEFINED,
                                     ) {
                                         Ok(idx) => idx,
                                         Err(e) => {
@@ -2792,7 +2867,7 @@ impl Bytecode {
                             .make_closure_for_arena(
                                 realm_scope,
                                 None,
-                                captured_vars,
+                                captured_vars!(),
                                 arena_mut!(),
                                 cur_frame_idx,
                             )
@@ -3162,7 +3237,7 @@ impl Bytecode {
                             sp,
                             atom,
                             class_flags as _,
-                            captured_vars,
+                            captured_vars!(),
                             arena_mut!(),
                             cur_frame_idx,
                             opcode == OpCode::DEFINE_CLASS_COMPUTED,
@@ -3217,12 +3292,22 @@ impl Bytecode {
                                     }
                                     OpCode::WITH_MAKE_REF => {
                                         // produce a pair object/propname on the stack
-                                        SP_PUT!(0, with_ops::prop_name(realm_scope, atom));
-                                        SP_GO!(1);
+                                        match with_ops::prop_name(realm_scope, atom) {
+                                            Ok(prop) => {
+                                                SP_PUT!(0, prop);
+                                                SP_GO!(1);
+                                            }
+                                            Err(_) => break ExecAction::Exception,
+                                        }
                                     }
                                     OpCode::WITH_GET_REF => {
-                                        SP_PUT!(0, with_ops::get_ref(realm_scope, env_obj, atom));
-                                        SP_GO!(1);
+                                        match with_ops::get_ref(realm_scope, env_obj, atom) {
+                                            Ok(val) => {
+                                                SP_PUT!(0, val);
+                                                SP_GO!(1);
+                                            }
+                                            Err(_) => break ExecAction::Exception,
+                                        }
                                     }
                                     _ => {
                                         #[cfg(debug_assertions)]
@@ -3325,16 +3410,12 @@ impl Bytecode {
 
                 #[cfg(all(debug_assertions, feature = "debug_gc"))]
                 {
-                    if gc_scope_kind != GcScopeKind::None {
-                        realm_scope.clear_locals();
-                    }
+                    realm_scope.clear_locals_from_depth(gc_scope_base_depth);
                     rt.gc_collect();
                 }
                 #[cfg(not(all(debug_assertions, feature = "debug_gc")))]
                 if rt.gc_req {
-                    if gc_scope_kind != GcScopeKind::None {
-                        realm_scope.clear_locals();
-                    }
+                    realm_scope.clear_locals_from_depth(gc_scope_base_depth);
                     rt.gc_collect();
                 }
             }; // opcodes inner loop
@@ -3358,7 +3439,7 @@ impl Bytecode {
                     if let Exception::Error(err_val) = rt.exception()
                         && is_backtrace_needed(err_val)
                     {
-                        frame_mut!(cur_frame_idx).cur_pc_offset = cur_pc;
+                        save_pc!(cur_pc);
                         realm_scope.build_backtrace_to(err_val, None, 0);
                     }
 
@@ -3468,6 +3549,7 @@ fn build_callee_frame(
     func_obj: Object,
     bc: Bytecode,
     args: &[JSValue],
+    this_obj: JSValue,
 ) -> Result<FrameIndex, FrameAllocError> {
     // saturating_add: with VM_MAX_CALL_DEPTH = 0 (unlimited) an infinite tail-call
     // loop increments depth forever — saturate instead of overflowing u32.
@@ -3478,7 +3560,9 @@ fn build_callee_frame(
 
     let cap = std::cmp::max(bc.arg_count as usize, args.len()) + bc.local_buf_size as usize;
     let idx = arena.alloc_frame(func_obj, bc.mode(), cap)?;
-    arena.frame_mut(idx).depth = callee_depth;
+    let head = arena.frame_mut(idx);
+    head.depth = callee_depth;
+    head.this_obj = this_obj;
     arena.init_frame_args(idx, bc.arg_count, bc.var_count, args);
 
     Ok(idx)
@@ -3486,13 +3570,13 @@ fn build_callee_frame(
 
 /// Drop every caller scope still parked in the virtual call stack. Must run
 /// before the trampoline returns early (yield/await suspension or async
-/// completion): the scopes sit in `ManuallyDrop`, so skipping this drain
-/// would leak them and corrupt the GC scope stack.
+/// completion): the scopes are owned by `VirtualFrame`s, and leaving them
+/// parked would corrupt the GC scope stack.
 #[inline(always)]
-fn drain_saved_scopes(virtual_frames: &mut Vec<VirtualFrame>) {
-    while let Some(vf) = virtual_frames.pop() {
-        if let Some(scope) = vf.caller_scope {
-            drop(ManuallyDrop::into_inner(scope));
+fn drain_saved_scopes(virtual_frames: &mut VirtualFrames) {
+    while let Some(mut vf) = virtual_frames.pop() {
+        if let Some(scope) = vf.caller_scope.take() {
+            drop(scope);
         }
     }
 }
@@ -3514,7 +3598,7 @@ fn restore_caller_frame(
 ) -> (Bytecode, FrameIndex, usize, usize) {
     if let Some(saved_caller_scope) = caller_vf.caller_scope {
         // Full/Light: drop callee scope and restore caller.
-        unsafe { scope.swap_in_saved(ManuallyDrop::into_inner(saved_caller_scope)) };
+        unsafe { scope.swap_in_saved(saved_caller_scope) };
     }
     // NoScope: scope was never swapped — skip drop/restore.
 
@@ -3555,7 +3639,17 @@ pub(crate) fn execute_trampoline(
     // borrow conflicts between cur_trampoline_scope (which borrows rt) and arena access.
     let arena_ptr: *mut VmStack = &raw mut rt_ptr.vm_stack;
 
+    // Seed the start frame's `this` binding. It is a traced GC root, so the
+    // receiver survives collection even when the caller released its scope.
+    unsafe {
+        (*arena_ptr).frame_mut(start_frame_idx).this_obj = this_obj;
+    }
+
     let mut realm_ctx = start_bc.realm();
+    // Declared before the active trampoline scope on purpose: on panic unwind
+    // Rust drops `cur_trampoline_scope` first, then this guard drains the
+    // parked caller scopes newest-first, keeping the GC scope stack LIFO.
+    let mut virtual_frames = VirtualFrames::new();
     // A callee that never allocates a GC node needs no scope of its own: it
     // runs in the caller's scope, the way the interpreter's inlined NoScope
     // call does. Then a call pays no scope push/pop/promote — the GC part
@@ -3568,6 +3662,12 @@ pub(crate) fn execute_trampoline(
     } else {
         unsafe { TrampolineScope::new(&mut realm_ctx) }
     };
+    // Lowest GC scope owned by this trampoline. Safepoints release LOCAL
+    // protection for every scope at or above this depth, so a suspended
+    // caller's scope cannot accumulate garbage while a callee runs (VM-B3).
+    // A borrowed start scope is not ours: the first owned scope sits above it.
+    let gc_scope_base_depth =
+        cur_trampoline_scope.depth() + u32::from(!cur_trampoline_scope.owns_scope());
 
     // Check for a pending runtime exception (e.g., .throw() on a suspended
     // async generator or async function). If present, the first
@@ -3584,12 +3684,14 @@ pub(crate) fn execute_trampoline(
         (head.cur_pc_offset, head.cur_sp_offset as usize)
     };
 
-    let mut virtual_frames: Vec<VirtualFrame> = Vec::new();
-
     // args is derived from the current frame's arena data at the top of
     // each loop iteration — no need for an external parameter. This is
     // equivalent to how exec.rs passes fresh args via C-stack frames.
-    let mut args;
+    // Kept as (pointer, len) rather than a slice: the callee writes its
+    // argument region through raw pointers, so a long-lived shared slice
+    // would alias those writes.
+    let mut args_ptr: *const JSValue = std::ptr::null();
+    let mut args_len = 0usize;
 
     'trampoline: loop {
         // Deferred polling: a loop back edge inside the frame we just ran may have queued
@@ -3602,6 +3704,14 @@ pub(crate) fn execute_trampoline(
 
         rt_ptr.active_frame_index = cur_frame_idx;
         debug_assert!(cur_trampoline_scope.is_arena_mode());
+        // Every frame the trampoline dispatches must be a bytecode carrier.
+        // `is_bytecode_frame_active` drives the caller-scope GC policy, so a
+        // frame that executes bytecode but is classified native would silently
+        // keep LOCAL protection and reintroduce the VM-B3 leak.
+        debug_assert!(
+            unsafe { (*rt_ptr).is_bytecode_frame_active() },
+            "trampoline frame is not classified as a bytecode frame"
+        );
 
         // Like exec.rs's execute_with_realm_scope, we use args directly.
         // Keep it in sync with the current frame — frames switch across
@@ -3609,8 +3719,8 @@ pub(crate) fn execute_trampoline(
         // the top of the loop is simpler and always correct.
         {
             let head = arena.frame(cur_frame_idx);
-            let data = head.buf.data_ptr();
-            args = unsafe { std::slice::from_raw_parts(data, head.arg_real_count as usize) };
+            args_ptr = head.buf.data_ptr();
+            args_len = head.arg_real_count as usize;
         }
 
         // Derive func_home_obj from the current frame's function object.
@@ -3626,13 +3736,14 @@ pub(crate) fn execute_trampoline(
             cur_trampoline_scope.scope_mut(),
             arena,
             cur_frame_idx,
-            cur_bc.gc_scope_kind(),
+            gc_scope_base_depth,
             this_obj,
             new_target,
             func_home_obj,
             pc_offset,
             sp_offset,
-            args,
+            args_ptr,
+            args_len,
             throwed,
         );
 
@@ -3667,10 +3778,10 @@ pub(crate) fn execute_trampoline(
                         let callee_trampoline_scope =
                             unsafe { TrampolineScope::new(&mut callee_realm_ctx) };
 
-                        Some(ManuallyDrop::new(
+                        Some(
                             std::mem::replace(&mut cur_trampoline_scope, callee_trampoline_scope)
                                 .into_inner(),
-                        ))
+                        )
                     }
                 };
 
@@ -3737,6 +3848,7 @@ pub(crate) fn execute_trampoline(
                     callee_func_obj,
                     callee_bc,
                     &args,
+                    callee_this,
                 ) {
                     Ok(idx) => idx,
                     Err(e) => {
@@ -3832,9 +3944,9 @@ pub(crate) fn execute_trampoline(
                     drop(cur_trampoline_scope.into_inner());
 
                     // Drain virtual_frames to drop saved caller scopes.
-                    // These were placed in ManuallyDrop during CallBytecode.
-                    // On early return (yield/await), we must explicitly drain
-                    // them to prevent GC scope stack corruption.
+                    // They are owned by the VirtualFrames guard; on early
+                    // return (yield/await) this explicit drain pops them before
+                    // the trampoline scope stack is abandoned.
                     drain_saved_scopes(&mut virtual_frames);
                     rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (ret_val, false);
@@ -3865,10 +3977,7 @@ pub(crate) fn execute_trampoline(
                     if let Some(saved_caller_scope) = caller_vf.caller_scope {
                         // Full/Light: promote, pop callee scope, restore caller.
                         ret_val.promote(&cur_trampoline_scope);
-                        unsafe {
-                            cur_trampoline_scope
-                                .swap_in_saved(ManuallyDrop::into_inner(saved_caller_scope))
-                        };
+                        unsafe { cur_trampoline_scope.swap_in_saved(saved_caller_scope) };
                     }
                     // NoScope: scope was never swapped —
                     // cur_trampoline_scope is already the caller's.
@@ -3887,6 +3996,9 @@ pub(crate) fn execute_trampoline(
 
                     cur_bc = caller_vf.caller_bc;
                     cur_frame_idx = caller_vf.frame_idx;
+                    // Restore the caller's `this` binding from its traced frame
+                    // slot (the trampoline's Rust copy still holds the callee's).
+                    this_obj = arena.frame(cur_frame_idx).this_obj;
 
                     let caller_head = arena.frame(caller_vf.frame_idx);
                     let sp_ptr = caller_head.stack_base_ptr();
@@ -3969,6 +4081,7 @@ pub(crate) fn execute_trampoline(
                 if let Some(caller_vf) = virtual_frames.pop() {
                     (cur_bc, cur_frame_idx, pc_offset, sp_offset) =
                         restore_caller_frame(caller_vf, &mut cur_trampoline_scope, arena);
+                    this_obj = arena.frame(cur_frame_idx).this_obj;
                     throwed = true;
 
                     continue 'trampoline;
@@ -4002,10 +4115,10 @@ pub(crate) fn execute_trampoline(
                     let callee_trampoline_scope =
                         unsafe { TrampolineScope::new(&mut callee_realm_ctx) };
 
-                    Some(ManuallyDrop::new(
+                    Some(
                         std::mem::replace(&mut cur_trampoline_scope, callee_trampoline_scope)
                             .into_inner(),
-                    ))
+                    )
                 };
 
                 virtual_frames.push(VirtualFrame {
@@ -4030,7 +4143,16 @@ pub(crate) fn execute_trampoline(
 
 #[cfg(test)]
 mod tests {
-    use crate::{EvalFlags, EvalName, EvalType, Runtime, ScopedContext};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    use crate::{
+        Context, EvalFlags, EvalName, EvalType, Runtime, ScopedContext,
+        atom::Atom,
+        error::JSResult,
+        function::{CallContext, Callback, NativeFunction},
+        object::JS_PROP_C_W_E,
+        value::JSValue,
+    };
 
     /// A callee that never allocates a GC node runs in the caller's scope:
     /// the trampoline pushes no scope for it, and its return value is not
@@ -4101,5 +4223,68 @@ mod tests {
             "kept",
             "the thrown value did not reach the handler"
         );
+    }
+
+    /// A panic unwinding through `execute_trampoline` must pop every GC scope
+    /// it owns (active + parked) in LIFO order. Otherwise the outer eval scope
+    /// hits gc-lite's `GcScope dropped out of LIFO order` assertion, which
+    /// masks the original panic with a double panic abort.
+    #[test]
+    fn panic_in_trampoline_keeps_gc_scope_stack_balanced() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx: Context<'static> = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        ctx.with_root_scope(|mut root| -> Result<(), i32> {
+            let proto = root.function_proto();
+            let boom = NativeFunction::create(
+                &mut root,
+                Callback::Func(|_: &mut ScopedContext, _: CallContext| -> JSResult {
+                    panic!("intentional panic from native callback")
+                }),
+                Atom::CONST_empty_string,
+                0,
+                0,
+                proto,
+                None,
+            )?;
+            root.global_obj().define_property_value_str(
+                &mut root,
+                "boom",
+                JSValue::from(boom),
+                JS_PROP_C_W_E,
+            )?;
+            Ok(())
+        })
+        .unwrap();
+
+        let panicked = catch_unwind(AssertUnwindSafe(|| {
+            let _ = ctx.eval(
+                // Nested calls with object literals force Full GC scopes, so
+                // the trampoline has several scopes parked in virtual frames
+                // when the panic unwinds through them.
+                b"function level2() { const x = { a: 2 }; boom(); return x; }\n\
+                  function level1() { const x = { a: 1 }; level2(); return x; }\n\
+                  level1();",
+                &EvalName::Name("<panic-test>".into()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            );
+        }));
+        assert!(
+            panicked.is_err(),
+            "native callback must propagate its panic"
+        );
+
+        // If the trampoline had leaked a scope, this second eval's scope drop
+        // would trip the LIFO assertion added by gc-lite.
+        ctx.eval(
+            b"40 + 2",
+            &EvalName::Name("<after-panic>".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .expect("context must stay usable after a trampoline panic");
     }
 }

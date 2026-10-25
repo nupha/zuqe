@@ -176,19 +176,51 @@ impl ObjectImpl {
                 this_obj
             };
 
-            if is_legacy_ctor {
+            // Only a legacy constructor allocates a fresh instance in the
+            // caller's scope. A bytecode caller's scope is backed by the traced
+            // arena stack; a native caller holds the result in a Rust local the
+            // GC cannot see (see `RuntimeImpl::is_bytecode_frame_active`).
+            let legacy_instance_in_js_scope = is_legacy_ctor && ctx.rt().is_bytecode_frame_active();
+
+            if legacy_instance_in_js_scope {
+                // The fresh instance is traced through the callee frame's
+                // `this_obj`, so drop its LOCAL protection and let the caller's
+                // arena stack take over. Without this the instance accumulates
+                // in the caller's suspended scope for its whole lifetime
+                // (VM-B3 GC pathology).
+                if let Some(node) = this.as_gc_node() {
+                    let _b = ctx.remove_local(node);
+                    debug_assert!(
+                        _b,
+                        "fresh legacy constructor instance was not LOCAL in its caller's scope"
+                    );
+                }
+            }
+
+            let ret_val = if is_legacy_ctor {
                 // legacy constructor behavior.
                 bfun.call(ctx, this, new_target, args, flags)
                     .map(|v| if v.is_object() { v } else { this })
             } else {
                 bfun.call(ctx, this, new_target, args, flags)
+            };
+
+            // A native caller keeps LOCAL protection across the callee run.
+            // Losing it here means the instance is only held by a Rust local;
+            // the next nested safepoint could collect it (use-after-free).
+            #[cfg(debug_assertions)]
+            if is_legacy_ctor
+                && !legacy_instance_in_js_scope
+                && let Some(node) = this.as_gc_node()
+            {
+                debug_assert!(
+                    unsafe { node.as_ref().is_root_or_local() },
+                    "legacy constructor instance lost GC protection in a native caller scope"
+                );
             }
-        } else if let Some(cb) = ctx
-            .rt()
-            .class_def(self.class_id())
-            .unwrap()
-            .call
-        {
+
+            ret_val
+        } else if let Some(cb) = ctx.rt().class_def(self.class_id()).unwrap().call {
             // calling class defined exotic callback (e.g. bound function, native function, async function etc)
             let mut result = cb(
                 ctx,

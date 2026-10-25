@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::mem::ManuallyDrop;
+use std::cell::UnsafeCell;
 
 use crate::{
     Object, ScopedContext,
@@ -100,6 +100,15 @@ pub(crate) struct StackFrame {
     /// Associated function object (Bytecode or Native).
     pub(crate) func_obj: Object,
 
+    /// `this` binding of this frame.
+    ///
+    /// Traced by GC so that a callee keeps its receiver alive while it runs.
+    /// Constructor instances are created in the *caller's* GC scope and would
+    /// otherwise stay LOCAL there for the caller's whole lifetime (the callee
+    /// owns a different scope, so the safepoint never clears the caller's
+    /// cache) — see `CALL_CONSTRUCTOR` and `do_call_internal`.
+    pub(crate) this_obj: JSValue,
+
     /// Program counter offset within the bytecode stream.
     pub(crate) cur_pc_offset: usize,
     /// Stack pointer offset relative to stack_base_ptr.
@@ -152,6 +161,9 @@ impl StackFrame {
         self.state = FrameState::Active;
         self.mode = mode;
         self.func_obj = func_obj;
+        // A pooled header must not carry the previous activation's receiver:
+        // `this_obj` is a traced GC root now.
+        self.this_obj = JSValue::UNDEFINED;
         self.cur_pc_offset = 0;
         self.cur_sp_offset = 0;
         self.buf = buf;
@@ -168,7 +180,7 @@ impl StackFrame {
 pub(crate) enum FrameBuffer {
     /// Data stored in VmStack's shared fixed-capacity data slice
     /// (bump-allocated). `data_base` is the arena's data pointer (stable for
-    /// the lifetime of the arena — `Box<[JSValue]>` never reallocates);
+    /// the lifetime of the arena — the backing allocation never reallocates);
     /// `buf_offset` is the offset within that slice;
     /// `buf_capacity` is the allocated size in JSValue units.
     Arena {
@@ -177,7 +189,10 @@ pub(crate) enum FrameBuffer {
         buf_capacity: u32,
     },
     /// Data stored in an independent heap allocation.
-    Heap(Box<[JSValue]>),
+    ///
+    /// `UnsafeCell` lets the interpreter mutate slots through pointers derived
+    /// from `&self`-style borrows (`frame()`, GC tracing, async resume).
+    Heap(Box<[UnsafeCell<JSValue>]>),
     /// Slot has been suspended/freed; data region is invalid.
     Empty,
 }
@@ -234,7 +249,10 @@ pub(crate) struct VirtualFrame {
     /// no scope was swapped, so no scope needs to be restored on return/unwind.
     /// `Some` means the callee was `GcScopeKind::Light` or `Full` — a new scope
     /// was pushed and the caller's scope was saved here for later restoration.
-    pub(crate) caller_scope: Option<ManuallyDrop<ScopedContext<'static>>>,
+    ///
+    /// The scope is dropped (popping it from the GC heap) if this frame is
+    /// dropped without restoring it, e.g. during panic unwinding.
+    pub(crate) caller_scope: Option<ScopedContext<'static>>,
     pub(crate) return_sp: usize,
     /// `Some(instance)` when the callee is a flattened legacy (non-derived)
     /// constructor call: on return, a non-object result is replaced with the
@@ -255,7 +273,9 @@ impl AsyncStackFrame {
     #[inline(always)]
     pub(crate) fn data(&self) -> &[JSValue] {
         match &self.frame.buf {
-            FrameBuffer::Heap(b) => b,
+            FrameBuffer::Heap(b) => unsafe {
+                std::slice::from_raw_parts(b.as_ptr() as *const JSValue, b.len())
+            },
             _ => unreachable!("AsyncStackFrame must have Heap buf"),
         }
     }

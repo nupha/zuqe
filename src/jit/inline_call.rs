@@ -454,7 +454,11 @@ pub(super) fn lower(
                         _ => b.ins().sshr(ai, count),
                     };
                     let boxed = match name {
-                        "shl" | "sar" => b.ins().uextend(types::I64, result),
+                        // `shl`/`sar`/`and`/`or`/`xor` are `From<i32>`; `shr`
+                        // is `From<u32>` (a Float64 once the sign bit is set).
+                        "shl" | "sar" | "and" | "or" | "xor" => {
+                            b.ins().uextend(types::I64, result)
+                        }
                         _ => box_bit_result(b, result),
                     };
                     push(b, &stack, &mut height, boxed);
@@ -513,7 +517,7 @@ pub(super) fn lower(
                     let value = b.ins().ireduce(types::I32, value);
                     let result = b.ins().bnot(value);
                     // Unary `~` boxes as `From<i32>` (an `Int`, sign kept),
-                    // unlike the binary logic ops' `From<u32>`.
+                    // like `and`/`or`/`xor` (`shr` is the `From<u32>` one).
                     let boxed = b.ins().uextend(types::I64, result);
                     push(b, &stack, &mut height, boxed);
                 }
@@ -1079,8 +1083,8 @@ mod tests {
         assert_body(binary(op::OP_shl, 1, 3), 0, 0, &[], int(8));
         assert_body(binary(op::OP_sar, -8, 1), 0, 0, &[], int(-4));
         assert_body(binary(op::OP_shr, -1, 0), 0, 0, &[], float(4294967295.0));
-        // `-1 | 0` boxes as `From<u32>`: the interpreter's bit-op quirk.
-        assert_body(binary(op::OP_or, -1, 0), 0, 0, &[], float(4294967295.0));
+        // `-1 | 0` boxes as `From<i32>` (ECMA-262 ToInt32), so it stays an Int.
+        assert_body(binary(op::OP_or, -1, 0), 0, 0, &[], int(-1));
 
         let unary = |opcode: u8, value: i32| bytes(&[&push(value), &[opcode], &[op::OP_return]]);
         assert_body(unary(op::OP_plus, 7), 0, 0, &[], int(7));

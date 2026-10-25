@@ -781,21 +781,25 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
         let status_val =
             ctx.create_string_interned(if is_reject { "rejected" } else { "fulfilled" })?;
 
-        ob.define_property_value(
+        // Both own props in one shape transition (no intermediate shape).
+        ob.add_own_properties(
             ctx,
-            Atom::CONST_status,
-            JSValue::make_string(status_val),
-            JS_PROP_C_W_E,
-        )?;
-        ob.define_property_value(
-            ctx,
-            if is_reject {
-                Atom::CONST_reason
-            } else {
-                Atom::CONST_value
-            },
-            cc.arg(0),
-            JS_PROP_C_W_E,
+            &[
+                (
+                    Atom::CONST_status,
+                    JS_PROP_C_W_E,
+                    JSValue::make_string(status_val),
+                ),
+                (
+                    if is_reject {
+                        Atom::CONST_reason
+                    } else {
+                        Atom::CONST_value
+                    },
+                    JS_PROP_C_W_E,
+                    cc.arg(0),
+                ),
+            ],
         )?;
 
         ob.into()

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::cell::UnsafeCell;
+
 use gc_lite::{GcTrace, GcTraceCtx};
 
 use crate::{
@@ -33,10 +35,20 @@ pub(crate) struct VmStack {
     #[allow(clippy::vec_box)]
     pub(crate) frames: Vec<Box<StackFrame>>,
 
-    pub(crate) data: Box<[JSValue]>,
+    /// Bump region backing every `FrameBuffer::Arena`.
+    ///
+    /// Stored as a raw slice (`data_base` + `data_len`) rather than
+    /// `Box<[JSValue]>`: moving a `Box` retags its pointee as `Unique`
+    /// (Stacked Borrows), which would invalidate every frame's cached
+    /// `data_base`, `sp`, `arg`/`var` and `VarRef` pointer on every move of
+    /// `VmStack`. The allocation is created once with `Box::into_raw` and
+    /// freed only in `Drop` / `set_arena_capacity` (the latter requires an
+    /// unused arena).
+    data_base: *mut JSValue,
+    data_len: usize,
     pub(crate) data_used: usize,
     pub(crate) suspended_count: usize,
-    pub(crate) heap_buf_cache: Vec<Box<[JSValue]>>,
+    pub(crate) heap_buf_cache: Vec<Box<[UnsafeCell<JSValue>]>>,
 
     /// Live bytes currently held by heap-allocated frames (async + spilled).
     /// Combined with `data_used` this is the total live virtual stack size in
@@ -77,6 +89,7 @@ pub(crate) struct VmStack {
 }
 
 /// Why a frame allocation failed.
+#[derive(Debug)]
 pub(crate) enum FrameAllocError {
     /// Host could not allocate the backing buffer (out of memory).
     Oom,
@@ -86,9 +99,13 @@ pub(crate) enum FrameAllocError {
 
 impl VmStack {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
+        let data = vec![JSValue::UNDEFINED; capacity].into_boxed_slice();
+        let data_len = data.len();
+        let data_base = Box::into_raw(data) as *mut JSValue;
         Self {
             frames: Vec::with_capacity(256),
-            data: vec![JSValue::UNDEFINED; capacity].into_boxed_slice(),
+            data_base,
+            data_len,
             data_used: 0,
             suspended_count: 0,
             heap_buf_cache: Vec::new(),
@@ -106,22 +123,35 @@ impl VmStack {
         }
     }
 
-    /// Allocate a boxed `[JSValue]` buffer of `count` UNDEFINED slots.
+    /// Allocate a boxed arena region of `count` UNDEFINED slots.
     /// Returns `None` on allocation failure so callers can raise
     /// `throw_stack_fail` instead of aborting on host OOM.
-    fn alloc_boxed_slice(count: usize) -> Option<Box<[JSValue]>> {
+    fn alloc_arena_data(count: usize) -> Option<Box<[JSValue]>> {
         let mut v: Vec<JSValue> = Vec::new();
         v.try_reserve_exact(count).ok()?;
         v.resize(count, JSValue::UNDEFINED);
         Some(v.into_boxed_slice())
     }
 
+    /// Allocate a boxed heap frame buffer of `count` UNDEFINED slots.
+    ///
+    /// Elements are wrapped in `UnsafeCell` because frame data is mutated
+    /// through raw pointers derived from shared references (`&self` /
+    /// `&StackFrame`). Without the cell those writes would be UB under
+    /// Stacked Borrows.
+    fn alloc_heap_buf(count: usize) -> Option<Box<[UnsafeCell<JSValue>]>> {
+        let mut v: Vec<UnsafeCell<JSValue>> = Vec::new();
+        v.try_reserve_exact(count).ok()?;
+        v.extend((0..count).map(|_| UnsafeCell::new(JSValue::UNDEFINED)));
+        Some(v.into_boxed_slice())
+    }
+
     #[inline(always)]
-    fn reuse_or_alloc_heap_buf(&mut self, count: usize) -> Option<Box<[JSValue]>> {
+    fn reuse_or_alloc_heap_buf(&mut self, count: usize) -> Option<Box<[UnsafeCell<JSValue>]>> {
         if let Some(pos) = self.heap_buf_cache.iter().position(|b| b.len() >= count) {
             Some(self.heap_buf_cache.remove(pos))
         } else {
-            Self::alloc_boxed_slice(count)
+            Self::alloc_heap_buf(count)
         }
     }
 
@@ -136,9 +166,27 @@ impl VmStack {
             return Err(());
         }
 
-        self.data = Self::alloc_boxed_slice(capacity).ok_or(())?;
+        let data = Self::alloc_arena_data(capacity).ok_or(())?;
+        let data_len = data.len();
+        let data_base = Box::into_raw(data) as *mut JSValue;
+        let old_base = std::mem::replace(&mut self.data_base, data_base);
+        let old_len = std::mem::replace(&mut self.data_len, data_len);
+        // SAFETY: the arena is unused (`data_used == 0`), so no frame buffer or
+        // VarRef can still point into the old allocation.
+        unsafe { Self::free_data(old_base, old_len) };
         self.data_used = 0;
         Ok(())
+    }
+
+    /// Release a bump region previously created by `Box::into_raw`.
+    ///
+    /// # Safety
+    /// `base` must come from `Box::into_raw(Box<[JSValue]>)` with the same
+    /// length and must not be referenced by any live frame.
+    unsafe fn free_data(base: *mut JSValue, len: usize) {
+        if !base.is_null() {
+            drop(unsafe { Box::from_raw(std::ptr::slice_from_raw_parts_mut(base, len)) });
+        }
     }
 
     /// Set the maximum total live virtual stack size in bytes (bump + heap).
@@ -169,7 +217,7 @@ impl VmStack {
                 .ok_or(FrameAllocError::Oom)?;
             self.live_heap_bytes += boxed.len();
             FrameBuffer::Heap(boxed)
-        } else if self.data_used + capacity > self.data.len() {
+        } else if self.data_used + capacity > self.data_len {
             #[cfg(debug_assertions)]
             {
                 self.stats_heap_capacity += 1;
@@ -188,7 +236,7 @@ impl VmStack {
             let buf_offset = self.data_used as u32;
             self.data_used += capacity;
             FrameBuffer::Arena {
-                data_base: self.data.as_mut_ptr(),
+                data_base: self.data_base,
                 buf_offset,
                 buf_capacity: capacity as u32,
             }
@@ -226,6 +274,7 @@ impl VmStack {
                 state: FrameState::Active,
                 mode,
                 func_obj,
+                this_obj: JSValue::UNDEFINED,
                 cur_pc_offset: 0,
                 cur_sp_offset: 0,
                 buf,
@@ -262,7 +311,7 @@ impl VmStack {
                 }
                 FrameBuffer::Heap(heap_buf) => {
                     self.live_heap_bytes = self.live_heap_bytes.saturating_sub(heap_buf.len());
-                    let remaining = self.data.len() - self.data_used;
+                    let remaining = self.data_len - self.data_used;
                     if heap_buf.len() > remaining
                         && self.heap_buf_cache.len() < crate::config::HEAP_BUF_CACHE_MAX
                     {
@@ -287,7 +336,7 @@ impl VmStack {
                 std::mem::replace(&mut head.buf, FrameBuffer::Empty)
             {
                 self.live_heap_bytes = self.live_heap_bytes.saturating_sub(heap_buf.len());
-                let remaining = self.data.len() - self.data_used;
+                let remaining = self.data_len - self.data_used;
                 if heap_buf.len() > remaining
                     && self.heap_buf_cache.len() < crate::config::HEAP_BUF_CACHE_MAX
                 {
@@ -376,9 +425,14 @@ impl VmStack {
             } => {
                 let start = *buf_offset as usize;
                 let end = start + *buf_capacity as usize;
-                &self.data[start..end]
+                // SAFETY: the bump region is fixed-size and `start..end` is a
+                // live frame slice; no `&mut` to the region exists while the
+                // arena is being traced.
+                unsafe { std::slice::from_raw_parts(self.data_base.add(start), end - start) }
             }
-            FrameBuffer::Heap(b) => b,
+            FrameBuffer::Heap(b) => unsafe {
+                std::slice::from_raw_parts(b.as_ptr() as *const JSValue, b.len())
+            },
             FrameBuffer::Empty => &[],
         }
     }
@@ -419,6 +473,7 @@ impl VmStack {
             depth: head.depth,
             state: FrameState::Active,
             func_obj: head.func_obj,
+            this_obj: head.this_obj,
             mode: head.mode,
             cur_pc_offset: head.cur_pc_offset,
             cur_sp_offset: head.cur_sp_offset,
@@ -596,33 +651,39 @@ impl VmStack {
     }
 }
 
-#[cfg(debug_assertions)]
 impl Drop for VmStack {
     fn drop(&mut self) {
-        let total = self.stats_bump + self.stats_heap_async + self.stats_heap_capacity;
-        if total == 0 {
-            return;
-        }
+        // SAFETY: `data_base`/`data_len` come from `Box::into_raw` and the
+        // arena is being destroyed, so no frame or VarRef can still use it.
+        unsafe { Self::free_data(self.data_base, self.data_len) };
 
-        // async 帧固定走 heap 是设计选择（需存活跨越 suspend/resume），
-        // 不影响性能。仅检查容量不足导致的 heap fallback。
-        //
-        // 只警告不断言：深递归（如 test262 的无限递归用例，靠 stack-exceeded
-        // 异常终止）会合法地占满 arena 数据区，之后每层调用都 fallback，
-        // 命中率暴跌。Drop 处无法区分这种负载与容量配置过小。
-        let cap_total = self.stats_bump + self.stats_heap_capacity;
-        if cap_total > 0 {
-            let cap_bump_pct = self.stats_bump as f64 / cap_total as f64 * 100.0;
-            if cap_bump_pct < 99.5 {
-                eprintln!(
-                    "[WARN] VmStack bump_rate={:.1}% (bump={}, non_bump: async={}, cap={}, total={}, data_cap={})",
-                    cap_bump_pct,
-                    self.stats_bump,
-                    self.stats_heap_async,
-                    self.stats_heap_capacity,
-                    total,
-                    self.data.len(),
-                );
+        #[cfg(debug_assertions)]
+        {
+            let total = self.stats_bump + self.stats_heap_async + self.stats_heap_capacity;
+            if total == 0 {
+                return;
+            }
+
+            // async 帧固定走 heap 是设计选择（需存活跨越 suspend/resume），
+            // 不影响性能。仅检查容量不足导致的 heap fallback。
+            //
+            // 只警告不断言：深递归（如 test262 的无限递归用例，靠 stack-exceeded
+            // 异常终止）会合法地占满 arena 数据区，之后每层调用都 fallback，
+            // 命中率暴跌。Drop 处无法区分这种负载与容量配置过小。
+            let cap_total = self.stats_bump + self.stats_heap_capacity;
+            if cap_total > 0 {
+                let cap_bump_pct = self.stats_bump as f64 / cap_total as f64 * 100.0;
+                if cap_bump_pct < 99.5 {
+                    eprintln!(
+                        "[WARN] VmStack bump_rate={:.1}% (bump={}, non_bump: async={}, cap={}, total={}, data_cap={})",
+                        cap_bump_pct,
+                        self.stats_bump,
+                        self.stats_heap_async,
+                        self.stats_heap_capacity,
+                        total,
+                        self.data_len,
+                    );
+                }
             }
         }
     }
@@ -636,6 +697,7 @@ impl GcTrace for VmStack {
             }
 
             frame.func_obj.trace(gcx);
+            frame.this_obj.trace(gcx);
 
             let data = self.data(frame);
             let data_end = frame.buf.capacity() as usize;
@@ -664,7 +726,10 @@ impl GcTrace for VmStack {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::{EvalFlags, EvalName, EvalType, Runtime, ScopedContext};
+    use gc_lite::GcHead;
+    use std::ptr::NonNull;
 
     /// A call must not allocate its frame header: the freed header is parked
     /// and the next call takes it (the malloc/free was on every call).
@@ -726,5 +791,225 @@ mod tests {
             .unwrap();
         // 300: `none()` saw its own zero arguments, not `three`'s three.
         assert_eq!(v.as_int(), Some(300), "the argument count leaked");
+    }
+
+
+    /// The arena layer only stores `func_obj`; it never dereferences it.
+    /// A dangling non-null handle is therefore enough for frame tests and
+    /// lets them run under Miri without a `RuntimeImpl` (whose linkme-based
+    /// class table Miri cannot execute).
+    fn fake_object() -> Object {
+        Object(unsafe { gc_lite::GcRef::from_node_ptr(NonNull::<GcHead>::dangling()) })
+    }
+
+    fn alloc(arena: &mut VmStack, cap: usize) -> FrameIndex {
+        arena
+            .alloc_frame(fake_object(), ExecMode::empty(), cap)
+            .unwrap()
+    }
+
+    /// Frame data pointers must stay valid across later frame allocations and
+    /// frees: `frames` is a `Vec<Box<_>>` and the bump region never reallocs.
+    /// This is the Miri-checkable core of the interpreter's pointer discipline.
+    #[test]
+    fn frame_data_ptr_survives_alloc_free() {
+        let mut arena = VmStack::with_capacity(256);
+        let first = alloc(&mut arena, 8);
+        arena.init_frame_args(first, 1, 2, &[JSValue::from(7)]);
+
+        let base = arena.frame(first).buf.data_ptr();
+        assert_eq!(unsafe { *base }, JSValue::from(7));
+
+        // Grow `frames` (Box keeps headers stable) and advance the bump region.
+        let mut later = Vec::new();
+        for _ in 0..16 {
+            later.push(alloc(&mut arena, 8));
+        }
+        assert_eq!(arena.frame(first).buf.data_ptr(), base);
+
+        // Write through the pointer captured before the growth.
+        unsafe { *base = JSValue::from(42) };
+        assert_eq!(arena.frame(first).buf.data_ptr(), base);
+        assert_eq!(unsafe { *base }, JSValue::from(42));
+
+        // Free the later frames (LIFO) and reuse the bump region.
+        for idx in later.into_iter().rev() {
+            arena.free_frame(idx);
+        }
+        assert_eq!(arena.frame(first).buf.data_ptr(), base);
+        assert_eq!(unsafe { *base }, JSValue::from(42));
+    }
+
+    /// `frame_store_value` must observe the same data region as the pointer
+    /// derived at allocation time, including after the region is recycled.
+    #[test]
+    fn frame_store_value_after_recycle() {
+        let mut arena = VmStack::with_capacity(64);
+        let first = alloc(&mut arena, 4);
+        let base = arena.frame(first).buf.data_ptr();
+
+        for _ in 0..8 {
+            let tmp = alloc(&mut arena, 4);
+            arena.frame_store_value(tmp, 0, JSValue::from(1));
+            arena.free_frame(tmp);
+        }
+
+        arena.frame_store_value(first, 0, JSValue::from(9));
+        assert_eq!(arena.frame(first).buf.data_ptr(), base);
+        assert_eq!(unsafe { *base }, JSValue::from(9));
+    }
+
+    /// Frame headers live behind `Box`, so `frames` growth must not move them.
+    /// The interpreter keeps `FrameIndex` plus raw data pointers across calls;
+    /// this pins the address-stability half of that contract.
+    #[test]
+    fn frame_header_address_is_stable_across_growth() {
+        let mut arena = VmStack::with_capacity(256);
+        let first = alloc(&mut arena, 4);
+        arena.frame_mut(first).depth = 7;
+
+        let head: *const StackFrame = arena.frame(first);
+        let mut later = Vec::new();
+        for _ in 0..32 {
+            later.push(alloc(&mut arena, 4));
+        }
+
+        assert_eq!(arena.frame(first) as *const StackFrame, head);
+        assert_eq!(unsafe { (*head).depth }, 7);
+    }
+
+    /// Async frames are Heap-backed: `take_frame`/`put_frame` move the header
+    /// (and its buffer `Box`) out and back in. Values and frame accounting must
+    /// survive the round-trip, which is the CALL/RETURN-adjacent path Miri can
+    /// exercise without a runtime.
+    #[test]
+    fn async_frame_take_put_roundtrip() {
+        let mut arena = VmStack::with_capacity(64);
+        let idx = arena
+            .alloc_frame(fake_object(), ExecMode::ASYNC, 8)
+            .unwrap();
+        arena.init_frame_args(idx, 2, 2, &[JSValue::from(11), JSValue::from(22)]);
+        arena.frame_store_value(idx, 0, JSValue::from(33));
+
+        let snapshot = arena.take_frame(idx);
+        assert_eq!(snapshot.frame.arg_real_count, 2);
+        assert_eq!(snapshot.frame.arg_count, 2);
+        assert_eq!(snapshot.frame.var_count, 2);
+        assert_eq!(snapshot.frame.this_obj, JSValue::UNDEFINED);
+
+        let new_idx = arena.put_frame(snapshot);
+        assert_eq!(arena.frame(new_idx).arg_real_count, 2);
+        let head = arena.frame(new_idx);
+        assert_eq!(unsafe { *head.buf.data_ptr().add(4) }, JSValue::from(33));
+        arena.frame_store_value(new_idx, 0, JSValue::from(44));
+        assert_eq!(unsafe { *head.buf.data_ptr().add(4) }, JSValue::from(44));
+        arena.free_frame(new_idx);
+    }
+
+    /// `set_arena_capacity` must refresh the cached base pointer; allocations
+    /// after a resize have to target the new buffer.
+    #[test]
+    fn resize_refreshes_data_base() {
+        let mut arena = VmStack::with_capacity(8);
+        arena.set_arena_capacity(128).unwrap();
+
+        let idx = alloc(&mut arena, 16);
+        arena.frame_store_value(idx, 0, JSValue::from(5));
+        let base = arena.frame(idx).buf.data_ptr();
+        assert_eq!(unsafe { *base }, JSValue::from(5));
+    }
+
+    /// A freed Heap buffer is parked in `heap_buf_cache` (when larger than the
+    /// free arena region) and handed to the next allocation. The reused buffer
+    /// must keep the `UnsafeCell` write permission.
+    #[test]
+    fn heap_buf_cache_reused_after_free() {
+        let mut arena = VmStack::with_capacity(4);
+        let idx = arena
+            .alloc_frame(fake_object(), ExecMode::ASYNC, 8)
+            .unwrap();
+        let cap = arena.frame(idx).buf.capacity();
+        assert_eq!(cap, 8);
+        arena.init_frame_args(idx, 1, 1, &[JSValue::from(1)]);
+        assert_eq!(
+            unsafe { *arena.frame(idx).buf.data_ptr() },
+            JSValue::from(1)
+        );
+
+        let base = arena.frame(idx).buf.data_ptr();
+        arena.free_frame(idx);
+        assert_eq!(arena.heap_buf_cache.len(), 1);
+        assert_eq!(arena.live_heap_bytes, 0);
+
+        // A smaller request reuses the cached (larger) buffer as-is.
+        let idx = arena
+            .alloc_frame(fake_object(), ExecMode::ASYNC, 4)
+            .unwrap();
+        assert_eq!(arena.frame(idx).buf.capacity(), cap);
+        assert_eq!(arena.frame(idx).buf.data_ptr(), base);
+
+        arena.init_frame_args(idx, 1, 0, &[JSValue::from(2)]);
+        assert_eq!(
+            unsafe { *arena.frame(idx).buf.data_ptr() },
+            JSValue::from(2)
+        );
+        arena.frame_store_value(idx, 0, JSValue::from(3));
+        let sp = unsafe {
+            arena
+                .frame(idx)
+                .buf
+                .data_ptr()
+                .add(arena.frame(idx).arg_count as usize)
+        };
+        assert_eq!(unsafe { *sp }, JSValue::from(3));
+        arena.free_frame(idx);
+    }
+
+    /// When the bump region is exhausted, frames spill to Heap. Their data must
+    /// stay stable across later allocations and frees, same as Arena frames.
+    #[test]
+    fn spilled_frame_uses_heap_and_survives_growth() {
+        let mut arena = VmStack::with_capacity(16);
+        let first = alloc(&mut arena, 16);
+        assert!(matches!(arena.frame(first).buf, FrameBuffer::Arena { .. }));
+
+        let spilled = alloc(&mut arena, 8);
+        assert!(matches!(arena.frame(spilled).buf, FrameBuffer::Heap(_)));
+        arena.init_frame_args(spilled, 1, 0, &[JSValue::from(5)]);
+        let base = arena.frame(spilled).buf.data_ptr();
+        assert_eq!(unsafe { *base }, JSValue::from(5));
+
+        let mut later = Vec::new();
+        for _ in 0..4 {
+            later.push(alloc(&mut arena, 4));
+        }
+        assert_eq!(arena.frame(spilled).buf.data_ptr(), base);
+
+        arena.frame_store_value(spilled, 0, JSValue::from(6));
+        let sp = unsafe { base.add(arena.frame(spilled).arg_count as usize) };
+        assert_eq!(unsafe { *sp }, JSValue::from(6));
+
+        for idx in later.into_iter().rev() {
+            arena.free_frame(idx);
+        }
+        arena.free_frame(spilled);
+    }
+
+    /// Repeated resizes must free each previous region exactly once. The test
+    /// body only exercises the paths; Miri's leak/double-free checks are the
+    /// actual assertion.
+    #[test]
+    fn resize_twice_then_drop() {
+        let mut arena = VmStack::with_capacity(8);
+        arena.set_arena_capacity(32).unwrap();
+        arena.set_arena_capacity(64).unwrap();
+
+        let idx = alloc(&mut arena, 4);
+        arena.frame_store_value(idx, 0, JSValue::from(1));
+        assert_eq!(
+            unsafe { *arena.frame(idx).buf.data_ptr() },
+            JSValue::from(1)
+        );
+        drop(arena);
     }
 }

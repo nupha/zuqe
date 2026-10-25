@@ -133,6 +133,7 @@ impl AsyncStateImpl {
 
         // Initialize frame data: copy args, zero-fill vars, set up offsets.
         {
+            arena.frame_mut(frame_idx).this_obj = this_obj;
             arena.init_frame_args(frame_idx, arg_count as u16, var_count, args);
 
             // Async frames are Heap-backed (not bump-allocated), so the local

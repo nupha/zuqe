@@ -141,14 +141,17 @@ pub(crate) fn put_ref_value(
     } else if strict {
         no_add = true;
     }
-    if let Ok(atom) = prop.to_atom(ctx) {
-        match obj.has_property(ctx, atom) {
-            Ok(false) | Err(_) if strict => {
-                let _ = JS_ThrowReferenceErrorNotDefined(ctx, atom);
-                return Err(0);
-            }
-            _ => {}
+    let Ok(atom) = prop.to_atom(ctx) else {
+        return Err(0);
+    };
+    match obj.has_property(ctx, atom) {
+        Ok(false) if strict => {
+            let _ = JS_ThrowReferenceErrorNotDefined(ctx, atom);
+            return Err(0);
         }
+        Ok(_) => {}
+        // A throwing `has` trap must propagate as-is.
+        Err(_) => return Err(0),
     }
     obj.set_property_value(ctx, prop, val, ThrowPolicy::StrictOnly, no_add)
         .map(|_| ())

@@ -2932,8 +2932,10 @@ fn ic_index(_insn: &Instruction) -> u32 {
 }
 
 /// Box a 32-bit bit-operation result exactly like `JSValue::from(u32)`: an `Int`
-/// when it fits in `i32`, otherwise a `Float64`. (The interpreter really does
-/// return `4294967295` for `-1 | 0`; the baseline matches it bit-for-bit.)
+/// when it fits in `i32`, otherwise a `Float64`. Used only where the engine
+/// boxes through `u32` — `shr` and typed-array `u32` reads (the interpreter
+/// really does return `4294967295` for `-1 >>> 0`; the baseline matches it
+/// bit-for-bit).
 pub(super) fn box_bit_result(b: &mut FunctionBuilder, result: Value) -> Value {
     let nonneg = b.ins().icmp_imm(IntCC::SignedGreaterThanOrEqual, result, 0);
     let as_int = b.ins().uextend(types::I64, result);
@@ -3282,11 +3284,13 @@ fn lower_fast_binary(
                 FastOp::Shr => b.ins().ushr(ai, count),
                 _ => b.ins().sshr(ai, count),
             };
-            // `shl`/`sar` are `From<i32>` (always an Int); `and`/`or`/`xor` and
-            // `shr` are `From<u32>` — Int, or a Float64 once the sign bit is
+            // `shl`/`sar`/`and`/`or`/`xor` are `From<i32>` (always an Int);
+            // `shr` is `From<u32>` — Int, or a Float64 once the sign bit is
             // set. Match the interpreter exactly, quirk included.
             let boxed = match op {
-                FastOp::Shl | FastOp::Sar => b.ins().uextend(types::I64, result),
+                FastOp::Shl | FastOp::Sar | FastOp::And | FastOp::Or | FastOp::Xor => {
+                    b.ins().uextend(types::I64, result)
+                }
                 _ => box_bit_result(b, result),
             };
             b.ins().store(MemFlags::new(), boxed, sp, -16);

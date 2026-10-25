@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ptr::NonNull;
+use std::{cell::UnsafeCell, ptr::NonNull};
 
 use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 
@@ -39,7 +39,7 @@ impl GcTrace for VarRefImpl {
 impl VarRefImpl {
     fn update_pvalue_for_heap_buf_offsets_impl(
         &mut self,
-        heap_buf: &[JSValue],
+        heap_buf: &[UnsafeCell<JSValue>],
         arg_base_offset: u32,
         var_base_offset: u32,
     ) {
@@ -55,12 +55,12 @@ impl VarRefImpl {
             } else {
                 var_base_offset as usize + *var_idx as usize
             };
-            *pvalue = NonNull::from(&heap_buf[off]);
+            *pvalue = unsafe { NonNull::new_unchecked(heap_buf[off].get()) };
 
             #[cfg(debug_assertions)]
             {
                 let ptr: *const JSValue = pvalue.as_ptr() as *const JSValue;
-                let buf_start: *const JSValue = heap_buf.as_ptr();
+                let buf_start: *const JSValue = heap_buf.as_ptr() as *const JSValue;
                 let buf_end = unsafe { buf_start.add(heap_buf.len()) };
                 debug_assert!(
                     ptr >= buf_start && ptr < buf_end,
@@ -118,7 +118,7 @@ gcref_wrapper!(VarRef, VarRefImpl);
 impl VarRef {
     pub(crate) fn update_pvalue_for_heap_buf_offsets(
         &mut self,
-        heap_buf: &[JSValue],
+        heap_buf: &[UnsafeCell<JSValue>],
         arg_base_offset: u32,
         var_base_offset: u32,
     ) {
@@ -156,5 +156,32 @@ impl VarRef {
         })
         .map(Self)
         .map_err(|_| ctx.throw_out_of_memory())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Rebinding a VarRef to a heap frame must derive the new pointer through
+    /// `UnsafeCell::get`, so writes through the VarRef stay legal even though
+    /// the buffer is only reached through shared references.
+    #[test]
+    fn pvalue_points_into_unsafe_cell_heap_buf() {
+        let buf = [
+            std::cell::UnsafeCell::new(JSValue::from(10)),
+            std::cell::UnsafeCell::new(JSValue::from(20)),
+        ];
+        let mut vr = VarRefImpl::Bind {
+            is_arg: false,
+            var_idx: 1,
+            pvalue: NonNull::dangling(),
+        };
+
+        vr.update_pvalue_for_heap_buf_offsets_impl(&buf, 0, 0);
+        assert_eq!(vr.value(), JSValue::from(20));
+
+        vr.set_value_internal(JSValue::from(30));
+        assert_eq!(unsafe { *buf[1].get() }, JSValue::from(30));
     }
 }

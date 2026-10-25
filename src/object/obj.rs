@@ -575,11 +575,6 @@ impl ObjectImpl {
         self.shape.as_ref()
     }
 
-    #[inline(always)]
-    pub(crate) const fn take_shape(&mut self) -> Option<Shape> {
-        self.shape.take()
-    }
-
     pub(crate) fn set_shape(&mut self, shape: Shape) {
         #[cfg(debug_assertions)]
         {

@@ -342,6 +342,14 @@ impl RuntimeImpl {
         self.gc_heap().memory_limit()
     }
 
+    /// Bytes currently accounted as live by the GC heap.
+    ///
+    /// Hosts use this to observe allocation pressure; it is also the value the
+    /// automatic-GC threshold is derived from.
+    pub fn gc_memory_used(&self) -> usize {
+        self.gc_heap().memory_used()
+    }
+
     pub fn gc_set_memory_limit(&mut self, limit: usize) -> usize {
         self.gc_heap_mut().set_memory_limit(limit)
     }

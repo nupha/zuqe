@@ -485,6 +485,7 @@ impl BytecodeFunction {
                 }
             };
             arena.frame_mut(idx).prev = parent_frame;
+            arena.frame_mut(idx).this_obj = this_obj;
             idx
         };
 

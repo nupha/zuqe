@@ -129,6 +129,9 @@ pub(crate) fn call_native_direct(
         }
     };
     arena.frame_mut(frame_idx).prev = parent;
+    // Seed the traced receiver root, exactly as the trampoline does for the
+    // frames it builds (a GC during the native call must see it).
+    arena.frame_mut(frame_idx).this_obj = this_obj;
     arena.init_frame_args(frame_idx, bc.arg_count, bc.var_count, args);
 
     let (arg_base, var_base, sp_base) = {

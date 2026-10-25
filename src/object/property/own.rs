@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use smallvec::SmallVec;
+
 use crate::{
     JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::Atom,
@@ -37,6 +39,35 @@ impl ObjectImpl {
         Ok(())
     }
 
+    /// Add several own **data** properties as one shape transition: one registry
+    /// lookup, and one shape allocation on a miss (no intermediate shapes).
+    ///
+    /// Props are added in slice order; none may already exist in the shape and
+    /// the names must be unique. Non-data properties (getters/setters, var
+    /// refs, lazy init) must go through [`Self::add_own_property`].
+    pub(crate) fn add_own_properties(
+        &mut self,
+        ctx: &mut ScopedContext,
+        props: &[(Atom, u32, JSValue)],
+    ) -> Result<(), i32> {
+        if props.is_empty() {
+            return Ok(());
+        }
+
+        let extras: SmallVec<[(Atom, u32); 8]> = props
+            .iter()
+            .map(|(atom, flags, _)| (*atom, *flags))
+            .collect();
+        let len = self.modify_shape_add_props(ctx, &extras)?;
+        debug_assert_eq!(self.prop_values.len(), len);
+
+        let start = len - props.len();
+        for (i, (_, _, value)) in props.iter().enumerate() {
+            self.set_prop_slot(start + i, JSProperty::Normal(*value));
+        }
+        Ok(())
+    }
+
     /// Find shape property by name atom.
     /// Returns shape property index (the slot index, not the sequence) and prop flags if the prop exists.
     #[inline]
@@ -48,6 +79,24 @@ impl ObjectImpl {
             }
         }
         None
+    }
+
+    /// Check whether `prop`'s def is still carried by the shape while this
+    /// object's value slot is `Deleted`, i.e. the property was deleted but its
+    /// def remains (the shape may be shared with objects where the slot is
+    /// live).
+    ///
+    /// [`Self::find_shape_property`] hides such defs because the property no
+    /// longer exists. The add path needs them: a re-added property is a new
+    /// property, so the stale def must be dropped instead of reused.
+    #[inline]
+    pub(crate) fn has_deleted_shape_property(&self, prop: Atom) -> bool {
+        let Some(sh) = self.shape() else {
+            return false;
+        };
+        sh.prop_defs
+            .find_hash(prop.id())
+            .any(|(i, _)| matches!(self.prop_slot(i), JSProperty::Deleted))
     }
 
     /// Check if given property name exists in shape.
