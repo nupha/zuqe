@@ -46,10 +46,13 @@ pub(crate) mod object {
     pub(crate) const PROP_DATA_OFFSET: i32 = (NODE_TO_OBJECT
         + std::mem::offset_of!(ObjectImpl, prop_view)
         + std::mem::offset_of!(PropView, data)) as i32;
-    /// The offset of the property slots' count.
-    pub(crate) const PROP_LEN_OFFSET: i32 = (NODE_TO_OBJECT
-        + std::mem::offset_of!(ObjectImpl, prop_view)
-        + std::mem::offset_of!(PropView, len)) as i32;
+    /// The offset of a shape's property count, from the shape's GC node pointer.
+    ///
+    /// The property guard's range check reads the slot count here: slots are
+    /// index-aligned with the shape's props, and the guard reaches this only
+    /// after the shape's identity (pointer + uid) already matched.
+    pub(crate) const SHAPE_PROP_COUNT_OFFSET: i32 = (gc_lite::gctype::payload_offset_of::<ShapeImpl>()
+        + std::mem::offset_of!(ShapeImpl, prop_count)) as i32;
     /// The offset of a shape's payload, from the shape's GC node pointer.
     ///
     /// The inline cache records a shape's *payload* pointer (what

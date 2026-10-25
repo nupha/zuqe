@@ -326,6 +326,8 @@ impl ObjectImpl {
         // the hash table is rebuilt — this ensures find_hash returns correct
         // indices after prop_values is compacted.
         shape.prop_defs.compact();
+        debug_assert_eq!(shape.prop_defs.count(), shape.prop_defs.len());
+        shape.prop_count = shape.prop_defs.len() as u32;
 
         // compact prop_values
         self.prop_values

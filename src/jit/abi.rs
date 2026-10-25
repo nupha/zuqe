@@ -1212,10 +1212,8 @@ unsafe fn field_get(f: *mut JitExecFrame, push: bool) -> u32 {
                         // patched prototype has another one, and the guard
                         // would answer the count instead of the getter's
                         // value.
-                        && let crate::object::JSProperty::GetSet {
-                            getter: Some(getter),
-                            ..
-                        } = owner.prop_slot(idx)
+                        && let crate::object::JSProperty::GetSet(gs) = owner.prop_slot(idx)
+                        && let Some(getter) = gs.getter
                         && getter.match_native_callback(
                             crate::function::Callback::Getter(
                                 crate::builtins::typed_array::js_typed_array_get_length

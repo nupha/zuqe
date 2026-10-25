@@ -13,7 +13,7 @@ use crate::{
         JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_GETSET, JS_PROP_HAS_GET,
         JS_PROP_HAS_SET, JS_PROP_HAS_VALUE, JS_PROP_LAZYINIT, JS_PROP_NO_EXOTIC, JS_PROP_NORMAL,
         JS_PROP_TMASK, JS_PROP_VARREF, JS_PROP_WRITABLE, JSProperty, JSPropertyDescriptor, Object,
-        ObjectImpl,
+        ObjectImpl, PropertyGetSet,
     },
     utils::unlikely,
     value::JSValue,
@@ -163,9 +163,9 @@ impl ObjectImpl {
                 }
                 JS_PROP_GETSET => {
                     desc.flags |= JS_PROP_GETSET;
-                    if let JSProperty::GetSet { getter, setter } = self.prop_slot(idx) {
-                        desc.getter = getter.map_or(JSValue::UNDEFINED, JSValue::from);
-                        desc.setter = setter.map_or(JSValue::UNDEFINED, JSValue::from);
+                    if let JSProperty::GetSet(gs) = self.prop_slot(idx) {
+                        desc.getter = gs.getter.map_or(JSValue::UNDEFINED, JSValue::from);
+                        desc.setter = gs.setter.map_or(JSValue::UNDEFINED, JSValue::from);
                     } else {
                         unreachable!()
                     }
@@ -179,7 +179,7 @@ impl ObjectImpl {
                 JS_PROP_LAZYINIT => {
                     // take lazy field definition
                     let pd = self.replace_prop_slot(idx, JSProperty::default());
-                    debug_assert!(matches!(pd, JSProperty::LazyInit { .. }));
+                    debug_assert!(matches!(pd, JSProperty::LazyInit(_)));
 
                     // modify shape property kind to NORMAL.
                     // Modifying the shape may compact deleted slots (shifting
@@ -454,7 +454,7 @@ impl ObjectImpl {
             self.add_own_property(ctx, prop, prop_flags, {
                 if flags & (JS_PROP_HAS_GET | JS_PROP_HAS_SET) != 0 {
                     // getset property
-                    JSProperty::GetSet {
+                    JSProperty::GetSet(Box::new(PropertyGetSet {
                         getter: if flags & JS_PROP_HAS_GET != 0 && getter.is_callable() {
                             getter.as_object()
                         } else {
@@ -465,7 +465,7 @@ impl ObjectImpl {
                         } else {
                             None
                         },
-                    }
+                    }))
                 } else {
                     // normal property
                     JSProperty::Normal(if flags & JS_PROP_HAS_VALUE != 0 {

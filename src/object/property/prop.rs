@@ -302,19 +302,29 @@ pub enum JSProperty {
     Normal(JSValue) = PROP_TAG_NORMAL,
     VarRef(VarRef) = PROP_TAG_VARREF,
 
-    /// TODO: use Box<PropertyGetSet>
-    GetSet {
-        getter: Option<Object>,
-        setter: Option<Object>,
-    } = PROP_TAG_GETSET,
-
-    /// TODO: use Box<PropertyLazy>
-    LazyInit {
-        realm: ContextPtr,
-        init: LazyInit,
-    } = PROP_TAG_LAZYINIT,
+    /// Boxed: both rare variants are behind a `Box` so one slot stays 16
+    /// bytes. The payload size sets [`JSProperty::slot_size`] — the JIT's
+    /// slot stride — and the malloc'd slot buffer (and every object's
+    /// property memory) scales with it. A data property still stores its
+    /// value inline at `normal_value_offset()`.
+    GetSet(Box<PropertyGetSet>) = PROP_TAG_GETSET,
+    LazyInit(Box<PropertyLazy>) = PROP_TAG_LAZYINIT,
 
     Deleted = PROP_TAG_DELETED,
+}
+
+/// Accessor pair payload of [`JSProperty::GetSet`] (boxed — see the variant doc).
+#[derive(Debug, Clone, Copy)]
+pub struct PropertyGetSet {
+    pub getter: Option<Object>,
+    pub setter: Option<Object>,
+}
+
+/// Lazy-init payload of [`JSProperty::LazyInit`] (boxed — see the variant doc).
+#[derive(Debug)]
+pub struct PropertyLazy {
+    pub realm: ContextPtr,
+    pub init: LazyInit,
 }
 
 impl GcTrace for JSProperty {
@@ -323,23 +333,20 @@ impl GcTrace for JSProperty {
             Self::Normal(v) => {
                 v.trace(tr);
             }
-            Self::GetSet { getter, setter } => {
-                if let Some(o) = getter {
+            Self::GetSet(gs) => {
+                if let Some(o) = gs.getter {
                     o.trace(tr);
                 }
-                if let Some(o) = setter {
+                if let Some(o) = gs.setter {
                     o.trace(tr);
                 }
             }
             Self::VarRef(vr) => {
                 vr.trace(tr);
             }
-            Self::LazyInit {
-                realm,
-                init: init_type,
-            } => {
-                realm.trace(tr);
-                init_type.trace(tr);
+            Self::LazyInit(lz) => {
+                lz.realm.trace(tr);
+                lz.init.trace(tr);
             }
             Self::Deleted => {}
         }
@@ -378,15 +385,15 @@ impl JSProperty {
                 debug_assert!(!v.is_exception());
                 Ok(*v)
             }
-            Self::GetSet { getter, .. } => {
-                if let Some(fun) = getter {
+            Self::GetSet(gs) => {
+                if let Some(fun) = gs.getter {
                     fun.call(ctx, this_obj, &[])
                 } else {
                     Ok(JSValue::UNDEFINED)
                 }
             }
             Self::VarRef(vref) => Ok(vref.value()),
-            Self::LazyInit { .. } => Ok(JSValue::UNDEFINED),
+            Self::LazyInit(_) => Ok(JSValue::UNDEFINED),
             Self::Deleted => {
                 unreachable!()
             }
@@ -657,9 +664,11 @@ mod tests {
         // 8 bytes in, and a slot the size the guard's stride assumes.
         assert_eq!(JSProperty::normal_value_offset(), 8);
         assert_eq!(std::mem::size_of::<JSValue>(), 8);
-        assert_eq!(std::mem::size_of::<JSProperty>(), 48);
+        // Both rare variants are boxed (see the variant doc), so the payload
+        // is one machine word and the slot is tag + value.
+        assert_eq!(std::mem::size_of::<JSProperty>(), 16);
         assert_eq!(std::mem::align_of::<JSProperty>(), 8);
-        assert_eq!(JSProperty::slot_size(), 48);
+        assert_eq!(JSProperty::slot_size(), 16);
         assert!(
             (JSProperty::normal_value_offset() as usize + std::mem::size_of::<JSValue>())
                 <= std::mem::size_of::<JSProperty>(),
@@ -676,10 +685,10 @@ mod tests {
             .unwrap();
         ctx.with_new_scope(|scope| {
             let var_ref = VarRef::create(scope, JSValue::from(1i32)).unwrap();
-            let lazy_init = JSProperty::LazyInit {
+            let lazy_init = JSProperty::LazyInit(Box::new(PropertyLazy {
                 realm: scope.ctx_ptr,
                 init: LazyInit::Prototype,
-            };
+            }));
             assert_eq!(
                 tag_of(&JSProperty::VarRef(var_ref)),
                 PROP_TAG_VARREF,
@@ -698,10 +707,10 @@ mod tests {
             "the data property's tag is not where the JIT expects it"
         );
         assert_eq!(
-            tag_of(&JSProperty::GetSet {
+            tag_of(&JSProperty::GetSet(Box::new(PropertyGetSet {
                 getter: None,
                 setter: None,
-            }),
+            }))),
             PROP_TAG_GETSET,
             "an accessor must not look like a data property"
         );

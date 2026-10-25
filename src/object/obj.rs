@@ -11,14 +11,14 @@ use crate::{
     JS_CLASS_BIG_INT, JS_CLASS_BOOLEAN, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR_FUNCTION, JS_CLASS_NUMBER,
     JS_CLASS_OBJECT, JS_CLASS_STRING, JS_CLASS_SYMBOL, JS_CLASS_UINT8C_ARRAY, RuntimeImpl,
-    atom::Atom, class::ClassID, config::JS_PROP_INITIAL_SIZE, context::ScopedContext,
-    error::JSResult, gcref_wrapper, runtime::RuntimePtr, utils::unlikely, value::JSValue,
+    atom::Atom, class::ClassID, context::ScopedContext, error::JSResult, gcref_wrapper,
+    runtime::RuntimePtr, utils::unlikely, value::JSValue,
 };
 
 use super::{
     JS_GPN_STR_OR_INT_MASK, JS_GPN_SYMBOL_MASK, JS_PROP_CONFIGURABLE, JS_PROP_HAS_CONFIGURABLE,
     JS_PROP_HAS_WRITABLE, JS_PROP_LENGTH, JS_PROP_THROW, JS_PROP_WRITABLE, JSProperty, PayloadPtr,
-    Shape, payload_access,
+    PropValues, Shape, payload_access,
 };
 
 /// TODO: use bitfield instead
@@ -170,18 +170,25 @@ impl ObjectFlags {
 
 /// The property slots, as the JIT sees them (the property inline guard).
 ///
-/// The JIT's inline property guard loads the slots' data pointer and their
-/// count at fixed offsets, so this is `#[repr(C)]` and the offsets are
-/// published below. It is a *mirror* of the object's `prop_values` vector:
+/// The JIT's inline property guard loads this pointer at a fixed offset and
+/// reads the slot straight out of it, so this is `#[repr(C)]` and the offset
+/// is published below. It is a *mirror* of the object's `prop_values` buffer:
 /// [`ObjectImpl::sync_prop_view`] keeps it in step, and the read path asserts
 /// it in debug builds.
+///
+/// The guard's range check does **not** read a count from here: slots are
+/// index-aligned with the shape's props, so the count is the shape's
+/// (`ShapeImpl::prop_count`), read after the shape identity already matched
+/// (VM-P1 — every byte in the GC node is collection cost).
+///
+/// Only the `jit` feature has a reader, so the mirror (field, sync and the
+/// engine-side debug checks) is compiled out without it.
+#[cfg(feature = "jit")]
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct PropView {
-    /// The first slot (the vector's data pointer).
+    /// The first slot (the storage's data pointer).
     pub(crate) data: *mut JSProperty,
-    /// The number of slots.
-    pub(crate) len: u32,
 }
 
 pub struct ObjectImpl {
@@ -190,22 +197,31 @@ pub struct ObjectImpl {
     /// object flags
     pub(crate) obj_flags: ObjectFlags,
 
+    /// Number of slots marked as JSProperty::Deleted.
+    /// Batch compact is triggered when (deleted_slot_count << 3) >= prop_values.len().
+    ///
+    /// Sits in the alignment gap before `shape` on purpose: the GC node size
+    /// is what collection cost scales with (VM-P1), so padding here is free
+    /// and a standalone field would not be.
+    pub(super) deleted_slot_count: u16,
+
     /// Shape of object, to denote prototype and property names + flag
     pub(crate) shape: Option<Shape>,
 
     /// property value slots
-    pub(super) prop_values: Vec<JSProperty>,
+    pub(super) prop_values: PropValues,
 
     /// The slots, as the JIT sees them (the property inline guard): a mirror of `prop_values`.
+    #[cfg(feature = "jit")]
     pub(crate) prop_view: PropView,
 
-    /// Number of slots marked as JSProperty::Deleted.
-    /// Batch compact is triggered when (deleted_slot_count << 3) >= prop_values.len().
-    pub(super) deleted_slot_count: u16,
-
-    /// where this object is weak referenced
+    /// where this object is weak referenced. `None` (the almost-all case):
+    /// a `Vec` header would cost every GC node 24B, and node size is what GC
+    /// collection cost scales with (VM-P1) — pay for it only when a weak ref
+    /// actually lands on the object.
+    #[allow(clippy::box_collection)]
     #[cfg(any(feature = "builtin_mapset", feature = "builtin_weakref"))]
-    weak_refs: Vec<GcWeak<ObjectImpl>>,
+    weak_refs: Option<Box<Vec<GcWeak<ObjectImpl>>>>,
 
     /// object payload — type-erased pointer, interpreted via class_id.
     pub(crate) payload: *mut c_void,
@@ -307,20 +323,12 @@ impl ObjectImpl {
         }
 
         // alloc prop value slots, initializing with default value
-        let mut prop_values = Vec::<JSProperty>::new();
-        if let Some(sh) = &mut shape {
-            let prop_count = sh.len();
-            if prop_values
-                .try_reserve(std::cmp::max(JS_PROP_INITIAL_SIZE as usize, prop_count))
-                .is_err()
-            {
-                let _ = ctx.throw_out_of_memory();
-                return Err(-1);
-            };
-
-            for _ in 0..prop_count {
-                prop_values.push(JSProperty::default())
-            }
+        let mut prop_values = PropValues::new();
+        if let Some(sh) = &mut shape
+            && let Err(e) = prop_values.try_init(sh.len())
+        {
+            let _ = ctx.throw_out_of_memory();
+            return Err(e);
         }
 
         let mut flags = ObjectFlags::default();
@@ -352,7 +360,7 @@ impl ObjectImpl {
 
                 if ctx.array_shape == shape {
                     // set length property to 0
-                    prop_values[0] = JSProperty::Normal(JSValue::ZERO);
+                    *prop_values.get_mut(0) = JSProperty::Normal(JSValue::ZERO);
                 } else {
                     // we are creating the Array proto object.
                     // by this moment, the default shape for array is not initialized yet.
@@ -399,10 +407,14 @@ impl ObjectImpl {
         // `ObjectImpl::class_id()` is an O(1) field load (no payload match).
         flags.set_class_id(class_id);
 
-        // The mirror the JIT reads (the property inline guard): the slots as they are now.
+        // The mirror the JIT reads (the property inline guard). It must point
+        // at the slots *inside the heap object*: with inline storage their
+        // address differs from the stack-local one, so it is filled in by
+        // `sync_prop_view` right after the allocation below. Nothing reads the
+        // mirror in between (the GC traces `prop_values`, not `prop_view`).
+        #[cfg(feature = "jit")]
         let prop_view = PropView {
-            data: prop_values.as_ptr() as *mut JSProperty,
-            len: prop_values.len() as u32,
+            data: std::ptr::null_mut(),
         };
 
         let mut obj = ctx
@@ -411,14 +423,17 @@ impl ObjectImpl {
                 obj_flags: flags,
                 shape,
                 prop_values,
+                #[cfg(feature = "jit")]
                 prop_view,
                 deleted_slot_count: 0,
                 payload: payload.as_ptr(),
                 #[cfg(feature = "builtin_mapset")]
-                weak_refs: Vec::new(),
+                weak_refs: None,
             })
             .map(Object)
             .map_err(|_| ctx.throw_out_of_memory())?;
+
+        obj.sync_prop_view();
 
         // Success: the payload pointer now lives in the heap-allocated
         // ObjectImpl — consume the handle without freeing.
@@ -445,15 +460,23 @@ impl ObjectImpl {
     /// Refresh the mirror the JIT reads (the property inline guard). Every method that changes the
     /// slots' length or their buffer must call this.
     ///
+    /// The body is compiled out without the `jit` feature — there is no
+    /// reader — so the call sites stay unconditional (VM-P1: no-jit builds
+    /// carry neither the field nor this work).
+    ///
     /// Inlined on purpose: it is a cold path, and a separate symbol would
     /// shuffle the binary's code layout (which the benchmarks are sensitive
     /// to).
     #[inline(always)]
     pub(crate) fn sync_prop_view(&mut self) {
-        self.prop_view = PropView {
-            data: self.prop_values.as_ptr() as *mut JSProperty,
-            len: self.prop_values.len() as u32,
-        };
+        #[cfg(feature = "jit")]
+        {
+            // The pointer must come from the *live* storage: with inline
+            // slots the stack-local address differs from the heap object's.
+            self.prop_view = PropView {
+                data: self.prop_values.as_ptr() as *mut JSProperty,
+            };
+        }
     }
 
     #[inline(always)]
@@ -616,14 +639,15 @@ impl ObjectImpl {
     #[inline(always)]
     #[cfg(any(feature = "builtin_mapset", feature = "builtin_weakref"))]
     pub(crate) fn add_back_ref(&mut self, w: GcWeak<ObjectImpl>) {
-        self.weak_refs.push(w);
+        self.weak_refs.get_or_insert_with(Default::default).push(w);
     }
 
     #[cfg(any(feature = "builtin_mapset", feature = "builtin_weakref"))]
     pub(crate) fn remove_back_ref(&mut self, rt: &RuntimeImpl, eliminate: Object) {
         let heap = rt.gc_heap();
-        self.weak_refs
-            .retain(|w| w.upgrade(heap).is_some_and(|o| *o.as_raw() != eliminate.0));
+        if let Some(ws) = &mut self.weak_refs {
+            ws.retain(|w| w.upgrade(heap).is_some_and(|o| *o.as_raw() != eliminate.0));
+        }
     }
 
     /// Runtime side-effects for a dying object. Called ONLY by the runtime's
@@ -642,18 +666,20 @@ impl ObjectImpl {
             let heap = rt.gc_heap();
             let this = Object::from(self.gc_ref());
 
-            for o in self.weak_refs.drain(..).filter_map(|w| w.upgrade(heap)) {
-                let mut o = Object::from(o.into_raw());
-                debug_assert!(
-                    matches!(
-                        o.class_id(),
-                        crate::JS_CLASS_WEAKSET | crate::JS_CLASS_WEAKMAP
-                    ),
-                    "must be WeakSet or WeakMap object"
-                );
+            if let Some(ws) = &mut self.weak_refs {
+                for o in ws.drain(..).filter_map(|w| w.upgrade(heap)) {
+                    let mut o = Object::from(o.into_raw());
+                    debug_assert!(
+                        matches!(
+                            o.class_id(),
+                            crate::JS_CLASS_WEAKSET | crate::JS_CLASS_WEAKMAP
+                        ),
+                        "must be WeakSet or WeakMap object"
+                    );
 
-                if let Some(ms) = o.payload_mapset_mut() {
-                    ms.remove_weak_obj(this);
+                    if let Some(ms) = o.payload_mapset_mut() {
+                        ms.remove_weak_obj(this);
+                    }
                 }
             }
         }
@@ -663,24 +689,22 @@ impl ObjectImpl {
         {
             let heap = rt.gc_heap();
             let this = Object::from(self.gc_ref());
-            let mut held_pending: Vec<(
-                crate::value::JSValue,
-                crate::value::JSValue,
-                crate::context::ContextPtr,
-            )> = Vec::new();
+            let mut held_pending: Vec<(JSValue, JSValue, crate::context::ContextPtr)> = Vec::new();
 
-            for o in self.weak_refs.drain(..).filter_map(|w| w.upgrade(heap)) {
-                let mut o = Object::from(o.into_raw());
-                if o.class_id() != crate::JS_CLASS_FINALIZATION_REGISTRY {
-                    continue;
-                }
+            if let Some(ws) = &mut self.weak_refs {
+                for o in ws.drain(..).filter_map(|w| w.upgrade(heap)) {
+                    let mut o = Object::from(o.into_raw());
+                    if o.class_id() != crate::JS_CLASS_FINALIZATION_REGISTRY {
+                        continue;
+                    }
 
-                if let Some(frd) = o.payload_finalization_registry_mut() {
-                    let held_values = frd.remove_entries_for_target(this, heap);
-                    let callback = frd.callback;
-                    let context = frd.realm;
-                    for hv in held_values {
-                        held_pending.push((callback, hv, context));
+                    if let Some(frd) = o.payload_finalization_registry_mut() {
+                        let held_values = frd.remove_entries_for_target(this, heap);
+                        let callback = frd.callback;
+                        let context = frd.realm;
+                        for hv in held_values {
+                            held_pending.push((callback, hv, context));
+                        }
                     }
                 }
             }
@@ -892,5 +916,25 @@ pub(crate) fn JS_SpeciesConstructor(
         }
     } else {
         Err(ctx.throw_type_error_not_an_object())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::mem::size_of;
+
+    use super::ObjectImpl;
+
+    /// VM-P1: the GC node size is what collection cost and heap pressure scale
+    /// with — a 104B → 120B growth measurably slowed retain-heavy kernels
+    /// (objects-polymorphic +18%, paired A/B). Growing this struct further
+    /// needs a re-measurement of the GC-heavy kernels, not an accident.
+    #[test]
+    fn object_node_size_budget() {
+        assert!(
+            size_of::<ObjectImpl>() <= 88,
+            "ObjectImpl grew to {}B — re-measure GC-heavy kernels first",
+            size_of::<ObjectImpl>()
+        );
     }
 }

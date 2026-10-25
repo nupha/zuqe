@@ -18,6 +18,11 @@ pub(crate) struct ShapeImpl {
     pub(crate) use_count: u32,
     /// cached shape hash value
     pub(crate) hash: u32,
+    /// `prop_defs.len()`, kept as a field: the JIT property guard's range
+    /// check reads the slot count here (slots are index-aligned with
+    /// `prop_defs`), at a fixed offset `hash_link` does not expose. Updated
+    /// only where `prop_defs` changes (asserted in debug).
+    pub(crate) prop_count: u32,
     /// prototype object
     pub(crate) proto: Option<Object>,
     /// shape properties
@@ -75,6 +80,7 @@ impl ShapeImpl {
         Ok(Self {
             uid,
             use_count: 1,
+            prop_count: props.len() as u32,
             proto,
             prop_defs: props,
             has_small_array_index: false,
@@ -154,6 +160,8 @@ impl ShapeImpl {
             self.hash = shape_hasher_u32(shape_hasher_u32(self.hash, prop.id()), *prop_flags);
         }
 
+        debug_assert_eq!(self.prop_defs.len(), new_len);
+        self.prop_count = new_len as u32;
         new_len
     }
 

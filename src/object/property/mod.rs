@@ -12,3 +12,5 @@ mod set;
 mod slot;
 
 pub use {lazy::*, name::*, prop::*};
+
+pub(crate) use slot::PropValues;

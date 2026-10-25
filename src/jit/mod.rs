@@ -1254,14 +1254,16 @@ mod tests {
             "the shape's id is not where the JIT reads it"
         );
 
-        // The property slots.
+        // The shape's cached property count — what the guard's range check
+        // reads. It must equal the shape's actual prop defs.
         let count = unsafe {
-            *((node as *const u8).add(jit_layout::PROP_LEN_OFFSET as usize) as *const u32)
+            *((shape_node as *const u8).add(jit_layout::SHAPE_PROP_COUNT_OFFSET as usize)
+                as *const u32)
         };
         assert_eq!(
             count as usize,
             shape.len(),
-            "the slot count is not the shape's"
+            "the shape's cached count drifted from its prop defs"
         );
         let slots = unsafe {
             *((node as *const u8).add(jit_layout::PROP_DATA_OFFSET as usize) as *const u64)

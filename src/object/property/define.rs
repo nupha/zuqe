@@ -65,7 +65,7 @@ impl ObjectImpl {
                 if prs_flags & JS_PROP_TMASK == JS_PROP_LAZYINIT {
                     // take lazy field definition
                     let pd = self.replace_prop_slot(idx, JSProperty::default());
-                    debug_assert!(matches!(pd, JSProperty::LazyInit { .. }));
+                    debug_assert!(matches!(pd, JSProperty::LazyInit(_)));
 
                     // modify shape property kind to NORMAL.
                     // Modifying the shape may compact deleted slots (shifting

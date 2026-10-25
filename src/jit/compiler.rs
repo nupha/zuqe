@@ -4548,13 +4548,14 @@ fn lower_get_field_fast(
     if let Some(ordinary) = ordinary {
         b.switch_to_block(ordinary);
     }
-    // The slot the way recorded must be inside the object's slots.
+    // The slot the way recorded must be inside the shape's slots: slots are
+    // index-aligned with the shape's props, and the shape matched above.
     let slot = b.ins().uextend(types::I64, way_slot);
     let count = b.ins().load(
         types::I32,
         MemFlags::new(),
-        obj,
-        jit_layout::PROP_LEN_OFFSET,
+        shape_node,
+        jit_layout::SHAPE_PROP_COUNT_OFFSET,
     );
     let count64 = b.ins().uextend(types::I64, count);
     let in_range = b.ins().icmp(IntCC::UnsignedLessThan, slot, count64);
@@ -4762,13 +4763,14 @@ fn lower_put_field_fast(
     let writable_ok = b.ins().band(is_writable, not_length);
     let flags_ok = b.ins().band(is_data, writable_ok);
 
-    // The slot the way recorded must be inside the object's slots.
+    // The slot the way recorded must be inside the shape's slots (slots are
+    // index-aligned with the shape's props, and the shape matched above).
     let slot = b.ins().uextend(types::I64, way_slot);
     let count = b.ins().load(
         types::I32,
         MemFlags::new(),
-        obj,
-        jit_layout::PROP_LEN_OFFSET,
+        shape_node,
+        jit_layout::SHAPE_PROP_COUNT_OFFSET,
     );
     let count64 = b.ins().uextend(types::I64, count);
     let in_range = b.ins().icmp(IntCC::UnsignedLessThan, slot, count64);
@@ -4997,15 +4999,17 @@ fn emit_global_guard(b: &mut FunctionBuilder, fv: &FrameVals, insn: &Instruction
     b.ins().brif(ids_ok, matched, &[], slow, &[]);
 
     b.switch_to_block(matched);
-    // The slot the cache recorded must still be there, and must still be a
-    // plain data property (`delete` leaves a tombstone; an accessor, a
-    // variable reference and a lazy initializer have their own tags).
+    // The slot the cache recorded must still be there (slots are index-
+    // aligned with the owner shape's props, which matched above), and must
+    // still be a plain data property (`delete` leaves a tombstone; an
+    // accessor, a variable reference and a lazy initializer have their own
+    // tags).
     let slot64 = b.ins().uextend(types::I64, slot);
     let count = b.ins().load(
         types::I32,
         MemFlags::new(),
-        owner,
-        jit_layout::PROP_LEN_OFFSET,
+        owner_shape_node,
+        jit_layout::SHAPE_PROP_COUNT_OFFSET,
     );
     let count64 = b.ins().uextend(types::I64, count);
     let in_range = b.ins().icmp(IntCC::UnsignedLessThan, slot64, count64);

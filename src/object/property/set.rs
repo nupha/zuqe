@@ -122,10 +122,10 @@ impl ObjectImpl {
                     }
 
                     JS_PROP_GETSET => {
-                        return if let JSProperty::GetSet { setter, .. } = cur_obj.prop_slot(idx) {
+                        return if let JSProperty::GetSet(gs) = cur_obj.prop_slot(idx) {
                             call_setter(
                                 ctx,
-                                *setter,
+                                gs.setter,
                                 receiver.unwrap_or(Object::from_ref(self)).into(),
                                 val,
                                 throw,
@@ -137,7 +137,7 @@ impl ObjectImpl {
 
                     JS_PROP_LAZYINIT => {
                         let pd = cur_obj.replace_prop_slot(idx, JSProperty::default());
-                        debug_assert!(matches!(pd, JSProperty::LazyInit { .. }));
+                        debug_assert!(matches!(pd, JSProperty::LazyInit(_)));
 
                         let idx = cur_obj
                             .modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;

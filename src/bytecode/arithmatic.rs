@@ -40,6 +40,12 @@ impl TwoNumbers {
     }
 
     /// fast path
+    ///
+    /// `inline(always)`: every binary-op opcode funnels through here and the
+    /// arith kernels are sensitive to it being outlined — plain codegen churn
+    /// (unrelated struct changes) has been enough to outline it and cost the
+    /// loop kernels ~10%.
+    #[inline(always)]
     const fn from_values_fast(op1: JSValue, op2: JSValue) -> Option<Self> {
         match (op1.tag(), op2.tag()) {
             (

@@ -54,9 +54,8 @@ impl ObjectImpl {
                             };
                         }
                         JS_PROP_GETSET => {
-                            return if let JSProperty::GetSet {
-                                getter: Some(fun), ..
-                            } = cur_obj.prop_slot(idx)
+                            return if let JSProperty::GetSet(gs) = cur_obj.prop_slot(idx)
+                                && let Some(fun) = gs.getter
                             {
                                 // protect `self` before calling getter
                                 let scope_stack_id = ctx.scope_stack_id();
@@ -79,7 +78,7 @@ impl ObjectImpl {
                         JS_PROP_LAZYINIT => {
                             // take lazy field definition
                             let pd = cur_obj.replace_prop_slot(idx, JSProperty::default());
-                            debug_assert!(matches!(pd, JSProperty::LazyInit { .. }));
+                            debug_assert!(matches!(pd, JSProperty::LazyInit(_)));
 
                             // modify shape property kind to NORMAL.
                             // Modifying the shape may compact deleted slots

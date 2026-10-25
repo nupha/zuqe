@@ -16,7 +16,7 @@ use crate::{
     value::JSValue,
 };
 
-use super::JSProperty;
+use super::{JSProperty, PropertyLazy};
 
 /// Lazy initialize a value
 #[repr(u8)]
@@ -114,11 +114,11 @@ impl JSProperty {
     ///
     /// Note: will panic if property is not lazy type.
     pub(super) fn instantiate(self, prop: Atom, this_obj: Object) -> JSResult {
-        if let JSProperty::LazyInit {
-            mut realm,
-            mut init,
-        } = self
-        {
+        if let JSProperty::LazyInit(boxed) = self {
+            let PropertyLazy {
+                mut realm,
+                mut init,
+            } = *boxed;
             realm.with_current_scope(|mut cx| init.instantiate(&mut cx, prop, this_obj))
         } else {
             unreachable!();
@@ -158,10 +158,10 @@ impl ObjectImpl {
             ctx,
             prop,
             (flags & JS_PROP_C_W_E) | JS_PROP_LAZYINIT,
-            JSProperty::LazyInit {
+            JSProperty::LazyInit(Box::new(PropertyLazy {
                 realm,
                 init: lazy_val,
-            },
+            })),
         )?;
         Ok(self)
     }
