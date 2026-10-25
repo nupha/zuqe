@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::mem::ManuallyDrop;
+use std::{cell::UnsafeCell, mem::ManuallyDrop};
 
 use crate::{
     Object, ScopedContext,
@@ -146,7 +146,7 @@ impl StackFrame {
 pub(crate) enum FrameBuffer {
     /// Data stored in VmStack's shared fixed-capacity data slice
     /// (bump-allocated). `data_base` is the arena's data pointer (stable for
-    /// the lifetime of the arena — `Box<[JSValue]>` never reallocates);
+    /// the lifetime of the arena — the backing allocation never reallocates);
     /// `buf_offset` is the offset within that slice;
     /// `buf_capacity` is the allocated size in JSValue units.
     Arena {
@@ -155,7 +155,10 @@ pub(crate) enum FrameBuffer {
         buf_capacity: u32,
     },
     /// Data stored in an independent heap allocation.
-    Heap(Box<[JSValue]>),
+    ///
+    /// `UnsafeCell` lets the interpreter mutate slots through pointers derived
+    /// from `&self`-style borrows (`frame()`, GC tracing, async resume).
+    Heap(Box<[UnsafeCell<JSValue>]>),
     /// Slot has been suspended/freed; data region is invalid.
     Empty,
 }
@@ -233,7 +236,9 @@ impl AsyncStackFrame {
     #[inline(always)]
     pub(crate) fn data(&self) -> &[JSValue] {
         match &self.frame.buf {
-            FrameBuffer::Heap(b) => b,
+            FrameBuffer::Heap(b) => unsafe {
+                std::slice::from_raw_parts(b.as_ptr() as *const JSValue, b.len())
+            },
             _ => unreachable!("AsyncStackFrame must have Heap buf"),
         }
     }

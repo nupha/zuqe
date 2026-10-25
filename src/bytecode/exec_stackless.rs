@@ -266,7 +266,13 @@ impl Bytecode {
         func_home_obj: Option<Object>,
         pc_offset: usize,
         sp_offset: usize,
-        args: &[JSValue],
+        // Start of the current frame's argument region, with `args_len`
+        // entries. Kept as a raw pointer (not `&[JSValue]`) because the
+        // interpreter writes that same region through `ARG_REF!`/`VarRef`
+        // while the slice would otherwise stay borrowed; a live shared slice
+        // across such writes is aliasing UB.
+        args_ptr: *const JSValue,
+        args_len: usize,
         throwed: bool,
     ) -> ExecAction {
         debug_assert!(realm_scope.is_arena_mode());
@@ -355,19 +361,37 @@ impl Bytecode {
         // Resolve captured_vars from the current frame's function object
         // (func_obj already extracted from the preamble frame lookup above).
         // Each function in the call chain has its own closure_var_refs.
-        // We re-derive the correct slice from the current frame's func_obj.
-        let captured_vars: &mut [VarRef] = {
+        //
+        // Held as a raw pointer and re-borrowed per use: the bytecode loop
+        // calls arbitrary runtime code (allocation, GC, closures) in between,
+        // so a `&mut [VarRef]` living across the whole loop would alias other
+        // accesses to the GC payload.
+        let captured_vars: *mut [VarRef] = {
             if let Ok(mut bfun) = BCWrapper::try_from(JSValue::from(func_obj)) {
                 // SAFETY: bfun is a Copy (GcRef), so payload_mut borrows GC-managed
                 // memory that outlives this function call. No GC runs during execution.
                 let cv: *mut [VarRef] = bfun.payload_mut().captured_vars_mut();
-                unsafe { &mut *cv }
+                cv
             } else {
                 // Non-bytecode functions have no closure_var_refs.
                 // But execute_with_arena should never be called for them.
-                &mut []
+                std::ptr::slice_from_raw_parts_mut(NonNull::<VarRef>::dangling().as_ptr(), 0)
             }
         };
+        macro_rules! captured_vars {
+            () => {
+                // SAFETY: see the raw-pointer note above; each borrow ends
+                // before the next runtime call can touch the payload.
+                unsafe { &mut *captured_vars }
+            };
+        }
+        macro_rules! args {
+            () => {
+                // SAFETY: `args_ptr`/`args_len` describe the current frame's
+                // argument region; the borrow is scoped to one use.
+                unsafe { std::slice::from_raw_parts(args_ptr, args_len) }
+            };
+        }
 
         if throwed {
             let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
@@ -378,7 +402,7 @@ impl Bytecode {
             if let Exception::Error(err_val) = rt.exception()
                 && is_backtrace_needed(err_val)
             {
-                frame_mut!(cur_frame_idx).cur_pc_offset = cur_pc;
+                save_pc!(cur_pc);
                 realm_scope.build_backtrace_to(err_val, None, 0);
             }
 
@@ -641,7 +665,7 @@ impl Bytecode {
                         );
                         match unsafe { std::mem::transmute::<u8, SpecialObject>(id) } {
                             SpecialObject::Arguments => {
-                                SP_PUT!(0, js_build_arguments(realm_scope, args));
+                                SP_PUT!(0, js_build_arguments(realm_scope, args!()));
                                 SP_GO!(1);
                                 if unlikely(SP_REF!(-1).is_exception()) {
                                     break ExecAction::Exception;
@@ -664,7 +688,7 @@ impl Bytecode {
                                         realm_scope,
                                         Atom::CONST_length,
                                         JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                                        JSProperty::Normal(JSValue::from(args.len() as i32)),
+                                        JSProperty::Normal(JSValue::from(args_len as i32)),
                                     )
                                     .is_err()
                                 {
@@ -672,7 +696,7 @@ impl Bytecode {
                                 }
 
                                 let mut abort = false;
-                                for i in 0..cmp::min(args.len() as i32, self.arg_count as i32) {
+                                for i in 0..cmp::min(args_len as i32, self.arg_count as i32) {
                                     let content = match get_var_ref(
                                         realm_scope,
                                         i as u16,
@@ -707,10 +731,10 @@ impl Bytecode {
                                     break ExecAction::Exception;
                                 }
 
-                                for (i, a) in args
+                                for (i, a) in args!()
                                     .iter()
                                     .enumerate()
-                                    .skip(cmp::min(args.len(), self.arg_count as usize))
+                                    .skip(cmp::min(args_len, self.arg_count as usize))
                                 {
                                     if obj
                                         .define_property_value_u32(
@@ -810,7 +834,7 @@ impl Bytecode {
                     // ═══════════════════════════════════════════════════
                     OpCode::REST => {
                         let start = PC_FETCH!(u16);
-                        if let Ok(arr) = args
+                        if let Ok(arr) = args!()
                             .iter()
                             .skip(start as usize)
                             .copied()
@@ -913,20 +937,20 @@ impl Bytecode {
                     // ═══════════════════════════════════════════════════
                     OpCode::GET_VAR_REF => {
                         let idx = PC_FETCH!(u16);
-                        let val = captured_vars[idx as usize].value();
+                        let val = captured_vars!()[idx as usize].value();
                         SP_PUT!(0, val);
                         SP_GO!(1);
                     }
                     OpCode::PUT_VAR_REF => {
                         let idx = PC_FETCH!(u16);
-                        captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
+                        captured_vars!()[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                         SP_GO!(-1);
                     }
                     OpCode::SET_VAR_REF => {
                         // [value, ^] -> [value, ^]
                         // store stack top value to var_ref
                         let idx = PC_FETCH!(u16);
-                        captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
+                        captured_vars!()[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                     }
                     OpCode::MAKE_LOC_REF | OpCode::MAKE_ARG_REF | OpCode::MAKE_VAR_REF_REF => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
@@ -943,7 +967,7 @@ impl Bytecode {
                         }
 
                         let var_ref = if opcode == OpCode::MAKE_VAR_REF_REF {
-                            Ok(captured_vars[idx as usize])
+                            Ok(captured_vars!()[idx as usize])
                         } else {
                             get_var_ref(
                                 realm_scope,
@@ -1722,7 +1746,7 @@ impl Bytecode {
                     }
                     OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                         let idx = PC_FETCH!(u16);
-                        let val = captured_vars[idx as usize].value();
+                        let val = captured_vars!()[idx as usize].value();
                         if unlikely(val.is_uninitialized()) {
                             let _ =
                                 realm_scope.throw_reference_error_uninitialized2(self, idx, true);
@@ -1731,18 +1755,18 @@ impl Bytecode {
                             SP_PUT!(0, val);
                             SP_GO!(1);
                         } else {
-                            captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
+                            captured_vars!()[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                             SP_GO!(-1);
                         }
                     }
                     OpCode::PUT_VAR_REF_CHECK_INIT => {
                         let idx = PC_FETCH!(u16);
-                        if unlikely(!captured_vars[idx as usize].value().is_uninitialized()) {
+                        if unlikely(!captured_vars!()[idx as usize].value().is_uninitialized()) {
                             let _ =
                                 realm_scope.throw_reference_error_uninitialized2(self, idx, true);
                             break ExecAction::Exception;
                         } else {
-                            captured_vars[idx as usize].set_value(&mut rt, SP_VAL!(-1));
+                            captured_vars!()[idx as usize].set_value(&mut rt, SP_VAL!(-1));
                             SP_GO!(-1);
                         }
                     }
@@ -1810,7 +1834,7 @@ impl Bytecode {
                                 realm_scope,
                                 JSValue::UNDEFINED,
                                 new_target,
-                                args,
+                                args!(),
                                 JS_CALL_FLAG_CONSTRUCTOR,
                             );
                             if let Ok(val) = ret_val {
@@ -2645,7 +2669,7 @@ impl Bytecode {
                             .make_closure_for_arena(
                                 realm_scope,
                                 None,
-                                captured_vars,
+                                captured_vars!(),
                                 arena_mut!(),
                                 cur_frame_idx,
                             )
@@ -3149,7 +3173,7 @@ impl Bytecode {
                             sp,
                             atom,
                             class_flags as _,
-                            captured_vars,
+                            captured_vars!(),
                             arena_mut!(),
                             cur_frame_idx,
                             opcode == OpCode::DEFINE_CLASS_COMPUTED,
@@ -3413,7 +3437,7 @@ impl Bytecode {
                     if let Exception::Error(err_val) = rt.exception()
                         && is_backtrace_needed(err_val)
                     {
-                        frame_mut!(cur_frame_idx).cur_pc_offset = cur_pc;
+                        save_pc!(cur_pc);
                         realm_scope.build_backtrace_to(err_val, None, 0);
                     }
 
@@ -3646,7 +3670,11 @@ pub(crate) fn execute_trampoline(
     // args is derived from the current frame's arena data at the top of
     // each loop iteration — no need for an external parameter. This is
     // equivalent to how exec.rs passes fresh args via C-stack frames.
-    let mut args;
+    // Kept as (pointer, len) rather than a slice: the callee writes its
+    // argument region through raw pointers, so a long-lived shared slice
+    // would alias those writes.
+    let mut args_ptr: *const JSValue = std::ptr::null();
+    let mut args_len = 0usize;
 
     'trampoline: loop {
         let arena = unsafe { &mut *arena_ptr };
@@ -3660,8 +3688,8 @@ pub(crate) fn execute_trampoline(
         // the top of the loop is simpler and always correct.
         {
             let head = arena.frame(cur_frame_idx);
-            let data = head.buf.data_ptr();
-            args = unsafe { std::slice::from_raw_parts(data, head.arg_real_count as usize) };
+            args_ptr = head.buf.data_ptr();
+            args_len = head.arg_real_count as usize;
         }
 
         // Derive func_home_obj from the current frame's function object.
@@ -3683,7 +3711,8 @@ pub(crate) fn execute_trampoline(
             func_home_obj,
             pc_offset,
             sp_offset,
-            args,
+            args_ptr,
+            args_len,
             throwed,
         );
 
