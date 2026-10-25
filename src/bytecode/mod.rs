@@ -25,19 +25,9 @@ pub const fn opcode_info_intermediate(op: u8) -> &'static Opcode {
     }
 }
 
-/// get opcode descr in final phase (common + optionally short)
+/// get opcode descr in final phase (common)
 pub const fn opcode_info_final(op: u8) -> &'static Opcode {
-    #[cfg(not(feature = "short_opcode"))]
-    {
-        &JS_COMMON_OPCODES_INFO[op as usize]
-    }
-
-    #[cfg(feature = "short_opcode")]
-    if op < OP_COUNT_COMMON {
-        &JS_COMMON_OPCODES_INFO[op as usize]
-    } else {
-        &JS_TEMP_OPCODES_INFO[op as usize - OP_COUNT_COMMON as usize]
-    }
+    &JS_COMMON_OPCODES_INFO[op as usize]
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

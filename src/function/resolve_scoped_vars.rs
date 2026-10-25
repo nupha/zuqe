@@ -835,11 +835,6 @@ impl FunctionDef {
 
         self.update_label_ref_count(label as _, 1);
 
-        #[cfg(feature = "short_opcode")]
-        {
-            self.jump_slots_cap += 1;
-        }
-
         label
     }
 }

@@ -128,7 +128,6 @@ pub(crate) struct FunctionDef {
     /// SAFETY: 有些指令中包含Atom ID，此时Atom为悬空状态，直接清空此缓存会导致Atom泄漏。
     /// 所以，销毁此缓冲前，必须释放涉及的Atom ID.
     pub byte_code: Vec<u8>,
-    pub use_short_opcodes: bool,
     /// -1 if no last opcode
     pub last_opcode_pos: i32,
 
@@ -147,12 +146,6 @@ pub(crate) struct FunctionDef {
     /// raw pointer to top break entry chain.
     /// this pointer does not take ownership of block env.
     pub top_break: *mut BlockEnv,
-
-    /// jump slots capacity
-    #[cfg(feature = "short_opcode")]
-    pub jump_slots_cap: u32,
-    #[cfg(feature = "short_opcode")]
-    pub jump_slots: Vec<JumpSlot>,
 
     /// line number capacity
     pub line_number_slots_cap: usize,
@@ -264,18 +257,12 @@ impl FunctionDef {
 
             #[cfg(feature = "inline_cache")]
             inline_cache_count: 0,
-            use_short_opcodes: false,
 
             label_slots: Vec::new(),
 
             top_break: std::ptr::null_mut(),
             closure_vars: None,
             global_var_refs: Vec::new(),
-
-            #[cfg(feature = "short_opcode")]
-            jump_slots: Vec::new(),
-            #[cfg(feature = "short_opcode")]
-            jump_slots_cap: 0,
 
             line_number_slots: Vec::new(),
             line_number_slots_cap: 0,
@@ -360,13 +347,6 @@ impl FunctionDef {
             self.line_number_last = line_num;
         }
     }
-
-    // /// set new byte code. atoms in old byte code will be freed.
-    // pub fn set_byte_code(&mut self, bc: Vec<u8>, use_short_opcodes: bool) {
-    //     let bc_old = std::mem::replace(&mut self.byte_code, bc);
-    //     let short = std::mem::replace(&mut self.use_short_opcodes, use_short_opcodes);
-    //     free_bytecode_atoms(&bc_old, short);
-    // }
 
     #[cfg(feature = "dump_bytecode")]
     pub fn dump_bytecode(&self, ctx: &mut crate::context::ScopedContext, pass: i32) {
@@ -459,15 +439,6 @@ impl Default for BlockEnv {
             has_iterator: false,
         }
     }
-}
-
-#[cfg(feature = "short_opcode")]
-#[derive(Debug, Clone, Copy)]
-pub struct JumpSlot {
-    pub op: i32,
-    pub size: i32,
-    pub pos: i32,
-    pub label: i32,
 }
 
 pub(super) fn get_label_pos(s: &FunctionDef, mut label: i32) -> i32 {
@@ -639,11 +610,6 @@ pub(super) fn instantiate_hoisted_definitions(
         push_vec_u32(bc, l);
 
         s.update_label_ref_count(l, 1);
-
-        #[cfg(feature = "short_opcode")]
-        {
-            s.jump_slots_cap += 1;
-        }
     }
 
     // add the global variables (only happens if FunctionDef::is_global_var is true)

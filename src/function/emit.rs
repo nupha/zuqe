@@ -405,22 +405,18 @@ impl FunctionDef {
     }
 
     pub fn is_live_code(&self) -> bool {
-        match self.get_prev_opcode() {
+        !matches!(
+            self.get_prev_opcode(),
             opcodes::OP_tail_call
-            | opcodes::OP_tail_call_method
-            | opcodes::OP_return
-            | opcodes::OP_return_undef
-            | opcodes::OP_return_async
-            | opcodes::OP_throw
-            | opcodes::OP_throw_error
-            | opcodes::OP_goto
-            | opcodes::OP_ret => false,
-
-            #[cfg(feature = "short_opcode")]
-            opcodes::OpCode::GOTO8 | opcodes::OpCode::GOTO16 => false,
-
-            _ => true,
-        }
+                | opcodes::OP_tail_call_method
+                | opcodes::OP_return
+                | opcodes::OP_return_undef
+                | opcodes::OP_return_async
+                | opcodes::OP_throw
+                | opcodes::OP_throw_error
+                | opcodes::OP_goto
+                | opcodes::OP_ret
+        )
     }
 }
 
@@ -444,100 +440,14 @@ pub(crate) fn push_vec_atom(buf: &mut Vec<u8>, a: Atom) {
     push_vec_u32(buf, a.id());
 }
 
-pub(crate) fn push_vec_short_code(buf: &mut Vec<u8>, op: u8, idx: u16) {
-    #[cfg(feature = "short_opcode")]
-    {
-        if idx < 4 {
-            match op {
-                opcodes::OP_get_loc => {
-                    push_vec_u8(buf, OP_get_loc0 + idx);
-                    return;
-                }
-                opcodes::OP_put_loc => {
-                    push_vec_u8(buf, OP_put_loc0 + idx);
-                    return;
-                }
-                opcodes::OP_set_loc => {
-                    push_vec_u8(buf, OP_set_loc0 + idx);
-                    return;
-                }
-                opcodes::OP_get_arg => {
-                    push_vec_u8(buf, OP_get_arg0 + idx);
-                    return;
-                }
-                opcodes::OP_put_arg => {
-                    push_vec_u8(buf, OP_put_arg0 + idx);
-                    return;
-                }
-                opcodes::OP_set_arg => {
-                    push_vec_u8(buf, OP_set_arg0 + idx);
-                    return;
-                }
-                opcodes::OP_get_var_ref => {
-                    push_vec_u8(buf, OP_get_var_ref0 + idx);
-                    return;
-                }
-                opcodes::OP_put_var_ref => {
-                    push_vec_u8(buf, OP_put_var_ref0 + idx);
-                    return;
-                }
-                opcodes::OP_set_var_ref => {
-                    push_vec_u8(buf, OP_set_var_ref0 + idx);
-                    return;
-                }
-                opcodes::OP_call => {
-                    push_vec_u8(buf, OP_call0 + idx);
-                    return;
-                }
-                _ => {}
-            }
-        }
-
-        if idx < 256 {
-            match op {
-                opcodes::OP_get_loc => {
-                    push_vec_u8(buf, OP_get_loc8);
-                    push_vec_u8(buf, idx);
-                    return;
-                }
-                opcodes::OP_put_loc => {
-                    push_vec_u8(buf, OP_put_loc8);
-                    push_vec_u8(buf, idx);
-                    return;
-                }
-                opcodes::OP_set_loc => {
-                    push_vec_u8(buf, OP_set_loc8);
-                    push_vec_u8(buf, idx);
-                    return;
-                }
-                _ => {}
-            }
-        }
-    }
-
+/// emit `op` followed by a u16 operand.
+pub(crate) fn push_vec_op_u16(buf: &mut Vec<u8>, op: u8, idx: u16) {
     push_vec_u8(buf, op);
     push_vec_u16(buf, idx);
 }
 
-pub(crate) fn push_vec_short_int(buf: &mut Vec<u8>, val: i32) {
-    #[cfg(feature = "short_opcode")]
-    {
-        if val >= -1 && val <= 7 {
-            put_vec_u8(buf, OP_push_0 + val);
-            return;
-        }
-        if val == (val as i8) as i32 {
-            put_vec_u8(buf, OP_push_i8);
-            put_vec_u8(buf, val as _);
-            return;
-        }
-        if val == (val as i16) as i32 {
-            put_vec_u8(buf, OP_push_i16);
-            dbuf_put_u16(buf, val as _);
-            return;
-        }
-    }
-
+/// emit `OP_push_i32` followed by the i32 immediate.
+pub(crate) fn push_vec_i32(buf: &mut Vec<u8>, val: i32) {
     push_vec_u8(buf, opcodes::OP_push_i32);
     push_vec_u32(buf, val as _);
 }

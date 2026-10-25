@@ -12,7 +12,10 @@ use crate::{
 
 use super::{
     FunctionDef, JSVarKindEnum, get_label_pos, instantiate_hoisted_definitions,
-    optimize::{OPTIMIZE, Pat, Pat::{Any, Op}},
+    optimize::{
+        OPTIMIZE, Pat,
+        Pat::{Any, Op},
+    },
     push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,
 };
 
@@ -232,11 +235,6 @@ impl FunctionDef {
                     }
                 }
                 opcodes::OP_gosub => {
-                    #[cfg(feature = "short_opcode")]
-                    {
-                        self.jump_slots_cap += 1;
-                    }
-
                     if OPTIMIZE {
                         // remove calls to empty finalizers
                         let label_id = unsafe { read_from_ptr::<u32>(bc_buf_ptr.add(pos + 1)) };
@@ -316,11 +314,6 @@ impl FunctionDef {
                 | opcodes::OP_throw
                 | opcodes::OP_throw_error
                 | opcodes::OP_ret => {
-                    #[cfg(feature = "short_opcode")]
-                    if op == opcodes::OP_goto {
-                        self.jump_slots_cap += 1;
-                    }
-
                     if OPTIMIZE {
                         // remove dead code
                         push_vec_slice(&mut bc_out, unsafe { bc_buf_ptr.add(pos) }, op_len as _)
@@ -423,11 +416,6 @@ impl FunctionDef {
                     }
                 }
                 opcodes::OP_if_false | opcodes::OP_if_true | opcodes::OP_catch => {
-                    #[cfg(feature = "short_opcode")]
-                    {
-                        self.jump_slots_cap += 1;
-                    }
-
                     no_change!(pos, op_len);
                 }
                 opcodes::OP_dup => {
@@ -462,11 +450,6 @@ impl FunctionDef {
                         }
 
                         if let Some(cc) = self.code_match(pos2, &[Op(op1)]) {
-                            #[cfg(feature = "short_opcode")]
-                            {
-                                self.jump_slots_cap += 1;
-                            }
-
                             self.update_label_ref_count(lab0 as _, -1);
                             self.update_label_ref_count(cc.label as _, 1);
 

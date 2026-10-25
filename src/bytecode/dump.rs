@@ -71,8 +71,9 @@ pub(crate) fn dump_opcodes(
     bc: Option<&Bytecode>,
 ) {
     let len = bin.len();
-    let use_short_opcodes = bc.is_some();
-    let op_max = if use_short_opcodes {
+    // pass 3 dumps the final bytecode; passes 1/2 dump the intermediate form.
+    let is_final = bc.is_some();
+    let op_max = if is_final {
         OP_COUNT_FINAL
     } else {
         OP_COUNT_INTERMEDIATE
@@ -87,7 +88,7 @@ pub(crate) fn dump_opcodes(
     // scan for jump targets
     while pos < len {
         let op = bin[pos];
-        let oi = if use_short_opcodes {
+        let oi = if is_final {
             opcode_info_final(op)
         } else {
             opcode_info_intermediate(op)
@@ -96,39 +97,6 @@ pub(crate) fn dump_opcodes(
 
         if op < op_max {
             match oi.fmt {
-                #[cfg(feature = "short_opcode")]
-                "label8" => {
-                    pos += 1;
-                    addr = *opcodes.offset(pos) as i32;
-                    if pass == 1 {
-                        addr = (*labels.offset(addr as isize)).pos;
-                    }
-                    if pass == 2 {
-                        addr = (*labels.offset(addr as isize)).pos2;
-                    }
-                    if pass == 3 {
-                        addr += pos;
-                    }
-                    if addr >= 0 && addr < len {
-                        *bits.offset(addr as isize) |= 1;
-                    }
-                }
-                #[cfg(feature = "short_opcode")]
-                "label16" => {
-                    pos += 1;
-                    let addr = read_from_ptr::<u16>(opcodes.add(pos)) as i32;
-                    if pass == 1 {
-                        addr = labels[addr as usize].pos;
-                    } else if pass == 2 {
-                        addr = labels[addr as usize].pos2;
-                    } else if pass == 3 {
-                        addr += pos;
-                    }
-                    if addr >= 0 && addr < len {
-                        *bits.offset(addr as isize) |= 1;
-                    }
-                }
-
                 f @ (OpcodeFormat::ATOM_LABEL_U8
                 | OpcodeFormat::ATOM_LABEL_U16
                 | OpcodeFormat::LABEL
@@ -221,7 +189,7 @@ pub(crate) fn dump_opcodes(
             pos += 1;
             continue;
         }
-        let oi = if use_short_opcodes {
+        let oi = if is_final {
             opcode_info_final(op)
         } else {
             opcode_info_intermediate(op)
@@ -263,14 +231,6 @@ pub(crate) fn dump_opcodes(
 
         // print arguments
         match oi.fmt {
-            #[cfg(feature = "short_opcode")]
-            OpcodeFormat::NONE_INT => {
-                print!(" {}", op - opcodes::OP_push_0);
-            }
-            #[cfg(feature = "short_opcode")]
-            OpcodeFormat::NPOPX => {
-                print!(" {}", op - opcodes::OP_call0);
-            }
             OpcodeFormat::U8 => {
                 print!(" {}", bin[pos]);
             }
@@ -312,17 +272,6 @@ pub(crate) fn dump_opcodes(
                 );
             }
 
-            #[cfg(feature = "short_opcode")]
-            OpcodeFormat::LABEL8 => {
-                let addr = get_i8(opcodes.as_ptr().offset(pos));
-                has_addr1(addr);
-            }
-            #[cfg(feature = "short_opcode")]
-            OpcodeFormat::LABEL16 => {
-                let addr = get_i16(opcodes.as_ptr().offset(pos));
-                has_addr1!(addr);
-            }
-
             f @ (OpcodeFormat::LABEL | OpcodeFormat::LABEL_U16) => {
                 let addr = unsafe { read_from_ptr::<u32>(bin.as_ptr().add(pos)) };
                 has_addr1!(addr);
@@ -331,16 +280,6 @@ pub(crate) fn dump_opcodes(
                     print!(", {}", unsafe {
                         read_from_ptr::<u16>(bin.as_ptr().add(pos + 4))
                     });
-                }
-            }
-
-            #[cfg(feature = "short_opcode")]
-            OpcodeFormat::CONST8 => {
-                idx = get_u8(opcodes.offset(pos));
-                // C2RS: goto has_pool_idx replaced with inline logic
-                printf(" {}: ", idx);
-                if idx < cpool_count as i32 {
-                    (*cpool.offset(idx as isize)).dump(ctx.rt());
                 }
             }
 
@@ -391,15 +330,6 @@ pub(crate) fn dump_opcodes(
                 }
             }
 
-            #[cfg(feature = "short_opcode")]
-            OpcodeFormat::NONE_LOC => {
-                idx = (op - OP_get_loc0) % 4;
-                printf(" {}: ", idx);
-                if idx < var_count {
-                    print_atom(ctx.rt, (*vars.offset(idx as isize)).var_name);
-                }
-            }
-
             f @ (OpcodeFormat::LOC8 | OpcodeFormat::LOC) => {
                 let idx = if f == OpcodeFormat::LOC8 {
                     unsafe { *bin.as_ptr().add(pos) as usize }
@@ -412,30 +342,12 @@ pub(crate) fn dump_opcodes(
                 );
             }
 
-            #[cfg(feature = "short_opcode")]
-            OpcodeFormat::NONE_ARG => {
-                idx = (op - opcodes::OP_get_arg0) % 4;
-                printf(" {}: ", idx);
-                if idx < arg_count {
-                    print_atom(ctx.rt, (*args.offset(idx as isize)).var_name);
-                }
-            }
-
             OpcodeFormat::ARG => {
                 let idx = unsafe { read_from_ptr::<u16>(bin.as_ptr().add(pos)) as usize };
                 print!(
                     " {idx}  ; {}",
                     args.get(idx).unwrap().var_name.to_utf8(ctx.rt_ref())
                 );
-            }
-
-            #[cfg(feature = "short_opcode")]
-            OpcodeFormat::NONE_VAR_REF => {
-                idx = (op - opcodes::OP_get_var_ref0) % 4;
-                printf(" {}: ", idx);
-                if idx < closure_var_count {
-                    print_atom(ctx, (*closure_var.offset(idx as isize)).var_name);
-                }
             }
 
             OpcodeFormat::VAR_REF => {
@@ -710,14 +622,6 @@ pub(super) fn dump_run_instruction(
 
     // print arguments
     match oi.fmt {
-        #[cfg(feature = "short_opcode")]
-        "none_int" => {
-            print!(" {}", op - opcodes::OP_push_0);
-        }
-        #[cfg(feature = "short_opcode")]
-        "npopx" => {
-            print!(" {}", op - opcodes::OP_call0);
-        }
         OpcodeFormat::U8 => {
             print!(" {}", tab[pos]);
         }
@@ -759,17 +663,6 @@ pub(super) fn dump_run_instruction(
             );
         }
 
-        #[cfg(feature = "short_opcode")]
-        OpcodeFormat::LABEL8 => {
-            addr = get_i8(tab.as_ptr().offset(pos));
-            has_addr1();
-        }
-        #[cfg(feature = "short_opcode")]
-        OpcodeFormat::LABEL16 => {
-            addr = get_i16(tab.as_ptr().offset(pos));
-            has_addr1!();
-        }
-
         f @ (OpcodeFormat::LABEL | OpcodeFormat::LABEL_U16) => {
             // addr = get_u32(tab.as_ptr().add(pos)) as _;
             // has_addr1!();
@@ -777,15 +670,6 @@ pub(super) fn dump_run_instruction(
                 print!(", {}", unsafe {
                     read_from_ptr::<u16>(tab.as_ptr().add(pos + 4))
                 });
-            }
-        }
-
-        #[cfg(feature = "short_opcode")]
-        OpcodeFormat::CONST8 => {
-            idx = get_u8(tab.offset(pos));
-            printf(" {}: ", idx);
-            if idx < cpool_count as i32 {
-                (*cpool.offset(idx as isize)).dump(ctx.rt());
             }
         }
 
@@ -838,15 +722,6 @@ pub(super) fn dump_run_instruction(
             print!("   ;; {diff} -> @{}", diff + pos as i32 + 4)
         }
 
-        #[cfg(feature = "short_opcode")]
-        OpcodeFormat::NONE_LOC => {
-            idx = (op - OP_get_loc0) % 4;
-            printf(" {}: ", idx);
-            if idx < var_count {
-                print_atom(ctx.rt, (*vars.offset(idx as isize)).var_name);
-            }
-        }
-
         f @ (OpcodeFormat::LOC8 | OpcodeFormat::LOC) => {
             let idx = if f == OpcodeFormat::LOC8 {
                 unsafe { *tab.as_ptr().add(pos) as usize }
@@ -860,15 +735,6 @@ pub(super) fn dump_run_instruction(
             }
         }
 
-        #[cfg(feature = "short_opcode")]
-        OpcodeFormat::NONE_ARG => {
-            idx = (op - opcodes::OP_get_arg0) % 4;
-            printf(" {}: ", idx);
-            if idx < arg_count {
-                print_atom(ctx.rt, (*args.offset(idx as isize)).var_name);
-            }
-        }
-
         OpcodeFormat::ARG => {
             let idx = unsafe { read_from_ptr::<u16>(tab.as_ptr().add(pos)) as usize };
             if let Some(vi) = b.get_arg(idx as _) {
@@ -877,15 +743,6 @@ pub(super) fn dump_run_instruction(
                 });
             } else {
                 print!(" {idx}");
-            }
-        }
-
-        #[cfg(feature = "short_opcode")]
-        OpcodeFormat::NONE_VAR_REF => {
-            idx = (op - opcodes::OP_get_var_ref0) % 4;
-            printf(" {}: ", idx);
-            if idx < closure_var_count {
-                print_atom(ctx, (*closure_var.offset(idx as isize)).var_name);
             }
         }
 

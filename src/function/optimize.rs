@@ -5,8 +5,7 @@ use crate::{
     atom::Atom,
     bytecode::{OpCode, OpcodeFormat, opcode_info_final, opcode_info_intermediate, opcodes},
     function::{
-        FunctionDef, Label, push_vec_atom, push_vec_short_code, push_vec_short_int, push_vec_u8,
-        push_vec_u16,
+        FunctionDef, Label, push_vec_atom, push_vec_i32, push_vec_op_u16, push_vec_u8, push_vec_u16,
     },
     utils::{M2, M3, read_from_ptr, write_to_ptr},
 };
@@ -352,21 +351,8 @@ impl FunctionDef {
                 }
                 self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
 
-                #[cfg(feature = "short_opcode")]
-                {
-                    if cc.atom == JS_ATOM_empty_string {
-                        JS_FreeAtom(ctx, cc.atom);
-                        dbuf_putc(&mut bc_out, OP_push_empty_string);
-                    } else {
-                        push_vec_u8(&mut bc_out, opcodes::OP_push_atom_value);
-                        push_vec_atom(&mut bc_out, cc.atom);
-                    }
-                }
-                #[cfg(not(feature = "short_opcode"))]
-                {
-                    push_vec_u8(bc_out, opcodes::OP_push_atom_value);
-                    push_vec_atom(bc_out, cc.atom);
-                }
+                push_vec_u8(bc_out, opcodes::OP_push_atom_value);
+                push_vec_atom(bc_out, cc.atom);
 
                 push_vec_u8(bc_out, opcodes::OP_add_loc);
                 push_vec_u8(bc_out, idx as u8);
@@ -388,7 +374,7 @@ impl FunctionDef {
                     *line_num = cc.line_num as _;
                 }
                 self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
-                push_vec_short_int(bc_out, cc.label);
+                push_vec_i32(bc_out, cc.label);
                 push_vec_u8(bc_out, opcodes::OP_add_loc);
                 push_vec_u8(bc_out, idx as u8);
                 *pos_next = cc.pos;
@@ -417,13 +403,13 @@ impl FunctionDef {
                     *line_num = cc.line_num as _;
                 }
                 self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
-                push_vec_short_code(bc_out, cc.op as _, cc.idx as _);
+                push_vec_op_u16(bc_out, cc.op as _, cc.idx as _);
                 push_vec_u8(bc_out, opcodes::OP_add_loc);
                 push_vec_u8(bc_out, idx as u8);
                 *pos_next = cc.pos;
             } else {
                 self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
-                push_vec_short_code(bc_out, OpCode::GET_LOC as u8, idx);
+                push_vec_op_u16(bc_out, OpCode::GET_LOC as u8, idx);
             }
 
             true
@@ -466,11 +452,11 @@ impl FunctionDef {
                 opcodes::OP_put_var_ref => opcodes::OP_set_var_ref,
                 _ => unreachable!(),
             };
-            push_vec_short_code(bc_out, set_op, idx);
+            push_vec_op_u16(bc_out, set_op, idx);
             *pos_next = cc.pos;
         } else {
             self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
-            push_vec_short_code(bc_out, op, idx);
+            push_vec_op_u16(bc_out, op, idx);
         }
 
         true
@@ -539,7 +525,7 @@ impl FunctionDef {
                 _ => unreachable!(),
             };
             push_vec_u8(bc_out, dec_inc);
-            push_vec_short_code(bc_out, final_op, idx as u16);
+            push_vec_op_u16(bc_out, final_op, idx as u16);
             return true;
         }
 
@@ -677,11 +663,14 @@ impl FunctionDef {
 
         if let Some(cc) = self.code_match(
             *pos_next,
-            &[Op(M3(
-                OpCode::PUT_LOC as _,
-                OpCode::PUT_ARG as _,
-                OpCode::PUT_VAR_REF as _,
-            )), Any],
+            &[
+                Op(M3(
+                    OpCode::PUT_LOC as _,
+                    OpCode::PUT_ARG as _,
+                    OpCode::PUT_VAR_REF as _,
+                )),
+                Any,
+            ],
         ) {
             if cc.line_num >= 0 {
                 *line_num = cc.line_num;
@@ -719,7 +708,7 @@ impl FunctionDef {
             }
 
             self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
-            push_vec_short_code(bc_out, final_op, idx as u16);
+            push_vec_op_u16(bc_out, final_op, idx as u16);
             if line2 >= 0 {
                 *line_num = line2;
             }
@@ -940,10 +929,7 @@ mod tests {
     #[test]
     fn element_postfix_increment_survives_every_inline_cache_index() {
         for n in 0..64 {
-            let src = format!(
-                "{SETUP}{}\na[k + 0]++;\na[3] === 4 ? 1 : 0;",
-                filler(n)
-            );
+            let src = format!("{SETUP}{}\na[k + 0]++;\na[3] === 4 ? 1 : 0;", filler(n));
             assert_eq!(eval_int(&src), 1, "postfix increment, filler={n}");
         }
     }

@@ -5,14 +5,17 @@ use crate::{
     bytecode::{OpCode, SpecialObject, opcode_info_intermediate, opcodes},
     context::ScopedContext,
     function::{
-        CodeMatchState, FunctionDef, push_vec_atom, push_vec_short_code, push_vec_short_int,
-        push_vec_slice, push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,
+        CodeMatchState, FunctionDef, push_vec_atom, push_vec_i32, push_vec_op_u16, push_vec_slice,
+        push_vec_u8, push_vec_u16, push_vec_u32, skip_dead_code,
     },
     utils::{M2, M3, M4, read_from_ptr, write_to_ptr},
     vm_stack::ExecMode,
 };
 
-use super::optimize::{OPTIMIZE, Pat::{Any, Op}};
+use super::optimize::{
+    OPTIMIZE,
+    Pat::{Any, Op},
+};
 
 #[derive(Debug, Clone)]
 enum ResolveLabelsState {
@@ -44,19 +47,6 @@ impl FunctionDef {
             .try_reserve_exact(bc_len)
             .map_err(|_| ctx.throw_out_of_memory())?;
 
-        #[cfg(feature = "short_opcode")]
-        if self.jump_slots_cap != 0 {
-            if self
-                .jump_slots
-                .try_reserve_exact(self.jump_slots_cap)
-                .is_err()
-            {
-                self.ctx.JS_ThrowOutOfMemory();
-                return -1;
-            }
-        }
-
-        // XXX: Should skip this phase if not generating SHORT_OPCODES
         if self.line_number_slots_cap != 0 && !self.attrs.exec_mode.contains(ExecMode::STRIP) {
             self.line_number_slots
                 .try_reserve(self.line_number_slots_cap)
@@ -70,21 +60,21 @@ impl FunctionDef {
         if let Some(vidx) = self.home_object_var_idx {
             push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
             push_vec_u8(&mut bc_out, SpecialObject::HomeObject as _);
-            push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
+            push_vec_op_u16(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
 
         // initialize the 'this.active_func' variable if needed
         if let Some(vidx) = self.this_active_func_var_idx {
             push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
             push_vec_u8(&mut bc_out, SpecialObject::ThisFunc as _);
-            push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
+            push_vec_op_u16(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
 
         // initialize the 'new.target' variable if needed
         if let Some(vidx) = self.new_target_var_idx {
             push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
             push_vec_u8(&mut bc_out, SpecialObject::NewTarget as _);
-            push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
+            push_vec_op_u16(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
 
         // initialize the 'this' variable if needed. In a derived class
@@ -95,7 +85,7 @@ impl FunctionDef {
                 push_vec_u16(&mut bc_out, vidx);
             } else {
                 push_vec_u8(&mut bc_out, OpCode::PUSH_THIS as u8);
-                push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
+                push_vec_op_u16(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
             }
         }
 
@@ -111,28 +101,28 @@ impl FunctionDef {
                 push_vec_u8(&mut bc_out, SpecialObject::MappedArguments as _);
             }
             if let Some(aidx) = self.arguments_arg_idx {
-                push_vec_short_code(&mut bc_out, OpCode::SET_LOC as u8, aidx);
+                push_vec_op_u16(&mut bc_out, OpCode::SET_LOC as u8, aidx);
             }
-            push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
+            push_vec_op_u16(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
 
         // initialize a reference to the current function if needed
         if let Some(vidx) = self.func_var_idx {
             push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
             push_vec_u8(&mut bc_out, SpecialObject::ThisFunc as _);
-            push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
+            push_vec_op_u16(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
 
         // initialize the variable environment object if needed
         if let Some(vidx) = self.var_object_idx {
             push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
             push_vec_u8(&mut bc_out, SpecialObject::VarObject as _);
-            push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
+            push_vec_op_u16(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
         if let Some(vidx) = self.arg_var_object_idx {
             push_vec_u8(&mut bc_out, OpCode::SPECIAL_OBJECT as u8);
             push_vec_u8(&mut bc_out, SpecialObject::VarObject as _);
-            push_vec_short_code(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
+            push_vec_op_u16(&mut bc_out, OpCode::PUT_LOC as u8, vidx);
         }
 
         let mut label: u32;
@@ -210,11 +200,11 @@ impl FunctionDef {
                             opcodes::OP_call_method => opcodes::OP_tail_call_method,
                             _ => unreachable!(),
                         };
-                        push_vec_short_code(&mut bc_out, tail_op, argc);
+                        push_vec_op_u16(&mut bc_out, tail_op, argc);
                         pos_next = skip_dead_code(self, bc_ptr, bc_len, m.pos, &mut line_num);
                     } else {
                         self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
-                        push_vec_short_code(&mut bc_out, op, argc);
+                        push_vec_op_u16(&mut bc_out, op, argc);
                     }
                     None
                 }
@@ -278,14 +268,6 @@ impl FunctionDef {
 
                     self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
 
-                    #[cfg(feature = "short_opcode")]
-                    self.jump_slots.push(super::JumpSlot {
-                        op,
-                        size: 4,
-                        pos: bc_out.size + 1,
-                        label,
-                    });
-
                     push_vec_u8(&mut bc_out, op);
                     push_vec_u32(&mut bc_out, atom);
 
@@ -323,41 +305,6 @@ impl FunctionDef {
                 opcodes::OP_null | opcodes::OP_push_false | opcodes::OP_push_true => {
                     let mut goto = Some(ResolveLabelsState::NoChange);
 
-                    #[cfg(feature = "short_opcode")]
-                    {
-                        // FIXME: XXX
-                        if op == opcodes::OP_null {
-                            if OPTIMIZE {
-                                if cc.code_match(pos_next, OP_strict_eq, -1) {
-                                    if cc.line_num >= 0 {
-                                        line_num = cc.line_num;
-                                    }
-                                    self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
-                                    push_vec_u8(&mut bc_out, OP_is_null);
-                                    pos_next = cc.pos;
-                                    todo("break");
-                                }
-                                if cc.code_match(
-                                    pos_next,
-                                    OP_strict_neq,
-                                    M2(OP_if_false, OP_if_true),
-                                    -1,
-                                ) {
-                                    if cc.line_num >= 0 {
-                                        line_num = cc.line_num;
-                                    }
-                                    self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
-                                    push_vec_u8(&mut bc_out, OP_is_null);
-                                    pos_next = cc.pos;
-                                    label = cc.label;
-                                    op ^= OP_if_true ^ OP_if_false;
-                                    // C2RS: Goto translated to loop control logic
-                                    todo!(continue);
-                                }
-                            }
-                        }
-                    }
-
                     if OPTIMIZE
                         && let Some(cc) = self.code_match(
                             pos_next,
@@ -391,11 +338,12 @@ impl FunctionDef {
                                 }
                             } else {
                                 self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
-                                push_vec_short_int(&mut bc_out, -val);
+                                push_vec_i32(&mut bc_out, -val);
                             }
                             pos_next = cc.pos;
                             goto.take(); // cancel process NoChange, continue with updated pos_next
-                        } else if let Some(cc) = self.code_match(pos_next, &[Op(OpCode::DROP as _)]) {
+                        } else if let Some(cc) = self.code_match(pos_next, &[Op(OpCode::DROP as _)])
+                        {
                             // remove push/drop pairs generated by the parser
                             if cc.line_num >= 0 {
                                 line_num = cc.line_num as _;
@@ -413,40 +361,11 @@ impl FunctionDef {
                             });
                         } else {
                             self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
-                            push_vec_short_int(&mut bc_out, val);
+                            push_vec_i32(&mut bc_out, val);
                             goto.take(); // cancel goto NoChange
                         }
                     }
 
-                    goto
-                }
-
-                #[cfg(feature = "short_opcode")]
-                opcodes::OP_push_const | opcodes::OP_fclosure => {
-                    let mut goto = Some(ResolveLabelsState::NoChange);
-                    if (OPTIMIZE) {
-                        let idx = read_from_ptr::<u32>(bc_ptr + pos + 1);
-                        if (idx < 256) {
-                            self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
-                            dbuf_putc(&bc_out, OP_push_const8 + op - OP_push_const);
-                            dbuf_putc(&bc_out, idx);
-                            goto.take();
-                        }
-                    }
-                    goto
-                }
-                #[cfg(feature = "short_opcode")]
-                opcodes::OP_get_field => {
-                    let mut goto = Some(ResolveLabelsState::NoChange);
-                    if (OPTIMIZE) {
-                        let atom = read_from_ptr::<u32>(bc_ptr + pos + 1);
-                        if (atom == JS_ATOM_length) {
-                            JS_FreeAtom(ctx, atom);
-                            self.add_pc2line_info(bc_out.len() as _, line_num, line_pos);
-                            dbuf_putc(&bc_out, OP_get_length);
-                            goto.take();
-                        }
-                    }
                     goto
                 }
 
@@ -464,14 +383,6 @@ impl FunctionDef {
                             pos_next = cc.pos;
                             None
                         } else {
-                            #[cfg(feature = "short_opcode")]
-                            if atom == JS_ATOM_empty_string {
-                                JS_FreeAtom(ctx, atom);
-                                self.add_pc2line_info(bc_out.size, line_num, line_pos);
-                                dbuf_putc(&bc_out, OP_push_empty_string);
-                                goto.take(); // cancel goto no_change
-                            }
-
                             Some(ResolveLabelsState::NoChange)
                         }
                     } else {
@@ -539,7 +450,9 @@ impl FunctionDef {
                             }
                             pos_next = cc.pos;
                             goto.take();
-                        } else if let Some(cc) = self.code_match(pos_next, &[Op(OpCode::RETURN as _)]) {
+                        } else if let Some(cc) =
+                            self.code_match(pos_next, &[Op(OpCode::RETURN as _)])
+                        {
                             // transform undefined return -> return_undefined
                             if cc.line_num >= 0 {
                                 line_num = cc.line_num as _;
@@ -558,36 +471,6 @@ impl FunctionDef {
                                 val: false,
                             });
                         }
-
-                        #[cfg(feature = "short_opcode")]
-                        {
-                            // transform undefined strict_eq -> is_undefined
-                            if let Some(cc) = self.code_match(pos_next, &[Op(OpCode::STRICT_EQ as _)]) {
-                                if cc.line_num >= 0 {
-                                    line_num = cc.line_num as _;
-                                }
-                                self.add_pc2line_info(bc_out.size, line_num, line_pos);
-                                push_vec_u8(&mut bc_out, OpCode::IS_UNDEFINED as _);
-                                pos_next = cc.pos;
-                                goto.take();
-                            } else if let Some(cc) = self.code_match(
-                                pos_next,
-                                &[
-                                    Op(OpCode::STRICT_NEQ as _),
-                                    Op(M2(OpCode::IF_FALSE as _, OpCode::IF_TRUE as _)),
-                                ],
-                            ) {
-                                // transform undefined strict_neq if_false/if_true -> is_undefined if_true/if_false
-                                if cc.line_num >= 0 {
-                                    line_num = cc.line_num;
-                                }
-                                self.add_pc2line_info(bc_out.size, line_num, line_pos);
-                                push_vec_u8(&mut bc_out, OpCode::IS_UNDEFINED as _);
-                                pos_next = cc.pos;
-                                op = cc.op ^ OP_if_false ^ OP_if_true;
-                                goto = Some(ResolveLabelsState::HasLabel(cc.label));
-                            }
-                        }
                     }
                     goto
                 }
@@ -596,12 +479,10 @@ impl FunctionDef {
                     if OPTIMIZE {
                         // Transformation:
                         // insert2 put_field(a) drop -> put_field(a)
-                        if let Some(cc) =
-                            self.code_match(
-                                pos_next,
-                                &[Op(OpCode::PUT_FIELD as _), Op(OpCode::DROP as _)],
-                            )
-                        {
+                        if let Some(cc) = self.code_match(
+                            pos_next,
+                            &[Op(OpCode::PUT_FIELD as _), Op(OpCode::DROP as _)],
+                        ) {
                             if cc.line_num >= 0 {
                                 line_num = cc.line_num as _;
                             }
@@ -653,11 +534,6 @@ impl FunctionDef {
                     }
                 }
 
-                #[cfg(feature = "short_opcode")]
-                opcodes::OP_get_arg | opcodes::OP_get_var_ref => {
-                    unimplemented!()
-                }
-
                 opcodes::OP_put_loc | opcodes::OP_put_arg | opcodes::OP_put_var_ref => {
                     if OPTIMIZE {
                         self.optimize_put_loc(
@@ -688,11 +564,6 @@ impl FunctionDef {
                     } else {
                         Some(ResolveLabelsState::NoChange)
                     }
-                }
-
-                #[cfg(feature = "short_opcode")]
-                opcodes::OP_typeof => {
-                    unimplemented!()
                 }
 
                 _ => Some(ResolveLabelsState::NoChange),
@@ -754,74 +625,6 @@ impl FunctionDef {
                         }
                         let ls = self.label_slots.get_mut(label as usize).unwrap();
 
-                        #[cfg(feature = "short_opcode")]
-                        {
-                            let mut jp = super::JumpSlot {
-                                op: label_op,
-                                size: 4,
-                                pos: bc_out.len() + 1,
-                                label,
-                            };
-
-                            if (*ls).addr == -1 {
-                                let diff = (*ls).pos2 - pos as i32 - 1;
-                                if diff < 128
-                                    && matches!(
-                                        label_op,
-                                        opcodes::OP_if_false
-                                            | opcodes::OP_if_true
-                                            | opcodes::OP_goto
-                                    )
-                                {
-                                    jp.size = 1;
-                                    jp.op =
-                                        opcodes::OP_if_false8 + (label_op - opcodes::OP_if_false);
-                                    push_vec_u8(
-                                        &mut bc_out,
-                                        opcodes::OP_if_false8 + (label_op - opcodes::OP_if_false),
-                                    );
-                                    push_vec_u8(&mut bc_out, 0);
-                                    if ls.add_reloc(ctx, bc_out.len() - 1, 1).is_err() {
-                                        state = Some(ResolveLabelsState::Fail);
-                                    }
-                                } else if (diff < 32768 && label_op == OP_goto) {
-                                    jp.size = 2;
-                                    jp.op = OP_goto16;
-                                    push_vec_u8(&mut bc_out, opcodes::OP_goto16);
-                                    push_vec_u16(&mut bc_out, 0);
-                                    if ls.add_reloc(ctx, bc_out.len() - 2, 2).is_err() {
-                                        state = Some(ResolveLabelsState::Fail);
-                                    }
-                                }
-                            } else {
-                                let diff = (*ls).addr - bc_out.len() as i32 - 1;
-                                if diff == diff as u8 as i32
-                                    && matches!(
-                                        label_op,
-                                        opcodes::OP_if_false
-                                            | opcodes::OP_if_true
-                                            | opcodes::OP_goto
-                                    )
-                                {
-                                    jp.size = 1;
-                                    jp.op = OP_if_false8 + (label_op - OP_if_false);
-                                    push_vec_u8(
-                                        &mut bc_out,
-                                        opcodes::OP_if_false8 + (label_op - opcodes::OP_if_false),
-                                    );
-                                    push_vec_u8(&mut bc_out, diff as u8);
-                                } else if diff == diff as u16 as i32 && label_op == opcodes::OP_goto
-                                {
-                                    jp.size = 2;
-                                    jp.op = OP_goto16;
-                                    push_vec_u8(&mut bc_out, opcodes::OP_goto16);
-                                    push_vec_u16(&mut bc_out, diff as u16);
-                                }
-                            }
-
-                            self.jump_slots.push(jp);
-                        }
-
                         push_vec_u8(&mut bc_out, label_op);
                         let delta = ls.addr - bc_out.len() as i32; // could be minus
                         push_vec_u32(&mut bc_out, delta as u32);
@@ -880,115 +683,6 @@ impl FunctionDef {
             debug_assert!(lb.pending_relocs.is_empty());
         }
 
-        #[cfg(feature = "short_opcode")]
-        {
-            if OPTIMIZE {
-                let mut patch_offsets = 0;
-                for jp in self.jump_slots.iter_mut() {
-                    let mut delta = 3;
-                    let mut op = jp.op;
-                    match op {
-                        OP_goto16 => {
-                            delta = 1;
-                            // fall thru
-                        }
-                        OP_if_false | OP_if_true | OP_goto => {
-                            let pos = jp.pos;
-                            let diff = (*self.label_slots.offset(jp.label as isize)).addr - pos;
-                            if diff >= -128 && diff <= 127 + delta {
-                                jp.size = 1;
-                                if op == OP_goto16 {
-                                    *bc_out.buf.offset(pos - 1) = OP_goto8;
-                                } else {
-                                    *bc_out.buf.offset(pos - 1) = OP_if_false8 + (op - OP_if_false);
-                                }
-                                // C2RS: memmove translated to copy_within
-                                std::ptr::copy(
-                                    bc_out.buf.offset(pos + (*jp).size as isize),
-                                    bc_out.buf.offset(pos + (*jp).size as isize + delta),
-                                    (bc_out.size - pos - jp.size - delta) as usize,
-                                );
-                                bc_out.size -= delta;
-                                patch_offsets += 1;
-                                for j in 0..self.label_count {
-                                    let ls = self.label_slots.offset(j as isize);
-                                    if (*ls).addr > pos {
-                                        (*ls).addr -= delta;
-                                    }
-                                }
-
-                                for j in i + 1..self.jump_count {
-                                    let jp1 = self.jump_slots.offset(j as isize);
-                                    if (*jp1).pos > pos {
-                                        (*jp1).pos -= delta;
-                                    }
-                                }
-                                for j in 0..self.line_number_count {
-                                    if (*self.line_number_slots.offset(j as isize)).pc > pos {
-                                        (*self.line_number_slots.offset(j as isize)).pc -= delta;
-                                    }
-                                }
-                                continue;
-                            } else if diff == diff as i32 && op == OP_goto {
-                                jp.size = 2;
-                                delta = 2;
-                                *bc_out.buf.offset(pos - 1) = OP_goto16;
-                                // C2RS: memmove translated to copy_within
-                                std::ptr::copy(
-                                    bc_out.buf.offset(pos + jp.size as isize),
-                                    bc_out.buf.offset(pos + jp.size as isize + delta),
-                                    (bc_out.size - pos - jp.size - delta) as usize,
-                                );
-                                bc_out.size -= delta;
-                                patch_offsets += 1;
-                                for j in 0..self.label_count {
-                                    let ls = self.label_slots.offset(j as isize);
-                                    if (*ls).addr > pos {
-                                        (*ls).addr -= delta;
-                                    }
-                                }
-                                for j in i + 1..self.jump_count {
-                                    let jp1 = self.jump_slots.offset(j as isize);
-                                    if (*jp1).pos > pos {
-                                        (*jp1).pos -= delta;
-                                    }
-                                }
-                                for j in 0..self.line_number_count {
-                                    if (*self.line_number_slots.offset(j as isize)).pc > pos {
-                                        (*self.line_number_slots.offset(j as isize)).pc -= delta;
-                                    }
-                                }
-                                continue;
-                            }
-                            break;
-                        }
-                        _ => {}
-                    }
-                }
-                if patch_offsets != 0 {
-                    for i in 0..self.jump_count {
-                        let jp1 = self.jump_slots.offset(i as isize);
-                        let diff1 =
-                            (*self.label_slots.offset((*jp1).label as isize)).addr - (*jp1).pos;
-                        match (*jp1).size {
-                            1 => *bc_out.buf.offset((*jp1).pos as isize) = diff1 as u8,
-                            2 => write_to_ptr::<u16>(
-                                bc_out.buf.offset((*jp1).pos as isize),
-                                diff1 as u16,
-                            ),
-                            4 => write_to_ptr::<u32>(
-                                bc_out.buf.offset((*jp1).pos as isize),
-                                diff1 as u32,
-                            ),
-                            _ => {}
-                        }
-                    }
-                }
-            }
-
-            self.jump_slots.clear();
-        }
-
         // XXX: should delay until copying to runtime bytecode function /
         self.compute_pc2line_info();
 
@@ -997,7 +691,6 @@ impl FunctionDef {
 
         bc_out.shrink_to_fit();
         self.byte_code = bc_out;
-        self.use_short_opcodes = true;
 
         Ok(())
     }

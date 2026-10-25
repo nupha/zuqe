@@ -35,9 +35,7 @@ use crate::{
     object::{JS_PROP_CONFIGURABLE, JSProperty, Object, PayloadPtr, ThrowPolicy},
     utils::{read_from_ptr, unlikely},
     value::JSValue,
-    vm_stack::{
-        ExecMode, FrameAllocError, FrameIndex, VM_MAX_CALL_DEPTH, VirtualFrame, VmStack,
-    },
+    vm_stack::{ExecMode, FrameAllocError, FrameIndex, VM_MAX_CALL_DEPTH, VirtualFrame, VmStack},
 };
 
 /// Action returned by the bytecode interpreter inner loop to the trampoline.
@@ -3324,78 +3322,6 @@ impl Bytecode {
                             Ok(false) => SP_GO!(-1),
                             Err(_) => break ExecAction::Exception,
                         }
-                    }
-
-                    // ═══════════════════════════════════════════════════
-                    // short_opcode placeholders
-                    // ═══════════════════════════════════════════════════
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::PUSH_MINUS1 | OpCode::PUSH_0..=OpCode::PUSH_7 => {
-                        todo!();
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::PUSH_I8 => {
-                        todo!();
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::PUSH_I16 => {
-                        todo!();
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::PUSH_CONST8 => {
-                        todo!();
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::PUSH_FCLOSURE8 => {
-                        todo!();
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::PUSH_EMPTY_STRING => {
-                        todo!();
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::PUSH_GET_LENGTH => {
-                        todo!();
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::CALL0..=OpCode::CALL3 => {
-                        todo!();
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::GET_LOC8..=OpCode::SET_VAR_REF3 => {
-                        todo!()
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::GOTO8 | OpCode::GOTO16 => {
-                        pc = pc.add(if opcode == OpCode::GOTO8 {
-                            get_u8(pc)
-                        } else {
-                            read_from_ptr::<u16>(pc)
-                        } as usize);
-
-                        if js_poll_interrupts(realm_scope) != 0 {
-                            break ExecAction::Exception;
-                        }
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::IF_TRUE8 | OpCode::IF_FALSE8 => {
-                        todo!()
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::IS_UNDEFINED => {
-                        todo!()
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::IS_NULL => {
-                        todo!()
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::TYPEOF_IS_UNDEFINED => {
-                        todo!()
-                    }
-                    #[cfg(feature = "short_opcode")]
-                    OpCode::TYPEOF_IS_FUNCTION => {
-                        todo!()
                     }
 
                     _ => {

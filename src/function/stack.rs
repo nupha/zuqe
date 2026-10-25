@@ -167,10 +167,6 @@ impl FunctionDef {
                 OpcodeFormat::NPOP | OpcodeFormat::NPOP_U16 => {
                     n_pop += unsafe { read_from_ptr::<u16>(bc_ptr.add(pos + 1)) };
                 }
-                #[cfg(feature = "short_opcode")]
-                OpcodeFormat::NPOPX => {
-                    n_pop += op - OP_call0;
-                }
                 _ => {}
             }
 
@@ -210,25 +206,6 @@ impl FunctionDef {
                 opcodes::OP_goto => {
                     let diff = unsafe { read_from_ptr::<i32>(bc_ptr.add(pos + 1)) }; // could be minus
                     pos_next = (pos as i32 + 1 + diff) as usize;
-                }
-
-                #[cfg(feature = "short_opcode")]
-                opcodes::OP_goto16 => {
-                    diff = (read_from_ptr::<u16>(bc_ptr.offset(pos as isize + 1)) as i16) as i32;
-                    pos_next = pos + 1 + diff as usize;
-                }
-                #[cfg(feature = "short_opcode")]
-                opcodes::OP_goto8 => {
-                    diff = self.byte_code[pos + 1] as i8 as i32;
-                    pos_next = pos + 1 + diff as usize;
-                }
-                #[cfg(feature = "short_opcode")]
-                opcodes::OP_if_true8 | opcodes::OP_if_false8 => {
-                    diff = self.byte_code[pos + 1] as i8 as i32;
-                    if ss_check(ctx, s, pos + 1 + diff as usize, op, stack_len, catch_pos) != 0 {
-                        *pstack_size = 0;
-                        return -1;
-                    }
                 }
 
                 opcodes::OP_if_true | opcodes::OP_if_false => {
