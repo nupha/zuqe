@@ -15,8 +15,12 @@ use crate::{
 #[cfg(feature = "big_int")]
 use crate::bigint::BigIntRef;
 
+/// The two numeric shapes a binary op can see, after coercion.
+///
+/// `pub(crate)` so the JIT's inline-call lowering tests can use these methods
+/// as the semantics oracle (differential, no duplicated expectations).
 #[derive(Debug, Clone)]
-pub(super) enum TwoNumbers {
+pub(crate) enum TwoNumbers {
     Int(i32, i32),
     Float(f64, f64),
 }

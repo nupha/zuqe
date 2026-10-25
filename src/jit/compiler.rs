@@ -3048,9 +3048,11 @@ fn to_int32_from_float64(b: &mut FunctionBuilder, d: Value) -> Value {
     b.ins().select(is_small, small, wide)
 }
 
-/// Box a computed `f64` exactly like `js_new_float64`: any NaN payload becomes
-/// the engine's canonical quiet NaN, everything else is the raw bits minus the
-/// addend (which turns `-0.0`/`±Inf` into their tagged form unchanged).
+/// Raw `js_new_float64` encoder: any NaN payload becomes the engine's
+/// canonical quiet NaN, everything else is the raw bits minus the addend
+/// (which turns `-0.0`/`±Inf` into their tagged form unchanged). Internal
+/// helper of [`box_float64_from_f64`] — box through that one for engine
+/// semantics.
 fn box_float64(b: &mut FunctionBuilder, d: Value) -> Value {
     let bits = b.ins().bitcast(types::I64, MemFlags::new(), d);
     let abs = b.ins().band_imm(bits, 0x7FFF_FFFF_FFFF_FFFF);
@@ -3063,14 +3065,16 @@ fn box_float64(b: &mut FunctionBuilder, d: Value) -> Value {
     b.ins().select(nan, canonical, encoded)
 }
 
-/// T9: box a typed array's float element the way `From<f64> for JSValue`
-/// (`number/num.rs`) does — an integral value that fits an `i32`, and is not
-/// `-0.0`, is an `Int`; everything else is a `Float64`. The interpreter reads
-/// elements through `JSValue::from`, so the differential suite compares per
-/// tag and the generated read must agree. The saturating i32 round trip
-/// (`fcvt` → `fcvt` back, compare) disqualifies NaN, ±Inf, fractions and
-/// out-of-range magnitudes on its own; only the zero's sign bit needs a
-/// separate test.
+/// Box a computed `f64` the way `From<f64> for JSValue` (`number/num.rs`)
+/// does — an integral value that fits an `i32`, and is not `-0.0`, is an
+/// `Int`; everything else is a `Float64`. The interpreter boxes every
+/// computed f64 through `JSValue::from` (float `+`/`-`/`*`/`/` results and
+/// typed-array element reads), so the differential suite compares per tag and
+/// the generated code must agree — a raw `js_new_float64` box here would
+/// hand back a `Float64` where the interpreter hands back an `Int`.
+/// The saturating i32 round trip (`fcvt` → `fcvt` back, compare) disqualifies
+/// NaN, ±Inf, fractions and out-of-range magnitudes on its own; only the
+/// zero's sign bit needs a separate test.
 fn box_float64_from_f64(b: &mut FunctionBuilder, d: Value) -> Value {
     let boxed = box_float64(b, d);
     let iv = b.ins().fcvt_to_sint_sat(types::I32, d);
@@ -3202,7 +3206,9 @@ fn lower_fast_binary(
             FastOp::Sub => b.ins().fsub(af, cf),
             _ => b.ins().fmul(af, cf),
         };
-        let boxed = box_float64(b, f);
+        // The interpreter boxes this through `From<f64>` (integral + i32
+        // range folds to an Int), so the generated box must too.
+        let boxed = box_float64_from_f64(b, f);
         b.ins().store(MemFlags::new(), boxed, sp, -16);
         let sp_next = b.ins().iadd_imm(sp, -8);
         b.def_var(sp_var, sp_next);
@@ -5273,7 +5279,9 @@ fn lower_fast_div(
     let af = number_to_float64(b, a, a_known, a_float);
     let cf = number_to_float64(b, c, c_known, c_float);
     let quotient = b.ins().fdiv(af, cf);
-    let boxed = box_float64(b, quotient);
+    // Same boxing rule as `+`/`-`/`*`: the interpreter boxes the quotient
+    // through `From<f64>` (integral + i32 range folds to an Int).
+    let boxed = box_float64_from_f64(b, quotient);
     b.ins().store(MemFlags::new(), boxed, sp, -16);
     let sp_next = b.ins().iadd_imm(sp, -8);
     b.def_var(sp_var, sp_next);

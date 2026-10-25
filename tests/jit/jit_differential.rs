@@ -162,6 +162,23 @@ const NUMERIC: &[Case] = dim_cases!("NumericTagEdge", [
         "function sh(n){ var r = 0; for (var i = 0; i < n; i++) { r ^= (i << 27) >> 3; r |= (i >>> 28); r &= 0xffff; } return r; } function sar(x){ return x >> 1; } sh(1); sar(-7);",
         "sh(200)",
         "'sh:' + sh(5) + ',sar:' + sar(-7) + ',' + ((-1) >>> 28)";
+    // `& | ^` ToInt32 on both operands and an Int result box: negatives,
+    // magnitudes >= 2^32, fractions, NaN, both infinities and the mixed
+    // Int/Float operand pairs. The compiled function guards the int arm
+    // (`From<i32>`) and the float arm (ToInt32 then `From<i32>`) at run time,
+    // so one body called with both operand kinds pins both, plus the mixed
+    // pairs that fall through to the interpreter helper.
+    bitwise_to_int32:
+        "function bw(x, y){ return (x | y) + (x & y) + (x ^ y); } bw(1, 2);",
+        "bw(-1, 0) + bw(2147483648, -2147483649) + bw(-3, -1) + bw(4294967296.5, -2147483649.5) + bw(3000000000, -1) + bw(-3.7, 2.5) + bw(NaN, Infinity)",
+        "'bw:' + bw(3, -1) + ',' + bw(-1, -1) + ',' + bw(0, -2147483648) + ',' + bw(4294967295, 0) + ',' + bw(Infinity, -Infinity) + ',' + bw(NaN, 0)";
+    // `>>>` boxes through `u32` (a Float64 once the sign bit is set) while
+    // `<<`/`>>` box through `i32`: the three must stay distinguishable.
+    // Float64 operands send `>>>` through the interpreter helper.
+    shift_boxing:
+        "function sh(x, y){ return (x >>> y) + (x << y) + (x >> y); } sh(1, 1);",
+        "sh(-1, 0) + sh(-2147483648, 1) + sh(7, 33) + sh(-3.5, 1.5)",
+        "'sh:' + sh(-1, 31) + ',' + sh(-1, 32) + ',' + sh(2147483647, 1) + ',' + sh(4294967295.5, 0)";
     mod_div_sign:
         "function md(a, b){ return a % b; } function dv(a, b){ return a / b; } md(1, 2); dv(1, 3);",
         "md(-7, 3)",

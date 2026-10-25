@@ -456,9 +456,7 @@ pub(super) fn lower(
                     let boxed = match name {
                         // `shl`/`sar`/`and`/`or`/`xor` are `From<i32>`; `shr`
                         // is `From<u32>` (a Float64 once the sign bit is set).
-                        "shl" | "sar" | "and" | "or" | "xor" => {
-                            b.ins().uextend(types::I64, result)
-                        }
+                        "shl" | "sar" | "and" | "or" | "xor" => b.ins().uextend(types::I64, result),
                         _ => box_bit_result(b, result),
                     };
                     push(b, &stack, &mut height, boxed);
@@ -844,9 +842,8 @@ fn truthy(b: &mut FunctionBuilder, value: Value, bad: Variable) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::{
-        bytecode::opcodes as op,
+        bytecode::{arithmatic::TwoNumbers, opcodes as op},
         jit::test_harness::{
             self, Asm, FALSE as FALSE_BITS, NULL as NULL_BITS, TRUE as TRUE_BITS,
             UNDEFINED as UNDEFINED_BITS, float, int,
@@ -893,6 +890,33 @@ mod tests {
 
     fn assert_body(body: Vec<u8>, args: u16, vars: u16, values: &[u64], expected: u64) {
         assert_eq!(run(body, args, vars, values), Some(expected));
+    }
+
+    /// Bitwise semantics oracle: the interpreter's own [`TwoNumbers`] impl —
+    /// the single source for ToInt32 and result boxing. The lowered body is
+    /// compared against it (never against hand-written tags), so the JIT and
+    /// the interpreter cannot drift apart silently.
+    fn interpreter_bits(opcode: u8, a: i32, b: i32) -> u64 {
+        let nums = TwoNumbers::Int(a, b);
+        match opcode {
+            op::OP_and => nums.and(),
+            op::OP_or => nums.or(),
+            op::OP_xor => nums.xor(),
+            op::OP_shl => nums.shl(),
+            op::OP_shr => nums.shr(),
+            op::OP_sar => nums.sar(),
+            other => unreachable!("not a bitwise opcode: {other}"),
+        }
+        .0
+    }
+
+    fn assert_bitwise(opcode: u8, a: i32, b: i32) {
+        let body = bytes(&[&push(a), &push(b), &[opcode], &[op::OP_return]]);
+        assert_eq!(
+            run(body, 0, 0, &[]),
+            Some(interpreter_bits(opcode, a, b)),
+            "bitwise opcode {opcode} disagrees with the interpreter: {a}, {b}"
+        );
     }
 
     /// Opcodes the JS frontend does not emit in the shapes the table covers:
@@ -1077,14 +1101,35 @@ mod tests {
         assert_body(binary(op::OP_neq, 7, 3), 0, 0, &[], TRUE_BITS);
         assert_body(binary(op::OP_strict_eq, 7, 7), 0, 0, &[], TRUE_BITS);
         assert_body(binary(op::OP_strict_neq, 7, 7), 0, 0, &[], FALSE_BITS);
-        assert_body(binary(op::OP_and, 7, 3), 0, 0, &[], int(3));
-        assert_body(binary(op::OP_or, 7, 3), 0, 0, &[], int(7));
-        assert_body(binary(op::OP_xor, 7, 3), 0, 0, &[], int(4));
-        assert_body(binary(op::OP_shl, 1, 3), 0, 0, &[], int(8));
-        assert_body(binary(op::OP_sar, -8, 1), 0, 0, &[], int(-4));
-        assert_body(binary(op::OP_shr, -1, 0), 0, 0, &[], float(4294967295.0));
-        // `-1 | 0` boxes as `From<i32>` (ECMA-262 ToInt32), so it stays an Int.
-        assert_body(binary(op::OP_or, -1, 0), 0, 0, &[], int(-1));
+        // Bitwise ops: differential against the interpreter's `TwoNumbers`
+        // (ToInt32 and the boxing rule live there only). The operand pairs
+        // pin the tags too: `and`/`or`/`xor`/`shl`/`sar` box `From<i32>`
+        // (always an Int), `shr` boxes `From<u32>` (a Float64 when the sign
+        // bit is set).
+        for opcode in [
+            op::OP_and,
+            op::OP_or,
+            op::OP_xor,
+            op::OP_shl,
+            op::OP_shr,
+            op::OP_sar,
+        ] {
+            for (a, b) in [
+                (7, 3),
+                (1, 3),
+                (-8, 1),
+                (-3, 2),
+                (-1, 0),
+                (0, -1),
+                (-1, -1),
+                (i32::MIN, -1),
+                (i32::MAX, i32::MIN),
+                (i32::MIN, 31),
+                (0, 32),
+            ] {
+                assert_bitwise(opcode, a, b);
+            }
+        }
 
         let unary = |opcode: u8, value: i32| bytes(&[&push(value), &[opcode], &[op::OP_return]]);
         assert_body(unary(op::OP_plus, 7), 0, 0, &[], int(7));
@@ -1237,16 +1282,21 @@ mod tests {
             ),
             None
         );
-
-        // `shl`/`sar` box as i32; counts are masked with 31.
-        assert_body(binary(op::OP_shl, 1, 31), 0, 0, &[], int(i32::MIN));
-        assert_body(binary(op::OP_shl, 1, 32), 0, 0, &[], int(1));
-        assert_body(binary(op::OP_shl, 1, -1), 0, 0, &[], int(i32::MIN));
-        assert_body(binary(op::OP_sar, -1, 0), 0, 0, &[], int(-1));
-        assert_body(binary(op::OP_sar, -1, 32), 0, 0, &[], int(-1));
-        assert_body(binary(op::OP_shr, -1, 32), 0, 0, &[], float(4294967295.0));
         assert_body(binary(op::OP_lt, i32::MIN, i32::MAX), 0, 0, &[], TRUE_BITS);
         assert_body(binary(op::OP_gt, i32::MIN, i32::MAX), 0, 0, &[], FALSE_BITS);
+    }
+
+    /// Shift counts are masked with 31 and the boxing rule (`shl`/`sar` as
+    /// i32, `shr` as u32) is the interpreter's — differential against
+    /// `TwoNumbers`, one terminating body per case.
+    #[test]
+    fn hand_written_shift_count_masking() {
+        assert_bitwise(op::OP_shl, 1, 31);
+        assert_bitwise(op::OP_shl, 1, 32);
+        assert_bitwise(op::OP_shl, 1, -1);
+        assert_bitwise(op::OP_sar, -1, 0);
+        assert_bitwise(op::OP_sar, -1, 32);
+        assert_bitwise(op::OP_shr, -1, 32);
     }
 
     /// The `call_method` window moves the arguments one slot further, and the
