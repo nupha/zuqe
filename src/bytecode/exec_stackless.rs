@@ -285,13 +285,22 @@ pub(crate) fn get_var_ref(
 
 impl Bytecode {
     /// Inline-cache site `ic_idx` of this function, if the function has one.
+    ///
+    /// Takes a raw pointer because it hands out `&mut` into the cache, which is
+    /// interior-mutable by design (`&self` does not exclusively own it).
     #[cfg(feature = "inline_cache")]
     #[inline]
-    fn inline_cache_site(&self, ic_idx: usize) -> Option<&mut crate::function::InlineCacheSite> {
+    fn inline_cache_site<'a>(
+        this: *const Bytecode,
+        ic_idx: usize,
+    ) -> Option<&'a mut crate::function::InlineCacheSite> {
         // SAFETY: the interpreter is single-threaded and owns its bytecode; the
         // cache is interior-mutable by design (same contract as the GET_FIELD
-        // fast path).
-        let cache = unsafe { &mut *self.inline_cache.get() };
+        // fast path). Reborrow as `&Bytecode` first: field access on the raw
+        // pointer deref would go through `Deref` and trip
+        // `dangerous_implicit_autorefs`.
+        let this = unsafe { &*this };
+        let cache = unsafe { &mut *this.inline_cache.get() };
         cache.get_mut(ic_idx)
     }
 
@@ -2512,7 +2521,7 @@ impl Bytecode {
                         let ic_idx = PC_FETCH!(u16) as usize;
                         let val = {
                             #[cfg(feature = "inline_cache")]
-                            let r = if let Some(site) = self.inline_cache_site(ic_idx) {
+                            let r = if let Some(site) = Bytecode::inline_cache_site(self, ic_idx) {
                                 SP_REF!(-2).get_property_value_ic(realm_scope, SP_VAL!(-1), site)
                             } else {
                                 SP_REF!(-2).get_property_value(realm_scope, SP_VAL!(-1))
@@ -2535,7 +2544,7 @@ impl Bytecode {
                         let ic_idx = PC_FETCH!(u16) as usize;
                         let val = {
                             #[cfg(feature = "inline_cache")]
-                            let r = if let Some(site) = self.inline_cache_site(ic_idx) {
+                            let r = if let Some(site) = Bytecode::inline_cache_site(self, ic_idx) {
                                 SP_REF!(-2).get_property_value_ic(realm_scope, SP_VAL!(-1), site)
                             } else {
                                 SP_REF!(-2).get_property_value(realm_scope, SP_VAL!(-1))
@@ -2580,7 +2589,7 @@ impl Bytecode {
 
                         let val = {
                             #[cfg(feature = "inline_cache")]
-                            let r = if let Some(site) = self.inline_cache_site(ic_idx) {
+                            let r = if let Some(site) = Bytecode::inline_cache_site(self, ic_idx) {
                                 arr.get_property_value_ic(realm_scope, SP_VAL!(-1), site)
                             } else {
                                 arr.get_property_value(realm_scope, SP_VAL!(-1))
@@ -2603,7 +2612,7 @@ impl Bytecode {
                         let ic_idx = PC_FETCH!(u16) as usize;
                         let mut arr = SP_VAL!(-3);
                         #[cfg(feature = "inline_cache")]
-                        let ret = if let Some(site) = self.inline_cache_site(ic_idx) {
+                        let ret = if let Some(site) = Bytecode::inline_cache_site(self, ic_idx) {
                             arr.set_property_value_ic(
                                 realm_scope,
                                 SP_VAL!(-2),

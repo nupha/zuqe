@@ -1478,11 +1478,13 @@ unsafe extern "C" fn h_fclosure(f: *mut JitExecFrame) -> u32 {
 
 /// The current frame's captured var refs, resolved from its func_obj exactly
 /// as the interpreter does (each function in the call chain owns its own
-/// `captured_vars`).
-unsafe fn captured_vars_of<'a>(f: &'a JitExecFrame) -> &'a mut [VarRef] {
+/// `captured_vars`). Takes a raw pointer because it hands out `&mut` into GC
+/// memory that the caller's `&JitExecFrame` does not exclusively own; the
+/// returned lifetime is laundered from the raw pointer, not tied to `f`.
+unsafe fn captured_vars_of<'a>(f: *const JitExecFrame) -> &'a mut [VarRef] {
     unsafe {
-        let frame_idx = FrameIndex::from_u32(f.cur_frame_idx);
-        let func_obj = (*f.arena).frame(frame_idx).func_obj;
+        let frame_idx = FrameIndex::from_u32((*f).cur_frame_idx);
+        let func_obj = (*(*f).arena).frame(frame_idx).func_obj;
         match BCWrapper::try_from(JSValue::from(func_obj)) {
             // `bfun` is a Copy `GcRef`, so the payload borrows GC memory that
             // outlives this call; launder it to reuse the caller's lifetime.
@@ -1812,7 +1814,7 @@ unsafe extern "C" fn h_iterator_call(f: *mut JitExecFrame) -> u32 {
 
 /// Result of a `class_ops` call: the helper only needs OK/EXCEPTION.
 #[inline]
-fn status(result: Result<(), i32>) -> u32 {
+const fn status(result: Result<(), i32>) -> u32 {
     if result.is_ok() {
         HELPER_OK
     } else {
