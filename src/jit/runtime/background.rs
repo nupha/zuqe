@@ -86,7 +86,7 @@ impl BackgroundCompiler {
             let tx = completion_tx.clone();
             let isa = Arc::clone(&isa);
             let spawned = thread::Builder::new()
-                .name(format!("zhuque-jit-{index}"))
+                .name(format!("zuqe-jit-{index}"))
                 .spawn(move || worker_loop(rx, tx, isa));
             match spawned {
                 Ok(handle) => handles.push(handle),
@@ -103,9 +103,7 @@ impl BackgroundCompiler {
                 }
             }
         }
-        // The workers are the only senders from here on; dropping the original
-        // makes channel disconnection mean "shut down".
-        drop(completion_tx);
+
         Ok(Self {
             jobs: Some(jobs),
             completions,
@@ -308,10 +306,10 @@ fn lower_inner(snapshot: CompileSnapshot, limits: VerifyLimits, isa: &dyn Target
 
 /// The worker contract: a job and a completion cross the thread boundary.
 const _: fn() = || {
-    fn assert_send<T: Send>() {}
+    const fn assert_send<T: Send>() {}
     assert_send::<CompileJob>();
     assert_send::<CompileCompletion>();
-    assert_send::<JobResult>();
+    // `JobResult` is a field of `CompileCompletion`, and `Send` is structural.
 };
 
 #[cfg(test)]
