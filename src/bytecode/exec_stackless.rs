@@ -664,12 +664,23 @@ impl Bytecode {
             };
         }
 
+        // `sp` is register-resident: writing the frame header on every stack
+        // step cost one store per push/pop. The header only needs to be current
+        // where code outside this loop reads it:
+        //   - GC (`VmStack::trace` scans up to `cur_sp_offset`),
+        //   - `find_catch_in_frame` / `find_finally_in_frame` (unwind scans),
+        //   - JIT entry / OSR (the prologue loads `cur_sp_offset`),
+        //   - calls that can re-enter the runtime (see `sync_sp!` call sites).
         macro_rules! SP_GO {
             ($step:expr) => {
-                sp = unsafe {
-                    (*arena_ptr).frame_mut(cur_frame_idx).cur_sp_offset += ($step) as i32;
-                    sp.offset(($step) as isize)
-                }
+                sp = unsafe { sp.offset(($step) as isize) }
+            };
+        }
+
+        // Write the local `sp` back to the frame header.
+        macro_rules! sync_sp {
+            () => {
+                save_sp!(unsafe { sp.offset_from(sp_base) as i32 })
             };
         }
 
@@ -781,6 +792,9 @@ impl Bytecode {
                 // which rewinds to the same pc and we carry on interpreting.
                 #[cfg(feature = "jit")]
                 if std::mem::take(&mut jit_retry_native) {
+                    // The OSR prologue resumes at `*cur_sp_offset`; the local
+                    // `sp` moved since the native call returned.
+                    sync_sp!();
                     let attempt_pc = unsafe { pc.offset_from(pc_base) as u32 };
                     let cur_sp_offset_ptr: *mut i32 =
                         unsafe { &mut (*arena_ptr).frame_mut(cur_frame_idx).cur_sp_offset };
@@ -1324,6 +1338,10 @@ impl Bytecode {
 
                         // Native function or non-Normal bytecode: use call_internal.
                         // call_internal internally preserves active_trampoline_frame.
+                        // Native code can run GC (explicit collect, event-loop
+                        // tick) — the caller's live operand slots must be
+                        // visible to the frame trace.
+                        sync_sp!();
                         let ret_val = func.call_internal(
                             realm_scope,
                             JSValue::UNDEFINED,
@@ -1460,6 +1478,7 @@ impl Bytecode {
 
                         // Native function, non-Normal bytecode or non-constructor:
                         // use call_internal.
+                        sync_sp!();
                         let ret_val = func.call_internal(
                             realm_scope,
                             JSValue::UNDEFINED,
@@ -1586,6 +1605,7 @@ impl Bytecode {
                         }
 
                         // Native function or non-Normal bytecode: use call_internal.
+                        sync_sp!();
                         let ret_val = func.call_internal(
                             realm_scope,
                             method_this,
@@ -2182,6 +2202,7 @@ impl Bytecode {
                             }
 
                             // Generator/async bytecode or native function: fall through to call_internal.
+                            sync_sp!();
                             let ret_val = func_val.call_internal(
                                 realm_scope,
                                 JSValue::UNDEFINED,
@@ -2788,6 +2809,9 @@ impl Bytecode {
                         let saved_catch = SP_VAL!(-1);
                         SP_PUT!(-1, JSValue::UNDEFINED);
 
+                        // `next` may be native and trigger GC: the caller's
+                        // operand slots must be visible to the frame trace.
+                        sync_sp!();
                         let result =
                             next.call_internal(realm_scope, iter, JSValue::UNDEFINED, &[], 0);
                         jit_mark_native_call!();
@@ -3364,11 +3388,15 @@ impl Bytecode {
 
                 #[cfg(all(debug_assertions, feature = "debug_gc"))]
                 {
+                    sync_sp!();
                     realm_scope.clear_locals_from_depth(gc_scope_base_depth);
                     rt.gc_collect();
                 }
                 #[cfg(not(all(debug_assertions, feature = "debug_gc")))]
                 if rt.gc_req {
+                    // GC scans live frames up to `cur_sp_offset`; the local `sp`
+                    // has moved since the last sync.
+                    sync_sp!();
                     realm_scope.clear_locals_from_depth(gc_scope_base_depth);
                     rt.gc_collect();
                 }
@@ -3382,6 +3410,11 @@ impl Bytecode {
                 }
 
                 ExecAction::Exception => {
+                    // The unwind scan below (`find_catch_in_frame`, and the
+                    // trampoline's `find_finally_in_frame`) reads
+                    // `cur_sp_offset`; so does GC if it runs while handling.
+                    sync_sp!();
+
                     // Interrupt bypasses catch handling — it is not a JS exception.
                     if rt.interrupt_code.is_some() {
                         return ExecAction::Unwind;
@@ -3465,6 +3498,7 @@ impl Bytecode {
                     args,
                     this_obj,
                 } => {
+                    sync_sp!();
                     return ExecAction::TailCall {
                         callee_bc,
                         callee_func_obj,
