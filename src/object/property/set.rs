@@ -381,7 +381,13 @@ impl ObjectImpl {
                 && flags & JS_PROP_WRITABLE != 0
                 && flags & JS_PROP_LENGTH == 0
             {
-                self.set_prop_slot(slot as usize, JSProperty::Normal(val));
+                // Non-GC values (int/bool/...) need no write barrier —
+                // skip the barrier's owner/heap loads on the hot write.
+                if val.is_gc() {
+                    self.set_prop_slot(slot as usize, JSProperty::Normal(val));
+                } else {
+                    self.set_prop_slot_non_gc(slot as usize, JSProperty::Normal(val));
+                }
                 return Ok(true);
             }
         }

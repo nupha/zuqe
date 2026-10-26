@@ -2274,22 +2274,31 @@ impl Bytecode {
                                 if let Some((slot, _)) =
                                     ic_cache[ic_idx].find(shape_ptr, shape.uid, atom.id())
                                 {
-                                    let slot = slot as usize;
-                                    // delete marks slot Deleted without changing shape
-                                    if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
-                                        if let Ok(val) =
-                                            o.prop_slot(slot).value(realm_scope, o.into())
-                                        {
-                                            if opcode == OpCode::GET_FIELD {
-                                                SP_PUT!(-1, val);
-                                            } else {
-                                                SP_PUT!(0, val);
-                                                SP_GO!(1);
-                                            }
-                                            continue;
+                                    // One slot read serves both the tombstone
+                                    // check and the value: the data-property
+                                    // case — the monomorphic hot loop — reads
+                                    // the value inline, with no `value()` call
+                                    // and no second slot load. An accessor or
+                                    // varref slot keeps the full `value()`
+                                    // semantics; a `Deleted` tombstone (delete
+                                    // marks the slot without changing the
+                                    // shape) falls to the slow lookup.
+                                    let val = match o.prop_slot(slot as usize) {
+                                        JSProperty::Normal(v) => Some(*v),
+                                        JSProperty::Deleted => None,
+                                        p => match p.value(realm_scope, o.into()) {
+                                            Ok(v) => Some(v),
+                                            Err(_) => break ExecAction::Exception,
+                                        },
+                                    };
+                                    if let Some(val) = val {
+                                        if opcode == OpCode::GET_FIELD {
+                                            SP_PUT!(-1, val);
                                         } else {
-                                            break ExecAction::Exception;
+                                            SP_PUT!(0, val);
+                                            SP_GO!(1);
                                         }
+                                        continue;
                                     }
                                 }
                             }
@@ -2360,7 +2369,17 @@ impl Bytecode {
                                         {
                                             let mut o =
                                                 unsafe { SP_MUT!(-2).as_object_unchecked() };
-                                            o.set_prop_slot(slot, JSProperty::Normal(value));
+                                            // Non-GC values (int/bool/...) need
+                                            // no write barrier — skip the barrier's
+                                            // owner/heap loads on the hot write.
+                                            if value.is_gc() {
+                                                o.set_prop_slot(slot, JSProperty::Normal(value));
+                                            } else {
+                                                o.set_prop_slot_non_gc(
+                                                    slot,
+                                                    JSProperty::Normal(value),
+                                                );
+                                            }
 
                                             // next instruction
                                             SP_GO!(-2);

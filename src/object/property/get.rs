@@ -360,9 +360,16 @@ impl ObjectImpl {
         }
         let atom = prop.to_atom(ctx)?;
         if let Some((slot, _)) = self.cached_slot(atom, site) {
-            return self
-                .prop_slot(slot as usize)
-                .value(ctx, Object::from_ref(self).into());
+            // Same inline data-property read as the GET_FIELD IC fast path:
+            // the Normal variant avoids the `value()` call; accessor/varref
+            // slots keep full `value()` semantics. `cached_slot` already
+            // rejects Deleted tombstones.
+            let p = self.prop_slot(slot as usize);
+            return if let JSProperty::Normal(v) = p {
+                Ok(*v)
+            } else {
+                p.value(ctx, Object::from_ref(self).into())
+            };
         }
         let result = self.get_property_internal(ctx, atom, Object::from_ref(self).into(), false);
         if result.is_ok() {
