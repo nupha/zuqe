@@ -2494,14 +2494,17 @@ impl Bytecode {
                         let n = unsafe { read_from_ptr::<i32>(pc) }; // could be minus
                         PC_GO!(n);
 
-                        // Negative offset = loop back edge.
-                        #[cfg(feature = "jit")]
+                        // Negative offset = loop back edge. Only back edges poll:
+                        // a forward jump is bounded within the frame, so polling
+                        // there would charge every `if`/`break` for the interrupt
+                        // latency guarantee.
                         if n < 0 {
+                            #[cfg(feature = "jit")]
                             jit_note_backedge!(unsafe { pc.offset_from(pc_base) as usize });
-                        }
 
-                        if unlikely(realm_scope.poll_interrupts()) {
-                            break ExecAction::Exception;
+                            if unlikely(realm_scope.poll_interrupts()) {
+                                break ExecAction::Exception;
+                            }
                         }
                     }
                     OpCode::IF_TRUE | OpCode::IF_FALSE => {
@@ -2540,15 +2543,16 @@ impl Bytecode {
 
                             // Taken backward branch = loop back edge. The pc is
                             // the branch *target* (the loop header), not the
-                            // fall-through.
-                            #[cfg(feature = "jit")]
+                            // fall-through. A not-taken branch is a forward
+                            // fall-through and does not poll.
                             if off < 0 {
+                                #[cfg(feature = "jit")]
                                 jit_note_backedge!(unsafe { pc.offset_from(pc_base) as usize });
-                            }
-                        }
 
-                        if unlikely(realm_scope.poll_interrupts()) {
-                            break ExecAction::Exception;
+                                if unlikely(realm_scope.poll_interrupts()) {
+                                    break ExecAction::Exception;
+                                }
+                            }
                         }
                     }
 
