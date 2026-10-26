@@ -17,6 +17,11 @@
 
 #![cfg(feature = "jit")]
 
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
+
 use zuqe::{
     Context, EvalFlags, EvalName, EvalType, JSResult, Jit, JitConfig, JitMetrics, Runtime,
     ScopedContext,
@@ -61,10 +66,8 @@ fn warm_the_rate(jit: &Jit, ctx: &mut Context) -> JitMetrics {
     jit.metrics()
 }
 
-/// Poll until the JIT is quiet (the background model compiles off-thread).
+/// Poll until the JIT is quiet (the workers compile off-thread).
 fn settle(jit: &Jit) {
-    use std::thread;
-    use std::time::{Duration, Instant};
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         jit.poll();

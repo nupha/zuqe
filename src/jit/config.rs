@@ -91,19 +91,14 @@ pub struct JitConfig {
     /// trampoline (frame boundaries, so a hot callee runs natively for the rest
     /// of the *same* `eval`) and the event-loop tick (after the collection, so a
     /// long `eval_wait` / host loop keeps draining). The poll runs only when work
-    /// is queued and no native frame is in flight. Turn it off only to keep full
-    /// manual control of the compile timing (tests/benchmarks).
+    /// is queued or compiling and no native frame is in flight. Turn it off
+    /// only to keep full manual control of the compile timing (tests/benchmarks).
     pub(crate) auto_poll: bool,
-    /// Number of background compiler workers (`jit_background` only). The
-    /// inline model compiles on the calling thread, so this is stored and
-    /// reported but ignored unless the feature is on.
+    /// Number of compiler workers.
     pub(crate) workers: usize,
-    /// Compile-time budget in milliseconds. Inline: a **failure-reason
-    /// classification, not a deadline** — `Jit::poll` verifies and compiles
-    /// synchronously, so it cannot preempt a slow compile; the budget only
-    /// re-labels an already-`Failed` attempt as `TimedOut`. Background: a real
-    /// deadline — an attempt past it is abandoned (counted `TimedOut`) and its
-    /// late completion is discarded by attempt id.
+    /// Compile-time budget in milliseconds: a real deadline. An attempt past
+    /// it is abandoned (counted `TimedOut`) and its late completion is
+    /// discarded by attempt id.
     pub(crate) compile_timeout_ms: u64,
     pub(crate) max_compile_attempts: u32,
     /// The host's estimate of how many nanoseconds one bytecode of native
@@ -320,16 +315,14 @@ impl JitConfigBuilder {
         self
     }
 
-    /// Number of background compiler workers (`jit_background` only); ignored
-    /// by the inline model (see [`JitConfig::workers`]).
+    /// Number of compiler workers (see [`JitConfig::workers`]).
     pub fn workers(mut self, n: usize) -> Self {
         self.0.workers = n.max(1);
         self
     }
 
-    /// Compile-time budget in milliseconds. Inline it only classifies an
-    /// already-failed attempt as `TimedOut`; under `jit_background` it abandons
-    /// an attempt (see [`JitConfig::compile_timeout_ms`]).
+    /// Compile-time budget in milliseconds; an attempt past it is abandoned
+    /// (see [`JitConfig::compile_timeout_ms`]).
     pub fn compile_timeout_ms(mut self, n: u64) -> Self {
         self.0.compile_timeout_ms = n.max(1);
         self

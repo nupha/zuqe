@@ -1,20 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! Epic D3 / plan §12: the background compiler (`jit_background`, in
-//! `default`). Compilation moves to worker threads while the runtime thread only
-//! dispatches, drains and installs, so `Jit::poll` no longer blocks on codegen.
+//! Epic D3 / plan §12: the compiler workers. Compilation runs on worker threads
+//! while the runtime thread only dispatches, drains and installs, so
+//! `Jit::poll` does not block on codegen.
 //!
-//! With `jit_background` off (`--no-default-features`, `jit` on) compilation is
-//! inline: the whole queue is compiled before `poll` returns. Here `poll` is
-//! non-blocking and an attempt may still be in flight, so every assertion drives
-//! the JIT **to rest** first ([`settle`]), except the ones that check the
-//! asynchronous handoff itself.
+//! `poll` is non-blocking and an attempt may still be in flight, so every
+//! assertion drives the JIT **to rest** first ([`settle`]), except the ones that
+//! check the asynchronous handoff itself.
 //!
-//! The suite compiles to nothing without the feature, so the inline build run
-//! and the `jit`-only integration run are unaffected.
+//! The suite compiles to nothing without the `jit` feature.
 
-#![cfg(all(feature = "jit", feature = "jit_background"))]
+#![cfg(feature = "jit")]
 
 use std::{thread, time::Duration};
 
@@ -90,9 +87,10 @@ fn background_compilation_is_bit_identical() {
     }
 }
 
-/// The point of the feature: a compile is handed to a worker, not run inline.
-/// With `auto_poll` off, one `poll` only dispatches — it must return with an
-/// attempt in flight and nothing installed yet. A later poll installs it.
+/// The point of the worker model: a compile is handed to a worker, not run on
+/// the runtime thread. With `auto_poll` off, one `poll` only dispatches — it
+/// must return with an attempt in flight and nothing installed yet. A later
+/// poll installs it.
 #[test]
 fn compilation_happens_off_the_runtime_thread() {
     let mut rt = Runtime::create().unwrap();
@@ -120,7 +118,7 @@ fn compilation_happens_off_the_runtime_thread() {
     );
     assert_eq!(
         dispatched.functions_compiled, 0,
-        "the attempt was compiled inline, not on a worker ({dispatched:?})"
+        "the attempt was compiled on the runtime thread, not on a worker ({dispatched:?})"
     );
 
     settle(&jit);
@@ -174,7 +172,7 @@ fn auto_poll_drains_workers_and_the_function_runs_native() {
     );
 }
 
-/// `compile_timeout_ms` is a real deadline in the background model: an attempt
+/// `compile_timeout_ms` is a real deadline in the worker model: an attempt
 /// past it is abandoned (counted) and its late completion is dropped by attempt
 /// id. Sleeping past the budget before the next poll makes this deterministic —
 /// expiry runs before the drain.
@@ -277,7 +275,7 @@ fn multiple_workers_compile_the_backlog() {
 }
 
 /// The tier-policy knob still applies: `Interpreter` must compile nothing even
-/// with the background feature on.
+/// with the JIT attached.
 #[test]
 fn interpreter_policy_still_compiles_nothing() {
     let mut rt = Runtime::create().unwrap();

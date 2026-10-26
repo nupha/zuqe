@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
-# M2b-7: feature-gating matrix for the JIT features.
+# M2b-7: feature-gating matrix for the JIT feature.
 #
 # D-19 kept `jit` in `default`, so the "off" leg spells the default feature
 # list explicitly (default minus `jit`). Both legs must be green, and the off
 # build must not pull cranelift into the dependency graph.
 #
-# `jit_background` is also in `default` now, so the plain run is the worker
-# model and the "inline" leg spells the default list minus `jit_background`.
+# `jit` is in `default`, so the plain run exercises the worker model.
 #
-# The platform matrix is {off,inline,background} x {linux x86_64, linux aarch64,
+# The platform matrix is {off,worker} x {linux x86_64, linux aarch64,
 # macOS arm64}; this script runs the legs available on the current host and
 # prints the row it covered. Cross-rows need a runner with that host.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 OFF_FEATURES="inline_cache,big_int,all_unicode,async_support,builtin_mapset,builtin_proxy,builtin_atomic,builtin_regexp,builtin_reflect,builtin_json,builtin_date,builtin_math,builtin_weakref"
-INLINE_FEATURES="inline_cache,big_int,all_unicode,async_support,jit,builtin_mapset,builtin_proxy,builtin_atomic,builtin_regexp,builtin_reflect,builtin_json,builtin_date,builtin_math,builtin_weakref"
 
 echo "== host: $(uname -s)/$(uname -m)"
 
@@ -46,15 +44,8 @@ run_tests() {
 echo "== off: cargo test (jit removed from the default feature set)"
 run_tests "off" cargo test --no-default-features --features "$OFF_FEATURES"
 
-# `jit_background` is in `default`, so the plain run exercises the worker model.
-# The inline model is still the byte-identical baseline the worker model is
-# checked against, so it gets its own leg: same feature set as `default` minus
-# `jit_background`.
-echo "== inline: cargo test (default minus jit_background: compile on the caller)"
-run_tests "inline" cargo test --no-default-features --features "$INLINE_FEATURES"
-
-echo "== background: cargo test (default features, jit + jit_background)"
-run_tests "background" cargo test
+echo "== worker: cargo test (default features, jit)"
+run_tests "worker" cargo test
 
 check_compiles() {
     local label=$1
@@ -68,7 +59,7 @@ check_compiles() {
     echo "ok: ${label}"
 }
 
-# The off/inline/background legs only build the targets `cargo test` needs.
+# The off/worker legs only build the targets `cargo test` needs.
 # Optional non-default features change runtime structure, and a break under one
 # of them once shipped through an all-green run: a `child_runtime`-only compile
 # error in `tick.rs`, and a `quantum_poll` missing-import error in `park.rs`
@@ -79,10 +70,10 @@ for extra in child_runtime persistent crossbeam_channel serde_json_support dump_
     check_compiles "on+${extra}" cargo check -q --features "jit,${extra}"
 done
 
-# Benches/examples are not built by `cargo test` unless asked for; the
-# background compiler changes the JIT's public behaviour, so compile them too.
+# Benches/examples are not built by `cargo test` unless asked for; the compiler
+# workers change the JIT's public behaviour, so compile them too.
 echo "== extra: every target compiles under default features"
 check_compiles "default (all targets)" cargo check -q --all-targets
 
-echo "== matrix row covered: $(uname -s)/$(uname -m) {off,inline,background}"
+echo "== matrix row covered: $(uname -s)/$(uname -m) {off,worker}"
 echo "OK"

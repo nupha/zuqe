@@ -84,7 +84,8 @@ pub fn enable_jit_production() {
 fn eager_jit_config() -> zuqe::JitConfig {
     // The engine polls automatically (trampoline frame boundaries + the
     // event-loop tick), so a test-local function that becomes hot inside its own
-    // `eval` is compiled and entered natively during the assertions.
+    // `eval` is dispatched to a worker during the assertions; `settle` drains
+    // the queue before the next variant, which then enters native code.
     zuqe::JitConfig::builder()
         .call_threshold(1)
         .loop_threshold(1)
@@ -397,9 +398,8 @@ pub fn js_module_loader(
     }
 }
 
-/// Poll until the JIT has nothing queued and nothing in flight. Under
-/// `jit_background` (in `default`) `poll` is non-blocking, so one call does not
-/// mean "installed"; inline, the first `poll` already drains the queue.
+/// Poll until the JIT has nothing queued and nothing in flight. `poll` is
+/// non-blocking, so one call does not mean "installed".
 #[cfg(feature = "jit")]
 fn settle(jit: &zuqe::Jit) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_millis(SETTLE_BUDGET_MS);

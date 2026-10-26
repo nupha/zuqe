@@ -80,7 +80,7 @@ fn describe(ctx: &mut Context, res: JSResult) -> String {
 /// `auto_poll(false)` is required by every test here: they measure what the
 /// compiler did with the feedback the *warm-up* recorded, so compilation must
 /// happen at the explicit `poll` after it. With the automatic poll on, a hot
-/// loop would compile at its first back edge (N3, inline OSR) with only the
+/// loop would compile at its first back edge (N3, back-edge OSR) with only the
 /// observations made so far — far below the gate these tests exercise.
 fn config(policy: JitTierPolicy) -> JitConfigBuilder {
     JitConfig::builder()

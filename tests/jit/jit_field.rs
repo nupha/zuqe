@@ -386,7 +386,7 @@ fn run(mode: Mode, setup: &str, main: &str) -> (String, JitMetrics) {
 /// The property guard's counters of the **native** run: `(hits, misses)`.
 ///
 /// `main` runs three times: the first run is interpreted (or partly
-/// interpreted — the inline compiler may take over a loop mid-run), so only
+/// interpreted — the compiler may take over a loop mid-run), so only
 /// the later ones exercise the guard. The counters of the last run are
 /// reported, so the first run's leftovers (how much of it ran natively
 /// depends on the compiler mode) do not leak into the observation, and the

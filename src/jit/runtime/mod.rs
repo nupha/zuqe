@@ -6,23 +6,19 @@
 //! - [`hotness`] decides when a function is worth compiling.
 //! - [`coordinator`] owns the request queue and each function's lifecycle.
 //! - [`install`] publishes finished code into executable memory and the slot.
-//! - [`background`] runs the compile off-thread (feature `jit_background`).
+//! - [`background`] runs verification and lowering on worker threads.
 //!
-//! Without `jit_background`, compilation runs inline in `JitState::poll`, which
-//! the host already calls outside `with_new_scope`.
+//! The runtime thread stays the single writer of every shared slot and the
+//! code cache: it dispatches jobs, drains completions and installs the result.
 
+mod background;
 mod coordinator;
 mod hotness;
 mod install;
 
-#[cfg(feature = "jit_background")]
-mod background;
-
 pub(crate) use {
+    background::{BackgroundCompiler, CompileCompletion, JobResult},
     coordinator::{CompileOutcome, Coordinator, Request, Tiering},
     hotness::Tier,
     install::publish,
 };
-
-#[cfg(feature = "jit_background")]
-pub(crate) use background::{BackgroundCompiler, CompileCompletion, JobResult};

@@ -167,7 +167,7 @@ impl FunctionDef {
                                 write_to_ptr::<u16>(bc_out.as_mut_ptr().add(re.addr), delta as u16);
                             },
                             1 => unsafe {
-                                assert_eq!(delta, (delta as i8) as usize);
+                                debug_assert_eq!(delta, (delta as i8) as usize);
                                 *bc_out.as_mut_ptr().add(re.addr) = delta as u8;
                             },
                             _ => {

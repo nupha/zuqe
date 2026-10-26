@@ -57,7 +57,7 @@ ctx.eval("for (var i = 0, s = 0; i < 1e6; i++) s += i;".as_bytes(),
 // No poll call: the engine compiles queued functions automatically at
 // trampoline frame boundaries, on every event-loop tick, and at a hot loop's
 // back edge (this snippet is a single top-level loop, so it is the back edge
-// that hands the frame to native code — inline OSR).
+// that hands the frame to native code — back-edge OSR).
 println!("{:?}", jit.metrics());
 ```
 
@@ -66,11 +66,12 @@ println!("{:?}", jit.metrics());
 - **Compilation is automatic.** The runtime polls at three engine safe points:
   the interpreter's trampoline (frame boundaries), the event-loop tick, and a
   taken loop back edge. No host call is needed. The poll is a no-op unless work
-  is queued and no native frame is in flight.
+  is queued or compiling and no native frame is in flight. Verification and
+  lowering run on worker threads; a poll only dispatches, drains and installs.
   The back-edge point is also where a *running* frame switches to native code:
   a top-level loop that never calls anything (so it never crosses a frame
-  boundary) compiles itself at its own back edge and continues natively inside
-  the same `eval` — inline OSR into the compiled loop header.
+  boundary) queues itself at its own back edge and enters the compiled loop
+  header once the worker's result is installed — back-edge OSR.
 - `Jit::poll()` — optional explicit poll for hosts/tests that want to compile at
   an exact moment; pair it with `JitConfig::auto_poll(false)` when the timing
   must be fully manual.
@@ -181,8 +182,8 @@ instructions, so it is called analysis, not IR.
 
 Loop back edges run a safepoint helper that delivers host interrupts and
 triggered collections. Interrupts are control flow, not exceptions: no JS
-`catch` runs. `compile_timeout_ms` classifies a *failed* compile as timed out; it
-is not a preemptive deadline (compilation is inline).
+`catch` runs. `compile_timeout_ms` is a real deadline: an attempt past it is
+abandoned and its late completion is discarded.
 
 ## Document map
 
@@ -349,13 +350,12 @@ matches it by design. Test262 and the pinned corpora cover that.
 Implemented: baseline + Tier-2 lowering, type feedback and guarded
 int/float fast paths, tier-down, property/array access helpers with inline
 caches, global-variable helpers, cross-block residency / DCE / CSE, native calls
-(route A), inline back-edge OSR, code-cache retirement, metrics/quotas, the
-background compilation thread (`jit_background`, in `default`; `Jit::poll` only
-dispatches, drains and installs), and the two-gate tiering (a first gate
-compiles the baseline tier, a second gate promotes the function to the
-optimizing tier; the native tier reports its own activations and back edges
-back into the hotness counters, and a demoted function waits out a cooldown
-before it is promoted again).
+(route A), back-edge OSR, code-cache retirement, metrics/quotas, worker-thread
+compilation (`Jit::poll` only dispatches, drains and installs), and the
+two-gate tiering (a first gate compiles the baseline tier, a second gate
+promotes the function to the optimizing tier; the native tier reports its own
+activations and back edges back into the hotness counters, and a demoted
+function waits out a cooldown before it is promoted again).
 
 Not implemented: single-shape inline calls (D-6 route B), macOS/Windows
 executable memory, and real-hardware aarch64 validation. ASan is blocked by the

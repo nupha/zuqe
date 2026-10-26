@@ -120,7 +120,7 @@ const NORMAL: &[Case] = dim_cases!("Normal", [
         "'w:' + w(2)";
     // Epic N3: the loop *is* the eval. Nothing is warmed and the frame is never
     // re-entered, so the only way to native code is the back edge handing the
-    // frame to the compiled loop header (inline OSR) — including the repeated
+    // frame to the compiled loop header (back-edge OSR) — including the repeated
     // exit/re-entry a throw inside the loop forces.
     toplevel_loop_osr:
         "var osrSeed = 1;",

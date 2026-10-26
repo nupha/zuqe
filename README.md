@@ -99,8 +99,7 @@ Zuqe provides several Cargo features to customize the build:
 
 | Feature              | Description                                                             | Default |
 | -------------------- | ----------------------------------------------------------------------- | ------- |
-| `jit`                | Tiered bytecode JIT (Cranelift) with a fail-closed verifier             | on      |
-| `jit_background`     | Compile JIT code on worker threads (`Jit::poll` does not block)         | on      |
+| `jit`                | Tiered bytecode JIT (Cranelift) with worker-thread compilation          | on      |
 | `async_support`      | Enable Promise↔Future bridge and `Runtime::run_async()`                 | on      |
 | `all_unicode`        | Full Unicode support (XID, normalization)                               | on      |
 | `crossbeam_channel`  | Use `crossbeam::channel` instead of `std::sync::mpsc`                   | off     |

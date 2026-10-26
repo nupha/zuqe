@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! Background compiler workers (feature `jit_background`).
+//! Compiler workers.
 //!
-//! Verify + Cranelift lowering move off the runtime thread; the runtime thread
+//! Verify + Cranelift lowering run off the runtime thread; the runtime thread
 //! stays the **single writer** of everything shared (the `jit` slots, the code
 //! cache, metrics, the coordinator). A worker receives only `Send` data — a
 //! [`CompileJob`] holding a [`CompileSnapshot`] and [`VerifyLimits`] — and sends
@@ -25,7 +25,10 @@ use std::{
 use cranelift_codegen::isa::TargetIsa;
 
 use crate::jit::{
-    Lowered, bytecode::VerifyLimits, error::JitError, lower, snapshot::CompileSnapshot,
+    bytecode::{VerifyLimits, verify},
+    compiler,
+    error::JitError,
+    snapshot::CompileSnapshot,
 };
 
 /// One attempt handed to a worker. Everything here is `Send` and holds no GC
@@ -254,6 +257,52 @@ fn worker_loop(
         {
             break;
         }
+    }
+}
+
+/// How one lowering ended. `Rejected` means the frontend refused the snapshot
+/// (fail-closed); `Compiled` carries owned code bytes for the runtime thread to
+/// publish.
+enum Lowered {
+    Compiled { bytes: Box<[u8]>, specialized: u64 },
+    Rejected,
+    Failed,
+}
+
+/// Verify and lower one snapshot on the worker thread. `TargetIsa` is
+/// `Send + Sync`; the snapshot and the result are `Send`, so this is the whole
+/// cross-thread contract.
+///
+/// `elapsed_ns` receives the time the attempt took (verification + codegen),
+/// so the runtime thread can account for the compile cost (the cost gate).
+fn lower(
+    snapshot: CompileSnapshot,
+    limits: VerifyLimits,
+    isa: &dyn TargetIsa,
+    elapsed_ns: &Cell<u64>,
+) -> Lowered {
+    let started = Instant::now();
+    let result = lower_inner(snapshot, limits, isa);
+    elapsed_ns.set(started.elapsed().as_nanos() as u64);
+    result
+}
+
+fn lower_inner(snapshot: CompileSnapshot, limits: VerifyLimits, isa: &dyn TargetIsa) -> Lowered {
+    let Ok(verified) = verify(snapshot, limits) else {
+        return Lowered::Rejected;
+    };
+    // A function whose entry opcode the baseline cannot lower fails the same
+    // way every attempt; the caller settles it fail-closed instead of retrying.
+    if !compiler::entry_is_translatable(&verified) {
+        return Lowered::Rejected;
+    }
+    let specialized = Cell::new(0);
+    match compiler::compile(&verified, isa, &specialized) {
+        Ok(bytes) => Lowered::Compiled {
+            bytes,
+            specialized: specialized.get(),
+        },
+        Err(_) => Lowered::Failed,
     }
 }
 

@@ -105,9 +105,8 @@ impl Default for Thresholds {
 }
 
 /// Poll until the JIT is quiet: `queue_len == 0 && functions_compiling == 0`.
-/// Under `jit_background` (in `default`) `poll` is non-blocking, so a single
-/// call may return with an attempt still in flight; the timed window must start
-/// from installed code. Inline, the first `poll` already drains the queue.
+/// `poll` is non-blocking, so a single call may return with an attempt still in
+/// flight; the timed window must start from installed code.
 fn settle(jit: &Jit) {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {

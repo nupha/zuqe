@@ -5,8 +5,8 @@
 //!
 //! Hotness decides *when* a function is worth compiling; this module owns the
 //! request queue and the states a function moves through. Verification and
-//! codegen run inline in `JitState::poll` (inline compilation is a documented deviation —
-//! no background thread yet), so the coordinator itself never touches code.
+//! codegen run on compiler workers, so the coordinator itself never touches
+//! code.
 //!
 //! While a function is queued or compiling the coordinator pins its `Bytecode`
 //! handle: the GC traces pinned handles (`JitState::trace`), so the bytecode
@@ -35,7 +35,7 @@ pub(crate) enum Lifecycle {
     Cold,
     /// Waiting in the queue.
     Queued,
-    /// Handed to the (inline) pipeline.
+    /// Handed to a compiler worker.
     Compiling,
     /// Native code is installed in the function's slot.
     Installed,
@@ -443,7 +443,7 @@ impl Coordinator {
             record.lifecycle = Lifecycle::Compiling;
             // A pending tier-down demotes the attempt to the baseline tier,
             // whatever was requested. The effective tier stays with the record
-            // until the attempt lands, so the background model can report it
+            // until the attempt lands, so the worker model can report it
             // without carrying it through the worker.
             let tier = if record.tier_down {
                 Tier::Tier1
@@ -589,14 +589,12 @@ impl Coordinator {
     }
 
     /// The bytecode a queued/compiling function is pinned by, if any.
-    #[cfg(feature = "jit_background")]
     pub(crate) fn pinned(&self, id: u64) -> Option<Bytecode> {
         self.records.get(&id).and_then(|record| record.pinned)
     }
 
     /// Undo a `begin_next` whose job could not be handed to a worker (channel
     /// full or workers gone): put the function back at the head of the queue.
-    #[cfg(feature = "jit_background")]
     pub(crate) fn rollback(&mut self, id: u64) {
         let compiling = self
             .records
@@ -622,7 +620,7 @@ impl Coordinator {
     }
 }
 
-fn count_verified(m: &mut JitMetrics, record: &mut FunctionRecord) {
+const fn count_verified(m: &mut JitMetrics, record: &mut FunctionRecord) {
     if !record.verify_counted {
         record.verify_counted = true;
         m.functions_verified = m.functions_verified.saturating_add(1);

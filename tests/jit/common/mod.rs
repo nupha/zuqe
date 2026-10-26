@@ -5,7 +5,10 @@
 //! under a tier policy and describe its outcome exactly, so the differential,
 //! opcode and semantic gates cannot drift apart.
 
-#![allow(dead_code)]
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
 
 use zuqe::{
     Context, EvalFlags, EvalName, EvalType, JSResult, JSValue, Jit, JitConfig, JitMetrics,
@@ -24,12 +27,7 @@ pub enum Mode {
     Automatic,
 }
 
-pub const MODES: [Mode; 4] = [
-    Mode::Interpreter,
-    Mode::Tier1,
-    Mode::Tier2,
-    Mode::Automatic,
-];
+pub const MODES: [Mode; 4] = [Mode::Interpreter, Mode::Tier1, Mode::Tier2, Mode::Automatic];
 
 impl Mode {
     pub const fn label(self) -> &'static str {
@@ -124,30 +122,20 @@ pub fn eval_src(ctx: &mut Context, name: &EvalName, src: &str) -> JSResult {
     ctx.eval(src.as_bytes(), name, EvalType::Global, EvalFlags::empty())
 }
 
-/// Bring the JIT to rest before the observed run. Inline, one `poll` drains the
-/// queue synchronously; background (`jit_background`), `poll` is non-blocking,
-/// so this spins until no attempt is in flight and the queue is empty. Either
-/// way the case's functions are compiled or rejected when it returns, which is
-/// what makes the differential comparison meaningful.
+/// Bring the JIT to rest before the observed run: `poll` is non-blocking, so
+/// spin until no attempt is in flight and the queue is empty. The case's
+/// functions are compiled or rejected when it returns, which is what makes the
+/// differential comparison meaningful.
 pub fn settle(jit: &Jit) {
-    #[cfg(not(feature = "jit_background"))]
-    jit.poll();
-    #[cfg(feature = "jit_background")]
-    {
-        use std::{
-            thread,
-            time::{Duration, Instant},
-        };
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
-            jit.poll();
-            let m = jit.metrics();
-            if m.queue_len == 0 && m.functions_compiling == 0 {
-                return;
-            }
-            assert!(Instant::now() < deadline, "jit never settled: {m:?}");
-            thread::sleep(Duration::from_micros(50));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        jit.poll();
+        let m = jit.metrics();
+        if m.queue_len == 0 && m.functions_compiling == 0 {
+            return;
         }
+        debug_assert!(Instant::now() < deadline, "jit never settled: {m:?}");
+        thread::sleep(Duration::from_micros(50));
     }
 }
 

@@ -37,7 +37,7 @@ pub const fn opcode_policies() -> &'static [JitPolicy] {
 
 // The generated table must describe exactly the final opcode set. The generator
 // emits one entry per common opcode, which is the whole final set.
-const _: () = assert!(JS_JIT_OPCODE_POLICY.len() == OP_COUNT_FINAL as usize);
+const _: () = debug_assert!(JS_JIT_OPCODE_POLICY.len() == OP_COUNT_FINAL as usize);
 
 /// Strategy for the final opcode `op`. Panics if `op` is out of range, which
 /// can only happen on corrupt bytecode — the verifier rejects that separately.

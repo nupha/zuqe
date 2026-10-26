@@ -819,20 +819,16 @@ fn regexp_and_bigint_literals_run_in_native_code() {
     }
 }
 
-/// Epic N3: inline back-edge OSR. A top-level loop is a frame that never
-/// crosses a frame boundary and is never re-entered, so nothing is compiled
-/// when the script starts (the trampoline only polls between frames). Any native
-/// entry during that single `eval` can therefore only be the back edge handing
-/// the frame to the compiled loop header — and the back-edge count must stay
-/// near the threshold instead of growing with the trip count.
-///
-/// Inline-only: it needs the back edge to compile *synchronously*. Under
-/// `jit_background` the worker finishes later, so the eventual entry is checked
-/// by `jit_background::auto_poll_drains_workers_and_the_function_runs_native`.
-#[cfg(not(feature = "jit_background"))]
+/// Epic N3: back-edge OSR. A top-level loop is a frame that never crosses a
+/// frame boundary and is never re-entered, so nothing is compiled when the
+/// script starts (the trampoline only polls between frames). Any native entry
+/// during that single `eval` can therefore only be the back edge handing the
+/// frame to the compiled loop header. The worker compiles asynchronously, so
+/// the loop must run long enough for the completion to be installed at a later
+/// back edge; the back-edge count then stays well below the trip count.
 #[test]
 fn a_top_level_loop_switches_to_native_mid_run() {
-    const SRC: &[u8] = b"var s = 1; for (var i = 1; i < 100000; i++) s = (s + i) | 0; s;";
+    const SRC: &[u8] = b"var s = 1; for (var i = 1; i < 1000000; i++) s = (s + i) | 0; s;";
 
     let run = |label: &str, cfg: JitConfig| -> (String, JitMetrics) {
         let mut rt = Runtime::create().unwrap();
@@ -867,7 +863,7 @@ fn a_top_level_loop_switches_to_native_mid_run() {
         "the loop never ran native inside the eval ({m:?})"
     );
     assert!(
-        m.backedges < 100,
+        m.backedges < 500_000,
         "the loop stayed interpreted (backedges={})",
         m.backedges
     );
@@ -890,30 +886,50 @@ fn a_top_level_loop_switches_to_native_mid_run() {
 /// Epic N3: the loop shapes a back-edge OSR has to resume. Each script is a
 /// single `eval` with the loop at the top level, run once with the JIT (the
 /// frame switches to native at the loop header through `cur_sp_offset`) and once
-/// interpreted; both must agree exactly.
-///
-/// Inline-only: the assertions need the synchronous back-edge compile (see
-/// `a_top_level_loop_switches_to_native_mid_run`).
-#[cfg(not(feature = "jit_background"))]
+/// interpreted; both must agree exactly. The loops are long enough for the
+/// worker's completion to be installed at a later back edge.
 #[test]
 fn top_level_loop_shapes_match_the_interpreter() {
     // `for`/`while`/`do-while` cover the `goto` and `if_*` back edges. The first
     // body ends in a bitwise op, one of the opcodes that leave the frame's
     // `cur_sp_offset` one slot above `sp`; the back edge syncs it before the
-    // resume, and the result must still be the interpreter's.
-    let scripts: &[&str] = &[
-        "var s = 1; for (var i = 1; i < 30000; i++) s = (s ^ (i & 7)) | 0; s;",
-        "var i = 0, s = 0; while (i < 30000) { s = (s + i) | 0; i++; } s;",
-        "var i = 0, s = 0; do { s = (s + i) | 0; i++; } while (i < 30000); s;",
+    // resume, and the result must still be the interpreter's. The second tuple
+    // element is the trip budget used to check that OSR cut the interpreter
+    // back-edge count roughly in half.
+    let scripts: &[(&str, u32)] = &[
+        (
+            "var s = 1; for (var i = 1; i < 500000; i++) s = (s ^ (i & 7)) | 0; s;",
+            500_000,
+        ),
+        (
+            "var i = 0, s = 0; while (i < 500000) { s = (s + i) | 0; i++; } s;",
+            500_000,
+        ),
+        (
+            "var i = 0, s = 0; do { s = (s + i) | 0; i++; } while (i < 500000); s;",
+            500_000,
+        ),
         // Nested: the inner header is the first OSR point reached.
-        "var s = 0; for (var i = 0; i < 200; i++) { for (var j = 0; j < 200; j++) s = (s + (i ^ j)) | 0; } s;",
+        (
+            "var s = 0; for (var i = 0; i < 500; i++) { for (var j = 0; j < 500; j++) s = (s + (i ^ j)) | 0; } s;",
+            250_000,
+        ),
         // A computed condition and a ternary join in the body: the values the
         // native loop keeps across its own blocks must match the interpreter.
-        "var s = 0; for (var i = 0; i < 30000; i++) s = (s + ((i > 3) ? 1 : (i ? 2 : 3))) | 0; s;",
-        "var s = 0; for (var i = 0; i < 30000; i++) { if (i % 7 === 0) continue; if (i > 25000) break; s = (s + i) | 0; } s;",
+        (
+            "var s = 0; for (var i = 0; i < 500000; i++) s = (s + ((i > 3) ? 1 : (i ? 2 : 3))) | 0; s;",
+            500_000,
+        ),
+        (
+            "var s = 0; for (var i = 0; i < 400000; i++) { if (i % 7 === 0) continue; if (i > 350000) break; s = (s + i) | 0; } s;",
+            400_000,
+        ),
         // A callee in the loop body: the loop frame must stay native across the
         // call (D-6's call helper) for the back-edge count to stay low.
-        "function inc(x){ return (x + 1) | 0; } var s = 0; for (var i = 0; i < 20000; i++) s = inc(s) | 0; s;",
+        (
+            "function inc(x){ return (x + 1) | 0; } var s = 0; for (var i = 0; i < 300000; i++) s = inc(s) | 0; s;",
+            300_000,
+        ),
     ];
 
     let run = |src: &[u8], cfg: JitConfig| -> (String, JitMetrics) {
@@ -926,7 +942,7 @@ fn top_level_loop_shapes_match_the_interpreter() {
         let value = observe(ctx.eval(src, &name, EvalType::Global, EvalFlags::empty()));
         (value, jit.metrics())
     };
-    for src in scripts {
+    for (src, budget) in scripts {
         let (expected, _) = run(
             src.as_bytes(),
             JitConfig::builder()
@@ -940,8 +956,8 @@ fn top_level_loop_shapes_match_the_interpreter() {
             "`{src}` never entered native code ({m:?})"
         );
         assert!(
-            m.backedges < 100,
-            "`{src}` stayed interpreted (backedges={})",
+            m.backedges < u64::from(*budget) / 2,
+            "`{src}` stayed interpreted (backedges={}, budget={budget})",
             m.backedges
         );
     }
