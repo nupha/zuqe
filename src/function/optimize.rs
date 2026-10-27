@@ -333,19 +333,36 @@ impl FunctionDef {
                 );
                 push_vec_u8(bc_out, idx as u8);
                 *pos_next = cc.pos;
-            } else if let Some(cc) = self.code_match(
-                *pos_next,
-                &[
-                    Op(opcodes::OP_push_atom_value as _),
-                    Op(opcodes::OP_add as _),
-                    Op(opcodes::OP_dup as _),
-                    Op(opcodes::OP_put_loc as _),
-                    Val(idx as _),
-                    Op(opcodes::OP_drop as _),
-                ],
-            ) {
+            } else if let Some(cc) = self
+                .code_match(
+                    *pos_next,
+                    &[
+                        Op(opcodes::OP_push_atom_value as _),
+                        Op(opcodes::OP_add as _),
+                        Op(opcodes::OP_dup as _),
+                        Op(opcodes::OP_put_loc as _),
+                        Val(idx as _),
+                        Op(opcodes::OP_drop as _),
+                    ],
+                )
+                // Same shape after the assignment epilogue was folded to
+                // `set_loc(n) drop` by `optimize_scope_make_ref`.
+                .or_else(|| {
+                    self.code_match(
+                        *pos_next,
+                        &[
+                            Op(opcodes::OP_push_atom_value as _),
+                            Op(opcodes::OP_add as _),
+                            Op(opcodes::OP_set_loc as _),
+                            Val(idx as _),
+                            Op(opcodes::OP_drop as _),
+                        ],
+                    )
+                })
+            {
                 // transformation:
                 // get_loc(n) push_atom_value(x) add dup put_loc(n) drop -> push_atom_value(x) add_loc(n)
+                // get_loc(n) push_atom_value(x) add set_loc(n) drop   -> push_atom_value(x) add_loc(n)
                 if cc.line_num >= 0 {
                     *line_num = cc.line_num as _;
                 }
@@ -357,19 +374,34 @@ impl FunctionDef {
                 push_vec_u8(bc_out, opcodes::OP_add_loc);
                 push_vec_u8(bc_out, idx as u8);
                 *pos_next = cc.pos;
-            } else if let Some(cc) = self.code_match(
-                *pos_next,
-                &[
-                    Op(opcodes::OP_push_i32 as _),
-                    Op(opcodes::OP_add as _),
-                    Op(opcodes::OP_dup as _),
-                    Op(opcodes::OP_put_loc as _),
-                    Val(idx as _),
-                    Op(opcodes::OP_drop as _),
-                ],
-            ) {
+            } else if let Some(cc) = self
+                .code_match(
+                    *pos_next,
+                    &[
+                        Op(opcodes::OP_push_i32 as _),
+                        Op(opcodes::OP_add as _),
+                        Op(opcodes::OP_dup as _),
+                        Op(opcodes::OP_put_loc as _),
+                        Val(idx as _),
+                        Op(opcodes::OP_drop as _),
+                    ],
+                )
+                .or_else(|| {
+                    self.code_match(
+                        *pos_next,
+                        &[
+                            Op(opcodes::OP_push_i32 as _),
+                            Op(opcodes::OP_add as _),
+                            Op(opcodes::OP_set_loc as _),
+                            Val(idx as _),
+                            Op(opcodes::OP_drop as _),
+                        ],
+                    )
+                })
+            {
                 // transformation:
                 // get_loc(n) push_i32(x) add dup put_loc(n) drop -> push_i32(x) add_loc(n)
+                // get_loc(n) push_i32(x) add set_loc(n) drop   -> push_i32(x) add_loc(n)
                 if cc.line_num >= 0 {
                     *line_num = cc.line_num as _;
                 }
@@ -378,26 +410,47 @@ impl FunctionDef {
                 push_vec_u8(bc_out, opcodes::OP_add_loc);
                 push_vec_u8(bc_out, idx as u8);
                 *pos_next = cc.pos;
-            } else if let Some(cc) = self.code_match(
-                *pos_next,
-                &[
-                    Op(M3(
-                        opcodes::OP_get_loc as _,
-                        opcodes::OP_get_arg as _,
-                        opcodes::OP_get_var_ref as _,
-                    )),
-                    Any,
-                    Op(opcodes::OP_add as _),
-                    Op(opcodes::OP_dup as _),
-                    Op(opcodes::OP_put_loc as _),
-                    Val(idx as _),
-                    Op(opcodes::OP_drop as _),
-                ],
-            ) {
-                // transformation: XXX: also do these:
-                // get_loc(n) get_loc(x) add dup put_loc(n) drop -> get_loc(x) add_loc(n)
-                // get_loc(n) get_arg(x) add dup put_loc(n) drop -> get_arg(x) add_loc(n)
-                // get_loc(n) get_var_ref(x) add dup put_loc(n) drop -> get_var_ref(x) add_loc(n)
+            } else if let Some(cc) = self
+                .code_match(
+                    *pos_next,
+                    &[
+                        Op(M3(
+                            opcodes::OP_get_loc as _,
+                            opcodes::OP_get_arg as _,
+                            opcodes::OP_get_var_ref as _,
+                        )),
+                        Any,
+                        Op(opcodes::OP_add as _),
+                        Op(opcodes::OP_dup as _),
+                        Op(opcodes::OP_put_loc as _),
+                        Val(idx as _),
+                        Op(opcodes::OP_drop as _),
+                    ],
+                )
+                .or_else(|| {
+                    self.code_match(
+                        *pos_next,
+                        &[
+                            Op(M3(
+                                opcodes::OP_get_loc as _,
+                                opcodes::OP_get_arg as _,
+                                opcodes::OP_get_var_ref as _,
+                            )),
+                            Any,
+                            Op(opcodes::OP_add as _),
+                            Op(opcodes::OP_set_loc as _),
+                            Val(idx as _),
+                            Op(opcodes::OP_drop as _),
+                        ],
+                    )
+                })
+            {
+                // transformation:
+                // get_loc(n) get_x(m) add dup put_loc(n) drop -> get_x(m) add_loc(n)
+                // get_loc(n) get_x(m) add set_loc(n) drop   -> get_x(m) add_loc(n)
+                // (x = get_loc / get_arg / get_var_ref; the first operand load of
+                // the original form is absent here because `set_loc` keeps the
+                // value for the assignment expression and `drop` discards it.)
 
                 if cc.line_num >= 0 {
                     *line_num = cc.line_num as _;
@@ -931,6 +984,41 @@ mod tests {
         for n in 0..64 {
             let src = format!("{SETUP}{}\na[k + 0]++;\na[3] === 4 ? 1 : 0;", filler(n));
             assert_eq!(eval_int(&src), 1, "postfix increment, filler={n}");
+        }
+    }
+
+    /// `loc(a) += expr` is fused to `add_loc` only when the assignment value is
+    /// dropped and the right-hand side is a single read. The assignment must
+    /// still read the local *before* the side effect of `expr`, and the
+    /// value-producing form must keep the result.
+    #[test]
+    fn compound_assignment_fusion_preserves_evaluation_order() {
+        let cases = [
+            // statement form, both operands local
+            ("var x = 1, y = 2; x = x + y; x;", 3),
+            // same slot on both sides
+            ("var x = 3; x = x + x; x;", 6),
+            // value form: assignment keeps its result
+            ("var x = 1; var z = (x = x + 2); z * 10 + x;", 33),
+            // `+=` syntax takes the same shape
+            ("var s = 1; s += 2; s;", 3),
+            // arguments, not locals: must keep the original sequence
+            ("function g(n) { n = n + 1; return n; } g(41);", 42),
+            // lexical local
+            ("function h() { let x = 1; x = x + 1; return x; } h();", 2),
+            // string concatenation
+            ("var t = 'a'; t = t + 1; t.length;", 2),
+            // two fusions in a row
+            ("var u = 1; u = u + 1; u = u + 1; u;", 3),
+            // RHS has a side effect that writes the target: the local must be
+            // read before the call (1 + f() == 2), not after (10 + 1 == 11).
+            (
+                "var w = 1; function bump() { w = 10; return 1; } w = w + bump(); w;",
+                2,
+            ),
+        ];
+        for (src, want) in cases {
+            assert_eq!(eval_int(src), want, "{src}");
         }
     }
 }
