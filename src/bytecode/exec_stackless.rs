@@ -306,6 +306,42 @@ pub(crate) fn get_var_ref(
     Ok(vref)
 }
 
+/// Scan the current frame for a `catch` handler at `pc` and, if one exists,
+/// report the target pc/sp. Shared by the JIT entry exception (checked once
+/// before the dispatch loop) and the `ExecAction::Exception` arm, so the
+/// dispatch loop carries no per-opcode exception check and the catch code
+/// lives outside its hot body.
+///
+/// `sp_offset` is the local interpreter `sp` relative to the frame's stack
+/// base; the unwind scan and any GC that runs while handling read it from the
+/// frame header.
+fn catch_in_frame_at(
+    rt: &crate::runtime::RuntimeImpl,
+    realm_scope: &mut ScopedContext,
+    arena: &mut VmStack,
+    cur_frame_idx: FrameIndex,
+    pc: usize,
+    sp_offset: i32,
+) -> Option<(usize, usize)> {
+    arena.frame_mut(cur_frame_idx).cur_sp_offset = sp_offset;
+
+    // Interrupt bypasses catch handling — it is not a JS exception.
+    if rt.interrupt_code.is_some() {
+        return None;
+    }
+
+    // Add backtrace before catch lookup (matching exec.rs's
+    // StackFrame::handle_exception behavior).
+    if let Exception::Error(err_val) = rt.exception()
+        && is_backtrace_needed(err_val)
+    {
+        arena.frame_mut(cur_frame_idx).cur_pc_offset = pc;
+        realm_scope.build_backtrace_to(err_val, None, 0);
+    }
+
+    arena.find_catch_in_frame(cur_frame_idx, realm_scope)
+}
+
 impl Bytecode {
     /// Inline-cache site `ic_idx` of this function, if the function has one.
     ///
@@ -448,25 +484,6 @@ impl Bytecode {
             };
         }
 
-        // Native re-entry: set when a native (C/Rust) callee ran inline through
-        // `call_internal`, so the dispatch loop retries native at the post-call
-        // pc. Without it the interpreter would stay in the interpreter for the
-        // rest of the frame after any builtin/method call.
-        #[cfg(feature = "jit")]
-        let mut jit_retry_native = false;
-        // Native re-entry: a native callee runs inline via `call_internal`, so mark the
-        // frame for a native retry at the post-call pc (no-op without the JIT).
-        #[cfg(feature = "jit")]
-        macro_rules! jit_mark_native_call {
-            () => {
-                jit_retry_native = true;
-            };
-        }
-        #[cfg(not(feature = "jit"))]
-        macro_rules! jit_mark_native_call {
-            () => {};
-        }
-
         let cpools = self.consts();
 
         let pc_base = bytecodes.as_ptr();
@@ -485,9 +502,8 @@ impl Bytecode {
         #[cfg(feature = "jit")]
         macro_rules! jit_note_backedge {
             ($target:expr) => {
-                if crate::jit::note_backedge(&rt, self, $target) {
-                    save_sp!(unsafe { sp.offset_from(sp_base) } as i32);
-                    jit_retry_native = true;
+                if jit_active && crate::jit::note_backedge(&rt, self, $target) {
+                    jit_retry_native_now!();
                 }
             };
         }
@@ -581,7 +597,7 @@ impl Bytecode {
         #[cfg(feature = "jit")]
         let jit_scope_ptr = realm_scope as *mut ScopedContext as *mut u8;
         #[cfg(feature = "jit")]
-        if !throwed {
+        if !throwed && jit_active {
             let cur_sp_offset_ptr: *mut i32 =
                 unsafe { &mut (*arena_ptr).frame_mut(cur_frame_idx).cur_sp_offset };
             if let Some((kind, jf)) = crate::jit::invoke_native(
@@ -800,31 +816,15 @@ impl Bytecode {
     }
 
         // ── JIT hooks ──
-        // The hook derives its own function id from `self` (the node address),
-        // stable for the runtime's lifetime.
+        // Native re-entry: a native callee ran inline (or a back edge asked for
+        // OSR), so try the frame's native entry at the current pc. Invoked at the
+        // few sites that can need it instead of once per dispatched opcode.
         #[cfg(feature = "jit")]
-        crate::jit::note_enter(&rt, self);
-
-        // ── Opcode dispatch loop ──
-        // The outer 'arena_loop handles exception catch re-entry.
-        // CallBytecode / TailCall / Return return ExecAction to the trampoline.
-        // Exception tries local catch and re-enters via continue 'arena_loop.
-        'arena_loop: loop {
-            let action: ExecAction = loop {
-                // A native run that ended with an exception resumes here so the
-                // normal catch scan below runs for this frame.
-                #[cfg(feature = "jit")]
-                if let Some(initial) = jit_initial_action.take() {
-                    break initial;
-                }
-                // Native re-entry: a native callee just returned inline; retry native
-                // at the post-call pc so the rest of the frame stays native.
-                // The compiled entry exits `Retry` for a pc it has no entry for,
-                // which rewinds to the same pc and we carry on interpreting.
-                #[cfg(feature = "jit")]
-                if std::mem::take(&mut jit_retry_native) {
-                    // The OSR prologue resumes at `*cur_sp_offset`; the local
-                    // `sp` moved since the native call returned.
+        macro_rules! jit_retry_native_now {
+            () => {
+                if jit_active {
+                    // The OSR prologue takes the resume stack pointer from
+                    // `cur_sp_offset`; the local `sp` moved since the last sync.
                     sync_sp!();
                     let attempt_pc = unsafe { pc.offset_from(pc_base) as u32 };
                     let cur_sp_offset_ptr: *mut i32 =
@@ -845,8 +845,8 @@ impl Bytecode {
                         new_target,
                         func_home_obj,
                     );
-                    // The native code (if any) reborrowed the context; drop the
-                    // stale `&mut` before touching it again.
+                    // The native code (if any) reborrowed the context through a
+                    // raw pointer, so the original `&mut` is stale.
                     realm_scope = unsafe { &mut *(jit_scope_ptr as *mut ScopedContext) };
                     if let Some((kind, jf)) = entered {
                         match kind {
@@ -874,6 +874,48 @@ impl Bytecode {
                         }
                     }
                 }
+            };
+        }
+        #[cfg(not(feature = "jit"))]
+        macro_rules! jit_retry_native_now {
+            () => {};
+        }
+
+        // The hook derives its own function id from `self` (the node address),
+        // stable for the runtime's lifetime.
+        #[cfg(feature = "jit")]
+        if jit_active {
+            crate::jit::note_enter(&rt, self);
+        }
+
+        // A native entry that ended in an exception: run the catch scan once,
+        // before the loop, instead of checking for it at every dispatched
+        // opcode.
+        #[cfg(feature = "jit")]
+        if jit_initial_action.is_some() {
+            let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
+            let sp_offset = unsafe { sp.offset_from(sp_base) } as i32;
+            let Some((new_pc, new_sp)) = catch_in_frame_at(
+                &rt,
+                realm_scope,
+                arena_mut!(),
+                cur_frame_idx,
+                cur_pc,
+                sp_offset,
+            ) else {
+                return ExecAction::Unwind;
+            };
+            save_sp!(new_sp as i32);
+            pc = unsafe { pc_base.add(new_pc) };
+            sp = unsafe { sp_base.add(new_sp) };
+        }
+
+        // ── Opcode dispatch loop ──
+        // The outer 'arena_loop handles exception catch re-entry.
+        // CallBytecode / TailCall / Return return ExecAction to the trampoline.
+        // Exception tries local catch and re-enters via continue 'arena_loop.
+        'arena_loop: loop {
+            let action: ExecAction = loop {
                 let opcode = unsafe { std::mem::transmute::<u8, OpCode>(PC_FETCH!(u8)) };
 
                 match opcode {
@@ -1382,7 +1424,6 @@ impl Bytecode {
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             0,
                         );
-                        jit_mark_native_call!();
                         if let Ok(r) = ret_val {
                             if unlikely(opcode == OpCode::TAIL_CALL) {
                                 break ExecAction::Return(r, false);
@@ -1394,6 +1435,7 @@ impl Bytecode {
                         } else {
                             break ExecAction::Exception;
                         }
+                        jit_retry_native_now!();
                     }
                     OpCode::CALL_CONSTRUCTOR => {
                         let call_argc = PC_FETCH!(u16) as i32;
@@ -1519,7 +1561,6 @@ impl Bytecode {
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             JS_CALL_FLAG_CONSTRUCTOR,
                         );
-                        jit_mark_native_call!();
                         if let Ok(val) = ret_val {
                             SP_GO!(-(call_argc + 2));
                             SP_PUT!(0, val);
@@ -1527,6 +1568,7 @@ impl Bytecode {
                         } else {
                             break ExecAction::Exception;
                         }
+                        jit_retry_native_now!();
                     }
                     OpCode::CALL_METHOD | OpCode::TAIL_CALL_METHOD => {
                         let call_argc = PC_FETCH!(u16) as i32;
@@ -1648,7 +1690,6 @@ impl Bytecode {
                             unsafe { std::slice::from_raw_parts(call_argv, call_argc as usize) },
                             0,
                         );
-                        jit_mark_native_call!();
                         if let Ok(r) = ret_val {
                             if unlikely(opcode == OpCode::TAIL_CALL_METHOD) {
                                 break ExecAction::Return(r, false);
@@ -1660,6 +1701,7 @@ impl Bytecode {
                         } else {
                             break ExecAction::Exception;
                         }
+                        jit_retry_native_now!();
                     }
                     OpCode::RETURN => {
                         SP_GO!(-1);
@@ -1714,8 +1756,6 @@ impl Bytecode {
                         }
                     }
                     OpCode::INC_LOC | OpCode::DEC_LOC => {
-                        #[cfg(feature = "jit")]
-                        let site = (unsafe { pc.offset_from(pc_base) } as u32) - 1;
                         let idx = PC_FETCH!(u8) as i32;
                         let op1 = VAR_REF![idx];
                         let old = *op1;
@@ -1733,6 +1773,8 @@ impl Bytecode {
                             // Tier-2 feedback: the updated local before and after.
                             #[cfg(feature = "jit")]
                             if jit_feedback {
+                                // pc is past the 1-byte operand; the site is the opcode offset.
+                                let site = (unsafe { pc.offset_from(pc_base) } as u32) - 2;
                                 crate::jit::note_local_update(&rt, self, site, old, res);
                             }
                             *op1 = res;
@@ -1747,6 +1789,7 @@ impl Bytecode {
                             // (result classes — the result class exposes overflow).
                             #[cfg(feature = "jit")]
                             if jit_feedback {
+                                let site = (unsafe { pc.offset_from(pc_base) } as u32) - 2;
                                 crate::jit::note_local_update(&rt, self, site, old, res);
                             }
                             *op1 = res;
@@ -1755,8 +1798,6 @@ impl Bytecode {
                         }
                     }
                     OpCode::ADD_LOC => {
-                        #[cfg(feature = "jit")]
-                        let site = (unsafe { pc.offset_from(pc_base) } as u32) - 1;
                         let idx = PC_FETCH!(u8) as i32;
                         let op1 = SP_VAL!(-1);
                         SP_GO!(-1);
@@ -1772,6 +1813,7 @@ impl Bytecode {
                             // Tier-2 feedback: local (lhs), operand (rhs), result.
                             #[cfg(feature = "jit")]
                             if jit_feedback {
+                                let site = (unsafe { pc.offset_from(pc_base) } as u32) - 2;
                                 crate::jit::note_binary(&rt, self, site, *pv, op1, val);
                             }
                             *pv = val;
@@ -2122,9 +2164,9 @@ impl Bytecode {
                     OpCode::INIT_CTOR => {
                         match class_ops::init_ctor(realm_scope, func_obj, new_target, args!()) {
                             Ok(val) => {
-                                jit_mark_native_call!();
                                 SP_PUT!(0, val);
                                 SP_GO!(1);
+                                jit_retry_native_now!();
                             }
                             Err(_) => break ExecAction::Exception,
                         }
@@ -2325,7 +2367,6 @@ impl Bytecode {
                                 },
                                 0,
                             );
-                            jit_mark_native_call!();
                             SP_GO!(-(call_argc + 1));
                             if let Ok(v) = ret_val {
                                 SP_PUT!(0, v);
@@ -2333,6 +2374,7 @@ impl Bytecode {
                             } else {
                                 break ExecAction::Exception;
                             }
+                            jit_retry_native_now!();
                         }
                     }
                     OpCode::APPLY_EVAL => {
@@ -2939,7 +2981,6 @@ impl Bytecode {
                         sync_sp!();
                         let result =
                             next.call_internal(realm_scope, iter, JSValue::UNDEFINED, &[], 0);
-                        jit_mark_native_call!();
                         if let Ok(obj) = result {
                             // Restore the catch offset so that NIP_CATCH
                             // (emitted for `return` inside the loop body)
@@ -2950,6 +2991,7 @@ impl Bytecode {
                         } else {
                             break ExecAction::Exception;
                         }
+                        jit_retry_native_now!();
                     }
                     OpCode::ITERATOR_GET_VALUE_DONE => {
                         if unsafe { js_iterator_get_value_done(realm_scope, sp) } != 0 {
@@ -3535,37 +3577,22 @@ impl Bytecode {
                 }
 
                 ExecAction::Exception => {
-                    // The unwind scan below (`find_catch_in_frame`, and the
-                    // trampoline's `find_finally_in_frame`) reads
-                    // `cur_sp_offset`; so does GC if it runs while handling.
-                    sync_sp!();
-
-                    // Interrupt bypasses catch handling — it is not a JS exception.
-                    if rt.interrupt_code.is_some() {
-                        return ExecAction::Unwind;
-                    }
-
-                    // Add backtrace before catch lookup (matching exec.rs's
-                    // StackFrame::handle_exception behavior).
                     let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
-                    if let Exception::Error(err_val) = rt.exception()
-                        && is_backtrace_needed(err_val)
-                    {
-                        save_pc!(cur_pc);
-                        realm_scope.build_backtrace_to(err_val, None, 0);
-                    }
-
-                    if let Some((new_pc, new_sp)) =
-                        unsafe { (*arena_ptr).find_catch_in_frame(cur_frame_idx, realm_scope) }
-                    {
-                        unsafe {
-                            save_sp!(new_sp as i32);
-                            pc = pc_base.add(new_pc);
-                            sp = sp_base.add(new_sp);
-                        }
-                        continue 'arena_loop;
-                    }
-                    return ExecAction::Unwind;
+                    let sp_offset = unsafe { sp.offset_from(sp_base) } as i32;
+                    let Some((new_pc, new_sp)) = catch_in_frame_at(
+                        &rt,
+                        realm_scope,
+                        arena_mut!(),
+                        cur_frame_idx,
+                        cur_pc,
+                        sp_offset,
+                    ) else {
+                        return ExecAction::Unwind;
+                    };
+                    save_sp!(new_sp as i32);
+                    pc = unsafe { pc_base.add(new_pc) };
+                    sp = unsafe { sp_base.add(new_sp) };
+                    continue 'arena_loop;
                 }
 
                 ExecAction::CallBytecode {

@@ -8,8 +8,9 @@
 # `jit` is in `default`, so the plain run exercises the worker model.
 #
 # The platform matrix is {off,worker} x {linux x86_64, linux aarch64,
-# macOS arm64}; this script runs the legs available on the current host and
-# prints the row it covered. Cross-rows need a runner with that host.
+# macOS x86_64, macOS arm64}; this script runs the legs available on the
+# current host and prints the row it covered. Cross-rows need a runner with
+# that host.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
