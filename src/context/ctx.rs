@@ -29,6 +29,10 @@ use crate::{
     value::JSValue,
 };
 
+/// Size of [`ContextImpl::func_shapes`]: one slot per
+/// [`FunctionKind`](crate::function::FunctionKind) × `has_prototype`.
+pub(crate) const FUNC_SHAPE_COUNT: usize = 8;
+
 /// Class prototype and constructor object
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct ProtoCtorPair {
@@ -50,6 +54,12 @@ pub struct ContextImpl {
 
     /// Initial shape for Array objects
     pub(crate) array_shape: Option<Shape>,
+
+    /// Cached shapes for function objects, indexed by
+    /// `FunctionKind as usize * 2 + has_prototype` (VM-P7a). Holds the
+    /// `length`/`name`(/`prototype`) slots every function object carries, so a
+    /// closure is created with one shape instead of three transitions.
+    pub(crate) func_shapes: [Option<Shape>; FUNC_SHAPE_COUNT],
 
     pub(crate) throw_type_error: JSValue,
     pub(crate) array_proto_values: JSValue,
@@ -116,6 +126,7 @@ impl GcTrace for ContextImpl {
         if let Some(x) = self.array_shape.as_ref() {
             x.trace(gcx)
         }
+        self.func_shapes.iter().flatten().for_each(|x| x.trace(gcx));
         if let Some(x) = self.iterator_proto {
             x.trace(gcx)
         }
@@ -177,6 +188,7 @@ impl ContextImpl {
             rt: (&*rt).into(),
 
             array_shape: None,
+            func_shapes: std::array::from_fn(|_| None),
 
             class_slots: class_proto,
             error_protos: [const { JSValue::UNDEFINED }; STD_ERROR_COUNT],
@@ -356,6 +368,9 @@ impl ContextImpl {
         self.eval_func = JSValue::UNDEFINED;
 
         self.array_shape.take();
+        self.func_shapes.iter_mut().for_each(|s| {
+            s.take();
+        });
         self.iterator_proto.take();
         self.async_iterator_proto.take();
         self.global_obj.take();

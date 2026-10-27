@@ -54,16 +54,7 @@ impl LazyInit {
     /// apply lazy initialization. returns instantiated value.
     fn instantiate(&mut self, ctx: &mut ScopedContext, prop: Atom, this_obj: Object) -> JSResult {
         match self {
-            Self::Prototype => {
-                let mut obj = ctx.create_base_object()?;
-                obj.define_property_value(
-                    ctx,
-                    Atom::CONST_constructor,
-                    JSValue::from(this_obj),
-                    JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
-                )?;
-                Ok(obj.into())
-            }
+            Self::Prototype => instantiate_prototype(ctx, this_obj),
             Self::ModuleNS(md) => md.ns_object(ctx).map(JSValue::from),
             Self::ValueFn(f) => f(ctx),
             Self::String(s) => {
@@ -114,16 +105,33 @@ impl JSProperty {
     ///
     /// Note: will panic if property is not lazy type.
     pub(super) fn instantiate(self, prop: Atom, this_obj: Object) -> JSResult {
-        if let JSProperty::LazyInit(boxed) = self {
-            let PropertyLazy {
-                mut realm,
-                mut init,
-            } = *boxed;
-            realm.with_current_scope(|mut cx| init.instantiate(&mut cx, prop, this_obj))
-        } else {
-            unreachable!();
+        match self {
+            JSProperty::LazyInit(boxed) => {
+                let PropertyLazy {
+                    mut realm,
+                    mut init,
+                } = *boxed;
+                realm.with_current_scope(|mut cx| init.instantiate(&mut cx, prop, this_obj))
+            }
+            JSProperty::LazyPrototype(mut realm) => {
+                realm.with_current_scope(|mut cx| instantiate_prototype(&mut cx, this_obj))
+            }
+            _ => unreachable!(),
         }
     }
+}
+
+/// Build the `prototype` object of a function (its `constructor` back-links to
+/// `this_obj`), in the realm the property belongs to.
+pub(super) fn instantiate_prototype(ctx: &mut ScopedContext, this_obj: Object) -> JSResult {
+    let mut obj = ctx.create_base_object()?;
+    obj.define_property_value(
+        ctx,
+        Atom::CONST_constructor,
+        JSValue::from(this_obj),
+        JS_PROP_WRITABLE | JS_PROP_CONFIGURABLE,
+    )?;
+    Ok(obj.into())
 }
 
 impl ObjectImpl {

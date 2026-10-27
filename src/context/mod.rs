@@ -14,6 +14,6 @@ pub use {
 };
 
 pub(crate) use {
-    ctx::{ContextPtr, ProtoCtorPair},
+    ctx::{ContextPtr, FUNC_SHAPE_COUNT, ProtoCtorPair},
     global::GlobalVarSetMode,
 };

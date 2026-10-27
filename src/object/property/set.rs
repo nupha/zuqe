@@ -137,7 +137,10 @@ impl ObjectImpl {
 
                     JS_PROP_LAZYINIT => {
                         let pd = cur_obj.replace_prop_slot(idx, JSProperty::default());
-                        debug_assert!(matches!(pd, JSProperty::LazyInit(_)));
+                        debug_assert!(matches!(
+                            pd,
+                            JSProperty::LazyInit(_) | JSProperty::LazyPrototype(_)
+                        ));
 
                         let idx = cur_obj
                             .modify_shape_property_index_flags(ctx, idx, |f| f & !JS_PROP_TMASK)?;

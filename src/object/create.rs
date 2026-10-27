@@ -25,6 +25,20 @@ impl<'c> ScopedContext<'c> {
         ObjectImpl::create(self, Some(shape), payload)
     }
 
+    /// Create new class instance with a pre-built shape.
+    ///
+    /// `shape` already carries the object's `[[Prototype]]` and its property
+    /// defs, so the object starts with its final slot count (one allocation
+    /// instead of one per appended property).
+    #[inline]
+    pub(crate) fn create_instance_with_shape(
+        &mut self,
+        shape: Shape,
+        payload: PayloadPtr,
+    ) -> Result<Object, i32> {
+        ObjectImpl::create(self, Some(shape), payload)
+    }
+
     /// Create new class instance with the class proto and a payload
     pub(crate) fn create_instance(&mut self, payload: PayloadPtr) -> Result<Object, i32> {
         let proto = self.class_proto(payload.class_id());

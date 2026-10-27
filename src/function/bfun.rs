@@ -100,7 +100,11 @@ pub struct BFuncPayload {
     bytecode: Bytecode,
     /// Closure VarRefs (captured variables only; globals are resolved by
     /// name at runtime and never captured).
-    closure_var_refs: Vec<VarRef>,
+    ///
+    /// Inline up to two captures: closure creation is on the hot path of every
+    /// function expression, and one or two captured variables is the common
+    /// case, so this avoids the per-closure `Vec` allocation.
+    closure_var_refs: SmallVec<[VarRef; 2]>,
 
     /// 函数对象关联的宿主对象，主要用于以下场景：
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
@@ -124,10 +128,10 @@ impl BFuncPayload {
     /// The offset of the `Bytecode` handle, for the JIT's nested-call guard.
     pub(crate) const BYTECODE_OFFSET: usize = std::mem::offset_of!(Self, bytecode);
 
-    pub(crate) const fn new(bytecode: Bytecode, captured_vars: Vec<VarRef>) -> Self {
+    pub(crate) fn new(bytecode: Bytecode, captured_vars: impl Into<SmallVec<[VarRef; 2]>>) -> Self {
         Self {
             bytecode,
-            closure_var_refs: captured_vars,
+            closure_var_refs: captured_vars.into(),
             home_object: None,
         }
     }
@@ -308,6 +312,18 @@ pub(crate) fn get_func_name(func_obj: Object) -> Option<String> {
     None
 }
 
+/// The `name` property value of a function object: `[Symbol.xxx]` for
+/// symbol-keyed functions (methods), otherwise the atom's string.
+pub(crate) fn js_function_name_value(ctx: &mut ScopedContext, name: Atom) -> Result<JSValue, i32> {
+    if name.desc_kind(ctx.rt()) == AtomDescKind::JS_ATOM_KIND_SYMBOL {
+        // Well-known symbol functions: name should be [Symbol.xxx]
+        let inner = name.force_string(ctx)?;
+        JS_ConcatString3(ctx, c"[", JSValue::make_string(inner), c"]").map(JSValue::make_string)
+    } else {
+        name.force_string(ctx).map(JSValue::make_string)
+    }
+}
+
 /// define `length` and `name` properties on function object `func_obj`
 pub(crate) fn js_function_set_properties(
     ctx: &mut ScopedContext,
@@ -322,13 +338,7 @@ pub(crate) fn js_function_set_properties(
         JS_PROP_CONFIGURABLE, // ES6 feature non-compatible with ES5.1: length is configurable
     );
 
-    let name_val = if name.desc_kind(ctx.rt()) == AtomDescKind::JS_ATOM_KIND_SYMBOL {
-        // Well-known symbol functions: name should be [Symbol.xxx]
-        let inner = name.force_string(ctx)?;
-        JS_ConcatString3(ctx, c"[", JSValue::make_string(inner), c"]").map(JSValue::make_string)?
-    } else {
-        name.force_string(ctx).map(JSValue::make_string)?
-    };
+    let name_val = js_function_name_value(ctx, name)?;
 
     func_obj
         .define_property_value(ctx, Atom::CONST_name, name_val, JS_PROP_CONFIGURABLE)

@@ -22,8 +22,8 @@ use crate::{
 use super::{
     JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE,
     JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_GET, JS_PROP_HAS_SET, JS_PROP_HAS_VALUE,
-    JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT, JS_PROP_LENGTH, JS_PROP_TMASK, JS_PROP_WRITABLE,
-    JSPropertyDescriptor, check_define_prop_flags, get_prop_flags,
+    JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT, JS_PROP_LENGTH, JS_PROP_NORMAL, JS_PROP_TMASK,
+    JS_PROP_WRITABLE, JSPropertyDescriptor, check_define_prop_flags, get_prop_flags,
 };
 
 impl ObjectImpl {
@@ -65,7 +65,10 @@ impl ObjectImpl {
                 if prs_flags & JS_PROP_TMASK == JS_PROP_LAZYINIT {
                     // take lazy field definition
                     let pd = self.replace_prop_slot(idx, JSProperty::default());
-                    debug_assert!(matches!(pd, JSProperty::LazyInit(_)));
+                    debug_assert!(matches!(
+                        pd,
+                        JSProperty::LazyInit(_) | JSProperty::LazyPrototype(_)
+                    ));
 
                     // modify shape property kind to NORMAL.
                     // Modifying the shape may compact deleted slots (shifting
@@ -366,8 +369,33 @@ impl ObjectImpl {
         flags: u32,
     ) -> Result<bool, i32> {
         if name.is_null() {
-            Err(ctx.throw_type_error("invalid name"))
-        } else if !self.has_name() {
+            return Err(ctx.throw_type_error("invalid name"));
+        }
+
+        // Fast path for a freshly created function literal: `name` is a
+        // configurable, non-writable, non-enumerable data property still
+        // holding "" (the shape `function_object_shape` installs), and
+        // `SET_NAME` (the only caller) passes exactly these flags. Only the
+        // value changes then; the generic define path costs three more shape
+        // lookups. Every `f = function () {}` takes this path.
+        if let Some((idx, prs_flags)) = self.find_shape_property(Atom::CONST_name) {
+            let empty_name = prs_flags & JS_PROP_TMASK == JS_PROP_NORMAL
+                && matches!(&self.prop_slot(idx), JSProperty::Normal(v)
+                    if v.as_string(true).is_some_and(|s| s.is_empty()));
+            if !empty_name {
+                return Ok(false);
+            }
+            if flags == JS_PROP_CONFIGURABLE
+                && prs_flags & (JS_PROP_CONFIGURABLE | JS_PROP_WRITABLE | JS_PROP_ENUMERABLE)
+                    == JS_PROP_CONFIGURABLE
+            {
+                let name_str = name.force_string(ctx)?;
+                self.set_prop_slot(idx, JSProperty::Normal(JSValue::make_string(name_str)));
+                return Ok(true);
+            }
+        }
+
+        if !self.has_name() {
             let name_str = name.force_string(ctx)?;
             self.define_property_value(ctx, Atom::CONST_name, JSValue::make_string(name_str), flags)
         } else {

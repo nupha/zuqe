@@ -165,7 +165,16 @@ impl Atom {
         } else if let Some(n) = self.to_small_int() {
             StringRef::from_utf8_bytes(ctx, format!("{n}").into_bytes())
         } else if self.is_const() {
-            StringRef::alloc_static(ctx, self.const_str(), None)
+            // Const atoms have no GC descriptor string. Reuse the per-runtime
+            // cached node (as `to_value` does) so a repeated conversion — every
+            // anonymous function's `name`, for instance — does not allocate.
+            // Symbols keep the uncached path: wrapping a symbol-kind node into
+            // other string operations is a separate question.
+            if self.const_kind() == AtomKind::String {
+                ctx.rt_mut().const_atom_value(self.id())
+            } else {
+                StringRef::alloc_static(ctx, self.const_str(), None)
+            }
         } else {
             Ok(ctx.rt().atom_desc_string(self.id()).unwrap())
         }

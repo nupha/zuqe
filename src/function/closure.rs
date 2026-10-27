@@ -3,16 +3,17 @@
 
 use std::ptr::NonNull;
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcNode, GcTrace, GcTraceCtx};
+use smallvec::SmallVec;
 
 use crate::{
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_GENERATOR,
     atom::Atom,
-    context::ScopedContext,
+    context::{ContextPtr, ScopedContext},
     object::{
         JS_PROP_CONFIGURABLE, JS_PROP_ENUMERABLE, JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE,
-        JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_THROW, JS_PROP_WRITABLE, LazyInit, Object,
-        PayloadPtr,
+        JS_PROP_HAS_VALUE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT, JS_PROP_THROW, JS_PROP_WRITABLE,
+        JSProperty, LazyInit, Object, PayloadPtr, Shape,
     },
     value::JSValue,
     vm_stack::{FrameIndex, VmStack},
@@ -20,8 +21,8 @@ use crate::{
 
 use super::{
     ARG_SCOPE_END, BCWrapper, BFuncPayload, Bytecode, DEFINE_GLOBAL_FUNC_VAR,
-    DEFINE_GLOBAL_LEX_VAR, FunctionDef, JS_MAX_LOCAL_VARS, JSVarKindEnum, VarRef,
-    is_var_in_arg_scope, js_function_set_properties,
+    DEFINE_GLOBAL_LEX_VAR, FunctionDef, FunctionKind, JS_MAX_LOCAL_VARS, JSVarKindEnum, VarRef,
+    is_var_in_arg_scope, js_function_name_value, js_function_set_properties,
 };
 
 #[derive(Debug)]
@@ -355,7 +356,7 @@ impl Bytecode {
 
         let closure_count = self.closure_var_count as usize;
 
-        let captures: Vec<VarRef> = if closure_count != 0 {
+        let captures: SmallVec<[VarRef; 2]> = if closure_count != 0 {
             debug_assert!(
                 ctx.is_arena_mode(),
                 "closure vars require active arena mode"
@@ -381,7 +382,11 @@ impl Bytecode {
             };
             let parent_var_refs = arena.var_refs_or_default(parent_frame_idx);
 
-            let mut lst = Vec::new();
+            let mut lst = SmallVec::<[VarRef; 2]>::new();
+            // `try_reserve_exact` is relative to the current length (0), so pass
+            // the whole capture count: ≤2 stays inline, more is one allocation
+            // of exactly the needed size (passing `count - 2` would under-reserve
+            // and still regrow for 3+ captures).
             lst.try_reserve_exact(closure_count)
                 .map_err(|_| ctx.throw_out_of_memory())?;
 
@@ -430,49 +435,161 @@ impl Bytecode {
 
             lst
         } else {
-            Vec::new()
+            SmallVec::new()
         };
 
-        let mut obj = {
-            let class_id = self.func_kind().class_id();
-            BCWrapper(
-                ctx.create_instance_with_proto(
-                    proto.or_else(|| ctx.class_proto(class_id)),
-                    PayloadPtr::new(class_id, BFuncPayload::new(*self, captures)),
-                )?
-                .gc_ref(),
-            )
+        let class_id = self.func_kind().class_id();
+        let has_proto_prop =
+            self.has_prototype() || self.func_kind().generator_class_id().is_some();
+
+        // Fast path: the function object's own properties are fixed (length,
+        // name, and optionally prototype), so install a cached three-slot
+        // shape and fill the slots directly instead of walking three separate
+        // shape transitions. proto == None is every current caller; an explicit
+        // prototype keeps the general path below (its shape is not cacheable
+        // per class).
+        let mut obj = if proto.is_none() {
+            let shape = ctx.function_object_shape(self.func_kind(), has_proto_prop)?;
+            let obj = ctx.create_instance_with_shape(
+                shape,
+                PayloadPtr::new(class_id, BFuncPayload::new(*self, captures)),
+            )?;
+            fill_function_slots(ctx, obj, self, has_proto_prop)?;
+            obj
+        } else {
+            let mut obj = ctx.create_instance_with_proto(
+                proto.or_else(|| ctx.class_proto(class_id)),
+                PayloadPtr::new(class_id, BFuncPayload::new(*self, captures)),
+            )?;
+            js_function_set_properties(
+                ctx,
+                obj,
+                if self.func_name.is_null() {
+                    Atom::CONST_empty_string
+                } else {
+                    self.func_name
+                },
+                self.attrs.defined_arg_count as _,
+            )?;
+            if let Some(gen_class_id) = self.func_kind().generator_class_id() {
+                let proto = ctx.create_base_object_with_proto(ctx.class_proto(gen_class_id))?;
+                obj.define_property_value(
+                    ctx,
+                    Atom::CONST_prototype,
+                    proto.into(),
+                    JS_PROP_WRITABLE,
+                )?;
+            } else if self.has_prototype() {
+                obj.set_flag_constructor(true);
+                obj.define_lazy_property(
+                    ctx,
+                    Atom::CONST_prototype,
+                    LazyInit::Prototype,
+                    JS_PROP_WRITABLE,
+                )?;
+            }
+            obj
         };
 
-        js_function_set_properties(
-            ctx,
-            obj.into(),
-            if self.func_name.is_null() {
-                Atom::CONST_empty_string
-            } else {
-                self.func_name
-            },
-            self.attrs.defined_arg_count as _,
-        )?;
+        Ok(BCWrapper(obj.gc_ref()))
+    }
+}
 
-        if let Some(gen_class_id) = self.func_kind().generator_class_id() {
+/// Fill the `length`/`name`(/`prototype`) slots of a function object created
+/// with [`ScopedContext::function_object_shape`].
+fn fill_function_slots(
+    ctx: &mut ScopedContext,
+    mut obj: Object,
+    bc: &Bytecode,
+    has_proto_prop: bool,
+) -> Result<(), i32> {
+    let name = if bc.func_name.is_null() {
+        Atom::CONST_empty_string
+    } else {
+        bc.func_name
+    };
+    let name_val = js_function_name_value(ctx, name)?;
+
+    // Slot order follows the shape built by `function_object_shape`.
+    obj.set_prop_slot_non_gc(
+        0,
+        JSProperty::Normal(JSValue::from(bc.attrs.defined_arg_count as i32)),
+    );
+    obj.set_prop_slot(1, JSProperty::Normal(name_val));
+
+    if has_proto_prop {
+        if let Some(gen_class_id) = bc.func_kind().generator_class_id() {
             debug_assert!(matches!(
                 gen_class_id,
                 JS_CLASS_GENERATOR | JS_CLASS_ASYNC_GENERATOR
             ));
             let proto = ctx.create_base_object_with_proto(ctx.class_proto(gen_class_id))?;
-            obj.define_property_value(ctx, Atom::CONST_prototype, proto.into(), JS_PROP_WRITABLE)?;
-        } else if self.has_prototype() {
+            obj.set_prop_slot(2, JSProperty::Normal(proto.into()));
+        } else {
+            debug_assert!(bc.has_prototype());
             obj.set_flag_constructor(true);
-            obj.define_lazy_property(
-                ctx,
-                Atom::CONST_prototype,
-                LazyInit::Prototype,
-                JS_PROP_WRITABLE,
-            )?;
+            obj.set_prop_slot(2, JSProperty::LazyPrototype(ContextPtr::from(ctx.gc_ref())));
+        }
+    }
+
+    Ok(())
+}
+
+impl<'c> ScopedContext<'c> {
+    /// Cached shape of a function object: `length` and `name` (both
+    /// configurable, non-writable, non-enumerable) followed by `prototype`
+    /// when the function owns one.
+    ///
+    /// The shape is per context because its `[[Prototype]]` is this realm's
+    /// class prototype, and per function kind/`has_prototype` because the
+    /// `prototype` property differs (lazy for constructors, a plain data
+    /// property for generators) or is absent (arrow/async). The flags mirror
+    /// what the incremental define path stores, so both converge on the same
+    /// registry entry instead of splitting the transition graph.
+    pub(crate) fn function_object_shape(
+        &mut self,
+        kind: FunctionKind,
+        has_prototype: bool,
+    ) -> Result<Shape, i32> {
+        let slot = kind as usize * 2 + has_prototype as usize;
+        debug_assert!(slot < crate::context::FUNC_SHAPE_COUNT);
+
+        if let Some(sh) = self.func_shapes[slot].as_ref() {
+            return Ok(sh.clone());
         }
 
-        Ok(obj)
+        let class_id = kind.class_id();
+        let proto = self.class_proto(class_id);
+        let extras = [
+            (Atom::CONST_length, JS_PROP_CONFIGURABLE),
+            (Atom::CONST_name, JS_PROP_CONFIGURABLE),
+            (
+                Atom::CONST_prototype,
+                if kind.generator_class_id().is_some() {
+                    JS_PROP_WRITABLE
+                } else {
+                    JS_PROP_WRITABLE | JS_PROP_LAZYINIT
+                },
+            ),
+        ];
+        let extras = &extras[..if has_prototype { 3 } else { 2 }];
+
+        let empty = match self.rt().find_shape_by_proto(proto) {
+            Some(sh) => sh,
+            None => Shape::create(self, proto, 0)?,
+        };
+
+        let shape = if let Some(found) = self.rt().shape_registry.find_extend(&empty, extras) {
+            found
+        } else {
+            let mut sh = empty.dup(self)?;
+            sh.add_shape_properties(self, extras);
+            self.rt_mut().register_shape(&sh)?;
+            sh
+        };
+
+        self.func_shapes[slot] = Some(shape.clone());
+        Ok(shape)
     }
 }
 
@@ -597,4 +714,112 @@ pub(crate) fn add_closure_variables(
     s.closure_vars.replace(cvars);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        Context, Runtime, ScopedContext,
+        atom::Atom,
+        eval::{EvalFlags, EvalName, EvalType},
+        function::FunctionKind,
+        object::{
+            JS_PROP_CONFIGURABLE, JS_PROP_LAZYINIT, JS_PROP_NORMAL, JS_PROP_TMASK, JS_PROP_WRITABLE,
+        },
+    };
+
+    fn eval(ctx: &mut Context, src: &str) -> crate::JSResult {
+        ctx.eval(
+            src.as_bytes(),
+            &EvalName::Name("closure-shape.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+    }
+
+    /// VM-P7a: the cached shape is built once per (kind, has_prototype) and
+    /// reused; a repeat call must not allocate another ShapeImpl.
+    #[test]
+    fn function_object_shape_is_cached() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        ctx.with_root_scope(|mut cx| {
+            let plain = cx.function_object_shape(FunctionKind::Normal, true)?;
+            let before = cx.rt().shape_registry.count();
+
+            let again = cx.function_object_shape(FunctionKind::Normal, true)?;
+            assert_eq!(plain.gc_ref(), again.gc_ref(), "cached shape not reused");
+            assert_eq!(
+                cx.rt().shape_registry.count(),
+                before,
+                "a repeat call allocated a shape"
+            );
+
+            // length, name, prototype — in that order (observable own order).
+            let atoms: Vec<Atom> = plain.prop_defs.iter().map(|(_, p)| p.atom).collect();
+            assert_eq!(
+                atoms,
+                [Atom::CONST_length, Atom::CONST_name, Atom::CONST_prototype]
+            );
+            let flags: Vec<u32> = plain.prop_defs.iter().map(|(_, p)| p.flags()).collect();
+            assert_eq!(flags[0], JS_PROP_CONFIGURABLE);
+            assert_eq!(flags[1], JS_PROP_CONFIGURABLE);
+            assert_eq!(
+                flags[2] & JS_PROP_TMASK,
+                JS_PROP_LAZYINIT,
+                "the prototype slot must start lazy"
+            );
+            assert_eq!(flags[2] & JS_PROP_WRITABLE, JS_PROP_WRITABLE);
+
+            // Arrow/async-like functions own no prototype slot.
+            let arrow = cx.function_object_shape(FunctionKind::Normal, false)?;
+            assert_eq!(arrow.len(), 2);
+            assert_ne!(arrow.gc_ref(), plain.gc_ref());
+
+            // Generator functions own a *data* prototype (not lazy).
+            let generator = cx.function_object_shape(FunctionKind::Generator, true)?;
+            let gen_flags = generator.prop_defs.get(2).unwrap().flags();
+            assert_eq!(
+                gen_flags & JS_PROP_TMASK,
+                JS_PROP_NORMAL,
+                "generator prototype must be a data property"
+            );
+            assert_eq!(gen_flags & JS_PROP_WRITABLE, JS_PROP_WRITABLE);
+            Ok::<(), i32>(())
+        })
+        .unwrap();
+    }
+
+    /// The fast path must produce the same observable function object as the
+    /// incremental define path: own order, flags, and a prototype that is
+    /// materialized once with a `constructor` back-link.
+    #[test]
+    fn function_object_fast_path_preserves_property_contract() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        let res = eval(
+            &mut ctx,
+            "var f = function (a, b) {}; \
+             var d = Object.getOwnPropertyDescriptor(f, 'prototype'); \
+             [Object.getOwnPropertyNames(f).join(','), \
+              f.length, f.name, \
+              d.writable, d.enumerable, d.configurable, \
+              f.prototype === f.prototype, f.prototype.constructor === f].join('|');",
+        )
+        .unwrap();
+
+        let string = res.as_string(false).unwrap();
+        let content = string.content().encode_utf8(false);
+        assert_eq!(
+            content.as_ref(),
+            "length,name,prototype|2|f|true|false|false|true|true",
+            "function object contract changed"
+        );
+    }
 }

@@ -286,6 +286,8 @@ pub(crate) const PROP_TAG_VARREF: u8 = 1;
 pub(crate) const PROP_TAG_GETSET: u8 = 2;
 pub(crate) const PROP_TAG_LAZYINIT: u8 = 3;
 pub(crate) const PROP_TAG_DELETED: u8 = 4;
+/// A function's not-yet-materialized `prototype` (see [`JSProperty::LazyPrototype`]).
+pub(crate) const PROP_TAG_LAZYPROTOTYPE: u8 = 5;
 
 /// Property content
 ///
@@ -309,6 +311,15 @@ pub enum JSProperty {
     /// value inline at `normal_value_offset()`.
     GetSet(Box<PropertyGetSet>) = PROP_TAG_GETSET,
     LazyInit(Box<PropertyLazy>) = PROP_TAG_LAZYINIT,
+
+    /// A function's `prototype` before its first access.
+    ///
+    /// Carries only the realm: instantiating it means "build a prototype
+    /// object in this realm and back-link it", which needs no extra payload
+    /// (the `ctor` is the object the slot lives on). Keeping it inline avoids
+    /// a `Box` per closure — the common case for `LazyInit` — while still
+    /// fitting one machine word, so the slot stays 16 bytes.
+    LazyPrototype(ContextPtr) = PROP_TAG_LAZYPROTOTYPE,
 
     Deleted = PROP_TAG_DELETED,
 }
@@ -348,6 +359,9 @@ impl GcTrace for JSProperty {
                 lz.realm.trace(tr);
                 lz.init.trace(tr);
             }
+            // The realm is a context: contexts are traced from the runtime's
+            // context list, so the slot itself holds no GC edge.
+            Self::LazyPrototype(_) => {}
             Self::Deleted => {}
         }
     }
@@ -393,7 +407,7 @@ impl JSProperty {
                 }
             }
             Self::VarRef(vref) => Ok(vref.value()),
-            Self::LazyInit(_) => Ok(JSValue::UNDEFINED),
+            Self::LazyInit(_) | Self::LazyPrototype(_) => Ok(JSValue::UNDEFINED),
             Self::Deleted => {
                 unreachable!()
             }
