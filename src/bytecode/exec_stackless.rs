@@ -1797,7 +1797,39 @@ impl Bytecode {
                     | OpCode::XOR => {
                         let op1 = SP_VAL!(-2);
                         let op2 = SP_VAL!(-1);
-                        if let Ok(new_sp) = op_binary_logic(realm_scope, opcode, sp) {
+                        // Hot path: Int/Bool operands. The generic helper
+                        // clears the two stack slots before reading them; the
+                        // same truncation and shift masking happen here.
+                        let fast = if op1.is_int_or_bool() && op2.is_int_or_bool() {
+                            let a = op1.payload_i32();
+                            let b = op2.payload_i32();
+                            Some(match opcode {
+                                OpCode::SHL => JSValue::from(a << (b & 0x1f)),
+                                OpCode::SAR => JSValue::from(a >> (b & 0x1f)),
+                                OpCode::SHR => JSValue::from((a as u32) >> (b as u32 & 0x1f)),
+                                OpCode::AND => JSValue::from(a & b),
+                                OpCode::OR => JSValue::from(a | b),
+                                OpCode::XOR => JSValue::from(a ^ b),
+                                _ => unreachable!(),
+                            })
+                        } else {
+                            None
+                        };
+                        if let Some(val) = fast {
+                            SP_PUT!(-2, val);
+                            SP_GO!(-1);
+                            #[cfg(feature = "jit")]
+                            if jit_feedback {
+                                crate::jit::note_binary(
+                                    &rt,
+                                    self,
+                                    (unsafe { pc.offset_from(pc_base) } as u32) - 1,
+                                    op1,
+                                    op2,
+                                    val,
+                                );
+                            }
+                        } else if let Ok(new_sp) = op_binary_logic(realm_scope, opcode, sp) {
                             sp = new_sp;
                             // Tier-2 feedback: operands and the result, which
                             // may be a Float64 once the sign bit is set.
