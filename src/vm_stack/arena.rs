@@ -194,6 +194,7 @@ impl VmStack {
         self.vm_stack_limit = bytes;
     }
 
+    #[inline]
     pub(crate) fn alloc_frame(
         &mut self,
         func_obj: Object,
@@ -297,6 +298,7 @@ impl VmStack {
         }
     }
 
+    #[inline]
     pub(crate) fn free_frame(&mut self, idx: FrameIndex) {
         debug_assert_eq!(self.frames[idx.0 as usize].state, FrameState::Active);
 
@@ -354,6 +356,7 @@ impl VmStack {
     /// the frame buffer become dangling once the region is recycled.
     /// Replaces the manually paired `try_var_refs_mut` + `detach` loop +
     /// `free_frame` pattern in the trampoline's frame-recycling paths.
+    #[inline]
     pub(crate) fn detach_and_free(&mut self, idx: FrameIndex) {
         if let Some(var_refs) = self.try_var_refs_mut(idx) {
             for vr in var_refs {
@@ -381,6 +384,7 @@ impl VmStack {
         &mut self.frames[idx.0 as usize]
     }
 
+    #[inline]
     pub(crate) fn init_frame_args(
         &mut self,
         idx: FrameIndex,
@@ -792,7 +796,6 @@ mod tests {
         // 300: `none()` saw its own zero arguments, not `three`'s three.
         assert_eq!(v.as_int(), Some(300), "the argument count leaked");
     }
-
 
     /// The arena layer only stores `func_obj`; it never dereferences it.
     /// A dangling non-null handle is therefore enough for frame tests and

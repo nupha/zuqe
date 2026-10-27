@@ -263,8 +263,11 @@ pub const PC2LINE_DIFF_PC_MAX: i32 = (255 - PC2LINE_OP_FIRST) / PC2LINE_RANGE;
 ///
 /// Derived at compile time by scanning opcodes for `OpcodeGcAlloc` markers:
 /// - `None`: function never allocates LOCAL GC nodes → trampoline skips scope push/pop.
-/// - `Light`: function only has `Never` + `Conditional` opcodes → must still push scope
-///   because `Conditional` opcodes (e.g. `ADD` invoking `valueOf`) may trigger allocations.
+/// - `Light`: function only has `Never` + `Conditional` opcodes → allocations are
+///   possible but rare. Non-inlined calls still push a scope; an inlined call may
+///   run in the caller's scope when that scope is cleared from the trampoline base
+///   at every safepoint (the allocation is then anchored in a traced slot before
+///   the next safepoint).
 /// - `Full`: function has at least one `Always` allocation opcode → standard scope path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
