@@ -1683,8 +1683,24 @@ impl Bytecode {
                         let site = (unsafe { pc.offset_from(pc_base) } as u32) - 1;
                         let idx = PC_FETCH!(u8) as i32;
                         let op1 = VAR_REF![idx];
-                        if let Ok(res) =
-                            UnaryOp::new(realm_scope, *op1, true).and_then(|unary| match opcode {
+                        let old = *op1;
+                        // Hot path: Int locals. Crossing the i32 boundary is
+                        // still handled here (the result becomes a Float64), so
+                        // only non-number tags fall through to the generic path.
+                        if let Some(a) = old.as_int() {
+                            let res = match opcode {
+                                OpCode::INC_LOC if a == i32::MAX => JSValue::from(a as u32 + 1),
+                                OpCode::DEC_LOC if a == i32::MIN => JSValue::from(a as i64 - 1),
+                                OpCode::INC_LOC => JSValue::from(a + 1),
+                                OpCode::DEC_LOC => JSValue::from(a - 1),
+                                _ => unreachable!(),
+                            };
+                            // Tier-2 feedback: the updated local before and after.
+                            #[cfg(feature = "jit")]
+                            crate::jit::note_local_update(&rt, self, site, old, res);
+                            *op1 = res;
+                        } else if let Ok(res) =
+                            UnaryOp::new(realm_scope, old, true).and_then(|unary| match opcode {
                                 OpCode::INC_LOC => unary.inc(realm_scope),
                                 OpCode::DEC_LOC => unary.dec(realm_scope),
                                 _ => unreachable!(),
@@ -1693,7 +1709,7 @@ impl Bytecode {
                             // Tier-2 feedback: the updated local before and after
                             // (result classes — the result class exposes overflow).
                             #[cfg(feature = "jit")]
-                            crate::jit::note_local_update(&rt, self, site, *op1, res);
+                            crate::jit::note_local_update(&rt, self, site, old, res);
                             *op1 = res;
                         } else {
                             break ExecAction::Exception;
@@ -1763,7 +1779,20 @@ impl Bytecode {
                             // A comparison always yields a Bool.
                             JSValue::from(false),
                         );
-                        if let Ok(rel) = op1.arith_cmp(realm_scope, op2) {
+                        let fast = match (op1.as_int(), op2.as_int()) {
+                            (Some(a), Some(b)) => Some(match opcode {
+                                OpCode::LT => a < b,
+                                OpCode::LTE => a <= b,
+                                OpCode::GT => a > b,
+                                OpCode::GTE => a >= b,
+                                _ => unreachable!(),
+                            }),
+                            _ => None,
+                        };
+                        if let Some(b) = fast {
+                            SP_PUT!(-2, JSValue::from(b));
+                            SP_GO!(-1);
+                        } else if let Ok(rel) = op1.arith_cmp(realm_scope, op2) {
                             let b = matches!(
                                 (rel, opcode),
                                 (Some(std::cmp::Ordering::Less), OpCode::LT | OpCode::LTE)
