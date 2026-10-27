@@ -39,15 +39,12 @@ use crate::{
     vm_stack::{ExecMode, FrameAllocError, FrameIndex, VM_MAX_CALL_DEPTH, VirtualFrame, VmStack},
 };
 
-/// Action returned by the bytecode interpreter inner loop to the trampoline.
-/// The inner loop processes opcodes normally; when it encounters a call,
-/// return, tail call, or uncaught exception, it yields control to the
-/// trampoline via this enum.
+/// Action returned by the inner dispatch loop when it must switch frames or
+/// propagate an exception through the trampoline.
 #[derive(Debug)]
 pub(crate) enum ExecAction {
-    /// Call a bytecode function: trampoline saves caller state and switches
-    /// to the callee frame. Carries this_obj/new_target to avoid re-reading
-    /// from the callee frame head in the trampoline handler.
+    /// Call a bytecode function: the trampoline parks the caller and switches
+    /// to the callee frame. Carries `this_obj`/`new_target` for the handler.
     CallBytecode {
         callee_bc: Bytecode,
         callee_frame_idx: FrameIndex,
@@ -55,12 +52,11 @@ pub(crate) enum ExecAction {
         return_sp: usize,
         this_obj: JSValue,
         new_target: JSValue,
-        /// `Some(instance)` for a flattened legacy (non-derived) constructor
-        /// call: the trampoline replaces a non-object return value with the
-        /// instance created at the call site (mirrors `do_call_internal`).
+        /// Instance created for a non-derived constructor call; a
+        /// non-object return value is replaced by it.
         ctor_this: Option<JSValue>,
     },
-    /// Cross-realm call: trampoline switches to callee's context scope.
+    /// Cross-realm call: the trampoline switches to the callee realm's scope.
     CallBytecodeCrossRealm {
         callee_bc: Bytecode,
         callee_frame_idx: FrameIndex,
@@ -71,8 +67,7 @@ pub(crate) enum ExecAction {
         /// Same as `CallBytecode::ctor_this`.
         ctor_this: Option<JSValue>,
     },
-    /// Tail-call optimization: recycle current frame, switch to callee
-    /// without pushing a VirtualFrame.
+    /// Tail call: recycle the current frame instead of pushing a `VirtualFrame`.
     TailCall {
         callee_bc: Bytecode,
         callee_func_obj: Object,
@@ -80,49 +75,31 @@ pub(crate) enum ExecAction {
         /// `this` for the callee (TAIL_CALL_METHOD); UNDEFINED for TAIL_CALL.
         this_obj: JSValue,
     },
-    /// Frame returned normally or yielded (generator/async suspension).
-    /// bool = true means the frame suspended (yield/await), not completed.
+    /// Frame completed or suspended (`true` = yield/await).
     Return(JSValue, bool),
-    /// Uncaught exception in current frame; trampoline must propagate
-    /// upward through the virtual call stack.
+    /// Uncaught exception; propagate through the trampoline's virtual frames.
     Unwind,
-    /// Exception thrown in inner loop — replaces old State::Exception.
-    /// The outer arena loop checks for catch/finally and either continues
-    /// (caught) or returns ExecAction::Unwind (uncaught).
+    /// Exception raised in the inner loop. The outer loop scans for a handler
+    /// and either continues there or propagates `Unwind`.
     Exception,
 }
 
-/// A GC scope wrapper for trampoline use.
+/// GC scope wrapper for the trampoline.
 ///
-/// `inner` is `Option` rather than `ManuallyDrop` so panic unwinding still
-/// drops the scope: `ScopedContext`'s `GcScope` pops itself on drop, keeping
-/// the GC scope stack LIFO even when the trampoline is torn down by a panic.
-/// Normal paths take the scope out via `into_inner()` (or move it into a
-/// `VirtualFrame`) and drop it explicitly.
+/// `inner` is `Option` (not `ManuallyDrop`) so a panic still pops the scope;
+/// normal paths take it out via `into_inner()` or move it into a
+/// `VirtualFrame`. A borrowed scope owns nothing.
 ///
-/// No `pop_scope()` is ever called explicitly — scopes are always popped by
-/// `GcScope::Drop`.
-///
-/// The scope may also be *borrowed*: a `GcScopeKind::None` callee runs in the
-/// caller's scope (the interpreter's inlined NoScope call does the same), so
-/// nothing is pushed and nothing is popped.
-/// [`ScopedContext::owns_scope`] tells the two apart.
-///
-/// # Safety of `'static` transmute
-///
-/// The `'static` on `ScopedContext` is safe because:
-/// - `ContextPtr` is `Copy` (a raw pointer) — the ctx reference survives
-/// - `GcScope`'s lifetime is `PhantomData<&'s ()>` — zero runtime cost
-/// - `Option` is always `Some` until ownership is transferred; a remaining
-///   scope is dropped (and popped) if the trampoline unwinds
-/// - All scopes are drained (into_inner + drop) before the GC heap is destroyed
+/// # Safety of the `'static` transmute
+/// `ContextPtr` is `Copy` and `GcScope`'s lifetime is `PhantomData`; every
+/// scope is drained before the heap is destroyed.
 #[derive(Debug)]
 pub(crate) struct TrampolineScope {
     inner: Option<ScopedContext<'static>>,
 }
 
 impl TrampolineScope {
-    /// Push a new scope onto the GC heap and wrap it.
+    /// Push a new scope.
     #[inline(always)]
     pub(crate) unsafe fn new(ctx: &mut ContextPtr) -> Self {
         Self {
@@ -132,7 +109,7 @@ impl TrampolineScope {
         }
     }
 
-    /// Run in the caller's scope: nothing is pushed, nothing is popped.
+    /// Wrap the current scope without owning it.
     #[inline(always)]
     fn borrowed(scope: &ScopedContext<'_>) -> Self {
         Self {
@@ -140,30 +117,24 @@ impl TrampolineScope {
         }
     }
 
-    /// Extract the inner ScopedContext, consuming this wrapper.
-    /// The caller becomes responsible for dropping it (which pops the scope
-    /// when the scope is owned).
+    /// Extract the scope; the caller must drop it (popping it if owned).
     pub(crate) fn into_inner(mut self) -> ScopedContext<'static> {
         self.inner.take().expect("trampoline scope already taken")
     }
 
-    /// Drop the current inner scope (popping it from the GC heap) and install
-    /// `saved` in its place. Used when returning/unwinding into a caller whose
-    /// scope was parked in a `VirtualFrame`. The drop-then-install order keeps
-    /// the GC scope stack LIFO.
+    /// Drop the current scope and install `saved` in its place.
     ///
     /// # Safety
     ///
-    /// `saved` must be a scope previously extracted via `into_inner()` (or
-    /// taken from a `VirtualFrame::caller_scope`) that sits directly below the
-    /// current scope on the GC scope stack.
+    /// `saved` must be the scope directly below the current one on the GC
+    /// scope stack.
     #[inline(always)]
     unsafe fn swap_in_saved(&mut self, saved: ScopedContext<'static>) {
         drop(self.inner.take());
         self.inner = Some(saved);
     }
 
-    /// Borrow the inner scope mutably (for passing to `execute_with_arena`).
+    /// Borrow the inner scope for `execute_with_arena`.
     #[inline(always)]
     pub(crate) const fn scope_mut(&mut self) -> &mut ScopedContext<'static> {
         self.inner.as_mut().expect("trampoline scope already taken")
@@ -183,12 +154,10 @@ impl std::ops::DerefMut for TrampolineScope {
     }
 }
 
-/// Virtual call frames of one `execute_trampoline` invocation.
+/// Virtual frames of one `execute_trampoline` invocation.
 ///
-/// Owns the parked caller scopes. `Drop` drains them newest-first so the GC
-/// scope stack stays LIFO when a panic unwinds the trampoline: the active
-/// trampoline scope is declared *after* this guard, so Rust drops it first,
-/// then this drain pops the parked scopes from newest to oldest.
+/// Owns the parked caller scopes. `Drop` drains newest-first so a panic still
+/// unwinds the GC scope stack in LIFO order.
 #[derive(Debug)]
 struct VirtualFrames(Vec<VirtualFrame>);
 
@@ -221,18 +190,14 @@ impl Drop for VirtualFrames {
     }
 }
 
-/// One caller frame parked by [`Bytecode::execute_with_arena`] while a
-/// same-realm bytecode callee runs inline (see `inline_call_switch!`).
-///
-/// This is the in-function counterpart of [`VirtualFrame`]: keeping the call
-/// inside the dispatch loop avoids a `execute_with_arena` return + re-entry
-/// and the trampoline's per-switch rebuild of the frame-derived state.
+/// Caller state parked by [`Bytecode::execute_with_arena`] while a same-realm
+/// callee runs inline (the in-function counterpart of [`VirtualFrame`]).
 struct InlineCaller {
     bc: Bytecode,
     frame_idx: FrameIndex,
-    /// Resume pc within `bc` (the instruction after the call's operands).
+    /// Resume pc within `bc`, after the call's operands.
     pc_offset: usize,
-    /// Operand stack offset at the call (saved for the unwind path).
+    /// Operand stack offset at the call, used by the unwind path.
     sp_offset: i32,
     captured_vars: *mut [VarRef],
     arg_base_ptr: *mut JSValue,
@@ -243,16 +208,15 @@ struct InlineCaller {
     arg_real_count: u16,
     this_obj: JSValue,
     new_target: JSValue,
-    /// SP offset in the caller frame where the return value is stored.
+    /// SP offset where the callee stores its return value.
     return_sp: usize,
-    /// `Some(instance)` for a flattened legacy constructor call.
+    /// Instance created for a non-derived constructor call.
     ctor_this: Option<JSValue>,
-    /// Saved caller GC scope; `None` when the callee used the caller's scope.
+    /// Saved caller scope; `None` when the callee shared the caller's scope.
     caller_scope: Option<ScopedContext<'static>>,
 }
 
-/// Inline caller stack. `Drop` drains newest-first so the GC scope stack stays
-/// LIFO when a panic unwinds through `execute_with_arena`.
+/// Inline caller stack. `Drop` drains newest-first to keep GC scopes LIFO.
 struct InlineFrames(Vec<InlineCaller>);
 
 impl InlineFrames {
@@ -276,15 +240,17 @@ impl std::ops::DerefMut for InlineFrames {
 
 impl Drop for InlineFrames {
     fn drop(&mut self) {
+        // `Vec` drops front-to-back (oldest first), which would pop GC scopes
+        // out of LIFO order. Drain from the back (panic paths only; normal
+        // paths pop every caller explicitly).
         while let Some(caller) = self.0.pop() {
             drop(caller.caller_scope);
         }
     }
 }
 
-/// Number-only `+`: the four tag combinations `arith_add` handles without
-/// conversion or allocation. Bool, String, BigInt and Object stay on the
-/// generic path, so this cannot change coercion order or exceptions.
+/// Fast `+` for the four Int/Float64 tag pairs. Other tags take `arith_add`,
+/// so coercion order and exceptions are unchanged.
 #[inline(always)]
 fn fast_numeric_add(a: JSValue, b: JSValue) -> Option<JSValue> {
     use crate::JSValueTag::{Float64, Int};
@@ -306,10 +272,8 @@ fn fast_numeric_add(a: JSValue, b: JSValue) -> Option<JSValue> {
 }
 
 #[allow(clippy::too_many_arguments)]
-/// Create (or reuse) a `VarRef` onto local/argument slot `var_idx` of the
-/// current frame. `pub(crate)` because the JIT's `special_object` helper shares
-/// [`crate::function::argument::js_build_mapped_arguments`] with the
-/// interpreter and reaches it through here.
+/// Get or create the `VarRef` for argument/local `var_idx` of the current
+/// frame. Shared with the JIT's mapped-arguments helper.
 pub(crate) fn get_var_ref(
     ctx: &mut ScopedContext,
     var_idx: u16,
@@ -368,15 +332,10 @@ pub(crate) fn get_var_ref(
     Ok(vref)
 }
 
-/// Scan the current frame for a `catch` handler at `pc` and, if one exists,
-/// report the target pc/sp. Shared by the JIT entry exception (checked once
-/// before the dispatch loop) and the `ExecAction::Exception` arm, so the
-/// dispatch loop carries no per-opcode exception check and the catch code
-/// lives outside its hot body.
+/// Scan the current frame for a `catch` handler at `pc`.
 ///
-/// `sp_offset` is the local interpreter `sp` relative to the frame's stack
-/// base; the unwind scan and any GC that runs while handling read it from the
-/// frame header.
+/// `sp_offset` (relative to the stack base) is written to the frame header for
+/// the scan and any GC that runs while handling.
 fn catch_in_frame_at(
     rt: &crate::runtime::RuntimeImpl,
     realm_scope: &mut ScopedContext,
@@ -392,8 +351,7 @@ fn catch_in_frame_at(
         return None;
     }
 
-    // Add backtrace before catch lookup (matching exec.rs's
-    // StackFrame::handle_exception behavior).
+    // Build the backtrace before the catch scan consumes the stack.
     if let Exception::Error(err_val) = rt.exception()
         && is_backtrace_needed(err_val)
     {
@@ -405,33 +363,24 @@ fn catch_in_frame_at(
 }
 
 impl Bytecode {
-    /// Inline-cache site `ic_idx` of this function, if the function has one.
+    /// Inline-cache site `ic_idx`, if present.
     ///
-    /// Takes a raw pointer because it hands out `&mut` into the cache, which is
-    /// interior-mutable by design (`&self` does not exclusively own it).
+    /// Takes a raw pointer because the cache is interior-mutable.
     #[cfg(feature = "inline_cache")]
     #[inline]
     fn inline_cache_site<'a>(
         this: *const Bytecode,
         ic_idx: usize,
     ) -> Option<&'a mut crate::function::InlineCacheSite> {
-        // SAFETY: the interpreter is single-threaded and owns its bytecode; the
-        // cache is interior-mutable by design (same contract as the GET_FIELD
-        // fast path). Reborrow as `&Bytecode` first: field access on the raw
-        // pointer deref would go through `Deref` and trip
-        // `dangerous_implicit_autorefs`.
+        // SAFETY: single-threaded interpreter; the cache is interior-mutable.
+        // Reborrow `&Bytecode` first to avoid autoref through `Deref`.
         let this = unsafe { &*this };
         let cache = unsafe { &mut *this.inline_cache.get() };
         cache.get_mut(ic_idx)
     }
 
-    /// Execute bytecodes using the arena-based stackless model.
-    ///
-    /// This variant works with FrameIndex + VmStack instead of
-    /// the legacy &mut StackFrame. It is called by execute_trampoline()
-    /// and supports returning ExecAction for call/return/unwind control.
-    ///
-    /// Returns the ExecAction describing what the trampoline should do next.
+    /// Execute this function on the arena stack and return the next action for
+    /// the trampoline.
     #[allow(clippy::too_many_arguments)]
     fn execute_with_arena(
         &self,
@@ -449,47 +398,36 @@ impl Bytecode {
 
         let mut rt = realm_scope.rt_ptr();
 
-        // Call-site feedback is recorded under every non-inert policy; tier-2
-        // type feedback only when the policy can reach tier 2.
+        // Feedback is recorded for every non-inert policy; tier-2 type feedback
+        // only when the policy can reach tier 2.
         #[cfg(feature = "jit")]
         let jit_active = crate::jit::is_active(&rt);
         #[cfg(feature = "jit")]
         let jit_feedback = jit_active && crate::jit::records_feedback(&rt);
-        // Same-realm bytecode calls run inline in this dispatch loop unless the
-        // JIT owns the frame: native re-entry/exit reports assume the frame it
-        // entered is the trampoline's current frame, which inlined callees are
-        // not (see `inline_call_switch!`).
+        // Inline same-realm calls unless the JIT owns the frame: its native
+        // entry/exit reports assume the entered frame is the trampoline's.
         #[cfg(feature = "jit")]
         let inline_calls = !jit_active;
         #[cfg(not(feature = "jit"))]
         let inline_calls = true;
 
-        // The current frame's bytecode changes when a call is inlined, so the
-        // loop works on `cur_bc` instead of `self`. The slices are tied to the
-        // GC payload (alive for the runtime's lifetime, and rooted by the
-        // frame's `func_obj`), so they are widened to `'static` to survive the
-        // `cur_bc` reassignment.
+        // The frame's bytecode changes on inline calls, so the loop uses
+        // `cur_bc`. The slices live as long as the GC payload (rooted by the
+        // frame's `func_obj`), hence the `'static` widening.
         let mut cur_bc = *self;
         let mut bytecodes: &'static [u8] =
             unsafe { std::mem::transmute::<&[u8], &'static [u8]>(cur_bc.opcodes()) };
         debug_assert!(
-            // A pending exception may resume at the end pc (`out_pc` after the
-            // last instruction): the exception path never fetches an opcode
-            // there, and a caught one replaces the pc with the handler.
+            // A pending exception may resume at the end pc; that path never
+            // fetches an opcode.
             pc_offset < bytecodes.len() || throwed,
             "pc_offset={}, bytecodes.len()={}",
             pc_offset,
             bytecodes.len()
         );
 
-        // Extract frame data pointers from the arena.
-        // All raw pointers derived here remain stable because:
-        // - Arena data is a fixed-capacity Box<[JSValue]> (never resized).
-        // - FrameHead is in a Vec that may reallocate, but raw pointers
-        //   into arena.data (not FrameHead) are used for data access.
-        //
-        // Split into immutable then mutable borrows: data_ptr and
-        // stack_base_ptr take &self on arena, while frame_mut takes &mut.
+        // Frame data pointers. Arena data is fixed-capacity, so these stay
+        // valid; header access always goes through `arena_ptr`.
         let (
             mut arg_base_ptr,
             mut var_base_ptr,
@@ -517,19 +455,13 @@ impl Bytecode {
             )
         };
 
-        // Single raw root for the arena; everything below re-derives
-        // frame-header access from it at each use. Never cache a `&mut`/raw
-        // into the arena across interpreter-loop iterations: the loop creates
-        // fresh `&mut VmStack` reborrows (build_callee_frame →
-        // alloc_frame → frames.push, find_catch_in_frame, ...), and under
-        // Stacked Borrows a newer reborrow pops any borrow derived earlier.
-        // fat-LTO + panic=abort lets LLVM exploit that violation (nounwind
-        // store motion across calls), corrupting sp/pc bookkeeping — same
-        // family as the `frames` incident notes in vm_stack/arena.rs.
+        // Raw root for the arena. Re-derive every header access through it:
+        // calls push frames and reborrow the arena, so a borrow held across
+        // iterations is invalid under Stacked Borrows (and fat LTO may exploit
+        // that to corrupt sp/pc).
         let arena_ptr: *mut VmStack = arena;
 
-        // Raw-root accessors: each use re-derives a fresh borrow through
-        // arena_ptr (see the discipline note above).
+        // Accessors re-derive a fresh borrow from `arena_ptr`.
         macro_rules! frame {
             ($idx:expr) => {
                 unsafe { (*arena_ptr).frame($idx) }
@@ -546,10 +478,8 @@ impl Bytecode {
             };
         }
 
-        // `cur_frame_idx` follows the frame currently executing: it is the
-        // trampoline's start frame until a call is inlined, and is restored
-        // when an inlined callee returns. The macros re-derive the header
-        // through the raw root on every use.
+        // `cur_frame_idx` tracks the executing frame; `start_frame_idx` is the
+        // frame owned by the trampoline.
         let start_frame_idx = cur_frame_idx;
         let mut cur_frame_idx = cur_frame_idx;
         macro_rules! save_sp {
@@ -572,13 +502,8 @@ impl Bytecode {
 
         save_sp!(sp_offset as i32);
 
-        // Back-edge OSR: a taken loop back edge asks the JIT whether this frame can
-        // switch to its native entry at the loop header. If so, the dispatch
-        // loop's native-retry path enters it. `cur_sp_offset` is synced
-        // first because the OSR prologue takes the resume stack pointer from it
-        // and a few opcodes (the bitwise family) leave it one slot above `sp` —
-        // harmless to the interpreter (it only scans one more slot), exact for
-        // the resume.
+        // Back-edge OSR: a taken back edge may switch this frame to its native
+        // entry. `cur_sp_offset` is synced first because the prologue reads it.
         #[cfg(feature = "jit")]
         macro_rules! jit_note_backedge {
             ($target:expr) => {
@@ -588,46 +513,37 @@ impl Bytecode {
             };
         }
 
-        // Resolve captured_vars from the current frame's function object
-        // (func_obj already extracted from the preamble frame lookup above).
-        // Each function in the call chain has its own closure_var_refs.
-        //
-        // Held as a raw pointer and re-borrowed per use: the bytecode loop
-        // calls arbitrary runtime code (allocation, GC, closures) in between,
-        // so a `&mut [VarRef]` living across the whole loop would alias other
-        // accesses to the GC payload.
+        // Closure captures of the current function, held as a raw pointer: the
+        // loop runs arbitrary code between uses, so a long-lived `&mut` would
+        // alias the GC payload.
         let mut captured_vars: *mut [VarRef] = {
             if let Ok(mut bfun) = BCWrapper::try_from(JSValue::from(func_obj)) {
-                // SAFETY: bfun is a Copy (GcRef), so payload_mut borrows GC-managed
-                // memory that outlives this function call. No GC runs during execution.
+                // SAFETY: `bfun` is a Copy handle, so the payload outlives this
+                // call; no GC runs during the lookup.
                 let cv: *mut [VarRef] = bfun.payload_mut().captured_vars_mut();
                 cv
             } else {
-                // Non-bytecode functions have no closure_var_refs.
-                // But execute_with_arena should never be called for them.
+                // Non-bytecode functions have no captures; the trampoline must
+                // never call this for them.
                 std::ptr::slice_from_raw_parts_mut(NonNull::<VarRef>::dangling().as_ptr(), 0)
             }
         };
         macro_rules! captured_vars {
             () => {
-                // SAFETY: see the raw-pointer note above; each borrow ends
-                // before the next runtime call can touch the payload.
+                // SAFETY: see above; each borrow ends before the next runtime
+                // call can touch the payload.
                 unsafe { &mut *captured_vars }
             };
         }
         macro_rules! args {
             () => {
-                // SAFETY: the current frame's argument region is
-                // `arg_base_ptr..arg_base_ptr + arg_real_count`; the borrow is
-                // scoped to one use. Kept as a raw pointer (not `&[JSValue]`)
-                // because the interpreter writes that same region through
-                // `ARG_REF!`/`VarRef`; a live shared slice across such writes
-                // would be aliasing UB.
+                // SAFETY: the region is `arg_base_ptr..+arg_real_count`; the
+                // slice never outlives one use (the interpreter writes the
+                // same slots through `ARG_REF!`).
                 unsafe { std::slice::from_raw_parts(arg_base_ptr, arg_real_count as usize) }
             };
         }
-        // `super` needs the current function's [[HomeObject]]; only the super
-        // opcodes use it.
+        // [[HomeObject]] of the current function, used by `super`.
         macro_rules! func_home {
             () => {
                 BCWrapper::try_from(JSValue::from(func_obj))
@@ -637,22 +553,16 @@ impl Bytecode {
         }
 
         // ── Inlined same-realm calls ──
-        // A same-realm plain bytecode call parks the caller here and keeps
-        // dispatching in this loop instead of returning to the trampoline and
-        // re-entering `execute_with_arena` (two function entries + a rebuild
-        // of the frame-derived state per call). The caller scopes are owned by
-        // `InlineFrames`, declared before `cur_scope` so a panic drops the
-        // active scope first, then the parked ones newest-first (GC LIFO).
+        // `callers` is declared before `cur_scope` so a panic drops the active
+        // scope first, then the parked ones newest-first.
         let mut callers = InlineFrames::new();
         let mut cur_scope = TrampolineScope::borrowed(&*realm_scope);
         let mut scope_ptr = cur_scope.scope_mut() as *mut ScopedContext<'static>;
-        // The loop swaps GC scopes when a callee is entered/left. Bind the
-        // current one before the macro definitions so the macros (whose
-        // identifiers resolve at their definition site) see this binding.
+        // The loop swaps scopes; bind the current one before the macros, which
+        // resolve identifiers at their definition site.
         let mut realm_scope: &mut ScopedContext<'static> = unsafe { &mut *scope_ptr };
 
-        // Switch the loop's frame state to a freshly allocated callee frame.
-        // `this`/`new_target` are the callee's bindings.
+        // Switch frame state to a freshly allocated callee frame.
         macro_rules! inline_switch_frame {
             ($callee_bc:expr, $callee_idx:expr, $captured:expr,
              $callee_this:expr, $callee_nt:expr) => {{
@@ -680,8 +590,8 @@ impl Bytecode {
                 pc_base = bytecodes.as_ptr();
                 pc = pc_base;
                 cur_frame_idx = callee_idx;
-                // `is_strict_mode` / `current_function` / backtrace / GC read
-                // this instead of the dispatch loop's local state.
+                // `is_strict_mode`, `current_function`, backtrace and GC read
+                // this.
                 rt.active_frame_index = callee_idx;
                 sp_base = new_sp_base;
                 arg_base_ptr = new_arg_base;
@@ -696,29 +606,23 @@ impl Bytecode {
             }};
         }
 
-        // Park the current frame and switch the loop's state to the callee.
-        // Mirrors the trampoline's `ExecAction::CallBytecode` handler,
-        // except the caller's stack stays in `callers` instead of a
-        // `VirtualFrame`.
+        // Park the current frame and switch to the callee (the trampoline's
+        // `CallBytecode` handler, but keeping the caller in `callers`).
         macro_rules! inline_call_switch {
             ($callee_bc:expr, $callee_idx:expr, $captured:expr,
              $ret_sp:expr, $callee_this:expr, $callee_nt:expr, $ctor_this:expr) => {{
                 let callee_bc = $callee_bc;
                 let callee_idx = $callee_idx;
-                // The caller's header must be current for GC/backtrace while
-                // the callee runs, exactly as the trampoline's CallBytecode
-                // wrapper does before returning to it.
+                // Sync the caller's header before the switch; GC/backtrace read
+                // it while the callee runs.
                 save_sp!(sp.offset_from(sp_base) as i32);
                 let caller_sp_offset = unsafe { sp.offset_from(sp_base) as i32 };
                 let run_in_caller_scope = match callee_bc.gc_scope_kind() {
                     GcScopeKind::None => true,
-                    // `Light` allocations are conditional and always re-anchored
-                    // in a traced slot before the next safepoint. The enclosing
-                    // scope is cleared from `gc_scope_base_depth` at every
-                    // safepoint, so a per-call scope only releases garbage
-                    // earlier; when the enclosing scope is covered by that
-                    // clearing (every owned scope in this trampoline), run the
-                    // callee there and skip the push/promote/pop round trip.
+                    // Light allocations are rare and re-anchored before the
+                    // next safepoint. If the enclosing scope is cleared from
+                    // `gc_scope_base_depth` (every owned scope), share it and
+                    // skip the push/promote/pop round trip.
                     GcScopeKind::Light => cur_scope.depth() >= gc_scope_base_depth,
                     GcScopeKind::Full => false,
                 };
@@ -755,13 +659,13 @@ impl Bytecode {
             }};
         }
 
-        // Free the current frame and switch the loop back to its inline
-        // caller, storing the return value in the caller's stack slot.
+        // Free the current frame, restore its inline caller, and store the
+        // return value in the caller's stack slot.
         macro_rules! inline_return_to_caller {
             ($ret_val:expr) => {{
                 let ret_val = $ret_val;
                 let caller = callers.pop().expect("inline return without caller");
-                // Detach closure VarRefs before the frame's buffer is recycled.
+                // Detach VarRefs before recycling the frame buffer.
                 arena_mut!().detach_and_free(cur_frame_idx);
                 if let Some(saved) = caller.caller_scope {
                     ret_val.promote(&cur_scope);
@@ -770,8 +674,7 @@ impl Bytecode {
                     scope_ptr = cur_scope.scope_mut() as *mut ScopedContext<'static>;
                     realm_scope = unsafe { &mut *scope_ptr };
                 }
-                // Legacy (non-derived) constructor: replace a non-object
-                // return value with the instance created at the call site.
+                // Legacy constructor: a non-object return becomes the instance.
                 let ret_val = match caller.ctor_this {
                     Some(inst) if !ret_val.is_object() => inst,
                     _ => ret_val,
@@ -891,21 +794,15 @@ impl Bytecode {
 
         if throwed {
             // An interrupt is control flow, not a JS exception: it bypasses
-            // catch handling entirely, the same rule as the
-            // `ExecAction::Exception` handler below. Without this guard an
-            // interrupt raised inside a callee unwinds that frame and a
-            // `catch` in the caller would swallow it, so a direct call would
-            // behave differently from a call that nests a new trampoline
-            // (the direct-call helpers, or a native callback host).
+            // catch handling entirely. Otherwise a caller's `catch` could
+            // swallow an interrupt raised in a callee.
             if rt.interrupt_code.is_some() {
                 return ExecAction::Unwind;
             }
 
             let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
 
-            // Add backtrace before catch lookup (matching exec.rs's
-            // StackFrame::handle_exception behavior). If the error already
-            // has a backtrace, is_backtrace_needed returns false and we skip.
+            // Build the backtrace before the catch scan; skip if present.
             if let Exception::Error(err_val) = rt.exception()
                 && is_backtrace_needed(err_val)
             {
@@ -922,18 +819,15 @@ impl Bytecode {
                     sp = sp_base.add(new_sp);
                 }
             } else {
-                // Exception not caught in this frame; propagate upward.
+                // Not caught here; propagate.
                 return ExecAction::Unwind;
             }
         }
 
         // ── JIT native entry / re-entry (OSR) ──
-        // With no pending exception, try to run the frame natively. `pc_offset`
-        // is 0 on function entry and an OSR resume point otherwise — the pc
-        // after a call the trampoline performed for us, or a loop header. The
-        // compiled entry dispatches on it (and exits `Retry` for a pc it has no
-        // entry for). On `Resume`/`Retry`/`Exception` we rewind `pc`/`sp` to the
-        // offsets it reports and fall through to the interpreter loop.
+        // `pc_offset` is 0 on entry or an OSR resume point (after a call or at
+        // a loop header). `Resume`/`Retry`/`Exception` rewind `pc`/`sp` to the
+        // reported offsets before falling through to the interpreter loop.
         #[cfg(feature = "jit")]
         let mut jit_initial_action: Option<ExecAction> = None;
         #[cfg(feature = "jit")]
@@ -983,22 +877,16 @@ impl Bytecode {
             }
         }
 
-        // The native code (and its helpers) reborrowed the context through a
-        // raw pointer, so the original `&mut` is stale under Stacked Borrows.
-        // Re-derive it once before entering the interpreter loop, and again in
-        // the dispatch loop after every native re-entry.
-        //
-        // This must assign the binding created before the frame-switch macros:
-        // a fresh `let` here would shadow it, and the opcode body would keep
-        // using the (stale) caller scope after an inlined scope swap.
+        // Native code reborrowed the context through a raw pointer, so the
+        // original `&mut` is stale. Assign the binding declared before the
+        // frame-switch macros; a new `let` would shadow it and leave the opcode
+        // body on the stale caller scope after an inline swap.
         #[cfg(feature = "jit")]
         {
             realm_scope = unsafe { &mut *(jit_scope_ptr as *mut ScopedContext) };
         }
 
         // ── Stack access macros ──
-        // These work with raw pointers and re-derived frame-header access,
-        // identical to the legacy versions but using save_sp!/save_pc!.
 
         macro_rules! SP_VAL {
             (0) => {
@@ -1058,20 +946,16 @@ impl Bytecode {
             };
         }
 
-        // `sp` is register-resident: writing the frame header on every stack
-        // step cost one store per push/pop. The header only needs to be current
-        // where code outside this loop reads it:
-        //   - GC (`VmStack::trace` scans up to `cur_sp_offset`),
-        //   - `find_catch_in_frame` / `find_finally_in_frame` (unwind scans),
-        //   - JIT entry / OSR (the prologue loads `cur_sp_offset`),
-        //   - calls that can re-enter the runtime (see `sync_sp!` call sites).
+        // `sp` stays in a register. Sync the header only where code outside
+        // this loop reads it: GC, catch/finally scans, JIT entry/OSR, and
+        // runtime re-entry (`sync_sp!` call sites).
         macro_rules! SP_GO {
             ($step:expr) => {
                 sp = unsafe { sp.offset(($step) as isize) }
             };
         }
 
-        // Write the local `sp` back to the frame header.
+        // Sync the local `sp` to the frame header.
         macro_rules! sync_sp {
             () => {
                 save_sp!(unsafe { sp.offset_from(sp_base) as i32 })
@@ -1163,15 +1047,13 @@ impl Bytecode {
     }
 
         // ── JIT hooks ──
-        // Native re-entry: a native callee ran inline (or a back edge asked for
-        // OSR), so try the frame's native entry at the current pc. Invoked at the
-        // few sites that can need it instead of once per dispatched opcode.
+        // Try the frame's native entry at the current pc (after a native callee
+        // or an OSR back edge). Called at those sites, not per opcode.
         #[cfg(feature = "jit")]
         macro_rules! jit_retry_native_now {
             () => {
                 if jit_active {
-                    // The OSR prologue takes the resume stack pointer from
-                    // `cur_sp_offset`; the local `sp` moved since the last sync.
+                    // The OSR prologue reads `cur_sp_offset`; sync `sp` first.
                     sync_sp!();
                     let attempt_pc = unsafe { pc.offset_from(pc_base) as u32 };
                     let cur_sp_offset_ptr: *mut i32 =
@@ -1192,8 +1074,7 @@ impl Bytecode {
                         new_target,
                         func_home!(),
                     );
-                    // The native code (if any) reborrowed the context through a
-                    // raw pointer, so the original `&mut` is stale.
+                    // Native code reborrowed the context; the `&mut` is stale.
                     realm_scope = unsafe { &mut *(jit_scope_ptr as *mut ScopedContext) };
                     if let Some((kind, jf)) = entered {
                         match kind {
@@ -1228,16 +1109,13 @@ impl Bytecode {
             () => {};
         }
 
-        // The hook derives its own function id from `self` (the node address),
-        // stable for the runtime's lifetime.
+        // The function id is the node address, stable for the runtime.
         #[cfg(feature = "jit")]
         if jit_active {
             crate::jit::note_enter(&rt, &cur_bc);
         }
 
-        // A native entry that ended in an exception: run the catch scan once,
-        // before the loop, instead of checking for it at every dispatched
-        // opcode.
+        // Native entry ended in an exception: scan once before the loop.
         #[cfg(feature = "jit")]
         if jit_initial_action.is_some() {
             let cur_pc = unsafe { pc.offset_from(pc_base) as usize };
@@ -1258,18 +1136,14 @@ impl Bytecode {
         }
 
         // ── Opcode dispatch loop ──
-        // The outer 'arena_loop handles exception catch re-entry.
-        // CallBytecode / TailCall / Return return ExecAction to the trampoline;
-        // same-realm calls are parked in `callers` and continue in this loop.
-        // Exception tries local catch and re-enters via continue 'arena_loop.
+        // The outer loop handles catch re-entry. Same-realm calls stay in this
+        // loop; other actions return to the trampoline.
         'arena_loop: loop {
             let action: ExecAction = loop {
                 let opcode = unsafe { std::mem::transmute::<u8, OpCode>(PC_FETCH!(u8)) };
 
                 match opcode {
-                    // ═══════════════════════════════════════════════════
-                    // PUSH / CONST / VALUE ops
-                    // ═══════════════════════════════════════════════════
+                    // ── PUSH / CONST / VALUE ops ──
                     OpCode::PUSH_I32 => {
                         // [^] -> [int_value, ^]
                         let a = PC_FETCH!(i32);
@@ -1326,9 +1200,7 @@ impl Bytecode {
                         SP_GO!(1);
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // OBJECT / SPECIAL_OBJECT
-                    // ═══════════════════════════════════════════════════
+                    // ── OBJECT / SPECIAL_OBJECT ──
                     OpCode::OBJECT => {
                         // [^] -> [obj, ^]
                         let obj = realm_scope
@@ -1355,7 +1227,7 @@ impl Bytecode {
                                 }
                             }
                             SpecialObject::MappedArguments => {
-                                // Shared with the JIT helper (the bytecode contract).
+                                // Shared with the JIT.
                                 match js_build_mapped_arguments(
                                     realm_scope,
                                     args!(),
@@ -1419,9 +1291,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // REST params
-                    // ═══════════════════════════════════════════════════
+                    // ── REST params ──
                     OpCode::REST => {
                         let start = PC_FETCH!(u16);
                         if let Ok(arr) = args!()
@@ -1441,9 +1311,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Stack manipulation ops
-                    // ═══════════════════════════════════════════════════
+                    // ── Stack manipulation ops ──
                     OpCode::DROP => {
                         SP_GO!(-1);
                     }
@@ -1478,9 +1346,7 @@ impl Bytecode {
                         std::ptr::swap(sp.offset(-2), sp.offset(-4));
                     },
 
-                    // ═══════════════════════════════════════════════════
-                    // Local variable / argument access
-                    // ═══════════════════════════════════════════════════
+                    // ── Local variable / argument access ──
                     OpCode::GET_LOC => {
                         // [^] -> [local_val, ^]
                         let idx = PC_FETCH!(u16);
@@ -1522,9 +1388,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Closure variable refs
-                    // ═══════════════════════════════════════════════════
+                    // ── Closure variable refs ──
                     OpCode::GET_VAR_REF => {
                         let idx = PC_FETCH!(u16);
                         let val = captured_vars!()[idx as usize].value();
@@ -1572,9 +1436,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Type conversion / unary operations
-                    // ═══════════════════════════════════════════════════
+                    // ── Type conversion / unary operations ──
                     OpCode::PLUS | OpCode::NEG | OpCode::INC | OpCode::DEC => {
                         let op1 = SP_VAL!(-1);
                         if opcode == OpCode::PLUS && op1.is_number() {
@@ -1620,9 +1482,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // CALL / RETURN
-                    // ═══════════════════════════════════════════════════
+                    // ── CALL / RETURN ──
                     OpCode::CALL | OpCode::TAIL_CALL => {
                         // [func_obj, arg1, ..., argN, ^] -> [ret_val, ^]
                         let call_argc = PC_FETCH!(u16);
@@ -1632,9 +1492,8 @@ impl Bytecode {
 
                         let func = unsafe { *call_argv.offset(-1) };
 
-                        // The direct-call path: record the callee at this call site, so
-                        // the compiler can tell a monomorphic site (one callee,
-                        // always) from a polymorphic one.
+                        // Record the callee so the compiler can tell a
+                        // monomorphic site from a polymorphic one.
                         #[cfg(feature = "jit")]
                         if jit_active {
                             crate::jit::note_call(
@@ -1652,24 +1511,21 @@ impl Bytecode {
                             let callee_captured: *mut [VarRef] =
                                 bfun.payload_mut().captured_vars_mut();
 
-                            // Generator and async functions need their specific
-                            // class_call path (creates AGenPayload/AsyncState and
-                            // runs INITIAL_YIELD). Only plain (non-generator)
-                            // bytecode functions can use the inline frame setup.
+                            // Generators/async need `class_call` (AGenPayload or
+                            // AsyncState + INITIAL_YIELD); only Normal functions
+                            // use the inline frame.
                             if func_kind == FunctionKind::Normal {
-                                // Init callee frame data from stack args.
+                                // Copy the stack args into the callee frame.
                                 let args_slice = unsafe {
                                     std::slice::from_raw_parts(call_argv, call_argc as usize)
                                 };
 
                                 if unlikely(opcode == OpCode::TAIL_CALL) {
-                                    // Cross-realm tail calls skip TCO: fall
-                                    // through to call_internal, whose nested
-                                    // trampoline binds the callee's realm.
+                                    // Cross-realm tail calls skip TCO and fall
+                                    // through to `call_internal`.
                                     if bc.realm() == realm_scope.ctx_ptr {
-                                        // No inline caller chain: the
-                                        // trampoline recycles the frame (this
-                                        // is also the start frame it owns).
+                                        // No inline chain: the trampoline
+                                        // recycles its own start frame.
                                         if !inline_calls || callers.is_empty() {
                                             break ExecAction::TailCall {
                                                 callee_bc: bc,
@@ -1678,15 +1534,9 @@ impl Bytecode {
                                                 this_obj: JSValue::UNDEFINED,
                                             };
                                         }
-                                        // Inline TCO: recycle the current
-                                        // frame. The args live in this frame's
-                                        // buffer, which is freed below, so copy
-                                        // them first. Tail calls replace the
-                                        // frame and keep the caller's depth.
-                                        // Stack-copy: the args live in the
-                                        // frame being freed below. SmallVec
-                                        // keeps the common ≤4-arg tail call
-                                        // allocation-free.
+                                        // Inline TCO: recycle at the same depth.
+                                        // Copy args first (the buffer is freed
+                                        // below); SmallVec keeps ≤4 args on stack.
                                         let tail_args: SmallVec<[JSValue; 4]> =
                                             args_slice.iter().copied().collect();
                                         let orig_prev = frame!(cur_frame_idx).prev;
@@ -1725,16 +1575,15 @@ impl Bytecode {
                                         continue 'arena_loop;
                                     }
                                 } else {
-                                    // Cross-realm non-tail calls fall through
-                                    // to call_internal (nested trampoline).
+                                    // Cross-realm non-tail calls fall through to
+                                    // `call_internal` (nested trampoline).
                                     if inline_calls
                                         && !callers.is_empty()
                                         && bc.realm() != realm_scope.ctx_ptr
                                     {
                                         // fall through
                                     } else {
-                                        // Non-tail call: use build_callee_frame
-                                        // to allocate and initialize the callee frame.
+                                        // Allocate and initialize the callee frame.
                                         let caller_depth = frame!(cur_frame_idx).depth;
                                         let callee_frame_idx = match build_callee_frame(
                                             arena_mut!(),
@@ -1754,14 +1603,8 @@ impl Bytecode {
                                                         let _ = realm_scope.throw_stack_exceeded();
                                                     }
                                                 }
-                                                // Route through the Exception
-                                                // handler: find_catch_in_frame must
-                                                // scan (and cleanse) this frame's
-                                                // operand stack first. A bare Unwind
-                                                // would let find_finally_in_frame
-                                                // misread stray Ints (e.g. `1 + f()`)
-                                                // as GOSUB markers and jump to a
-                                                // garbage pc.
+                                                // Route through Exception: the catch
+                                                // scan must cleanse the stack first.
                                                 break ExecAction::Exception;
                                             }
                                         };
@@ -1786,10 +1629,8 @@ impl Bytecode {
                                             continue 'arena_loop;
                                         }
 
-                                        // Detect cross-realm calls: if the callee's realm
-                                        // differs from the current realm, use the
-                                        // CallBytecodeCrossRealm path so the trampoline
-                                        // can properly switch GC scopes.
+                                        // Cross-realm: let the trampoline switch
+                                        // GC scopes.
                                         let callee_ctx = bc.realm();
                                         break if callee_ctx != realm_scope.ctx_ptr {
                                             ExecAction::CallBytecodeCrossRealm {
@@ -1815,15 +1656,12 @@ impl Bytecode {
                                 }
                             }
 
-                            // Generator/async function: fall through to
-                            // call_internal for proper class_call handling.
+                            // Generators/async fall through to `call_internal`.
                         }
 
-                        // Native function or non-Normal bytecode: use call_internal.
-                        // call_internal internally preserves active_trampoline_frame.
-                        // Native code can run GC (explicit collect, event-loop
-                        // tick) — the caller's live operand slots must be
-                        // visible to the frame trace.
+                        // Native or non-Normal: `call_internal`. Sync `sp` first:
+                        // native code can run GC, and the frame trace must see
+                        // the live operands.
                         sync_sp!();
                         let ret_val = func.call_internal(
                             realm_scope,
@@ -1854,10 +1692,8 @@ impl Bytecode {
                         let ctor_new_target = unsafe { *call_argv.offset(-1) };
 
                         // ── Inline bytecode dispatch (mirrors CALL) ──
-                        // Constructor chains (e.g. 100-level `super()` chains)
-                        // must not recurse on the C stack through call_internal.
-                        // Non-constructors fall through to call_internal, which
-                        // throws the proper TypeError.
+                        // `super()` chains must not recurse on the C stack;
+                        // non-constructors fall through to `call_internal`.
                         if let Ok(mut bfun) = BCWrapper::try_from(func)
                             && bfun.flags().is_constructor()
                             && bfun.payload().bytecode().func_kind() == FunctionKind::Normal
@@ -1867,20 +1703,17 @@ impl Bytecode {
                                 bfun.payload_mut().captured_vars_mut();
 
                             // Cross-realm constructors fall through to
-                            // call_internal (nested trampoline); creating the
-                            // instance here would then be duplicated.
+                            // `call_internal`; creating the instance here would
+                            // duplicate it.
                             if inline_calls
                                 && !callers.is_empty()
                                 && bc.realm() != realm_scope.ctx_ptr
                             {
                                 // fall through
                             } else {
-                                // Legacy (non-derived) constructor: create the
-                                // instance at the call site; on frame return a
-                                // non-object result is replaced with the instance
-                                // (mirrors do_call_internal). Derived constructors
-                                // start with `this` uninitialized (TDZ until
-                                // super() returns).
+                                // Non-derived constructor: create the instance
+                                // at the call site and use it for a non-object
+                                // return. Derived constructors start in TDZ.
                                 let (callee_this, ctor_this) =
                                     if !bc.attrs.is_derived_class_constructor {
                                         match realm_scope.ordinary_create_from_constructor_payload(
@@ -1924,17 +1757,16 @@ impl Bytecode {
                                                 let _ = realm_scope.throw_stack_exceeded();
                                             }
                                         }
-                                        // Route through the Exception handler: see
-                                        // the matching comment in the CALL branch.
+                                        // Propagate through the Exception handler
+                                        // (see CALL).
                                         break ExecAction::Exception;
                                     }
                                 };
                                 frame_mut!(callee_frame_idx).prev = cur_frame_idx;
 
-                                // The fresh instance is now a traced root through the
-                                // callee frame's `this_obj`. Drop its LOCAL protection so
-                                // it no longer accumulates in the caller's scope for the
-                                // caller's whole lifetime (VM-B3 GC pathology).
+                                // The instance is traced through the callee frame's
+                                // `this_obj`; drop its LOCAL protection so it does
+                                // not accumulate in the caller scope.
                                 if let Some(node) = callee_this.as_gc_node() {
                                     let _b = realm_scope.remove_local(node);
                                     debug_assert!(
@@ -1985,8 +1817,7 @@ impl Bytecode {
                             }
                         }
 
-                        // Native function, non-Normal bytecode or non-constructor:
-                        // use call_internal.
+                        // Native, non-Normal or non-constructor: `call_internal`.
                         sync_sp!();
                         let ret_val = func.call_internal(
                             realm_scope,
@@ -2012,8 +1843,7 @@ impl Bytecode {
                         let func = unsafe { *call_argv.offset(-1) };
                         let method_this = unsafe { *call_argv.offset(-2) };
 
-                        // The direct-call path: record the callee at this call site (see
-                        // the CALL arm).
+                        // Record the callee (see CALL).
                         #[cfg(feature = "jit")]
                         if jit_active {
                             crate::jit::note_call(
@@ -2026,7 +1856,7 @@ impl Bytecode {
 
                         // ── Inline bytecode dispatch (mirrors CALL) ──
                         // Method calls must not recurse on the C stack either
-                        // (e.g. deep `o.m()` recursion or `super.m()` chains).
+                        // (deep `o.m()` or `super.m()` chains).
                         if let Ok(mut bfun) = BCWrapper::try_from(func) {
                             let bc = bfun.payload().bytecode();
                             let callee_captured: *mut [VarRef] =
@@ -2038,11 +1868,8 @@ impl Bytecode {
                                 };
 
                                 if unlikely(opcode == OpCode::TAIL_CALL_METHOD) {
-                                    // Cross-realm tail calls skip TCO (same reason
-                                    // as TAIL_CALL above): fall through to the
-                                    // call_internal fallback, which runs the callee
-                                    // under its own realm scope and returns via
-                                    // ExecAction::Return.
+                                    // Cross-realm tail calls skip TCO and fall
+                                    // through to `call_internal`.
                                     if bc.realm() == realm_scope.ctx_ptr {
                                         if !inline_calls || callers.is_empty() {
                                             break ExecAction::TailCall {
@@ -2052,10 +1879,9 @@ impl Bytecode {
                                                 this_obj: method_this,
                                             };
                                         }
-                                        // Stack-copy: the args live in the
-                                        // frame being freed below. SmallVec
-                                        // keeps the common ≤4-arg tail call
-                                        // allocation-free.
+                                        // Inline TCO: copy the args before the
+                                        // frame buffer is freed (SmallVec keeps
+                                        // the common ≤4-arg case stack-only).
                                         let tail_args: SmallVec<[JSValue; 4]> =
                                             args_slice.iter().copied().collect();
                                         let orig_prev = frame!(cur_frame_idx).prev;
@@ -2119,14 +1945,8 @@ impl Bytecode {
                                                 }
                                             }
 
-                                            // Route through the Exception
-                                            // handler: find_catch_in_frame must
-                                            // scan (and cleanse) this frame's
-                                            // operand stack first. A bare Unwind
-                                            // would let find_finally_in_frame
-                                            // misread stray Ints (e.g. `1 + f()`)
-                                            // as GOSUB markers and jump to a
-                                            // garbage pc.
+                                            // Route through Exception: the catch
+                                            // scan must cleanse the stack first.
                                             break ExecAction::Exception;
                                         }
                                     };
@@ -2173,11 +1993,10 @@ impl Bytecode {
                                 }
                             }
 
-                            // Generator/async function: fall through to
-                            // call_internal for proper class_call handling.
+                            // Generators/async fall through to `call_internal`.
                         }
 
-                        // Native function or non-Normal bytecode: use call_internal.
+                        // Native or non-Normal: `call_internal`.
                         sync_sp!();
                         let ret_val = func.call_internal(
                             realm_scope,
@@ -2208,14 +2027,12 @@ impl Bytecode {
                         break ExecAction::Return(JSValue::UNDEFINED, false);
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Unary / comparison / binary logic
-                    // ═══════════════════════════════════════════════════
+                    // ── Unary / comparison / binary logic ──
                     OpCode::POST_INC | OpCode::POST_DEC => {
                         let op1 = SP_VAL!(-1);
                         if op1.is_bigint() {
-                            // bigint: ToNumeric is the value itself; the old
-                            // value is returned and the new value stored.
+                            // BigInt: ToNumeric is the value itself; return the
+                            // old value and store the new one.
                             let res = UnaryOp::new(realm_scope, op1, true).and_then(|unary| {
                                 if opcode == OpCode::POST_INC {
                                     unary.inc(realm_scope)
@@ -2255,9 +2072,9 @@ impl Bytecode {
                         let idx = PC_FETCH!(u8) as i32;
                         let op1 = VAR_REF![idx];
                         let old = *op1;
-                        // Hot path: Int locals. Crossing the i32 boundary is
-                        // still handled here (the result becomes a Float64), so
-                        // only non-number tags fall through to the generic path.
+                        // Hot path: Int locals. Crossing i32 still works here
+                        // (the result becomes a Float64); only non-number tags
+                        // take the generic path.
                         if let Some(a) = old.as_int() {
                             let res = match opcode {
                                 OpCode::INC_LOC if a == i32::MAX => JSValue::from(a as u32 + 1),
@@ -2266,10 +2083,10 @@ impl Bytecode {
                                 OpCode::DEC_LOC => JSValue::from(a - 1),
                                 _ => unreachable!(),
                             };
-                            // Tier-2 feedback: the updated local before and after.
+                            // Feedback: local before/after (`pc` is past the
+                            // 1-byte operand; the site is the opcode offset).
                             #[cfg(feature = "jit")]
                             if jit_feedback {
-                                // pc is past the 1-byte operand; the site is the opcode offset.
                                 let site = (unsafe { pc.offset_from(pc_base) } as u32) - 2;
                                 crate::jit::note_local_update(&rt, &cur_bc, site, old, res);
                             }
@@ -2281,8 +2098,8 @@ impl Bytecode {
                                 _ => unreachable!(),
                             })
                         {
-                            // Tier-2 feedback: the updated local before and after
-                            // (result classes — the result class exposes overflow).
+                            // Feedback: local before/after (the result class
+                            // exposes overflow).
                             #[cfg(feature = "jit")]
                             if jit_feedback {
                                 let site = (unsafe { pc.offset_from(pc_base) } as u32) - 2;
@@ -2298,15 +2115,15 @@ impl Bytecode {
                         let op1 = SP_VAL!(-1);
                         SP_GO!(-1);
                         let pv = VAR_REF![idx];
-                        // Hot path: Int locals. Anything else (Float64, String,
-                        // BigInt, Object) keeps the generic conversion path.
+                        // Hot path: Int locals; other tags take the generic
+                        // conversion path.
                         let res = if let Some(v) = fast_numeric_add(*pv, op1) {
                             Ok(v)
                         } else {
                             JSValue::arith_add(realm_scope, *pv, op1)
                         };
                         if let Ok(val) = res {
-                            // Tier-2 feedback: local (lhs), operand (rhs), result.
+                            // Feedback: local (lhs), operand (rhs), result.
                             #[cfg(feature = "jit")]
                             if jit_feedback {
                                 let site = (unsafe { pc.offset_from(pc_base) } as u32) - 2;
@@ -2335,9 +2152,8 @@ impl Bytecode {
                     | OpCode::XOR => {
                         let op1 = SP_VAL!(-2);
                         let op2 = SP_VAL!(-1);
-                        // Hot path: Int/Bool operands. The generic helper
-                        // clears the two stack slots before reading them; the
-                        // same truncation and shift masking happen here.
+                        // Hot path: Int/Bool operands. Same truncation and
+                        // shift masking as the generic helper.
                         let fast = if op1.is_int_or_bool() && op2.is_int_or_bool() {
                             let a = op1.payload_i32();
                             let b = op2.payload_i32();
@@ -2369,8 +2185,8 @@ impl Bytecode {
                             }
                         } else if let Ok(new_sp) = op_binary_logic(realm_scope, opcode, sp) {
                             sp = new_sp;
-                            // Tier-2 feedback: operands and the result, which
-                            // may be a Float64 once the sign bit is set.
+                            // Feedback: operands and result (may be Float64
+                            // after the sign bit).
                             #[cfg(feature = "jit")]
                             if jit_feedback {
                                 crate::jit::note_binary(
@@ -2487,12 +2303,10 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Global variable access (var_ref indirect via captured_vars)
-                    // ═══════════════════════════════════════════════════
+                    // ── Global variable access (var_ref indirect via captured_vars) ──
                     OpCode::GET_VAR_UNDEF | OpCode::GET_VAR => {
                         let idx = PC_FETCH!(u16) as usize;
-                        // resolve the global by name on global_var_obj/global_obj at each access. No VarRef cell.
+                        // Resolve the global by name on each access; no VarRef cell.
                         let var_name = cur_bc.global_var_refs()[idx].var_name;
                         if let Ok(v) =
                             realm_scope.get_global_var(var_name, opcode == OpCode::GET_VAR)
@@ -2505,7 +2319,7 @@ impl Bytecode {
                     }
                     OpCode::PUT_VAR | OpCode::PUT_VAR_INIT => {
                         let idx = PC_FETCH!(u16) as usize;
-                        // set_global_var handles TDZ (ReferenceError) and read-only (TypeError) checks.
+                        // Handles TDZ (ReferenceError) and read-only (TypeError).
                         let var_name = cur_bc.global_var_refs()[idx].var_name;
                         let res = realm_scope.set_global_var(
                             var_name,
@@ -2535,9 +2349,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Local variable check / init
-                    // ═══════════════════════════════════════════════════
+                    // ── Local variable check / init ──
                     OpCode::SET_LOC_UNINITIALIZED => {
                         let idx = PC_FETCH!(u16);
                         *VAR_REF![idx] = JSValue::UNINITIALIZED;
@@ -2546,8 +2358,8 @@ impl Bytecode {
                         let idx = PC_FETCH!(u16);
                         let value = VAR_REF![idx];
                         if unlikely(value.is_uninitialized()) {
-                            // Per ES spec, this error belongs in the caller's realm
-                            // (same pattern as CHECK_CTOR_RETURN).
+                            // The error belongs to the caller's realm (as with
+                            // CHECK_CTOR_RETURN).
                             let prev = frame!(cur_frame_idx).prev;
                             if !prev.is_null() {
                                 let prev_func = frame!(prev).func_obj;
@@ -2594,10 +2406,8 @@ impl Bytecode {
                         }
                     }
                     OpCode::SET_LOC_CHECK => {
-                        // Sets a local variable with initialization check.
-                        // Unlike PUT_LOC_CHECK (n_pop=1, n_push=0), this keeps the
-                        // value on the stack (n_pop=1, n_push=1) so the assignment
-                        // expression result is available as a value.
+                        // Keeps the value on the stack (unlike PUT_LOC_CHECK) so
+                        // the assignment expression has a result.
                         let idx = PC_FETCH!(u16);
                         let pval = VAR_REF![idx];
                         if unlikely(pval.is_uninitialized()) {
@@ -2606,7 +2416,7 @@ impl Bytecode {
                             break ExecAction::Exception;
                         }
                         *pval = SP_VAL!(-1);
-                        // Value stays on the stack for assignment expression result
+                        // Value stays on the stack for the assignment result.
                     }
                     OpCode::GET_VAR_REF_CHECK | OpCode::PUT_VAR_REF_CHECK => {
                         let idx = PC_FETCH!(u16);
@@ -2635,9 +2445,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Constructor / brand / throw
-                    // ═══════════════════════════════════════════════════
+                    // ── Constructor / brand / throw ──
                     OpCode::CHECK_CTOR_RETURN => {
                         match class_ops::check_ctor_return(
                             realm_scope,
@@ -2691,9 +2499,7 @@ impl Bytecode {
                         break ExecAction::Exception;
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Array / Apply
-                    // ═══════════════════════════════════════════════════
+                    // ── Array / Apply ──
                     OpCode::ARRAY_FROM => {
                         let call_argc = PC_FETCH!(u16) as i32;
                         if let Ok(mut list) = alloc_fast_array_slots(realm_scope, call_argc as _) {
@@ -2730,9 +2536,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Eval
-                    // ═══════════════════════════════════════════════════
+                    // ── Eval ──
                     OpCode::EVAL | OpCode::TAIL_EVAL => {
                         let call_argc = PC_FETCH!(u16) as i32;
                         let scope_idx = PC_FETCH!(u16) as i32 - 1;
@@ -2762,13 +2566,9 @@ impl Bytecode {
                                 break ExecAction::Exception;
                             }
                         } else {
-                            // ── eval was reassigned — treat as normal function call ──
-                            // Use inline bytecode dispatch (same as CALL handler) to
-                            // avoid C stack recursion through call_internal.
-                            // Since EVAL in `return eval(...)` position is semantically
-                            // a tail call (the result is immediately returned), use
-                            // TailCall to avoid VirtualFrame push — this prevents C stack
-                            // growth for deep recursion like tco-non-eval-function-dynamic.
+                            // ── eval was reassigned: run it as a normal call ──
+                            // Use inline dispatch to avoid C-stack recursion. In
+                            // `return eval(...)` position it is a tail call.
                             if let Ok(bfun) = BCWrapper::try_from(func_val) {
                                 let bc = bfun.payload().bytecode();
                                 let func_kind = bc.func_kind();
@@ -2777,10 +2577,8 @@ impl Bytecode {
                                         std::slice::from_raw_parts(call_argv, call_argc as usize)
                                     };
 
-                                    // TAIL_EVAL: the eval call is in tail position
-                                    // (`return eval(...)`), so replace the current
-                                    // frame instead of pushing one. Cross-realm tail
-                                    // calls skip TCO (same reason as TAIL_CALL).
+                                    // TAIL_EVAL: replace the current frame;
+                                    // cross-realm calls skip TCO.
                                     if unlikely(opcode == OpCode::TAIL_EVAL)
                                         && bc.realm() == realm_scope.ctx_ptr
                                     {
@@ -2792,18 +2590,9 @@ impl Bytecode {
                                         };
                                     }
 
-                                    // Treat as a normal non-tail call: push a fresh callee
-                                    // frame via build_callee_frame. We must NOT use TailCall
-                                    // here — `OP_eval` is a single opcode and the runtime
-                                    // handler cannot tell whether the call is in tail position
-                                    // (it often is not, e.g. `try { eval(); }`). A TailCall would
-                                    // recycle the *current* frame, which is wrong when the call
-                                    // is not a tail call and fatal when the current frame is the
-                                    // outermost script frame (it would be freed, then the later
-                                    // unwind dereferences a stale/empty frame -> panic in
-                                    // BytecodeFunction::call). build_callee_frame enforces the
-                                    // call-depth and byte limits itself, so runaway recursion is
-                                    // still caught (and the error remains catchable).
+                                    // Non-tail: push a frame. `OP_eval` cannot tell
+                                    // tail position, and recycling the script frame
+                                    // would be fatal. Depth/byte limits still apply.
                                     let caller_depth = frame!(cur_frame_idx).depth;
                                     let callee_frame_idx = match build_callee_frame(
                                         arena_mut!(),
@@ -2824,14 +2613,8 @@ impl Bytecode {
                                                 }
                                             }
 
-                                            // Route through the Exception
-                                            // handler: find_catch_in_frame must
-                                            // scan (and cleanse) this frame's
-                                            // operand stack first. A bare Unwind
-                                            // would let find_finally_in_frame
-                                            // misread stray Ints (e.g. `1 + f()`)
-                                            // as GOSUB markers and jump to a
-                                            // garbage pc.
+                                            // Route through Exception: the catch
+                                            // scan must cleanse the stack first.
                                             break ExecAction::Exception;
                                         }
                                     };
@@ -2852,7 +2635,7 @@ impl Bytecode {
                                 }
                             }
 
-                            // Generator/async bytecode or native function: fall through to call_internal.
+                            // Generator/async or native: `call_internal`.
                             sync_sp!();
                             let ret_val = func_val.call_internal(
                                 realm_scope,
@@ -2907,9 +2690,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Property access
-                    // ═══════════════════════════════════════════════════
+                    // ── Property access ──
                     OpCode::LNOT => {
                         let val: JSValue = SP_VAL!(-1);
                         let b = if val.is_int_or_bool() {
@@ -2942,19 +2723,13 @@ impl Bytecode {
                             {
                                 let shape_ptr = unsafe { shape.gc_ref().as_ptr().as_ptr() };
 
-                                // The site holds up to IC_WAYS shapes (the property inline cache).
+                                // The site holds up to IC_WAYS shapes.
                                 if let Some((slot, _)) =
                                     ic_cache[ic_idx].find(shape_ptr, shape.uid, atom.id())
                                 {
-                                    // One slot read serves both the tombstone
-                                    // check and the value: the data-property
-                                    // case — the monomorphic hot loop — reads
-                                    // the value inline, with no `value()` call
-                                    // and no second slot load. An accessor or
-                                    // varref slot keeps the full `value()`
-                                    // semantics; a `Deleted` tombstone (delete
-                                    // marks the slot without changing the
-                                    // shape) falls to the slow lookup.
+                                    // One slot read covers the tombstone check and
+                                    // the value; accessor/varref slots use
+                                    // `value()`, `Deleted` falls back.
                                     let val = match o.prop_slot(slot as usize) {
                                         JSProperty::Normal(v) => Some(*v),
                                         JSProperty::Deleted => None,
@@ -2983,7 +2758,7 @@ impl Bytecode {
                                 && let Some(shape) = o.shape()
                                 && let Some((idx, flags)) = o.find_shape_property(atom)
                             {
-                                // update inline cache
+                                // Update the inline cache.
                                 let ic_cache = unsafe { &mut *cur_bc.inline_cache.get() }; // SAFETY: single-threaded.
                                 if ic_idx < ic_cache.len() {
                                     ic_cache[ic_idx].insert(
@@ -3018,7 +2793,8 @@ impl Bytecode {
 
                         #[cfg(feature = "inline_cache")]
                         {
-                            // IC fast path: direct slot write when shape & flags match
+                            // IC fast path: direct slot write when shape and
+                            // flags match.
                             let ic_cache = unsafe { &*cur_bc.inline_cache.get() };
                             if ic_idx < ic_cache.len()
                                 && let Some(o) = target.as_object()
@@ -3031,7 +2807,8 @@ impl Bytecode {
                                 {
                                     let slot = slot as usize;
 
-                                    // delete marks slot Deleted without changing shape
+                                    // `delete` marks the slot Deleted without
+                                    // changing the shape.
                                     if !matches!(o.prop_slot(slot), JSProperty::Deleted) {
                                         let prs_flags = cached_flags as u32;
                                         if prs_flags & crate::object::JS_PROP_TMASK
@@ -3041,9 +2818,8 @@ impl Bytecode {
                                         {
                                             let mut o =
                                                 unsafe { SP_MUT!(-2).as_object_unchecked() };
-                                            // Non-GC values (int/bool/...) need
-                                            // no write barrier — skip the barrier's
-                                            // owner/heap loads on the hot write.
+                                            // Non-GC values need no write barrier,
+                                            // so skip its owner/heap loads.
                                             if value.is_gc() {
                                                 o.set_prop_slot(slot, JSProperty::Normal(value));
                                             } else {
@@ -3053,7 +2829,6 @@ impl Bytecode {
                                                 );
                                             }
 
-                                            // next instruction
                                             SP_GO!(-2);
                                             continue;
                                         }
@@ -3062,7 +2837,7 @@ impl Bytecode {
                             }
                         }
 
-                        // Slow path: property lookup & set
+                        // Slow path: property lookup and set.
                         SP_GO!(-2);
 
                         let r = target.set_property_internal(
@@ -3082,7 +2857,7 @@ impl Bytecode {
                             && let Some(shape) = o.shape()
                             && let Some((idx, flags)) = o.find_shape_property(atom)
                         {
-                            // Update IC cache after successful slow path
+                            // Update the IC after a successful slow path.
                             let ic_cache = unsafe { &mut *cur_bc.inline_cache.get() };
                             if ic_idx < ic_cache.len() {
                                 ic_cache[ic_idx].insert(
@@ -3096,9 +2871,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Binary arithmetic
-                    // ═══════════════════════════════════════════════════
+                    // ── Binary arithmetic ──
                     OpCode::ADD
                     | OpCode::SUB
                     | OpCode::MUL
@@ -3122,8 +2895,8 @@ impl Bytecode {
                             OpCode::POW => JSValue::arith_pow(realm_scope, op1, op2),
                             _ => unreachable!(),
                         };
-                        // Tier-2 feedback (type feedback and result classes): operands and the result
-                        // (the result class exposes int overflow to the gate).
+                        // Feedback: operands and result (the result class
+                        // exposes int overflow).
                         #[cfg(feature = "jit")]
                         if jit_feedback && let Ok(val) = res {
                             crate::jit::note_binary(
@@ -3144,17 +2917,14 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Control flow
-                    // ═══════════════════════════════════════════════════
+                    // ── Control flow ──
                     OpCode::GOTO => {
                         let n = unsafe { read_from_ptr::<i32>(pc) }; // could be minus
                         PC_GO!(n);
 
-                        // Negative offset = loop back edge. Only back edges poll:
-                        // a forward jump is bounded within the frame, so polling
-                        // there would charge every `if`/`break` for the interrupt
-                        // latency guarantee.
+                        // Only back edges poll: a forward jump is bounded within
+                        // the frame, so polling there would charge every
+                        // `if`/`break` for interrupt latency.
                         if n < 0 {
                             #[cfg(feature = "jit")]
                             jit_note_backedge!(unsafe { pc.offset_from(pc_base) as usize });
@@ -3169,8 +2939,7 @@ impl Bytecode {
                         let val = SP_VAL!(-1);
                         SP_GO!(-1);
 
-                        // Tier-2 feedback: the condition's type drives the
-                        // branch fast path selection.
+                        // Feedback: the condition's type drives branch selection.
                         #[cfg(feature = "jit")]
                         if jit_feedback {
                             crate::jit::note_value(
@@ -3181,7 +2950,7 @@ impl Bytecode {
                             );
                         }
 
-                        // skip jump offset
+                        // Skip the jump offset.
                         PC_GO!(4);
 
                         let test = if val.is_int_or_bool() {
@@ -3197,13 +2966,10 @@ impl Bytecode {
                         if b == test {
                             let off = unsafe { read_from_ptr::<i32>(pc.offset(-4)) };
 
-                            // jump pc
                             pc = unsafe { pc.offset((off - 4) as isize) };
 
-                            // Taken backward branch = loop back edge. The pc is
-                            // the branch *target* (the loop header), not the
-                            // fall-through. A not-taken branch is a forward
-                            // fall-through and does not poll.
+                            // A taken backward branch is a loop back edge: `pc`
+                            // is the target (loop header), not the fall-through.
                             if off < 0 {
                                 #[cfg(feature = "jit")]
                                 jit_note_backedge!(unsafe { pc.offset_from(pc_base) as usize });
@@ -3215,9 +2981,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Array element access
-                    // ═══════════════════════════════════════════════════
+                    // ── Array element access ──
                     OpCode::GET_ARRAY_EL => {
                         // [array, prop, ^] -> [value, ^]
                         #[cfg(feature = "inline_cache")]
@@ -3279,11 +3043,8 @@ impl Bytecode {
                             break ExecAction::Exception;
                         }
 
-                        // Normalise the key **once**: the read and the later
-                        // `put_array_el` must use the same property key, or
-                        // `a[k]++` would run the key's `toString`/`valueOf`
-                        // twice. An Int/String/Symbol key needs no conversion
-                        // and no allocation.
+                        // Normalize the key once so read and write agree;
+                        // otherwise `a[k]++` runs `toString`/`valueOf` twice.
                         let prop = SP_VAL!(-1);
                         if !prop.is_int() && !prop.is_string_or_symbol() {
                             let Ok(prop1) = prop.to_propkey(realm_scope) else {
@@ -3350,9 +3111,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Misc
-                    // ═══════════════════════════════════════════════════
+                    // ── Misc ──
                     OpCode::GET_SUPER => {
                         if let Ok(proto) = class_ops::get_super(realm_scope, SP_VAL!(-1)) {
                             SP_PUT!(-1, proto);
@@ -3361,8 +3120,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::IMPORT => {
-                        // Stack: ... specifier options
-                        // Pop options, use specifier; push result Promise
+                        // `specifier options` -> Promise
                         let options = SP_VAL!(-1);
                         let specifier = SP_VAL!(-2);
                         if let Ok(res) = js_dynamic_import(realm_scope, specifier, options) {
@@ -3373,8 +3131,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::REGEXP => {
-                        // The shared builder raises on failure, so the stack
-                        // moves only on success (`[id, ^] -> [regexp, ^]`).
+                        // `[id, ^] -> [regexp, ^]`; move the stack only on success.
                         if let Some(re_id) = SP_VAL!(-1).as_int() {
                             let regexp = engine_ops::make_regexp(realm_scope, re_id)
                                 .unwrap_or(JSValue::EXCEPTION);
@@ -3387,9 +3144,8 @@ impl Bytecode {
                     }
                     OpCode::PUSH_BIGINT_I32 => {
                         // [^] -> [bigint_value, ^]
-                        // i32-range BigInt literals are reconstructed here from
-                        // the immediate (no constant-pool lookup, no parser-side
-                        // GC allocation).
+                        // Reconstruct i32-range BigInts from the immediate (no
+                        // const-pool lookup or parser allocation).
                         let a = PC_FETCH!(i32);
                         let big = engine_ops::bigint_from_i32(realm_scope, a)
                             .unwrap_or(JSValue::EXCEPTION);
@@ -3401,9 +3157,7 @@ impl Bytecode {
                     }
                     OpCode::NOP => {}
 
-                    // ═══════════════════════════════════════════════════
-                    // Try-catch
-                    // ═══════════════════════════════════════════════════
+                    // ── Try-catch ──
                     OpCode::CATCH => {
                         let diff = unsafe { read_from_ptr::<i32>(pc) };
                         SP_PUT!(
@@ -3416,9 +3170,7 @@ impl Bytecode {
                     OpCode::NIP_CATCH => {
                         // [catch_offset, ..., ret_val, ^] -> [ret_eval, ^]
                         SP_GO!(-1);
-                        // keep ret_val
                         let ret_val = SP_VAL!(0);
-                        // drop ... values
                         while sp > sp_base && !SP_REF!(-1).is_catch_offset() {
                             SP_GO!(-1);
                         }
@@ -3430,9 +3182,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // For-in / For-of / Iterator
-                    // ═══════════════════════════════════════════════════
+                    // ── For-in / For-of / Iterator ──
                     OpCode::FOR_OF_START | OpCode::FOR_AWAIT_OF_START => {
                         // [obj, ^] -> [iter_obj, next_method, catchoffset(0), ^]
                         let is_async = opcode == OpCode::FOR_AWAIT_OF_START;
@@ -3463,27 +3213,22 @@ impl Bytecode {
                         SP_GO!(2);
                     }
                     OpCode::FOR_AWAIT_OF_NEXT => {
-                        // Stack: [iter_obj, next, catch_offset]
-                        // Calls next() on iter_obj and pushes the promise result.
-                        // After: [iter_obj, next, catch_offset, promise]
-                        // n_pop=3, n_push=4, net SP_GO!(1)
-
-                        // disable the catch offset before calling next()
-                        // so that exceptions from next() do NOT close the iterator.
+                        // [iter_obj, next, catch_offset] -> the same + promise
+                        // Disable the catch offset before `next()` so exceptions
+                        // from it do not close the iterator.
                         let iter = SP_VAL!(-3);
                         let next = SP_VAL!(-2);
                         let saved_catch = SP_VAL!(-1);
                         SP_PUT!(-1, JSValue::UNDEFINED);
 
-                        // `next` may be native and trigger GC: the caller's
-                        // operand slots must be visible to the frame trace.
+                        // `next` may be native and trigger GC; sync the operands
+                        // for the frame trace.
                         sync_sp!();
                         let result =
                             next.call_internal(realm_scope, iter, JSValue::UNDEFINED, &[], 0);
                         if let Ok(obj) = result {
-                            // Restore the catch offset so that NIP_CATCH
-                            // (emitted for `return` inside the loop body)
-                            // can find it.  See the nip_catch bug.
+                            // Restore the catch offset for NIP_CATCH (`return`
+                            // inside the loop body).
                             SP_PUT!(-1, saved_catch);
                             SP_PUT!(0, obj);
                             SP_GO!(1);
@@ -3518,10 +3263,7 @@ impl Bytecode {
                         SP_GO!(-1);
                     }
                     OpCode::ITERATOR_NEXT => {
-                        // [iter_obj, next, catch_offset, val, ^] -> [iter_obj, next, catch_offset, val2, ^]
-                        // [      -4,   -3,           -2,  -1, 0]
-                        //
-                        // SP[-3]: next_method, SP[-4]: iter_obj, SP[-1]: val
+                        // [iter_obj, next, catch_offset, val, ^] -> [.., val2, ^]
                         if let Ok(ret) = SP_REF!(-3).call(
                             realm_scope,
                             SP_VAL!(-4),
@@ -3533,8 +3275,7 @@ impl Bytecode {
                         }
                     }
                     OpCode::ITERATOR_CALL => {
-                        // [iter_obj, next, catch_offset, val, ^] -> [iter_obj, next, catch_offset, val2, bool, ^]
-                        // [      -4,   -3,           -2,  -1, 0]
+                        // [iter_obj, next, catch_offset, val, ^] -> [.., val2, bool, ^]
                         let flags = PC_FETCH!(u8);
 
                         if let Ok(method) = SP_REF!(-4).get_property(
@@ -3571,9 +3312,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // FCLOSURE
-                    // ═══════════════════════════════════════════════════
+                    // ── FCLOSURE ──
                     OpCode::FCLOSURE => {
                         // [^] -> [func_obj, ^]
                         let id = PC_FETCH!(u32);
@@ -3596,9 +3335,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Generator/Async suspension and return
-                    // ═══════════════════════════════════════════════════
+                    // ── Generator/Async suspension and return ──
                     OpCode::AWAIT => {
                         break ExecAction::Return(JSValue::from(FUNC_RET_AWAIT), true);
                     }
@@ -3615,9 +3352,7 @@ impl Bytecode {
                         break ExecAction::Return(JSValue::UNDEFINED, true);
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Subroutine call (try-finally)
-                    // ═══════════════════════════════════════════════════
+                    // ── Subroutine call (try-finally) ──
                     OpCode::GOSUB => {
                         let diff = unsafe { read_from_ptr::<i32>(pc) };
                         // Push return address as Int (offset to instruction after GOSUB)
@@ -3641,11 +3376,9 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Stack manipulation (port from execute_with_realm_scope)
-                    // ═══════════════════════════════════════════════════
+                    // ── Stack manipulation ──
                     OpCode::DUP3 => {
-                        // [a, b, c, ^] -> [a, b, c, a, b, c, ^] where ^ is stack top
+                        // [a, b, c, ^] -> [a, b, c, a, b, c, ^]
                         SP_PUT!(0, SP_VAL!(-3));
                         SP_PUT!(1, SP_VAL!(-2));
                         SP_PUT!(2, SP_VAL!(-1));
@@ -3712,9 +3445,7 @@ impl Bytecode {
                         SP_PUT!(-1, JSValue::from(SP_REF!(-1).is_undefined_or_null()));
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // For-in (port from execute_with_realm_scope)
-                    // ═══════════════════════════════════════════════════
+                    // ── For-in ──
                     OpCode::FOR_IN_START => {
                         if js_for_in_start(realm_scope, sp).is_err() {
                             break ExecAction::Exception;
@@ -3727,9 +3458,7 @@ impl Bytecode {
                         SP_GO!(2);
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Global varref / Ref operations (port from realm_scope)
-                    // ═══════════════════════════════════════════════════
+                    // ── Global varref / Ref operations ──
                     OpCode::MAKE_VAR_REF => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
                         match ref_ops::make_global_ref(realm_scope, atom) {
@@ -3827,9 +3556,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Private Symbol (port from execute_with_realm_scope)
-                    // ═══════════════════════════════════════════════════
+                    // ── Private Symbol ──
                     OpCode::PRIVATE_SYMBOL => {
                         let atom = Atom::from_id(PC_FETCH!(u32));
                         match class_ops::private_symbol(realm_scope, atom) {
@@ -3877,9 +3604,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // Object / Method / Class definition (port from realm_scope)
-                    // ═══════════════════════════════════════════════════
+                    // ── Object / Method / Class definition ──
                     OpCode::DEFINE_FIELD => {
                         // [this_obj, value, ^] -> [this_obj, ^]
                         let atom = Atom::from_id(PC_FETCH!(u32));
@@ -3963,9 +3688,7 @@ impl Bytecode {
                         }
                     }
 
-                    // ═══════════════════════════════════════════════════
-                    // With statement (port from execute_with_realm_scope)
-                    // ═══════════════════════════════════════════════════
+                    // ── With statement ──
                     OpCode::WITH_GET_VAR
                     | OpCode::WITH_PUT_VAR
                     | OpCode::WITH_DELETE_VAR
@@ -3993,7 +3716,7 @@ impl Bytecode {
                                             atom,
                                             SP_VAL!(-2),
                                         );
-                                        // Consumed before the error is checked, as before.
+                                        // Consume the operands before checking the error.
                                         SP_GO!(-2);
                                         if unlikely(ret.is_err()) {
                                             break ExecAction::Exception;
@@ -4007,7 +3730,7 @@ impl Bytecode {
                                         }
                                     }
                                     OpCode::WITH_MAKE_REF => {
-                                        // produce a pair object/propname on the stack
+                                        // Push the object/prop-name pair.
                                         match with_ops::prop_name(realm_scope, atom) {
                                             Ok(prop) => {
                                                 SP_PUT!(0, prop);
@@ -4060,8 +3783,7 @@ impl Bytecode {
                 }
                 #[cfg(not(all(debug_assertions, feature = "debug_gc")))]
                 if rt.gc_req {
-                    // GC scans live frames up to `cur_sp_offset`; the local `sp`
-                    // has moved since the last sync.
+                    // GC scans up to `cur_sp_offset`; sync the moved `sp` first.
                     sync_sp!();
                     realm_scope.clear_locals_from_depth(gc_scope_base_depth);
                     rt.gc_collect();
@@ -4094,11 +3816,9 @@ impl Bytecode {
                         cur_pc,
                         sp_offset,
                     ) else {
-                        // Uncaught in this frame. With no inlined caller left,
-                        // hand it to the trampoline, which runs the finally
-                        // scan and frees the frame. Otherwise the whole chain
-                        // below this frame is local to this invocation and
-                        // must be unwound here.
+                        // Uncaught here. With no inline caller, let the
+                        // trampoline run the finally scan and free the frame;
+                        // otherwise unwind the local caller chain here.
                         if callers.is_empty() {
                             return ExecAction::Unwind;
                         }
@@ -4198,25 +3918,12 @@ impl Bytecode {
     }
 }
 
-/// Allocate and initialize a callee frame in the arena.
+/// Allocate and initialize a callee frame.
 ///
-/// Computes the buffer capacity from the bytecode's declared arg count,
-/// actual argument count, and local buffer size. Allocates a frame, copies
-/// arguments, fills unset slots with `UNDEFINED`, and initializes
-/// `this`/`new_target` protected values to `UNDEFINED`.
-///
-/// Returns the index of the newly created frame.
-///
-/// Used by both CALL (non-tail) and TAIL_CALL to eliminate code duplication
-/// between the opcode inline dispatch and the trampoline handler.
-///
-/// `caller_depth` is the depth of the calling frame; the callee's depth is set
-/// to `caller_depth + 1` so that runaway non-tail recursion drives the depth
-/// toward `VM_MAX_CALL_DEPTH` and trips a stack-depth error (see the note on
-/// `VM_MAX_CALL_DEPTH`). Exceeding the limit returns `FrameAllocError::Exceeded`,
-/// which the callers translate into the "maximum call stack size exceeded"
-/// error. The tail-call path passes `depth - 1` so the replacement frame
-/// keeps the caller's depth — tail calls never deepen the chain (TCO).
+/// Capacity covers `max(declared args, actual args) + locals`. The callee's
+/// depth is `caller_depth + 1`, bounding non-tail recursion at
+/// `VM_MAX_CALL_DEPTH`; a tail call passes `depth - 1` so the replacement keeps
+/// the caller's depth.
 #[inline(always)]
 fn build_callee_frame(
     arena: &mut VmStack,
@@ -4226,8 +3933,7 @@ fn build_callee_frame(
     args: &[JSValue],
     this_obj: JSValue,
 ) -> Result<FrameIndex, FrameAllocError> {
-    // saturating_add: with VM_MAX_CALL_DEPTH = 0 (unlimited) an infinite tail-call
-    // loop increments depth forever — saturate instead of overflowing u32.
+    // Saturate: unlimited depth (0) would otherwise overflow `u32`.
     let callee_depth = caller_depth.saturating_add(1);
     if VM_MAX_CALL_DEPTH > 0 && callee_depth > VM_MAX_CALL_DEPTH {
         return Err(FrameAllocError::Exceeded);
@@ -4243,10 +3949,8 @@ fn build_callee_frame(
     Ok(idx)
 }
 
-/// Drop every caller scope still parked in the virtual call stack. Must run
-/// before the trampoline returns early (yield/await suspension or async
-/// completion): the scopes are owned by `VirtualFrame`s, and leaving them
-/// parked would corrupt the GC scope stack.
+/// Drop the scopes parked in the virtual frames. Required before an early
+/// return (yield/await); leaving them parked corrupts the GC scope stack.
 #[inline(always)]
 fn drain_saved_scopes(virtual_frames: &mut VirtualFrames) {
     while let Some(mut vf) = virtual_frames.pop() {
@@ -4256,15 +3960,10 @@ fn drain_saved_scopes(virtual_frames: &mut VirtualFrames) {
     }
 }
 
-/// Exception-propagation path of popping one virtual frame: drop the callee
-/// scope and swap the caller's saved scope back in (when the callee had one
-/// — `None` means NoScope, nothing to restore), then resume from the pc/sp
-/// saved in the caller's frame head.
-/// Returns `(caller_bc, caller_frame_idx, pc_offset, sp_offset)`.
+/// Pop one virtual frame and restore the caller: swap its saved scope back in
+/// (unless it was shared) and return its saved pc/sp.
 ///
-/// The normal Return path does NOT go through here: it promotes the return
-/// value before the scope swap, writes it into the caller's stack, and
-/// derives sp from `return_sp` instead of the frame head.
+/// The normal Return path promotes the value and uses `return_sp` instead.
 #[inline(always)]
 fn restore_caller_frame(
     caller_vf: VirtualFrame,
@@ -4272,10 +3971,10 @@ fn restore_caller_frame(
     arena: &VmStack,
 ) -> (Bytecode, FrameIndex, usize, usize) {
     if let Some(saved_caller_scope) = caller_vf.caller_scope {
-        // Full/Light: drop callee scope and restore caller.
+        // Light/Full: drop the callee scope and restore the caller.
         unsafe { scope.swap_in_saved(saved_caller_scope) };
     }
-    // NoScope: scope was never swapped — skip drop/restore.
+    // None: nothing was swapped.
 
     let caller_head = arena.frame(caller_vf.frame_idx);
     (
@@ -4286,18 +3985,10 @@ fn restore_caller_frame(
     )
 }
 
-/// Execute bytecode in a single trampoline loop, completely avoiding
-/// C-stack recursion for JS-to-JS calls.
+/// Run frames in one loop without C-stack recursion for JS-to-JS calls.
 ///
-/// The trampoline maintains:
-/// - `cur_bc`: currently executing bytecode
-/// - `cur_frame_idx`: currently executing frame in the arena
-/// - `cur_trampoline_scope`: GC scope for the current frame (via `TrampolineScope`)
-/// - `virtual_frames`: caller chain (saved on call, restored on return)
-///
-/// Returns (result, is_completed) tuple:
-/// - result: the return value (or EXCEPTION on uncaught error)
-/// - is_completed: true if the function completed, false if suspended (yield/await)
+/// Returns `(value, completed)`; `completed == false` means suspended
+/// (yield/await).
 pub(crate) fn execute_trampoline(
     start_bc: Bytecode,
     start_frame_idx: FrameIndex,
@@ -4309,27 +4000,22 @@ pub(crate) fn execute_trampoline(
     let mut cur_bc = start_bc;
     let mut cur_frame_idx = start_frame_idx;
 
-    // Get a stable raw pointer to the arena. The arena lives in RuntimeImpl
-    // which has the same lifetime as the runtime. Using a raw pointer avoids
-    // borrow conflicts between cur_trampoline_scope (which borrows rt) and arena access.
+    // Stable arena pointer: avoids borrow conflicts with the scope, which
+    // borrows the runtime.
     let arena_ptr: *mut VmStack = &raw mut rt_ptr.vm_stack;
 
-    // Seed the start frame's `this` binding. It is a traced GC root, so the
-    // receiver survives collection even when the caller released its scope.
+    // Seed the start frame's `this` (a traced GC root).
     unsafe {
         (*arena_ptr).frame_mut(start_frame_idx).this_obj = this_obj;
     }
 
     let mut realm_ctx = start_bc.realm();
-    // Declared before the active trampoline scope on purpose: on panic unwind
-    // Rust drops `cur_trampoline_scope` first, then this guard drains the
-    // parked caller scopes newest-first, keeping the GC scope stack LIFO.
+    // Declared before the scope: on panic, the scope drops first, then this
+    // guard drains parked scopes newest-first.
     let mut virtual_frames = VirtualFrames::new();
-    // A callee that never allocates a GC node needs no scope of its own: it
-    // runs in the caller's scope, the way the interpreter's inlined NoScope
-    // call does. Then a call pays no scope push/pop/promote — the GC part
-    // of the call path. A cross-realm callee still gets its own scope (the
-    // error objects it throws must carry its realm's prototypes).
+    // A None-scope callee runs in the caller's scope, so a call pays no scope
+    // push/pop/promote. Cross-realm callees always get their own scope (their
+    // error objects need the callee realm's prototypes).
     let mut cur_trampoline_scope = if start_bc.gc_scope_kind() == GcScopeKind::None
         && start_bc.realm() == start_scope.ctx_ptr
     {
@@ -4337,22 +4023,17 @@ pub(crate) fn execute_trampoline(
     } else {
         unsafe { TrampolineScope::new(&mut realm_ctx) }
     };
-    // Lowest GC scope owned by this trampoline. Safepoints release LOCAL
-    // protection for every scope at or above this depth, so a suspended
-    // caller's scope cannot accumulate garbage while a callee runs (VM-B3).
-    // A borrowed start scope is not ours: the first owned scope sits above it.
+    // Lowest owned scope: safepoints clear LOCAL protection from here up, so
+    // suspended callers cannot accumulate garbage. A borrowed start scope sits
+    // below it.
     let gc_scope_base_depth =
         cur_trampoline_scope.depth() + u32::from(!cur_trampoline_scope.owns_scope());
 
-    // Check for a pending runtime exception (e.g., .throw() on a suspended
-    // async generator or async function). If present, the first
-    // execute_with_arena call must handle it immediately.
+    // A pending exception (e.g. `.throw()` on a suspended async function) must
+    // be handled by the first `execute_with_arena` call.
     let mut throwed = rt_ptr.exception() != Exception::No;
 
-    // Initialize PC/SP offsets from the frame head.
-    // On first execution, both are 0 (fresh frame).
-    // On resume after yield/await, they hold the saved position
-    // from execute_with_arena's State::Done handler.
+    // PC/SP from the frame head: 0 on first run, saved on resume.
     let (mut pc_offset, mut sp_offset) = {
         let arena = unsafe { &*arena_ptr };
         let head = arena.frame(start_frame_idx);
@@ -4360,9 +4041,7 @@ pub(crate) fn execute_trampoline(
     };
 
     'trampoline: loop {
-        // Deferred polling: a loop back edge inside the frame we just ran may have queued
-        // a function; polling here (between `execute_with_arena` calls) is a
-        // safe point, so hot functions can run natively inside this `eval`.
+        // Poll deferred JIT work between frames (a safe point).
         #[cfg(feature = "jit")]
         crate::jit::poll_deferred(&rt_ptr);
 
@@ -4370,18 +4049,15 @@ pub(crate) fn execute_trampoline(
 
         rt_ptr.active_frame_index = cur_frame_idx;
         debug_assert!(cur_trampoline_scope.is_arena_mode());
-        // Every frame the trampoline dispatches must be a bytecode carrier.
-        // `is_bytecode_frame_active` drives the caller-scope GC policy, so a
-        // frame that executes bytecode but is classified native would silently
-        // keep LOCAL protection and reintroduce the VM-B3 leak.
+        // Frames dispatched here must be bytecode carriers:
+        // `is_bytecode_frame_active` drives the caller-scope GC policy.
         debug_assert!(
             unsafe { (*rt_ptr).is_bytecode_frame_active() },
             "trampoline frame is not classified as a bytecode frame"
         );
 
-        // Args and `super`'s [[HomeObject]] are derived from the current
-        // frame's arena data inside the dispatch loop (which also switches
-        // frames for inlined calls), so the trampoline passes no frame state.
+        // Args and [[HomeObject]] are derived inside the dispatch loop, which
+        // also switches frames for inline calls.
         let action = cur_bc.execute_with_arena(
             cur_trampoline_scope.scope_mut(),
             arena,
@@ -4411,13 +4087,11 @@ pub(crate) fn execute_trampoline(
             } => {
                 let callee_gc_kind = callee_bc.gc_scope_kind();
 
-                // caller_scope: None if callee is NoScope (no scope swap needed),
-                // Some if callee is Light/Full (standard scope swap).
+                // `None` for a shared scope; `Some` for Light/Full.
                 let caller_scope = match callee_gc_kind {
                     GcScopeKind::None => {
-                        // NoScope: don't push a new GC scope. callee executes
-                        // within the caller's scope — safe because the
-                        // callee's bytecode allocates no LOCAL GC nodes.
+                        // Run in the caller's scope; this callee allocates no
+                        // LOCAL nodes.
                         None
                     }
                     GcScopeKind::Light | GcScopeKind::Full => {
@@ -4458,37 +4132,24 @@ pub(crate) fn execute_trampoline(
             } => {
                 let arena = unsafe { &mut *arena_ptr };
 
-                // Save the prev link before freeing the current frame — this
-                // preserves the backtrace chain across TCO. After frame
-                // replacement, the callee's prev points to the original caller
-                // (skipping the tail-calling function), which matches ECMAScript
-                // tail-call semantics.
+                // Keep the backtrace chain across TCO: the replacement's `prev`
+                // points to the original caller, skipping the tail-calling
+                // function.
                 let orig_prev = {
                     let head = arena.frame(cur_frame_idx);
                     head.prev
                 };
 
-                // Tail calls replace the frame instead of deepening the call
-                // chain, so the callee inherits the caller's depth unchanged:
-                // `VM_MAX_CALL_DEPTH` only bounds non-tail calls, and unbounded
-                // tail recursion runs at constant depth (true TCO).
-                // `build_callee_frame` adds 1, so pass `depth - 1`;
-                // saturating_sub keeps a root-frame depth of 0 stable.
+                // Pass `depth - 1` (`build_callee_frame` adds 1) so the
+                // replacement keeps the caller's depth; TCO never deepens.
                 let tail_depth = arena.frame(cur_frame_idx).depth.saturating_sub(1);
 
-                // Detach any closure VarRefs that reference the outgoing frame
-                // (otherwise captured variables become dangling pointers into
-                // the arena data buffer), then recycle the caller frame *before*
-                // allocating the callee so the bump arena's live region stays
-                // bounded (TCO).
+                // Detach the outgoing frame's VarRefs and recycle it before
+                // allocating the callee, keeping the bump region bounded.
                 arena.detach_and_free(cur_frame_idx);
 
-                // Use build_callee_frame for consistent frame initialization
-                // (same path as non-tail CALL in execute_with_arena). On failure
-                // we must propagate the error as a normal *uncaught* exception
-                // (not tear the whole trampoline down), so that enclosing
-                // try/catch and finally blocks still run — `test262`'s
-                // recursion.js relies on the recursion error being catchable.
+                // On failure, propagate as a normal uncaught exception so
+                // enclosing try/catch/finally still run.
                 let new_idx = match build_callee_frame(
                     arena,
                     tail_depth,
@@ -4508,11 +4169,9 @@ pub(crate) fn execute_trampoline(
                             }
                         }
 
-                        // The caller frame was already recycled above (TCO), so
-                        // unwind it directly to the caller's caller. This mirrors
-                        // the successful TailCall path (the tail call replaces the
-                        // frame) while keeping the error catchable: each enclosing
-                        // frame's `execute_with_arena` will run its catch/finally.
+                        // The caller frame is already recycled, so unwind to its
+                        // caller; the error stays catchable and enclosing
+                        // handlers still run.
                         if let Some(caller_vf) = virtual_frames.pop() {
                             (cur_bc, cur_frame_idx, pc_offset, sp_offset) =
                                 restore_caller_frame(caller_vf, &mut cur_trampoline_scope, arena);
@@ -4558,42 +4217,32 @@ pub(crate) fn execute_trampoline(
                         };
                         let actual_ret =
                             unsafe { std::ptr::read(sp_base.offset(sp_offset as isize - 1)) };
-                        // Detach all VarRefs before freeing the frame. The
-                        // frame may hold closure variables captured by inner
-                        // arrows (e.g., `new.target` in `async () => new.target`).
+                        // Detach VarRefs before freeing (an async arrow may have
+                        // captured them, e.g. `new.target`).
                         arena.detach_and_free(cur_frame_idx);
-                        // Promote before scope pop so the value stays LOCAL
-                        // in the parent scope (caller's scope). A borrowed
-                        // scope owns nothing and has no locals to promote.
+                        // Promote before the scope pop so the value stays LOCAL
+                        // in the caller's scope. A borrowed scope has no locals.
                         if cur_trampoline_scope.owns_scope() {
                             actual_ret.promote(&cur_trampoline_scope);
                         }
                         drop(cur_trampoline_scope.into_inner());
 
-                        // Drain virtual_frames to drop saved caller scopes.
+                        // Drop the parked caller scopes.
                         drain_saved_scopes(&mut virtual_frames);
                         rt_ptr.active_frame_index = FrameIndex::NULL;
 
                         return (actual_ret, true);
                     }
 
-                    // YIELD/AWAIT/YIELD_STAR: function suspended.
-                    // Frame stays Active in arena; caller must take_frame.
+                    // YIELD/AWAIT/YIELD_STAR: suspended. The frame stays Active;
+                    // the caller must `take_frame`.
                     //
-                    // Note: no stack-pointer fix-up for YIELD_STAR here — the
-                    // SUSPENDED_YIELD_STAR resume handler in a_gen.rs pushes
-                    // completion_type onto the stack (bumping sp), and the
-                    // DUP/IF_TRUE/DROP bytecode sequence that follows
-                    // ASYNC_YIELD_STAR in expr_yield.rs consumes it before
-                    // looping back to ITERATOR_NEXT, keeping the stack at
-                    // depth 4 (matching label_loop).  Same principle as the
-                    // legacy exec.rs path.
+                    // No sp fix-up for YIELD_STAR: the resume handler pushes the
+                    // completion type and the following DUP/IF_TRUE/DROP sequence
+                    // consumes it before ITERATOR_NEXT.
                     drop(cur_trampoline_scope.into_inner());
 
-                    // Drain virtual_frames to drop saved caller scopes.
-                    // They are owned by the VirtualFrames guard; on early
-                    // return (yield/await) this explicit drain pops them before
-                    // the trampoline scope stack is abandoned.
+                    // Drop the parked caller scopes before the early return.
                     drain_saved_scopes(&mut virtual_frames);
                     rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (ret_val, false);
@@ -4601,41 +4250,26 @@ pub(crate) fn execute_trampoline(
 
                 let arena = unsafe { &mut *arena_ptr };
 
-                // ── Frame lifecycle management ──
-                // The outermost frame (start_frame_idx) was allocated by
-                // BytecodeFunction::call. The trampoline's Return/Unwind
-                // handlers skip freeing it — the caller owns it and will
-                // detach + free after execute_trampoline returns.
-                // Inner frames (created by CallBytecode) are owned here.
+                // The outermost frame is owned by `BytecodeFunction::call`;
+                // inner frames are freed here.
                 let is_outermost = virtual_frames.is_empty();
                 if !is_outermost {
-                    // Detach all VarRefs before freeing the frame. The frame may
-                    // hold closure variables captured by inner functions (e.g.
-                    // `var nextCount` in an async iterator factory captured by
-                    // the `.next()` method). Without detach, VarRef raw pointers
-                    // into arena.data become dangling after the region is reused.
-                    // (The same pattern is used in the generator-completed path.)
+                    // Detach VarRefs before freeing; they would dangle after the
+                    // region is reused.
                     arena.detach_and_free(cur_frame_idx);
                 }
-                // Promote before scope pop so the value stays LOCAL
-                // in the parent scope (caller's scope, or start_scope).
+                // Promote before the scope pop.
 
                 if let Some(caller_vf) = virtual_frames.pop() {
                     if let Some(saved_caller_scope) = caller_vf.caller_scope {
-                        // Full/Light: promote, pop callee scope, restore caller.
+                        // Light/Full: promote, pop the callee scope, restore.
                         ret_val.promote(&cur_trampoline_scope);
                         unsafe { cur_trampoline_scope.swap_in_saved(saved_caller_scope) };
                     }
-                    // NoScope: scope was never swapped —
-                    // cur_trampoline_scope is already the caller's.
-                    // No promote needed (callee had no LOCAL nodes),
-                    // no drop needed (no callee scope was created).
+                    // None: the scope was never swapped.
 
-                    // Legacy (non-derived) constructor call: a non-object
-                    // return value is replaced with the instance created at
-                    // the CALL_CONSTRUCTOR site (mirrors do_call_internal).
-                    // The instance is LOCAL in the caller's scope, so it is
-                    // still GC-protected here.
+                    // Legacy constructor: a non-object return becomes the
+                    // instance created at the call site (LOCAL in this scope).
                     let ret_val = match caller_vf.ctor_this {
                         Some(inst) if !ret_val.is_object() => inst,
                         _ => ret_val,
@@ -4643,8 +4277,7 @@ pub(crate) fn execute_trampoline(
 
                     cur_bc = caller_vf.caller_bc;
                     cur_frame_idx = caller_vf.frame_idx;
-                    // Restore the caller's `this` binding from its traced frame
-                    // slot (the trampoline's Rust copy still holds the callee's).
+                    // Restore the caller's `this` from its frame header.
                     this_obj = arena.frame(cur_frame_idx).this_obj;
 
                     let caller_head = arena.frame(caller_vf.frame_idx);
@@ -4653,19 +4286,13 @@ pub(crate) fn execute_trampoline(
                         *sp_ptr.add(caller_vf.return_sp) = ret_val;
                     }
 
-                    // Restore PC and adjust SP to match legacy CALL handler:
-                    //   SP_GO!(-(call_argc + 1)) + SP_GO!(1)
-                    // After call returns: sp = old_sp - call_argc
-                    // return_sp = old_sp - call_argc - 1
-                    // So: new_sp = return_sp + 1
+                    // The call consumed `func + args`: resume at `return_sp + 1`.
                     pc_offset = caller_head.cur_pc_offset;
                     sp_offset = caller_vf.return_sp + 1;
                     throwed = false;
                 } else {
-                    // Outermost frame: the trampoline scope was created by
-                    // TrampolineScope::new() at execute_trampoline entry —
-                    // promote and drop. A borrowed scope (a NoScope start
-                    // function) owns nothing and has no locals to promote.
+                    // Outermost: promote and drop the trampoline scope. A
+                    // borrowed scope has no locals.
                     if cur_trampoline_scope.owns_scope() {
                         ret_val.promote(&cur_trampoline_scope);
                     }
@@ -4679,35 +4306,23 @@ pub(crate) fn execute_trampoline(
             ExecAction::Unwind => {
                 let arena = unsafe { &mut *arena_ptr };
 
-                // Before freeing the frame and propagating, check for a
-                // finally block (GOSUB marker) in the current frame.
-                // This handles cases where find_catch_in_frame didn't find
-                // a CatchOffset but a GOSUB/THROW pattern exists (e.g.,
-                // nested try-finally with cleanups, or try-finally without
-                // catch where the CatchOffset was already consumed).
-                //
-                // An interrupt is control flow, not a JS exception: it looks
-                // for no handler at all, and this GOSUB scan — which only tests
-                // "positive int < bytecode length" — would read the operand
-                // stack it leaves behind as a finally pc and resume the frame
-                // at an arbitrary opcode.
+                // Check for a finally (GOSUB marker) before freeing. An
+                // interrupt bypasses handlers: the GOSUB scan would read its
+                // leftover operand stack as a pc.
                 let found_finally = if rt_ptr.interrupt_code.is_some() {
                     None
                 } else {
                     arena.find_finally_in_frame(cur_frame_idx, cur_bc.opcodes().len())
                 };
                 if let Some((finally_pc, finally_sp)) = found_finally {
-                    // Found a finally block. Save the exception value on
-                    // the stack below the GOSUB marker so the THROW after
-                    // the finally block can re-throw it.
+                    // Save the exception below the GOSUB marker so the THROW
+                    // after the finally can rethrow it.
                     let err_val = cur_trampoline_scope
                         .take_exception()
                         .to_value(&mut cur_trampoline_scope);
                     let sp_base = arena.frame(cur_frame_idx).stack_base_ptr();
                     unsafe {
-                        // Write exception below the GOSUB marker position.
-                        // After finally executes and RET pops the GOSUB
-                        // marker, the exception is at TOS for THROW.
+                        // After RET pops the marker, the exception is at TOS.
                         std::ptr::write(sp_base.add(finally_sp - 1), err_val);
                     }
                     pc_offset = finally_pc;
@@ -4716,13 +4331,11 @@ pub(crate) fn execute_trampoline(
                     continue 'trampoline;
                 }
 
-                // Same rule as Return handler: inner frames are freed here,
-                // the outermost frame is owned by BytecodeFunction::call.
+                // As on Return: inner frames are freed here; the outermost is
+                // owned by `BytecodeFunction::call`.
                 let is_outermost = virtual_frames.is_empty();
                 if !is_outermost {
-                    // Detach all VarRefs before freeing the frame (matching
-                    // the Return handler). VarRef raw pointers into arena.data
-                    // become dangling after the region is reused.
+                    // Detach VarRefs before freeing (as on Return).
                     arena.detach_and_free(cur_frame_idx);
                 }
                 if let Some(caller_vf) = virtual_frames.pop() {
@@ -4733,8 +4346,7 @@ pub(crate) fn execute_trampoline(
 
                     continue 'trampoline;
                 } else {
-                    // Outermost frame Unwind: trampoline scope must be dropped
-                    // (it was created at execute_trampoline entry).
+                    // Outermost Unwind: drop the trampoline scope.
                     drop(cur_trampoline_scope.into_inner());
                     rt_ptr.active_frame_index = FrameIndex::NULL;
                     return (JSValue::EXCEPTION, true);
@@ -4751,12 +4363,8 @@ pub(crate) fn execute_trampoline(
                 ctor_this,
             } => {
                 // ── Cross-realm call ──
-                // Always push a scope bound to the callee's realm, even for
-                // GcScopeKind::None callees: the callee may still throw (e.g.
-                // a private brand-check TypeError), and the error object must
-                // be created with the callee realm's prototypes — which come
-                // from the active TrampolineScope. Cross-realm calls are rare,
-                // so the extra scope push costs nothing in practice.
+                // Always give the callee a realm-bound scope, even for None: a
+                // thrown error needs that realm's prototypes.
                 let caller_scope = {
                     let mut callee_realm_ctx = callee_ctx_ptr;
                     let callee_trampoline_scope =
@@ -4801,15 +4409,10 @@ mod tests {
         value::JSValue,
     };
 
-    /// A callee that never allocates a GC node runs in the caller's scope:
-    /// the trampoline pushes no scope for it, and its return value is not
-    /// promoted. The value it hands back is the caller's own object, so the
-    /// caller's scope is what keeps it alive — through the call and through
-    /// the collections the callback triggers.
-    ///
-    /// `Array.prototype.map` calls the callback through `call_internal`, so
-    /// the callee runs in a nested trampoline — the path the borrowed scope
-    /// is for.
+    /// A None-scope callee runs in the caller's scope without promotion, so
+    /// the value it hands back stays alive through the caller's scope.
+    /// `Array.prototype.map` enters through `call_internal`, i.e. a nested
+    /// trampoline (the borrowed-scope path).
     #[test]
     fn a_thin_callee_hands_back_a_live_value() {
         let mut rt = Runtime::create().unwrap();
@@ -4840,9 +4443,8 @@ mod tests {
         );
     }
 
-    /// The same call, but the callee throws: the callee has no scope of its
-    /// own, so the thrown value — the caller's object — must survive the
-    /// unwind and reach the handler.
+    /// A throwing None-scope callee must keep the caller's object alive across
+    /// the unwind.
     #[test]
     fn a_thin_callee_throws_into_the_callers_scope() {
         let mut rt = Runtime::create().unwrap();
@@ -4872,10 +4474,8 @@ mod tests {
         );
     }
 
-    /// A panic unwinding through `execute_trampoline` must pop every GC scope
-    /// it owns (active + parked) in LIFO order. Otherwise the outer eval scope
-    /// hits gc-lite's `GcScope dropped out of LIFO order` assertion, which
-    /// masks the original panic with a double panic abort.
+    /// A panic through `execute_trampoline` must pop every owned scope in LIFO
+    /// order, or gc-lite's assertion masks the original panic.
     #[test]
     fn panic_in_trampoline_keeps_gc_scope_stack_balanced() {
         let mut rt = Runtime::create().unwrap();
