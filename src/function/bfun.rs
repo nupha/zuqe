@@ -289,7 +289,12 @@ impl ObjectImpl {
     }
 }
 
-pub(crate) fn get_func_name(func_obj: Object) -> Option<String> {
+/// Append a function's `name` property to `out` when it is a non-empty string.
+///
+/// Writes in place instead of returning an owned `String`: the backtrace path
+/// runs per error and per frame, so an allocation here is measurable.
+/// Returns `false` when the function has no string name (or an empty one).
+pub(crate) fn write_func_name(out: &mut String, func_obj: Object) -> bool {
     // in order to avoid executing arbitrary code during the stack trace generation,
     // we only look at simple 'name' properties containing a string.
     if let Some((idx, prs_flags)) = func_obj.find_shape_property(Atom::CONST_name)
@@ -298,7 +303,12 @@ pub(crate) fn get_func_name(func_obj: Object) -> Option<String> {
         if let JSProperty::Normal(v) = func_obj.prop_slot(idx)
             && let Some(s) = v.as_string(true)
         {
-            return Some(s.content().encode_utf8(false).into_owned());
+            let name = s.content().encode_utf8(false);
+            if name.is_empty() {
+                return false;
+            }
+            out.push_str(&name);
+            return true;
         } else {
             #[cfg(debug_assertions)]
             unreachable!();
@@ -309,7 +319,7 @@ pub(crate) fn get_func_name(func_obj: Object) -> Option<String> {
         }
     }
 
-    None
+    false
 }
 
 /// The `name` property value of a function object: `[Symbol.xxx]` for

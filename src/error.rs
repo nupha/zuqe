@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{borrow::Cow, io::Write, process::ExitCode};
+use std::{fmt::Write as _, process::ExitCode};
 
 use crate::{
     Context, JS_CLASS_ERROR, Object, ScopedContext,
     atom::Atom,
     class::ClassID,
     context::ContextImpl,
-    function::{Bytecode, get_func_name},
+    function::{Bytecode, write_func_name},
     object::{JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, PayloadPtr},
     value::JSValue,
 };
@@ -434,13 +434,25 @@ impl<'c> ScopedContext<'c> {
         file_line: Option<(&str, i32, u32)>, // filename, line number, column
         mut backtrace_flags: i32,
     ) -> Result<String, ErrCode> {
-        let mut buf = Vec::<u8>::with_capacity(128);
-        let mut dbuf = std::io::Cursor::new(&mut buf);
+        // A single UTF-8 `String` serves as the output buffer: it is already
+        // validated and hands its bytes to the JS string without a second copy.
+        // Size it from the frame chain so the common path never reallocates
+        // while formatting (names + filenames dominate each frame).
+        let rt = self.rt_ptr();
+        let frame_count = {
+            let mut n = 0usize;
+            let mut idx = rt.active_frame_index;
+            while !idx.is_null() {
+                n += 1;
+                idx = rt.vm_stack.frame(idx).prev;
+            }
+            n
+        };
+        let mut out = String::with_capacity(112 * frame_count + 32);
 
         if let Some((filename, line_num, col)) = file_line {
             // filename, line no and column
-            dbuf.write_fmt(format_args!("    at {filename}:{line_num}:{col}\n"))
-                .map_err(|_| -1)?;
+            writeln!(out, "    at {filename}:{line_num}:{col}").map_err(|_| -1)?;
 
             if let Some(mut obj) = error_obj {
                 let str = self.create_string_from_utf8(filename.as_bytes().to_vec());
@@ -459,11 +471,9 @@ impl<'c> ScopedContext<'c> {
             }
 
             if backtrace_flags & JS_BACKTRACE_FLAG_SINGLE_LEVEL != 0 {
-                return Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string());
+                return Ok(out);
             }
         }
-
-        let rt = self.rt_ptr();
 
         // ── Arena mode: traverse FrameHead.prev chain (if active) ──
         if !rt.active_frame_index.is_null() {
@@ -475,16 +485,11 @@ impl<'c> ScopedContext<'c> {
                 if backtrace_flags & JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL != 0 && first {
                     backtrace_flags &= !JS_BACKTRACE_FLAG_SKIP_FIRST_LEVEL;
                 } else {
-                    let str1 =
-                        get_func_name(head.func_obj).map_or(Cow::Borrowed("<anonymous>"), |x| {
-                            if x.is_empty() {
-                                Cow::Borrowed("<anonymous>")
-                            } else {
-                                Cow::Owned(x)
-                            }
-                        });
-                    dbuf.write_fmt(format_args!("    at {}", str1))
-                        .map_err(|_| -1)?;
+                    out.push_str("    at ");
+                    // Write the name in place: no per-frame allocation.
+                    if !write_func_name(&mut out, head.func_obj) {
+                        out.push_str("<anonymous>");
+                    }
 
                     let mut backtrace_barrier = false;
 
@@ -494,20 +499,18 @@ impl<'c> ScopedContext<'c> {
                         if let Some(debug) = bc.debug.as_ref() {
                             let line_col =
                                 bc.find_line_num_col((head.cur_pc_offset as u32).wrapping_sub(1));
-                            let atom_str = debug.filename.to_utf8(&rt);
 
-                            dbuf.write_fmt(format_args!(" ({atom_str}"))
-                                .map_err(|_| -1)?;
+                            out.push_str(" (");
+                            debug.filename.with_utf8(&rt, |s| out.push_str(&s));
                             if let Some((ln, col)) = line_col {
-                                dbuf.write_fmt(format_args!(":{ln}:{col}"))
-                                    .map_err(|_| -1)?;
+                                write!(out, ":{ln}:{col}").map_err(|_| -1)?;
                             }
-                            dbuf.write_all(b")").map_err(|_| -1)?;
+                            out.push(')');
                         }
                     } else {
-                        dbuf.write_all(b" (native)").map_err(|_| -1)?;
+                        out.push_str(" (native)");
                     }
-                    dbuf.write_all(b"\n").map_err(|_| -1)?;
+                    out.push('\n');
 
                     if backtrace_barrier {
                         break;
@@ -518,7 +521,7 @@ impl<'c> ScopedContext<'c> {
             }
         }
 
-        Ok(String::from_utf8_lossy(dbuf.into_inner()).to_string())
+        Ok(out)
     }
 
     /// build traceback, set it as property of `error_obj`.
