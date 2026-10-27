@@ -220,6 +220,29 @@ impl Drop for VirtualFrames {
     }
 }
 
+/// Number-only `+`: the four tag combinations `arith_add` handles without
+/// conversion or allocation. Bool, String, BigInt and Object stay on the
+/// generic path, so this cannot change coercion order or exceptions.
+#[inline(always)]
+fn fast_numeric_add(a: JSValue, b: JSValue) -> Option<JSValue> {
+    use crate::JSValueTag::{Float64, Int};
+    match (a.tag(), b.tag()) {
+        (Int, Int) => Some(JSValue::from(
+            a.payload_i32() as i64 + b.payload_i32() as i64,
+        )),
+        (Float64, Int) => Some(JSValue::make_float(unsafe {
+            a.as_float_unchecked() + b.payload_i32() as f64
+        })),
+        (Int, Float64) => Some(JSValue::make_float(unsafe {
+            a.payload_i32() as f64 + b.as_float_unchecked()
+        })),
+        (Float64, Float64) => Some(JSValue::make_float(unsafe {
+            a.as_float_unchecked() + b.as_float_unchecked()
+        })),
+        _ => None,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 /// Create (or reuse) a `VarRef` onto local/argument slot `var_idx` of the
 /// current frame. `pub(crate)` because the JIT's `special_object` helper shares
@@ -335,6 +358,14 @@ impl Bytecode {
         debug_assert!(realm_scope.is_arena_mode());
 
         let mut rt = realm_scope.rt_ptr();
+
+        // Call-site feedback is recorded under every non-inert policy; tier-2
+        // type feedback only when the policy can reach tier 2.
+        #[cfg(feature = "jit")]
+        let jit_active = crate::jit::is_active(&rt);
+        #[cfg(feature = "jit")]
+        let jit_feedback = jit_active && crate::jit::records_feedback(&rt);
+
         let bytecodes = self.opcodes();
         debug_assert!(
             // A pending exception may resume at the end pc (`out_pc` after the
@@ -1215,12 +1246,14 @@ impl Bytecode {
                         // the compiler can tell a monomorphic site (one callee,
                         // always) from a polymorphic one.
                         #[cfg(feature = "jit")]
-                        crate::jit::note_call(
-                            &rt,
-                            self,
-                            (unsafe { pc.offset_from(pc_base) } as u32) - 3,
-                            func,
-                        );
+                        if jit_active {
+                            crate::jit::note_call(
+                                &rt,
+                                self,
+                                (unsafe { pc.offset_from(pc_base) } as u32) - 3,
+                                func,
+                            );
+                        }
 
                         // ── Inline bytecode dispatch ──
                         if let Ok(bfun) = BCWrapper::try_from(func) {
@@ -1506,12 +1539,14 @@ impl Bytecode {
                         // The direct-call path: record the callee at this call site (see
                         // the CALL arm).
                         #[cfg(feature = "jit")]
-                        crate::jit::note_call(
-                            &rt,
-                            self,
-                            (unsafe { pc.offset_from(pc_base) } as u32) - 3,
-                            func,
-                        );
+                        if jit_active {
+                            crate::jit::note_call(
+                                &rt,
+                                self,
+                                (unsafe { pc.offset_from(pc_base) } as u32) - 3,
+                                func,
+                            );
+                        }
 
                         // ── Inline bytecode dispatch (mirrors CALL) ──
                         // Method calls must not recurse on the C stack either
@@ -1697,7 +1732,9 @@ impl Bytecode {
                             };
                             // Tier-2 feedback: the updated local before and after.
                             #[cfg(feature = "jit")]
-                            crate::jit::note_local_update(&rt, self, site, old, res);
+                            if jit_feedback {
+                                crate::jit::note_local_update(&rt, self, site, old, res);
+                            }
                             *op1 = res;
                         } else if let Ok(res) =
                             UnaryOp::new(realm_scope, old, true).and_then(|unary| match opcode {
@@ -1709,7 +1746,9 @@ impl Bytecode {
                             // Tier-2 feedback: the updated local before and after
                             // (result classes — the result class exposes overflow).
                             #[cfg(feature = "jit")]
-                            crate::jit::note_local_update(&rt, self, site, old, res);
+                            if jit_feedback {
+                                crate::jit::note_local_update(&rt, self, site, old, res);
+                            }
                             *op1 = res;
                         } else {
                             break ExecAction::Exception;
@@ -1722,10 +1761,19 @@ impl Bytecode {
                         let op1 = SP_VAL!(-1);
                         SP_GO!(-1);
                         let pv = VAR_REF![idx];
-                        if let Ok(val) = JSValue::arith_add(realm_scope, *pv, op1) {
+                        // Hot path: Int locals. Anything else (Float64, String,
+                        // BigInt, Object) keeps the generic conversion path.
+                        let res = if let Some(v) = fast_numeric_add(*pv, op1) {
+                            Ok(v)
+                        } else {
+                            JSValue::arith_add(realm_scope, *pv, op1)
+                        };
+                        if let Ok(val) = res {
                             // Tier-2 feedback: local (lhs), operand (rhs), result.
                             #[cfg(feature = "jit")]
-                            crate::jit::note_binary(&rt, self, site, *pv, op1, val);
+                            if jit_feedback {
+                                crate::jit::note_binary(&rt, self, site, *pv, op1, val);
+                            }
                             *pv = val;
                         } else {
                             break ExecAction::Exception;
@@ -1754,14 +1802,16 @@ impl Bytecode {
                             // Tier-2 feedback: operands and the result, which
                             // may be a Float64 once the sign bit is set.
                             #[cfg(feature = "jit")]
-                            crate::jit::note_binary(
-                                &rt,
-                                self,
-                                (unsafe { pc.offset_from(pc_base) } as u32) - 1,
-                                op1,
-                                op2,
-                                SP_VAL!(-1),
-                            );
+                            if jit_feedback {
+                                crate::jit::note_binary(
+                                    &rt,
+                                    self,
+                                    (unsafe { pc.offset_from(pc_base) } as u32) - 1,
+                                    op1,
+                                    op2,
+                                    SP_VAL!(-1),
+                                );
+                            }
                         } else {
                             break ExecAction::Exception;
                         }
@@ -1770,15 +1820,17 @@ impl Bytecode {
                         let op1 = SP_VAL!(-2);
                         let op2 = SP_VAL!(-1);
                         #[cfg(feature = "jit")]
-                        crate::jit::note_binary(
-                            &rt,
-                            self,
-                            (unsafe { pc.offset_from(pc_base) } as u32) - 1,
-                            op1,
-                            op2,
-                            // A comparison always yields a Bool.
-                            JSValue::from(false),
-                        );
+                        if jit_feedback {
+                            crate::jit::note_binary(
+                                &rt,
+                                self,
+                                (unsafe { pc.offset_from(pc_base) } as u32) - 1,
+                                op1,
+                                op2,
+                                // A comparison always yields a Bool.
+                                JSValue::from(false),
+                            );
+                        }
                         let fast = match (op1.as_int(), op2.as_int()) {
                             (Some(a), Some(b)) => Some(match opcode {
                                 OpCode::LT => a < b,
@@ -2486,7 +2538,13 @@ impl Bytecode {
                         let op1 = SP_VAL!(-2);
                         let op2 = SP_VAL!(-1);
                         let res = match opcode {
-                            OpCode::ADD => JSValue::arith_add(realm_scope, op1, op2),
+                            OpCode::ADD => {
+                                if let Some(v) = fast_numeric_add(op1, op2) {
+                                    Ok(v)
+                                } else {
+                                    JSValue::arith_add(realm_scope, op1, op2)
+                                }
+                            }
                             OpCode::SUB => JSValue::arith_sub(realm_scope, op1, op2),
                             OpCode::MUL => JSValue::arith_mul(realm_scope, op1, op2),
                             OpCode::DIV => JSValue::arith_div(realm_scope, op1, op2),
@@ -2497,7 +2555,7 @@ impl Bytecode {
                         // Tier-2 feedback (type feedback and result classes): operands and the result
                         // (the result class exposes int overflow to the gate).
                         #[cfg(feature = "jit")]
-                        if let Ok(val) = res {
+                        if jit_feedback && let Ok(val) = res {
                             crate::jit::note_binary(
                                 &rt,
                                 self,
@@ -2544,12 +2602,14 @@ impl Bytecode {
                         // Tier-2 feedback: the condition's type drives the
                         // branch fast path selection.
                         #[cfg(feature = "jit")]
-                        crate::jit::note_value(
-                            &rt,
-                            self,
-                            (unsafe { pc.offset_from(pc_base) } as u32) - 1,
-                            val,
-                        );
+                        if jit_feedback {
+                            crate::jit::note_value(
+                                &rt,
+                                self,
+                                (unsafe { pc.offset_from(pc_base) } as u32) - 1,
+                                val,
+                            );
+                        }
 
                         // skip jump offset
                         PC_GO!(4);

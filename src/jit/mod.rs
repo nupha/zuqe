@@ -723,6 +723,24 @@ pub(crate) fn poll_if_queued(rt: &RuntimeImpl) {
     }
 }
 
+/// Whether a JIT is attached and not in the fully inert `Interpreter` policy.
+///
+/// Call-site feedback is recorded under every policy except `Interpreter`, so
+/// `note_call` must be gated on this rather than on [`records_feedback`].
+#[inline]
+pub(crate) fn is_active(rt: &RuntimeImpl) -> bool {
+    rt.jit.as_deref().is_some_and(|j| !j.disabled())
+}
+
+/// Whether the current frame should record tier-2 feedback.
+///
+/// Evaluated once per interpreter frame so hot arms can skip the `note_*`
+/// call entirely when no JIT is attached or the policy cannot reach tier 2.
+#[inline]
+pub(crate) fn records_feedback(rt: &RuntimeImpl) -> bool {
+    rt.jit.as_deref().is_some_and(|j| j.records_feedback())
+}
+
 /// Tier-2 feedback hook: record the operand types and the result type of a
 /// binary site (type feedback / result classes). A no-op unless a JIT is attached under a
 /// tier-2-capable policy.
