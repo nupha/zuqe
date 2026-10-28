@@ -15,7 +15,7 @@ use crate::{
     error::JSResult,
     function::{CallContext, FieldDef},
     gc_lite::{GcTrace, GcTraceCtx},
-    object::{JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, PayloadPtr},
+    object::{Array, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE, JS_PROP_WRITABLE, Object, PayloadPtr},
     value::JSValue,
 };
 
@@ -54,8 +54,9 @@ crate::def_native_object!(
 const D_SEGMENTER: usize = 0; // Intl.Segmenter instance
 const D_INPUT: usize = 1; // input string value
 const D_SEGMENTS: usize = 2; // Segments object (branding)
-const D_POS: usize = 3; // iterator state: next UTF-16 index
+const D_POS: usize = 3; // iterator state: next segment index
 const D_ITERATOR: usize = 4; // iterator object (branding)
+const D_CACHE: usize = 5; // lazily built Array of segment records
 
 pub(crate) fn js_segmenter_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let new_target = cc.this();
@@ -302,8 +303,9 @@ fn js_segments_iterate(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         cc.data(D_SEGMENTER),
         cc.data(D_INPUT),
         cc.data(D_SEGMENTS),
-        JSValue::from(0i32), // D_POS: iteration start
+        JSValue::from(0i32), // D_POS: next segment index
         iter_obj.into(),
+        JSValue::UNDEFINED, // D_CACHE: built on the first next()
     ]);
     let next = ctx.create_native_function_with_data(
         Callback::Func(js_segment_iterator_next),
@@ -327,26 +329,46 @@ fn js_segment_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     if cc.this() != iter_val {
         return Err(ctx.throw_type_error("not a Segment Iterator"));
     }
-    let seg_val = cc.data(D_SEGMENTER);
-    let seg_obj = seg_val
-        .as_object()
-        .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
-    let data = seg_obj
-        .payload_intl_segmenter()
-        .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
-    let sref = cc.data(D_INPUT).to_string(ctx)?;
-    let units = js_to_utf16(&sref);
-
-    let cur = cc.data(D_POS).to_number(ctx)?.to_f64().trunc();
-    let segs = compute_segments(data.granularity, &units);
-    let seg = match segs.iter().find(|s| s.end_u as f64 > cur) {
-        Some(s) => s,
-        None => return make_iterator_next_result(ctx, JSValue::UNDEFINED, true),
-    };
-    // Advance the iterator's own state slot.
     let mut cc = cc;
-    cc.replace_data(D_POS, JSValue::from(seg.end_u as i32));
-    let record = create_segment_record(ctx, &units, seg, data.granularity, cc.data(D_INPUT))?;
+
+    // Segmentation is O(n), so running it per step made iteration O(n²).
+    // Build the records once per iterator and serve `next()` from the array.
+    let mut cache = cc.data(D_CACHE);
+    if cache.is_undefined() {
+        let seg_val = cc.data(D_SEGMENTER);
+        let seg_obj = seg_val
+            .as_object()
+            .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
+        let data = seg_obj
+            .payload_intl_segmenter()
+            .ok_or_else(|| ctx.throw_type_error("not a Segmenter"))?;
+        let input = cc.data(D_INPUT);
+        let sref = input.to_string(ctx)?;
+        let units = js_to_utf16(&sref);
+        let segs = compute_segments(data.granularity, &units);
+        let mut records: Vec<JSValue> = Vec::with_capacity(segs.len());
+        for seg in segs {
+            records.push(create_segment_record(
+                ctx,
+                &units,
+                &seg,
+                data.granularity,
+                input,
+            )?);
+        }
+        cache = Array::from_values(ctx, records)?.into();
+        cc.replace_data(D_CACHE, cache);
+    }
+
+    let cur = cc.data(D_POS).to_number(ctx)?.to_f64().trunc() as i64;
+    let arr = cache
+        .as_object()
+        .ok_or_else(|| ctx.throw_type_error("not a Segments iterator"))?;
+    let record = arr.get_property_i64(ctx, cur)?;
+    if record.is_undefined() {
+        return make_iterator_next_result(ctx, JSValue::UNDEFINED, true);
+    }
+    cc.replace_data(D_POS, JSValue::from(cur as i32 + 1));
     make_iterator_next_result(ctx, record, false)
 }
 
