@@ -639,10 +639,31 @@ impl VmStack {
 
     /// Get mutable access to existing VarRefs without inserting.
     /// Returns `None` when the frame has no closure variables.
-    /// Used by detach / CLOSE_LOC paths that only need to act when refs exist.
+    /// Used by detach paths that only need to act when refs exist.
     #[inline(always)]
     pub(crate) fn try_var_refs_mut(&mut self, idx: FrameIndex) -> Option<&mut Vec<VarRef>> {
         self.var_refs.get_mut(idx.0 as usize)
+    }
+
+    /// Close the frame's `var_ref` for local `var_idx` (CLOSE_LOC): freeze the
+    /// value into the ref, then drop the frame entry.
+    ///
+    /// The entry must go: a captured per-iteration binding creates a fresh ref
+    /// every iteration (the previous one is `Detached` and no longer matches),
+    /// so keeping closed entries makes the per-frame list grow with the loop
+    /// count — `get_var_ref`'s scan becomes quadratic, and every dead ref stays
+    /// reachable until the frame returns. The closures that still reference a
+    /// closed ref keep it alive on their own.
+    #[inline]
+    pub(crate) fn close_loc_ref(&mut self, idx: FrameIndex, var_idx: u16) {
+        let Some(slot) = self.var_refs.get_mut(idx.0 as usize) else {
+            return;
+        };
+        let Some(pos) = slot.iter().position(|v| v.is_match(var_idx, false)) else {
+            return;
+        };
+        slot[pos].detach();
+        slot.swap_remove(pos);
     }
 
     /// Check whether `idx` has at least one live closure variable reference.

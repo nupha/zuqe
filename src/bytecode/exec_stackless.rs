@@ -1431,12 +1431,7 @@ impl Bytecode {
                     }
                     OpCode::CLOSE_LOC => {
                         let idx = PC_FETCH!(u16);
-                        if let Some(vr) = arena
-                            .try_var_refs_mut(cur_frame_idx)
-                            .and_then(|vrs| vrs.iter_mut().find(|v| v.is_match(idx, false)))
-                        {
-                            vr.detach();
-                        }
+                        arena_mut!().close_loc_ref(cur_frame_idx, idx);
                     }
 
                     // ── Closure variable refs ──

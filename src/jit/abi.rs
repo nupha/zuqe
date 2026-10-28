@@ -2288,11 +2288,7 @@ unsafe extern "C" fn h_close_loc(f: *mut JitExecFrame) -> u32 {
         let f = &mut *f;
         let idx = f.imm as u16;
         let frame_idx = FrameIndex::from_u32(f.cur_frame_idx);
-        if let Some(vrs) = (*f.arena).try_var_refs_mut(frame_idx)
-            && let Some(vr) = vrs.iter_mut().find(|v| v.is_match(idx, false))
-        {
-            vr.detach();
-        }
+        (*f.arena).close_loc_ref(frame_idx, idx);
         HELPER_OK
     }
 }
