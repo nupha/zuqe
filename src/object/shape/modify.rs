@@ -111,9 +111,8 @@ impl ObjectImpl {
         }
 
         // Registry dedup: try the transition even when this object is the only
-        // user. `use_count == 1` does not make the source shape private — the
-        // registry reference is not counted — and a registered source must stay
-        // intact so later objects can reuse this transition.
+        // user — a hit means some other object followed the same path and the
+        // transition is worth keeping canonical.
         if let Some(found) = ctx
             .rt()
             .shape_registry
@@ -124,6 +123,47 @@ impl ObjectImpl {
                 .map_err(|_| ctx.throw_out_of_memory())?;
             debug_assert_eq!(self.prop_values.len(), new_len);
             self.set_shape(found);
+            return Ok(new_len);
+        }
+
+        // Not found. A shape this object exclusively owns and no other object
+        // ever followed (`use_count == 1`) can grow in place: unregister,
+        // append, re-register. Duplicating it would copy O(props) for a
+        // transition nobody reuses — a single object accumulating unique keys
+        // (e.g. a fast array degraded to sparse by a hole) was quadratic
+        // (VM-P16: 50k backward writes 56 s vs QuickJS 5 ms).
+        //
+        // The empty shape is excluded: it is the canonical root of the proto's
+        // transition tree that every later instance starts from, and
+        // `use_count == 1` does not protect it — the registry's reference is
+        // not counted (VM-P10). A consumed non-empty transition costs the next
+        // follower one duplicate, then the chain re-stabilizes.
+        if self.shape().unwrap().use_count == 1 && self.shape().unwrap().len() > 0 {
+            self.try_extend_prop_slot(extras.len())
+                .map_err(|_| ctx.throw_out_of_memory())?;
+            debug_assert_eq!(self.prop_values.len(), new_len);
+
+            // Unregister under the old hash, append (which refreshes the
+            // incremental hash), re-register under the new one. The object
+            // keeps its Shape handle throughout, so the shape stays GC-traced
+            // even if a collection ran in the window.
+            //
+            // Mint a fresh uid: shape *content* changes must move shape
+            // *identity*, or the JIT's GlobalVarCache guard keeps serving
+            // entries learned for the old content (jit_global shadow test).
+            // Every (ptr, uid) IC/Guard entry invalidates; old slots are
+            // append-only and unchanged, so re-learning is a pure refill.
+            ctx.rt_mut().unregister_shape(self.shape().unwrap());
+            let sh = self.shape().unwrap();
+            let sh_ptr: *mut ShapeImpl = unsafe { sh.gc_ref().as_ptr().as_ptr() };
+            let uid = ctx.rt_mut().next_shape_uid.get();
+            ctx.rt_mut().next_shape_uid.set(uid.wrapping_add(1));
+            unsafe {
+                (*sh_ptr).uid = uid;
+                (*sh_ptr).add_shape_properties(ctx, extras);
+            }
+            ctx.rt_mut().register_shape(self.shape().unwrap())?;
+
             return Ok(new_len);
         }
 
