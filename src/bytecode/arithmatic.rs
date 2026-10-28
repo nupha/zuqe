@@ -115,7 +115,12 @@ impl TwoNumbers {
 
     pub fn sub(self) -> JSValue {
         match self {
-            Self::Int(a, b) => JSValue::from(a - b),
+            Self::Int(a, b) => {
+                // Widen like `add`: i32 subtraction can leave the i32 range
+                // (0 - -2^31), and the raw i32 op wrapped in release builds
+                // and panicked under debug_assertions.
+                JSValue::from(a as i64 - b as i64)
+            }
             Self::Float(a, b) => JSValue::from(a - b),
         }
     }

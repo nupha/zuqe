@@ -534,6 +534,23 @@ impl FunctionDef {
                     }
                 }
 
+                opcodes::OP_set_loc | opcodes::OP_set_arg | opcodes::OP_set_var_ref => {
+                    if OPTIMIZE
+                        && self.optimize_set_loc(
+                            op,
+                            pos,
+                            &mut pos_next,
+                            &mut line_num,
+                            &mut line_pos,
+                            &mut bc_out,
+                        )
+                    {
+                        None
+                    } else {
+                        Some(ResolveLabelsState::NoChange)
+                    }
+                }
+
                 opcodes::OP_put_loc | opcodes::OP_put_arg | opcodes::OP_put_var_ref => {
                     if OPTIMIZE {
                         self.optimize_put_loc(

@@ -285,6 +285,8 @@ impl FunctionDef {
         bc_out: &mut Vec<u8>,
     ) -> bool {
         // transformation:
+        // get_loc(n) set_loc(n) drop -> (nothing)   (dead self-store)
+        // get_loc(n) set_loc(n)      -> get_loc(n)  (dead self-store, value form)
         // get_loc(n) post_dec put_loc(n) drop -> dec_loc(n)
         // get_loc(n) post_inc put_loc(n) drop -> inc_loc(n)
         // get_loc(n) dec dup put_loc(n) drop -> dec_loc(n)
@@ -293,6 +295,29 @@ impl FunctionDef {
         let bc_buf = self.byte_code.as_ptr();
 
         let idx = unsafe { read_from_ptr::<u16>(bc_buf.add(pos + 1)) };
+
+        // `x = x` writes back exactly what the read produced. Plain get_loc/
+        // set_loc never hit TDZ (lexical vars use the *_check variants) and
+        // nothing runs between the two opcodes, so the store is unobservable:
+        // keep the read only when the assignment value is used, drop the pair
+        // when a statement-level `drop` discards it.
+        if let Some(cc) = self.code_match(*pos_next, &[Op(opcodes::OP_set_loc as _), Val(idx as _)])
+        {
+            if cc.line_num >= 0 {
+                *line_num = cc.line_num;
+            }
+            if let Some(cd) = self.code_match(cc.pos, &[Op(opcodes::OP_drop as _)]) {
+                // Statement form: get_loc + set_loc + drop all vanish.
+                *pos_next = cd.pos;
+            } else {
+                // Value form: the assignment yields the value just read.
+                self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
+                push_vec_op_u16(bc_out, OpCode::GET_LOC as u8, idx);
+                *pos_next = cc.pos;
+            }
+            return true;
+        }
+
         if idx >= 256 {
             false
         } else {
@@ -466,6 +491,45 @@ impl FunctionDef {
             }
 
             true
+        }
+    }
+
+    /// `set_x(n) drop` -> `put_x(n)`: the statement form of an assignment
+    /// discards the kept value, so store-and-pop in one opcode instead of
+    /// store + separate `drop` dispatch.
+    pub(super) fn optimize_set_loc(
+        &mut self,
+        op: u8,
+        pos: usize,
+        pos_next: &mut usize,
+        line_num: &mut i32,
+        line_pos: &mut u32,
+        bc_out: &mut Vec<u8>,
+    ) -> bool {
+        debug_assert!(matches!(
+            op,
+            opcodes::OP_set_loc | opcodes::OP_set_arg | opcodes::OP_set_var_ref,
+        ));
+
+        let bc_buf = self.byte_code.as_ptr();
+        let idx = unsafe { read_from_ptr::<u16>(bc_buf.add(pos + 1)) };
+
+        if let Some(cc) = self.code_match(*pos_next, &[Op(opcodes::OP_drop as _)]) {
+            if cc.line_num >= 0 {
+                *line_num = cc.line_num;
+            }
+            self.add_pc2line_info(bc_out.len() as _, *line_num, *line_pos);
+            let put_op = match op {
+                opcodes::OP_set_loc => opcodes::OP_put_loc,
+                opcodes::OP_set_arg => opcodes::OP_put_arg,
+                opcodes::OP_set_var_ref => opcodes::OP_put_var_ref,
+                _ => unreachable!(),
+            };
+            push_vec_op_u16(bc_out, put_op, idx);
+            *pos_next = cc.pos;
+            true
+        } else {
+            false
         }
     }
 
@@ -1016,6 +1080,71 @@ mod tests {
                 "var w = 1; function bump() { w = 10; return 1; } w = w + bump(); w;",
                 2,
             ),
+        ];
+        for (src, want) in cases {
+            assert_eq!(eval_int(src), want, "{src}");
+        }
+    }
+
+    /// fusions: `x = x` is a dead store, and a statement-position
+    /// `set_x; drop` is one `put_x`. Both must be unobservable in every shape
+    /// the frontend can produce — plain locals, arguments, captured vars
+    /// (which go through var_refs, not this peephole), and the value forms.
+    #[test]
+    fn self_assignment_is_a_dead_store() {
+        let cases = [
+            // statement form on a local
+            ("var s = 5; s = s; s;", 5),
+            // statement form in a loop (the probe-thin-nocall shape)
+            ("var s = 1; for (var i = 0; i < 100; i++) s = s; s;", 1),
+            // value form: the assignment still yields the value
+            ("var s = 3; var t = (s = s); t * 10 + s;", 33),
+            // self-assign through an aliasing read-write in sequence
+            ("var a = 7; a = a; a = a + 1; a;", 8),
+            // argument local, not captured
+            ("function f(x) { x = x; return x; } f(9);", 9),
+            // lexical local (resolved to a slot, not a var_ref here)
+            ("function g() { let y = 4; y = y; return y; } g();", 4),
+            // the self-assigned var is captured by a closure: the store must
+            // still be there for the closure to observe? No — the value is
+            // unchanged, so the closure sees the same value either way.
+            (
+                "var c = 2; var get = function () { return c; }; c = c; get();",
+                2,
+            ),
+            // self-assignment must not swallow a preceding side effect
+            (
+                "var n = 0; function bump() { n++; return 5; } var r = bump(); r = r; n * 10 + r;",
+                15,
+            ),
+        ];
+        for (src, want) in cases {
+            assert_eq!(eval_int(src), want, "{src}");
+        }
+    }
+
+    /// The `set_x; drop -> put_x` fusion must not fire when the assignment
+    /// value is consumed, and must preserve evaluation order when it does
+    /// fire.
+    #[test]
+    fn statement_assignment_value_is_discarded_only_once() {
+        let cases = [
+            // statement form: value dropped, fusion fires
+            ("var x = 1; x = 2 + 3; x;", 5),
+            // value form: must keep the result
+            ("var x = 1; var y = (x = 7); y + x;", 14),
+            // chained value form
+            (
+                "var a = 0, b = 0; var c = (a = (b = 4)); a + b + c * 10;",
+                48,
+            ),
+            // RHS side effect must run exactly once
+            (
+                "var hits = 0; function f() { hits++; return 1; } var x = 0; x = f(); x * 10 + hits;",
+                11,
+            ),
+            // argument target
+            ("function g(a) { a = 3; return a; } g(0);", 3),
         ];
         for (src, want) in cases {
             assert_eq!(eval_int(src), want, "{src}");

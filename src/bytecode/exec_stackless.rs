@@ -271,6 +271,57 @@ fn fast_numeric_add(a: JSValue, b: JSValue) -> Option<JSValue> {
     }
 }
 
+/// Fast `-` for the same four Int/Float64 tag pairs as `fast_numeric_add`.
+/// The Int arm widens to i64: i32 subtraction can leave the i32 range
+/// (`0 - -2^31`), where the old i32 op wrapped in release builds.
+#[inline(always)]
+fn fast_numeric_sub(a: JSValue, b: JSValue) -> Option<JSValue> {
+    use crate::JSValueTag::{Float64, Int};
+    match (a.tag(), b.tag()) {
+        (Int, Int) => Some(JSValue::from(
+            a.payload_i32() as i64 - b.payload_i32() as i64,
+        )),
+        (Float64, Int) => Some(JSValue::make_float(unsafe {
+            a.as_float_unchecked() - b.payload_i32() as f64
+        })),
+        (Int, Float64) => Some(JSValue::make_float(unsafe {
+            a.payload_i32() as f64 - b.as_float_unchecked()
+        })),
+        (Float64, Float64) => Some(JSValue::make_float(unsafe {
+            a.as_float_unchecked() - b.as_float_unchecked()
+        })),
+        _ => None,
+    }
+}
+
+/// Fast `*` for the same four Int/Float64 tag pairs. The Int arm keeps
+/// `TwoNumbers::mul`'s `-0.0` rule (zero product with a negative operand).
+#[inline(always)]
+fn fast_numeric_mul(a: JSValue, b: JSValue) -> Option<JSValue> {
+    use crate::JSValueTag::{Float64, Int};
+    match (a.tag(), b.tag()) {
+        (Int, Int) => {
+            // i32 x i32 always fits i64.
+            let n = (a.payload_i32() as i64) * (b.payload_i32() as i64);
+            Some(if n == 0 && (a.payload_i32() | b.payload_i32()) < 0 {
+                JSValue::make_float(-0.0)
+            } else {
+                JSValue::from(n)
+            })
+        }
+        (Float64, Int) => Some(JSValue::make_float(unsafe {
+            a.as_float_unchecked() * b.payload_i32() as f64
+        })),
+        (Int, Float64) => Some(JSValue::make_float(unsafe {
+            a.payload_i32() as f64 * b.as_float_unchecked()
+        })),
+        (Float64, Float64) => Some(JSValue::make_float(unsafe {
+            a.as_float_unchecked() * b.as_float_unchecked()
+        })),
+        _ => None,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 /// Get or create the `VarRef` for argument/local `var_idx` of the current
 /// frame. Shared with the JIT's mapped-arguments helper.
@@ -2888,8 +2939,20 @@ impl Bytecode {
                                     JSValue::arith_add(realm_scope, op1, op2)
                                 }
                             }
-                            OpCode::SUB => JSValue::arith_sub(realm_scope, op1, op2),
-                            OpCode::MUL => JSValue::arith_mul(realm_scope, op1, op2),
+                            OpCode::SUB => {
+                                if let Some(v) = fast_numeric_sub(op1, op2) {
+                                    Ok(v)
+                                } else {
+                                    JSValue::arith_sub(realm_scope, op1, op2)
+                                }
+                            }
+                            OpCode::MUL => {
+                                if let Some(v) = fast_numeric_mul(op1, op2) {
+                                    Ok(v)
+                                } else {
+                                    JSValue::arith_mul(realm_scope, op1, op2)
+                                }
+                            }
                             OpCode::DIV => JSValue::arith_div(realm_scope, op1, op2),
                             OpCode::MOD => JSValue::arith_mod(realm_scope, op1, op2),
                             OpCode::POW => JSValue::arith_pow(realm_scope, op1, op2),
