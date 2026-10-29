@@ -35,6 +35,7 @@ mod jit_inline_call;
 mod jit_interrupt;
 mod jit_opcodes;
 mod jit_queue;
+mod jit_scope;
 mod jit_semantics;
 mod jit_verify;
 mod sanitizer_probe;

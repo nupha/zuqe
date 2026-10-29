@@ -256,6 +256,12 @@ pub(crate) struct JitExecFrame {
     /// The running function's global-variable site cache, one entry per
     /// `global_var_refs` index (T10).
     pub global_var_cache: *mut GlobalVarCache,
+    /// The largest GC-scope LOCAL list this activation's safepoints saw,
+    /// sampled just before a deferred collection clears it. A scope that is
+    /// never cleared (the caller-scope leak, VM-B3) shows up as a peak that
+    /// grows with the run. `invoke_native` folds it into
+    /// `JitMetrics::scope_local_peak`.
+    pub scope_local_peak: u32,
 }
 
 /// The object in the prototype chain that *owns* `prop` (the one whose own
@@ -1613,9 +1619,29 @@ unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
         }
         let mut rt = scope.rt_ptr();
         if rt.gc_req {
-            // A borrowed scope belongs to the caller: its locals are still
-            // live, so this frame must not unprotect them.
-            if f.gc_scope_kind != GcScopeKind::None as u32 && scope.owns_scope() {
+            // A scope that is never cleared accumulates its LOCAL list, and
+            // every `remove_local` then scans it linearly. The high-water mark
+            // is sampled here, right before the clear, and reported as a bench
+            // counter: a regression shows up as a peak that grows with the
+            // iteration count.
+            let heap = scope.gc_heap();
+            let stack_id = scope.ctx_ptr.scope_stack_id();
+            let max_depth = heap.scope_max_depth(stack_id);
+            let mut peak = 0u32;
+            for depth in 1..=max_depth {
+                if let Some(s) = heap.scope(stack_id, depth) {
+                    peak = peak.max(s.count().min(u32::MAX as usize) as u32);
+                }
+            }
+            f.scope_local_peak = f.scope_local_peak.max(peak);
+
+            // Only a `GcScopeKind::None` frame borrows a scope the trampoline
+            // does not clear (a native caller's, whose LOCAL flags are its only
+            // protection). A Light/Full frame always runs in a scope at or
+            // above the trampoline's base depth — the scopes the interpreter
+            // clears at its own safepoints — so clearing here is safe even
+            // though the frame holds a borrowed *view* of it.
+            if f.gc_scope_kind != GcScopeKind::None as u32 {
                 scope.clear_locals();
             }
             rt.gc_collect();

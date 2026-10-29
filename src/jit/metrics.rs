@@ -143,6 +143,13 @@ pub struct JitMetrics {
     /// callee could not run directly (a generator, a cross-realm callee, one
     /// that allocates GC nodes).
     pub inline_call_misses: u64,
+    /// Observability for the scope's LOCAL list: the largest one seen at a JIT
+    /// safepoint, sampled right before a deferred collection clears it. It is a
+    /// high-water mark (maximum, not a sum): a scope that is never cleared
+    /// grows without bound and lifts it with the iteration count, so a
+    /// regression of the caller-scope leak (VM-B3) is visible in the bench
+    /// output.
+    pub scope_local_peak: u64,
     /// Nanoseconds spent compiling (verification + codegen), summed over every
     /// attempt. The publish step (mmap / mprotect) is *not* included: it is
     /// not a compile.

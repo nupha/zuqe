@@ -196,8 +196,9 @@ instructions, so it is called analysis, not IR.
   generated code, and they are the production input of the guard feedback):
   `JitMetrics` carries the inline guards' hits and misses
   (`property_guard_*`, `global_guard_*`), the monomorphic call path's
-  (`inline_call_*`, `frame_inline_hits`), and the speculative int guards'
-  (`specialized_guard_misses`). `examples/jit-bench.rs` prints them per run,
+  (`inline_call_*`, `frame_inline_hits`), the speculative int guards'
+  (`specialized_guard_misses`), and the GC scope's LOCAL-list high-water mark
+  (`scope_local_peak`). `examples/jit-bench.rs` prints them per run,
   under both protocols, with no feature flag:
 
   ```sh
@@ -223,8 +224,12 @@ instructions, so it is called analysis, not IR.
 
 Loop back edges run a safepoint helper that delivers host interrupts and
 triggered collections. Interrupts are control flow, not exceptions: no JS
-`catch` runs. `compile_timeout_ms` is a real deadline: an attempt past it is
-abandoned and its late completion is discarded.
+`catch` runs. A collection at a back edge also unprotects the running frame's
+GC scope (its LOCAL list) before collecting, exactly as the interpreter's
+safepoint does; only a `GcScopeKind::None` frame, which may be borrowing a
+native caller's scope, leaves it alone. The list's high-water mark is reported
+as `JitMetrics::scope_local_peak`. `compile_timeout_ms` is a real deadline: an
+attempt past it is abandoned and its late completion is discarded.
 
 ## Document map
 
@@ -383,6 +388,7 @@ matches it by design. Test262 and the pinned corpora cover that.
 | Differential (4 modes, bit-exact) | `tests/jit/jit_differential.rs` | `cargo test --features jit --test jit jit_differential` |
 | Per-opcode end-to-end + claim audit | `tests/jit/jit_opcodes.rs`, `tests/jit/opcode-claims.py` | `cargo test --features jit --test jit jit_opcodes` |
 | Semantic stress | `tests/jit/jit_semantics.rs` | `cargo test --features jit --test jit jit_semantics` |
+| GC scope LOCAL list (the leak's high-water mark) | `tests/jit/jit_scope.rs` | `cargo test --features jit --test jit jit_scope` |
 | Native vs interpreter, exceptions, interrupts | `tests/jit/jit_verify.rs`, `jit_interrupt.rs` | `cargo test --features jit --test jit` |
 | Tier feedback / speculation | `tests/jit/jit_feedback.rs` | `cargo test --features jit --test jit jit_feedback` |
 | Inline guards (property/array/typed array/global) | `tests/jit/jit_field.rs`, `jit_array.rs`, `jit_global.rs` | `cargo test --features jit --test jit jit_field` |

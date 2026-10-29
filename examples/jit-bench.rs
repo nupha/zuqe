@@ -768,11 +768,12 @@ struct SiteCounts {
     inline_misses: u64,
     frame_inline: u64,
     spec_guard_misses: u64,
+    scope_local_peak: u64,
 }
 
 impl SiteCounts {
     /// The `--one` field names, in [`Self::values`] order.
-    const KEYS: [&str; 8] = [
+    const KEYS: [&str; 9] = [
         "property_guard_hits",
         "property_guard_misses",
         "global_guard_hits",
@@ -781,6 +782,7 @@ impl SiteCounts {
         "inline_call_misses",
         "frame_inline_hits",
         "specialized_guard_misses",
+        "scope_local_peak",
     ];
 
     fn of(m: &JitMetrics) -> Self {
@@ -793,11 +795,12 @@ impl SiteCounts {
             inline_misses: m.inline_call_misses,
             frame_inline: m.frame_inline_hits,
             spec_guard_misses: m.specialized_guard_misses,
+            scope_local_peak: m.scope_local_peak,
         }
     }
 
     /// The counters in [`Self::KEYS`] order (the `--one` wire format).
-    const fn values(self) -> [u64; 8] {
+    const fn values(self) -> [u64; 9] {
         [
             self.property_hits,
             self.property_misses,
@@ -807,10 +810,11 @@ impl SiteCounts {
             self.inline_misses,
             self.frame_inline,
             self.spec_guard_misses,
+            self.scope_local_peak,
         ]
     }
 
-    fn from_values(v: [u64; 8]) -> Self {
+    fn from_values(v: [u64; 9]) -> Self {
         Self {
             property_hits: v[0],
             property_misses: v[1],
@@ -820,6 +824,7 @@ impl SiteCounts {
             inline_misses: v[5],
             frame_inline: v[6],
             spec_guard_misses: v[7],
+            scope_local_peak: v[8],
         }
     }
 
@@ -832,6 +837,8 @@ impl SiteCounts {
         self.inline_misses += other.inline_misses;
         self.frame_inline += other.frame_inline;
         self.spec_guard_misses += other.spec_guard_misses;
+        // A high-water mark: the max over the rounds, not a sum.
+        self.scope_local_peak = self.scope_local_peak.max(other.scope_local_peak);
     }
 }
 
@@ -886,6 +893,7 @@ fn site_count_lines(entries: &[(Mode, SiteCounts)]) -> Vec<String> {
         ),
         single("frame_inline_hits", |c| c.frame_inline),
         single("specialized_guard_misses", |c| c.spec_guard_misses),
+        single("scope_local_peak", |c| c.scope_local_peak),
     ]
 }
 
@@ -1160,7 +1168,7 @@ fn run_process_protocol(show: &[Mode], rounds: usize, th: &Thresholds, kernels: 
                 usage.1[2] += fields["never_entered"]
                     .parse::<u64>()
                     .expect("never_entered");
-                let mut values = [0u64; 8];
+                let mut values = [0u64; 9];
                 for (slot, key) in values.iter_mut().zip(SiteCounts::KEYS) {
                     *slot = fields[key].parse::<u64>().expect(key);
                 }

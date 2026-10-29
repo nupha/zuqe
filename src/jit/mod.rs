@@ -885,6 +885,7 @@ pub(crate) fn invoke_native(
         global_obj,
         global_var_obj,
         global_var_cache: bc.global_var_cache_sites(),
+        scope_local_peak: 0,
     };
     // SAFETY: `entry` was produced by `compile` for this exact bytecode layout
     // and ABI, and the slot is only populated while the code cache keeps the
@@ -942,6 +943,8 @@ pub(crate) fn invoke_native(
         inline_call_misses: m
             .inline_call_misses
             .saturating_add(u64::from(frame.inline_call_misses)),
+        // A high-water mark, so the max — not a sum.
+        scope_local_peak: m.scope_local_peak.max(u64::from(frame.scope_local_peak)),
         ..m
     });
     // Tier-down: feed the same count to the function's record so a function whose
