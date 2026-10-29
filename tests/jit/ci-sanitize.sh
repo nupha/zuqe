@@ -10,6 +10,12 @@
 #   4. ThreadSanitizer (nightly, `-Zbuild-std`): the worker/runtime threading
 #   5. AddressSanitizer (nightly), gated on a probe that proves the engine can
 #      create a context at all under the sanitizer
+#
+# Legs 4/5 build for `--target x86_64-unknown-linux-gnu`: on the CI ubuntu row
+# that is the native triple (plain `gcc`), anywhere else cc-rs needs the cross
+# compiler (`x86_64-linux-gnu-gcc`). Without it the build dies inside cc-rs
+# with a confusing ToolNotFound, so the script probes for it and skips both
+# sanitizer legs with a reason, like the nightly/rust-src probes below.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -29,6 +35,17 @@ if ! rustup toolchain list 2>/dev/null | grep -q '^nightly'; then
     echo "OK (sanitizers skipped)"
     exit 0
 fi
+
+# Cross-compiler probe for the sanitizer legs (see the header).
+host_triple=$(rustc -vV | sed -n 's/^host: //p')
+if [ "$host_triple" != "$TARGET" ] && ! command -v "${TARGET}-gcc" >/dev/null 2>&1; then
+    echo "== SKIP sanitizers: no C compiler for --target $TARGET (host: $host_triple)"
+    echo "      Legs 4/5 run on the CI ubuntu row (memo/jit_impl.md §9.4);"
+    echo "      install ${TARGET}-gcc to run them on this host."
+    echo "OK (sanitizers skipped)"
+    exit 0
+fi
+
 # build.rs runs rustfmt on the generated opcode tables.
 rustup component add --toolchain nightly rustfmt >/dev/null 2>&1 || true
 
