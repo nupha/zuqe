@@ -109,6 +109,9 @@ struct FunctionRecord {
     /// The size of the function's bytecode, in bytes. The cost gate needs it
     /// to weigh a compile against the work the function does (the compile-rate gate).
     bytecode_bytes: u32,
+    /// Ran since the previous record-table sweep. Survivors keep their record;
+    /// the rest are dropped (see [`Coordinator::prune_if_grown`]).
+    touched: bool,
 }
 
 impl FunctionRecord {
@@ -128,6 +131,10 @@ impl FunctionRecord {
 /// the wrong trade-off.
 pub(crate) const TIER_DOWN_MISSES: u64 = 64;
 
+/// The record table's floor: below this many records a sweep is not worth its
+/// pass over them (small runtimes never grow past it).
+pub(crate) const MIN_RECORDS: usize = 1024;
+
 /// The request queue plus the lifecycle of every function the JIT has seen.
 pub(crate) struct Coordinator {
     records: HashMap<u64, FunctionRecord, FastHasherBuilder>,
@@ -144,6 +151,10 @@ pub(crate) struct Coordinator {
     /// The host's estimate of what one bytecode of native execution saves;
     /// The benefit side of the cost gate. `0` turns the gate off.
     native_saving_ns_per_bytecode: u64,
+    /// Record count that triggers the next sweep. It doubles after each one, so
+    /// the sweep costs O(1) amortized per new function and the table stays
+    /// within 2x of the live set.
+    prune_at: usize,
 }
 
 impl Coordinator {
@@ -173,6 +184,7 @@ impl Coordinator {
             max_attempts,
             timeout: Duration::from_millis(compile_timeout_ms),
             native_saving_ns_per_bytecode,
+            prune_at: MIN_RECORDS,
         }
     }
 
@@ -342,8 +354,10 @@ impl Coordinator {
                 cooldown: 0,
                 work_since_queue: 0,
                 bytecode_bytes: inputs.bytecode_bytes,
+                touched: false,
             }
         });
+        record.touched = true;
         (created, record)
     }
 
@@ -527,6 +541,39 @@ impl Coordinator {
         if requeue {
             self.queue.push_back(id);
         }
+    }
+
+    /// Drop the records of functions that are gone, so the table tracks the
+    /// live set instead of every function the runtime ever made hot.
+    ///
+    /// A record survives when it ran since the previous sweep, holds installed
+    /// code (`tier != Cold`, itself bounded by the code cache), or is pinned by
+    /// a queued/in-flight compile. The rest belong to functions the GC
+    /// collected, or to ones that have been idle for a whole sweep — dropping
+    /// those just means the next call starts from cold, which is what "idle"
+    /// means. Called from `poll`, which is already the once-per-frame hook.
+    pub(crate) fn prune_if_grown(&mut self) {
+        if self.records.len() < self.prune_at {
+            return;
+        }
+        self.records.retain(|_, record| {
+            let keep = record.touched || record.pinned.is_some() || record.tier != Tier::Cold;
+            record.touched = false;
+            keep
+        });
+        self.prune_at = (self.records.len() * 2).max(MIN_RECORDS);
+    }
+
+    /// For tests: the current sweep threshold.
+    #[cfg(test)]
+    pub(crate) const fn prune_at(&self) -> usize {
+        self.prune_at
+    }
+
+    /// For tests: the number of live records.
+    #[cfg(test)]
+    pub(crate) fn record_len(&self) -> usize {
+        self.records.len()
     }
 
     /// Return a function to `Cold` after its code was discarded, so it can be
@@ -1049,5 +1096,62 @@ mod tests {
         assert!(c.record_native_call(1, 100).is_none());
         // ... until enough new invocations have passed.
         assert!(c.record_native_call(1, 500).is_some(), "cooldown over");
+    }
+
+    /// The record table must track the live set, not every function the
+    /// runtime ever made hot: a sweep drops the records that did not run and
+    /// hold no code, and keeps the ones that are still in use.
+    #[test]
+    fn a_sweep_drops_idle_records_and_keeps_code() {
+        let mut c = coordinator(2);
+        let mut m = JitMetrics::default();
+        let opcodes = [crate::bytecode::opcodes::OP_return_undef];
+
+        // Four seen functions; the sweep runs (the table reached the
+        // threshold) and keeps them because they all ran.
+        c.prune_at = 4;
+        for id in 1..=4 {
+            let _ = c.record_call(&mut m, id, &opcodes, 0);
+        }
+        c.prune_if_grown();
+        assert_eq!(c.record_len(), 4, "a sweep dropped live records");
+        assert!(c.prune_at() > 4, "the threshold must grow after a sweep");
+
+        // Function 2 gets code installed; 1 keeps running; 3 and 4 go idle.
+        c.records.get_mut(&2).unwrap().tier = Tier::Tier1;
+        let _ = c.record_call(&mut m, 1, &opcodes, 0);
+        c.prune_at = 4;
+        c.prune_if_grown();
+
+        assert!(c.records.contains_key(&1), "a running function was dropped");
+        assert!(
+            c.records.contains_key(&2),
+            "a function with installed code was dropped"
+        );
+        assert!(!c.records.contains_key(&3), "an idle record survived");
+        assert!(!c.records.contains_key(&4), "an idle record survived");
+    }
+
+    /// A sweep only runs once the table has doubled since the previous one, so
+    /// the pass is amortized O(1) per new record.
+    #[test]
+    fn the_sweep_threshold_doubles() {
+        let mut c = coordinator(2);
+        let mut m = JitMetrics::default();
+        let opcodes = [crate::bytecode::opcodes::OP_return_undef];
+
+        c.prune_at = 2;
+        let _ = c.record_call(&mut m, 1, &opcodes, 0);
+        let _ = c.record_call(&mut m, 2, &opcodes, 0);
+        assert_eq!(c.prune_at(), 2, "no sweep yet");
+        c.prune_if_grown();
+        assert_eq!(c.prune_at(), MIN_RECORDS);
+        // Fill to the new threshold; every record runs in this epoch, so the
+        // next sweep keeps all of them and doubles again.
+        for id in 1..=MIN_RECORDS as u64 {
+            let _ = c.record_call(&mut m, id, &opcodes, 0);
+        }
+        c.prune_if_grown();
+        assert_eq!(c.prune_at(), MIN_RECORDS * 2, "the threshold doubles");
     }
 }

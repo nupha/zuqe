@@ -118,6 +118,15 @@ next call → native entry runs; on exit the interpreter continues
     a call the trampoline performed)
 ```
 
+The engine keeps one *record* per function (hotness, tier, queue state). Its key
+is a serial the function carries, not its GC address: gc-lite reuses freed
+addresses, so an address key would hand a new function the record of a collected
+one (its heat, its tier, and an `Installed`/`Settled` lifecycle that would stop
+it from ever being compiled). `poll` also sweeps the table: a record survives
+only if it ran since the previous sweep, holds installed code, or is pinned by a
+queued compile, so the table tracks the live set instead of every function the
+runtime ever made hot.
+
 ### Design principles
 
 1. **The interpreter stays authoritative.** It records hotness and feedback, and

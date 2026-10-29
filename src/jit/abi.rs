@@ -306,18 +306,49 @@ pub(crate) struct FunctionSlot {
     /// Only such a function needs the native tier's per-call bookkeeping —
     /// the flag sits next to the entry pointer, so the check is a cache hit.
     promotable: std::cell::Cell<bool>,
+    /// This bytecode's identity in the coordinator's record table, assigned on
+    /// first use (`0` = not assigned yet).
+    ///
+    /// The record table cannot be keyed by the GC node address: gc-lite reuses
+    /// freed addresses, so a *new* function allocated where a dead one lived
+    /// would inherit its heat, tier and queue state (and could be skipped as
+    /// "already compiled"). A serial is unique for the process and travels with
+    /// the bytecode, so the record outlives exactly the function it describes.
+    serial: std::cell::Cell<u64>,
 }
+
+/// Source of [`FunctionSlot::serial`]. Process-wide (not per runtime): a
+/// bytecode can be shared across runtimes of the same realm, and a per-runtime
+/// counter could hand the same bytecode a different id in each of them.
+static NEXT_SERIAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 impl Default for FunctionSlot {
     fn default() -> Self {
         Self {
             slot: std::cell::UnsafeCell::new(None),
             promotable: std::cell::Cell::new(false),
+            serial: std::cell::Cell::new(0),
         }
     }
 }
 
 impl FunctionSlot {
+    /// This bytecode's record-table identity, assigned on first use.
+    ///
+    /// One relaxed load on the hot path (the hooks already read this struct for
+    /// the entry pointer); the atomic is only touched the first time a
+    /// function's hotness is recorded.
+    #[inline]
+    pub(crate) fn serial(&self) -> u64 {
+        let serial = self.serial.get();
+        if serial != 0 {
+            return serial;
+        }
+        let serial = NEXT_SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.serial.set(serial);
+        serial
+    }
+
     /// The installed entry, or `None` while the function is interpreted (or
     /// after the cache evicted its mapping). The returned pointer stays valid
     /// for as long as this slot holds the code.

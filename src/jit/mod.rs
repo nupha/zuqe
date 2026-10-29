@@ -462,6 +462,9 @@ impl JitState {
         }
 
         self.dispatch();
+        // Bound the record table: one load-and-compare per poll, and a sweep
+        // only when it has doubled since the last one.
+        self.coordinator.borrow_mut().prune_if_grown();
         m.functions_compiling = self.background.borrow().in_flight_len() as u64;
         self.finish_poll(&mut m);
     }
@@ -616,11 +619,17 @@ impl JitState {
     }
 }
 
-/// Stable identity of a bytecode function: the GC node address. The GC never
-/// moves nodes, so it is valid for the runtime's lifetime.
+/// Stable identity of a bytecode function in the coordinator's table.
+///
+/// It is a [`FunctionSlot::serial`], **not** the GC node address: gc-lite
+/// reuses freed addresses, so an address-keyed table would hand a brand-new
+/// function the record of a collected one (its heat, tier, and — worst —
+/// `Installed`/`Settled` lifecycle, which silently stops it from ever being
+/// compiled). The table also could not tell when a record's function died, so
+/// it would grow for the runtime's lifetime.
 #[inline]
 fn function_id(bc: &Bytecode) -> u64 {
-    bc.gc_node_ptr().as_ptr() as u64
+    bc.jit.serial()
 }
 
 /// Build the Cranelift target for the host machine (cached once per runtime).
@@ -965,6 +974,174 @@ pub(crate) fn invoke_native(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The record-table key must not be the GC address.
+    ///
+    /// gc-lite reuses freed node addresses, so two functions that never
+    /// coexisted can share one. With an address key the second would inherit
+    /// the first one's record — its heat, its tier, and an `Installed` or
+    /// `Settled` lifecycle that silently stops it from ever being compiled.
+    /// A serial is stable for the function and never repeats.
+    #[test]
+    fn a_function_keeps_its_id_and_ids_do_not_repeat() {
+        use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        let name = EvalName::Name("jit-serial.js".into());
+        let bytecode_of = |ctx: &mut crate::Context, src: &[u8]| {
+            let value = ctx
+                .eval(src, &name, EvalType::Global, EvalFlags::empty())
+                .unwrap();
+            let bfun = crate::function::BCWrapper::try_from(value).expect("a function");
+            bfun.payload().bytecode()
+        };
+
+        let first = bytecode_of(&mut ctx, b"function f(){} f;");
+        let second = bytecode_of(&mut ctx, b"function g(){} g;");
+
+        assert_eq!(
+            function_id(&first),
+            function_id(&first),
+            "a function's id must not change"
+        );
+        assert_ne!(
+            function_id(&first),
+            function_id(&second),
+            "two functions must not share an id"
+        );
+
+        // The same bytecode reached through a different handle keeps its id
+        // (the serial lives on the function, not on the access path).
+        let again = bytecode_of(&mut ctx, b"f;");
+        assert_eq!(
+            function_id(&again),
+            function_id(&first),
+            "re-entering the same function changed its id"
+        );
+        assert_ne!(
+            function_id(&again),
+            function_id(&second),
+            "the two functions still must not collide"
+        );
+    }
+
+    /// `poll` is where the record table gets swept: the threshold only ever
+    /// changes inside a sweep, so one poll after the table reached it proves the
+    /// sweep is wired in (a missing call would leave the table growing for the
+    /// runtime's lifetime).
+    #[test]
+    fn poll_prunes_the_record_table() {
+        use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        // Nothing may compile: the threshold is out of reach, so the run only
+        // builds records (one per function).
+        let jit = Jit::attach_to(
+            &rt,
+            JitConfig::builder()
+                .call_threshold(1_000_000)
+                .loop_threshold(1_000_000)
+                .build(),
+        )
+        .unwrap();
+
+        let mut src = String::new();
+        for i in 0..1500 {
+            src.push_str(&format!("function f{i}(x){{ return x + {i}; }} f{i}(1);"));
+        }
+        ctx.eval(
+            src.as_bytes(),
+            &EvalName::Name("jit-prune.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap();
+
+        let state = rt.jit().unwrap();
+        let before = state.coordinator.borrow().record_len();
+        assert!(
+            before >= crate::jit::runtime::MIN_RECORDS,
+            "the test must fill the table first (records: {before})"
+        );
+        assert_eq!(
+            state.coordinator.borrow().prune_at(),
+            crate::jit::runtime::MIN_RECORDS,
+            "no sweep may have run yet"
+        );
+
+        jit.poll();
+
+        let after = state.coordinator.borrow().record_len();
+        assert_eq!(
+            after, before,
+            "every record ran in this epoch, so none may be dropped"
+        );
+        assert!(
+            state.coordinator.borrow().prune_at() > crate::jit::runtime::MIN_RECORDS,
+            "poll did not sweep the record table"
+        );
+    }
+
+    /// The record table must not grow with `eval` churn: a host that keeps
+    /// evaluating short-lived functions used to accumulate one record per
+    /// distinct function for the whole runtime lifetime. Idle records are
+    /// swept, so the table stays around the live set.
+    #[test]
+    fn the_record_table_does_not_grow_with_eval_churn() {
+        use crate::{EvalFlags, EvalName, EvalType, ScopedContext};
+
+        let mut rt = crate::Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+        // Nothing compiles: this is a table-growth test, not a compile test.
+        let jit = Jit::attach_to(
+            &rt,
+            JitConfig::builder()
+                .call_threshold(1_000_000)
+                .loop_threshold(1_000_000)
+                .build(),
+        )
+        .unwrap();
+        let state = rt.jit().unwrap();
+
+        const ROUNDS: usize = 250;
+        const PER_ROUND: usize = 80;
+        let mut total = 0usize;
+        let mut peak = 0usize;
+        for round in 0..ROUNDS {
+            let mut src = String::new();
+            for i in 0..PER_ROUND {
+                src.push_str(&format!(
+                    "function f{i}(x){{ return x + {i}; }} f{i}({round});"
+                ));
+            }
+            ctx.eval(
+                src.as_bytes(),
+                &EvalName::Name("jit-churn.js".into()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .unwrap();
+            total += PER_ROUND;
+            // The host's frame boundary: the sweep runs here.
+            jit.poll();
+            peak = peak.max(state.coordinator.borrow().record_len());
+        }
+
+        let tracked = state.coordinator.borrow().record_len();
+        assert!(
+            peak < crate::jit::runtime::MIN_RECORDS * 2,
+            "{total} functions went through the JIT but the table peaked at {peak} records \
+             (tracked now: {tracked})"
+        );
+    }
 
     /// The layout contract the array guard reads, end to end: a
     /// `JSValue` holds the **GC node** pointer, and the offsets in

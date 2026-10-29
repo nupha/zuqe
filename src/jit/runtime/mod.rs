@@ -18,7 +18,7 @@ mod install;
 
 pub(crate) use {
     background::{BackgroundCompiler, CompileCompletion, JobResult},
-    coordinator::{CompileOutcome, Coordinator, Request, Tiering},
+    coordinator::{CompileOutcome, Coordinator, MIN_RECORDS, Request, Tiering},
     hotness::Tier,
     install::publish,
 };
