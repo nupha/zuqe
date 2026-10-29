@@ -71,10 +71,33 @@ for extra in child_runtime persistent crossbeam_channel serde_json_support dump_
     check_compiles "on+${extra}" cargo check -q --features "jit,${extra}"
 done
 
+# `jit_dump` (the IR/code dump) is a diagnostic, not a second baseline: one
+# compile leg for the combined feature set, one smoke test (the dump module's
+# own test), and the whole suite keeps running under the default features.
+echo "== extra: jit_dump + dump_bytecode compile together"
+check_compiles "on+jit,dump_bytecode,jit_dump" cargo check -q --features "jit,dump_bytecode,jit_dump"
+
+echo "== jit_dump: smoke (dump one function, assert .clif/.bin exist)"
+run_tests "jit_dump" cargo test -q --features jit_dump --lib jit::dump
+
 # Benches/examples are not built by `cargo test` unless asked for; the compiler
 # workers change the JIT's public behaviour, so compile them too.
 echo "== extra: every target compiles under default features"
 check_compiles "default (all targets)" cargo check -q --all-targets
+
+# The dump must be *absent* from a build without the feature: a leaked
+# `#[cfg]` would ship the diagnostics path (and the `JIT_DUMP` env read) in
+# production. Built here with the default feature set (jit_dump is not in
+# `default`), asserted with `strings`, which sees literals even in a stripped
+# binary (the release profile strips symbols).
+echo "== jit_dump: absent from the default release artifact"
+cargo build --release --example jit-bench
+DUMP_STRINGS=$(strings ./target/release/examples/jit-bench | grep -cE 'JIT_DUMP|zuqe jit_dump|\.clif' || true)
+if [ "$DUMP_STRINGS" != "0" ]; then
+    echo "FAIL: ${DUMP_STRINGS} dump string(s) in the release artifact (jit_dump gate leaked)"
+    exit 1
+fi
+echo "ok: no dump strings in the release binary"
 
 echo "== matrix row covered: $(uname -s)/$(uname -m) {off,worker}"
 echo "OK"

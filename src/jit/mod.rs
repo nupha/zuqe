@@ -21,6 +21,8 @@ mod code_cache;
 mod compiler;
 mod config;
 mod direct_call;
+#[cfg(feature = "jit_dump")]
+mod dump;
 mod error;
 mod fast_hash;
 mod feedback;
@@ -124,6 +126,10 @@ pub(crate) struct JitState {
 
 impl JitState {
     fn new(cfg: JitConfig) -> Result<Self, JitError> {
+        // The dump switch is read once, at attach: everything below only ever
+        // runs under the `jit_dump` feature.
+        #[cfg(feature = "jit_dump")]
+        dump::read_env();
         let isa = build_host_isa()?;
         let limits = VerifyLimits {
             max_metadata_bytes: cfg.max_metadata_bytes,
@@ -472,10 +478,12 @@ impl JitState {
                 break;
             };
             let snapshot = self.snapshot_for(&request);
-            let submitted =
-                self.background
-                    .borrow_mut()
-                    .submit(request.function_id, snapshot, self.limits);
+            let submitted = self.background.borrow_mut().submit(
+                request.function_id,
+                request.tier,
+                snapshot,
+                self.limits,
+            );
             if !submitted {
                 self.coordinator.borrow_mut().rollback(request.function_id);
                 break;

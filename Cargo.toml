@@ -43,6 +43,13 @@ intl402 = ["dep:icu", "dep:fixed_decimal"]
 dump_bytecode = []
 debug_gc = []
 
+# One-shot Cranelift IR + machine-code dump for attribution: reading `JIT_DUMP`
+# at attach writes `<function-id>-<tier>.clif/.bin`. Off by default, never in
+# `default` — the whole dump path is `#[cfg(feature = "jit_dump")]`, so a
+# production build contains none of it. Requires `jit` (there is nothing to
+# dump without the JIT).
+jit_dump = ["jit"]
+
 # Tiered bytecode JIT. when disabled
 # it adds no dependency and changes no runtime structure or execution path.
 # Verification and Cranelift lowering run on worker threads; the runtime thread

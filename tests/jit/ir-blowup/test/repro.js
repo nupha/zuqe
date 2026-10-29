@@ -1,5 +1,5 @@
 /*---
-description: minimal repro for post-call OSR entry duplication (memo/bytecode-bugs.md, Bug 3)
+description: minimal repro for post-call OSR entry duplication (cause: check.sh's header)
 ---*/
 
 // `repro` is ONE straight-line basic block holding 500 calls. Each call used to
@@ -20,7 +20,9 @@ description: minimal repro for post-call OSR entry duplication (memo/bytecode-bu
 //
 // `check.sh` runs exactly this and fails if it regresses.
 
-function helper(x) { return x + 1; }
+function helper(x) {
+  return x + 1;
+}
 
 function repro(n) {
   var s = n;

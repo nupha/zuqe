@@ -102,7 +102,12 @@ use super::{
         array as array_layout, array_buffer as buffer_layout, global_var as gv_layout,
         object as jit_layout, typed_array as ta_layout,
     },
+    runtime::Tier,
 };
+
+/// The IR/code dump, only under `jit_dump` (see [`super::dump`]).
+#[cfg(feature = "jit_dump")]
+use super::dump;
 
 /// Exit codes as written by generated code (keep in sync with `JitExitKind`).
 const EXIT_DONE: i64 = 0;
@@ -1204,10 +1209,14 @@ pub(crate) fn entry_is_translatable(verified: &VerifiedFunction) -> bool {
 ///
 /// `specialized_ops` accumulates how many sites got a tier-2 speculative fast
 /// path (the speculative tier), so the caller can report it in metrics.
+///
+/// `tier` names the tier being compiled; it only feeds the `jit_dump` file
+/// names (`<function-id>-<tier>.clif/.bin`).
 pub(crate) fn compile(
     verified: &VerifiedFunction,
     isa: &dyn TargetIsa,
     specialized_ops: &Cell<u64>,
+    #[cfg_attr(not(feature = "jit_dump"), allow(unused_variables))] tier: Tier,
 ) -> Result<Box<[u8]>, JitError> {
     let instructions = verified.instructions();
     let Some(first) = instructions.first() else {
@@ -1290,6 +1299,11 @@ pub(crate) fn compile(
     b.seal_all_blocks();
     b.finalize();
 
+    // Format the IR now: codegen may rewrite the function. Compiles to nothing
+    // unless `jit_dump` is on *and* `JIT_DUMP` was set at attach.
+    #[cfg(feature = "jit_dump")]
+    let ir_dump = dump::Dump::begin(verified.snapshot().function_id, tier, &cgen.func);
+
     let mut ctrl = ControlPlane::default();
     let compiled = cgen
         .compile(isa, &mut ctrl)
@@ -1299,6 +1313,9 @@ pub(crate) fn compile(
         // something we cannot relocate: fail closed.
         return Err(JitError::Cranelift("unexpected relocations".into()));
     }
+
+    #[cfg(feature = "jit_dump")]
+    ir_dump.finish(compiled.code_buffer());
 
     Ok(compiled.code_buffer().into())
 }
@@ -5636,7 +5653,7 @@ mod tests {
         let isa = crate::jit::build_host_isa().unwrap();
         let verified = verify(snapshot(bytes, args, vars), VerifyLimits::default())
             .unwrap_or_else(|e| panic!("verify rejected: {e:?}"));
-        compile(&verified, isa.as_ref(), &Cell::new(0)).map(|_| ())
+        compile(&verified, isa.as_ref(), &Cell::new(0), Tier::Tier1).map(|_| ())
     }
 
     /// Compiled code size for `bytes`, with one constant pool entry of tag
@@ -5647,7 +5664,7 @@ mod tests {
         let isa = crate::jit::build_host_isa().unwrap();
         let verified = verify(snap, VerifyLimits::default())
             .unwrap_or_else(|e| panic!("verify rejected: {e:?}"));
-        compile(&verified, isa.as_ref(), &Cell::new(0))
+        compile(&verified, isa.as_ref(), &Cell::new(0), Tier::Tier1)
             .expect("compile")
             .len()
     }
@@ -5832,7 +5849,7 @@ mod tests {
         let snap = CompileSnapshot::from_raw(bytes, args, vars, gv, 16);
         let verified = verify(snap, VerifyLimits::default())
             .unwrap_or_else(|e| panic!("verify rejected: {e:?}"));
-        compile(&verified, isa.as_ref(), &Cell::new(0)).map(|_| ())
+        compile(&verified, isa.as_ref(), &Cell::new(0), Tier::Tier1).map(|_| ())
     }
 
     fn seq(parts: &[&[u8]]) -> Vec<u8> {
@@ -6641,7 +6658,7 @@ mod tests {
             pcs.len()
         );
         let isa = crate::jit::build_host_isa().unwrap();
-        compile(&verified, isa.as_ref(), &Cell::new(0))
+        compile(&verified, isa.as_ref(), &Cell::new(0), Tier::Tier1)
             .expect("a call-heavy straight-line block compiles");
 
         // Global-variable helpers need a non-zero global-var-ref count,
@@ -6992,7 +7009,7 @@ mod tests {
         snap.const_meta = Box::new([ConstMeta { tag: 0 }]);
         let isa = crate::jit::build_host_isa().unwrap();
         let verified = verify(snap, VerifyLimits::default()).unwrap();
-        assert!(compile(&verified, isa.as_ref(), &Cell::new(0)).is_ok());
+        assert!(compile(&verified, isa.as_ref(), &Cell::new(0), Tier::Tier1).is_ok());
     }
 
     /// `fclosure` (the bytecode contract) reads a nested bytecode out of the constant
@@ -7003,7 +7020,7 @@ mod tests {
         snap.const_meta = Box::new([ConstMeta { tag: 0 }]);
         let isa = crate::jit::build_host_isa().unwrap();
         let verified = verify(snap, VerifyLimits::default()).unwrap();
-        assert!(compile(&verified, isa.as_ref(), &Cell::new(0)).is_ok());
+        assert!(compile(&verified, isa.as_ref(), &Cell::new(0), Tier::Tier1).is_ok());
     }
 
     /// Why [`entry_is_translatable`] cannot fire today: the only opcodes the

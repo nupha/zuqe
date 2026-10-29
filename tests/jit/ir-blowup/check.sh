@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 #
-# Regression check for the post-call OSR duplication blowup
-# (memo/bytecode-bugs.md, "Bug 3").
+# Regression check for the post-call OSR duplication blowup (2026-10-29,
+# `OSR_TAIL_BUDGET`; timeline in `memo/jit_impl.md` §12.4). This script cites no
+# other document: it used to point at `memo/bytecode-bugs.md` ("Bug 3"), which
+# was merged away, so the cause is stated right here.
 #
 # test/repro.js is one straight-line basic block holding 500 calls. Before the
 # OSR budget, every call earned its own post-call entry, each entry re-lowered
@@ -55,7 +57,7 @@ failures=$(field compile_failures)
 # call-heavy block that cannot fit in CodeTooLarge.
 if [ "$verified" != "$compiled" ] || [ "$failures" != "0" ]; then
     echo "FAIL: verified=$verified compiled=$compiled compile_failures=$failures"
-    echo "      post-call OSR entries are duplicating blocks again (memo/bytecode-bugs.md, Bug 3)"
+    echo "      post-call OSR entries are duplicating blocks again (see this script's header)"
     exit 1
 fi
 

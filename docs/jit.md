@@ -190,6 +190,35 @@ Terminology: in this project **"IR" always means the Cranelift IR** (clif)
 that the lowering produces. The analysis layer produces *facts*, not
 instructions, so it is called analysis, not IR.
 
+### Diagnostics
+
+- **Site counters are always compiled in** (they are a few increments in the
+  generated code, and they are the production input of the guard feedback):
+  `JitMetrics` carries the inline guards' hits and misses
+  (`property_guard_*`, `global_guard_*`), the monomorphic call path's
+  (`inline_call_*`, `frame_inline_hits`), and the speculative int guards'
+  (`specialized_guard_misses`). `examples/jit-bench.rs` prints them per run,
+  under both protocols, with no feature flag:
+
+  ```sh
+  cargo run --release --example jit-bench -- --kernel ctor-heavy
+  # property_guard (hits/misses): interpreter=0/0 tier1=… automatic=…
+  ```
+
+- **The IR/machine-code dump** is behind the **`jit_dump`** cargo feature,
+  which is off by default and never in `default`. With the feature, setting
+  `JIT_DUMP=1` when the JIT attaches writes each compile's Cranelift IR and
+  machine code to `<function-id>-<tier>.clif` (header line included: code byte
+  count) and `<function-id>-<tier>.bin` in `JIT_DUMP_DIR` (default `.`) — no
+  disassembler. `JIT_DUMP=0`/unset keeps it off; without the feature the
+  variable is never read at all, and `ci-gate.sh` asserts the strings are
+  absent from the release artifact.
+
+  ```sh
+  JIT_DUMP=1 cargo run --release --features jit_dump --example jit-bench -- --kernel ctor-heavy
+  cargo test --features jit_dump --lib jit::dump      # the dump smoke test
+  ```
+
 ### Limits and interrupts
 
 Loop back edges run a safepoint helper that delivers host interrupts and
@@ -221,6 +250,7 @@ abandoned and its late completion is discarded.
 | Compilation queue and function lifecycle | `src/jit/runtime/coordinator.rs` |
 | Executable memory (W^X, i-cache) and code cache | `src/jit/runtime/install.rs`, `src/jit/platform.rs`, `src/jit/code_cache.rs` |
 | Measured compile cost (the cost gate's input) | `src/jit/rate.rs` |
+| IR / machine-code dump (feature `jit_dump`, off by default) | `src/jit/dump.rs` |
 | Interpreter integration points | `src/bytecode/exec_stackless.rs` (entry/back-edge hooks, `invoke_native`), `src/runtime/tick.rs` |
 | Per-function native entry slot | `src/function/bytecode.rs` (`FunctionSlot`) |
 

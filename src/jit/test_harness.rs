@@ -61,6 +61,7 @@ use crate::{
         feedback::CallSite,
         inline_call,
         platform::CodeMem,
+        runtime::Tier,
         snapshot::{CompileSnapshot, InlineCallee},
     },
     vm_stack::ExecMode,
@@ -217,7 +218,8 @@ fn verified_function(
 pub(crate) fn run_function(body: &[u8], args: u16, vars: u16, arguments: &[u64]) -> Option<u64> {
     let verified = verified_function(body, args, vars, 64);
     let isa = host_isa();
-    let compiled = compiler::compile(&verified, isa.as_ref(), &Cell::new(0)).expect("compile body");
+    let compiled = compiler::compile(&verified, isa.as_ref(), &Cell::new(0), Tier::Tier1)
+        .expect("compile body");
 
     let arg_count = usize::from(args).max(arguments.len());
     let mut arg_buf = vec![value(UNDEFINED); arg_count];
@@ -485,7 +487,7 @@ pub(crate) fn compile_caller_with_nested_inline(
     };
     let verified = verify(snapshot, VerifyLimits::default()).expect("verify caller");
     let isa = host_isa();
-    compiler::compile(&verified, isa.as_ref(), &Cell::new(0)).map(|_| ())
+    compiler::compile(&verified, isa.as_ref(), &Cell::new(0), Tier::Tier1).map(|_| ())
 }
 
 #[cfg(test)]

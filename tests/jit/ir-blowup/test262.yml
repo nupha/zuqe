@@ -1,4 +1,5 @@
-# test262 runner config for the IR-blowup repro (memo/bytecode-bugs.md, Bug 3).
+# test262 runner config for the IR-blowup repro (post-call OSR entry
+# duplication; the cause is in check.sh's header).
 #
 # `base_path` points at THIS directory instead of the test262 checkout: the repro
 # is one hand-written script, and the runner globs `<base_path>/test/**`. It

@@ -28,8 +28,8 @@
 use std::time::{Duration, Instant};
 
 use zuqe::{
-    Context, EvalFlags, EvalName, EvalType, JSValue, Jit, JitConfig, JitTierPolicy, Runtime,
-    ScopedContext,
+    Context, EvalFlags, EvalName, EvalType, JSValue, Jit, JitConfig, JitMetrics, JitTierPolicy,
+    Runtime, ScopedContext,
 };
 
 const WARMUP: usize = 2;
@@ -754,10 +754,147 @@ fn digest(v: &JSValue) -> u64 {
     h
 }
 
+/// The site-level counters a run ends with (T18): the inline guards' hits and
+/// misses, the direct-call path's, the frame inlining, and the speculative
+/// int guards' misses. They are plain `JitMetrics` fields — always compiled in,
+/// only *printed* here.
+#[derive(Clone, Copy, Default)]
+struct SiteCounts {
+    property_hits: u64,
+    property_misses: u64,
+    global_hits: u64,
+    global_misses: u64,
+    inline_hits: u64,
+    inline_misses: u64,
+    frame_inline: u64,
+    spec_guard_misses: u64,
+}
+
+impl SiteCounts {
+    /// The `--one` field names, in [`Self::values`] order.
+    const KEYS: [&str; 8] = [
+        "property_guard_hits",
+        "property_guard_misses",
+        "global_guard_hits",
+        "global_guard_misses",
+        "inline_call_hits",
+        "inline_call_misses",
+        "frame_inline_hits",
+        "specialized_guard_misses",
+    ];
+
+    fn of(m: &JitMetrics) -> Self {
+        Self {
+            property_hits: m.property_guard_hits,
+            property_misses: m.property_guard_misses,
+            global_hits: m.global_guard_hits,
+            global_misses: m.global_guard_misses,
+            inline_hits: m.inline_call_hits,
+            inline_misses: m.inline_call_misses,
+            frame_inline: m.frame_inline_hits,
+            spec_guard_misses: m.specialized_guard_misses,
+        }
+    }
+
+    /// The counters in [`Self::KEYS`] order (the `--one` wire format).
+    const fn values(self) -> [u64; 8] {
+        [
+            self.property_hits,
+            self.property_misses,
+            self.global_hits,
+            self.global_misses,
+            self.inline_hits,
+            self.inline_misses,
+            self.frame_inline,
+            self.spec_guard_misses,
+        ]
+    }
+
+    fn from_values(v: [u64; 8]) -> Self {
+        Self {
+            property_hits: v[0],
+            property_misses: v[1],
+            global_hits: v[2],
+            global_misses: v[3],
+            inline_hits: v[4],
+            inline_misses: v[5],
+            frame_inline: v[6],
+            spec_guard_misses: v[7],
+        }
+    }
+
+    fn accumulate(&mut self, other: &SiteCounts) {
+        self.property_hits += other.property_hits;
+        self.property_misses += other.property_misses;
+        self.global_hits += other.global_hits;
+        self.global_misses += other.global_misses;
+        self.inline_hits += other.inline_hits;
+        self.inline_misses += other.inline_misses;
+        self.frame_inline += other.frame_inline;
+        self.spec_guard_misses += other.spec_guard_misses;
+    }
+}
+
+/// The `key=value` half `--one` appends to its line, so a fresh process
+/// reports the same counters the in-process matrix prints.
+fn site_count_fields(c: &SiteCounts) -> String {
+    SiteCounts::KEYS
+        .iter()
+        .zip(c.values())
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The five summary lines both protocols print at the end of a matrix run.
+fn site_count_lines(entries: &[(Mode, SiteCounts)]) -> Vec<String> {
+    let pair = |name: &str, get: fn(&SiteCounts) -> (u64, u64)| {
+        format!(
+            "{name}: {}",
+            entries
+                .iter()
+                .map(|(m, c)| {
+                    let (hits, misses) = get(c);
+                    format!("{}={hits}/{misses}", m.label())
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    };
+    let single = |name: &str, get: fn(&SiteCounts) -> u64| {
+        format!(
+            "{name}: {}",
+            entries
+                .iter()
+                .map(|(m, c)| format!("{}={}", m.label(), get(c)))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    };
+    vec![
+        pair(
+            "property_guard (hits/misses)",
+            |c| (c.property_hits, c.property_misses),
+        ),
+        pair(
+            "global_guard (hits/misses)",
+            |c| (c.global_hits, c.global_misses),
+        ),
+        pair(
+            "inline_call (hits/misses)",
+            |c| (c.inline_hits, c.inline_misses),
+        ),
+        single("frame_inline_hits", |c| c.frame_inline),
+        single("specialized_guard_misses", |c| c.spec_guard_misses),
+    ]
+}
+
 struct Run {
     result: u64,
     median: Duration,
     compiled: u64,
+    /// The guard/inline counters of the whole run (warm-up + timed rounds).
+    sites: SiteCounts,
     /// Functions promoted to the optimizing tier (TH2's second gate).
     promotions: u64,
     /// Sites that got a tier-2 speculative fast path.
@@ -823,10 +960,14 @@ fn run_kernel(kernel: &Kernel, mode: Mode, th: &Thresholds) -> Run {
         samples.push(elapsed);
     }
     samples.sort_unstable();
+    // The site counters keep growing through the warm-up and the timed rounds,
+    // so they are read at the end of the run, not with the compile metrics.
+    let sites = SiteCounts::of(&jit.metrics());
     Run {
         result,
         median: samples[ROUNDS / 2],
         compiled,
+        sites,
         promotions: metrics.tier2_promotions,
         specialized: metrics.specialized_ops,
         compile_nanos: metrics.compile_nanos,
@@ -875,7 +1016,7 @@ fn run_one(args: &[String]) -> bool {
     let run = run_kernel(kernel, mode, &parse_thresholds(args));
     println!(
         "ms={} result={:016x} compiled={} promoted={} specialized={} compile_ns={} compile_attempts={} \
-         retired={} replaced={} never_entered={}",
+         retired={} replaced={} never_entered={} {}",
         run.median.as_secs_f64() * 1e3,
         run.result,
         run.compiled,
@@ -885,7 +1026,8 @@ fn run_one(args: &[String]) -> bool {
         run.compile_attempts,
         run.retired,
         run.replaced,
-        run.never_entered
+        run.never_entered,
+        site_count_fields(&run.sites)
     );
     true
 }
@@ -955,6 +1097,9 @@ fn run_process_protocol(show: &[Mode], rounds: usize, th: &Thresholds, kernels: 
     let mut compile: Vec<(Mode, u64, u64)> = run.iter().map(|&m| (m, 0, 0)).collect();
     // Code retired / replaced / never entered, summed per mode.
     let mut code_usage: Vec<(Mode, [u64; 3])> = run.iter().map(|&m| (m, [0; 3])).collect();
+    // The inline guards' and call paths' counters, summed per mode (T18).
+    let mut sites: Vec<(Mode, SiteCounts)> =
+        run.iter().map(|&m| (m, SiteCounts::default())).collect();
     // The child re-parses the thresholds, so a sweep runs the same
     // configuration in every fresh process.
     let th_args: Vec<String> = vec![
@@ -1015,6 +1160,16 @@ fn run_process_protocol(show: &[Mode], rounds: usize, th: &Thresholds, kernels: 
                 usage.1[2] += fields["never_entered"]
                     .parse::<u64>()
                     .expect("never_entered");
+                let mut values = [0u64; 8];
+                for (slot, key) in values.iter_mut().zip(SiteCounts::KEYS) {
+                    *slot = fields[key].parse::<u64>().expect(key);
+                }
+                sites
+                    .iter_mut()
+                    .find(|(m, _)| m == mode)
+                    .unwrap()
+                    .1
+                    .accumulate(&SiteCounts::from_values(values));
                 samples
                     .iter_mut()
                     .find(|(m, _)| m == mode)
@@ -1060,6 +1215,9 @@ fn run_process_protocol(show: &[Mode], rounds: usize, th: &Thresholds, kernels: 
     println!("functions_compiled: {summary}");
     println!("{}", compile_summary_line(&compile));
     println!("{}", code_usage_line(&code_usage));
+    for line in site_count_lines(&sites) {
+        println!("{line}");
+    }
 }
 
 /// The code that was compiled but not used: retired for quota, replaced by a
@@ -1163,6 +1321,9 @@ fn main() {
     let mut compile: Vec<(Mode, u64, u64)> = run.iter().map(|&m| (m, 0, 0)).collect();
     // Code retired / replaced / never entered, per mode.
     let mut code_usage: Vec<(Mode, [u64; 3])> = run.iter().map(|&m| (m, [0; 3])).collect();
+    // The guard/inline counters, per mode (T18).
+    let mut sites: Vec<(Mode, SiteCounts)> =
+        run.iter().map(|&m| (m, SiteCounts::default())).collect();
     for kernel in &kernels {
         let runs: Vec<(Mode, Run)> = run
             .iter()
@@ -1219,6 +1380,8 @@ fn main() {
             usage.1[0] += r.retired;
             usage.1[1] += r.replaced;
             usage.1[2] += r.never_entered;
+            let site = sites.iter_mut().find(|(sm, _)| sm == m).unwrap();
+            site.1.accumulate(&r.sites);
         }
     }
 
@@ -1247,4 +1410,7 @@ fn main() {
     );
     println!("{}", compile_summary_line(&compile));
     println!("{}", code_usage_line(&code_usage));
+    for line in site_count_lines(&sites) {
+        println!("{line}");
+    }
 }

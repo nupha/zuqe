@@ -28,6 +28,7 @@ use crate::jit::{
     bytecode::{VerifyLimits, verify},
     compiler,
     error::JitError,
+    runtime::Tier,
     snapshot::CompileSnapshot,
 };
 
@@ -35,6 +36,8 @@ use crate::jit::{
 /// pointer, so the worker runs without the runtime.
 pub(crate) struct CompileJob {
     pub(crate) attempt_id: u64,
+    /// The tier being compiled (the `jit_dump` file name; nothing else).
+    pub(crate) tier: Tier,
     pub(crate) snapshot: CompileSnapshot,
     pub(crate) limits: VerifyLimits,
 }
@@ -130,6 +133,7 @@ impl BackgroundCompiler {
     pub(crate) fn submit(
         &mut self,
         function_id: u64,
+        tier: Tier,
         snapshot: CompileSnapshot,
         limits: VerifyLimits,
     ) -> bool {
@@ -143,6 +147,7 @@ impl BackgroundCompiler {
         if sender
             .try_send(CompileJob {
                 attempt_id,
+                tier,
                 snapshot,
                 limits,
             })
@@ -226,6 +231,7 @@ fn worker_loop(
         };
         let Ok(CompileJob {
             attempt_id,
+            tier,
             snapshot,
             limits,
         }) = job
@@ -238,7 +244,7 @@ fn worker_loop(
         // the worker path itself must not panic.
         let elapsed = Cell::new(0);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            lower(snapshot, limits, isa.as_ref(), &elapsed)
+            lower(snapshot, limits, tier, isa.as_ref(), &elapsed)
         }))
         .map_or(JobResult::Failed, |lowered| match lowered {
             Lowered::Compiled { bytes, specialized } => JobResult::Compiled { bytes, specialized },
@@ -276,16 +282,22 @@ enum Lowered {
 fn lower(
     snapshot: CompileSnapshot,
     limits: VerifyLimits,
+    tier: Tier,
     isa: &dyn TargetIsa,
     elapsed_ns: &Cell<u64>,
 ) -> Lowered {
     let started = Instant::now();
-    let result = lower_inner(snapshot, limits, isa);
+    let result = lower_inner(snapshot, limits, tier, isa);
     elapsed_ns.set(started.elapsed().as_nanos() as u64);
     result
 }
 
-fn lower_inner(snapshot: CompileSnapshot, limits: VerifyLimits, isa: &dyn TargetIsa) -> Lowered {
+fn lower_inner(
+    snapshot: CompileSnapshot,
+    limits: VerifyLimits,
+    tier: Tier,
+    isa: &dyn TargetIsa,
+) -> Lowered {
     let Ok(verified) = verify(snapshot, limits) else {
         return Lowered::Rejected;
     };
@@ -295,7 +307,7 @@ fn lower_inner(snapshot: CompileSnapshot, limits: VerifyLimits, isa: &dyn Target
         return Lowered::Rejected;
     }
     let specialized = Cell::new(0);
-    match compiler::compile(&verified, isa, &specialized) {
+    match compiler::compile(&verified, isa, &specialized, tier) {
         Ok(bytes) => Lowered::Compiled {
             bytes,
             specialized: specialized.get(),
@@ -327,7 +339,7 @@ mod tests {
     fn a_job_is_lowered_off_thread_and_matched_by_attempt_id() {
         let mut bg = BackgroundCompiler::new(1, isa()).expect("spawn");
         let snapshot = CompileSnapshot::from_raw(vec![0u8; 4], 0, 0, 0, 8);
-        assert!(bg.submit(7, snapshot, VerifyLimits::default()));
+        assert!(bg.submit(7, Tier::Tier1, snapshot, VerifyLimits::default()));
         assert_eq!(bg.in_flight_len(), 1);
 
         let completion = loop {
@@ -359,7 +371,7 @@ mod tests {
     fn expiring_an_attempt_frees_its_slot_without_waiting_for_the_worker() {
         let mut bg = BackgroundCompiler::new(1, isa()).expect("spawn");
         let snapshot = CompileSnapshot::from_raw(vec![0u8; 4], 0, 0, 0, 8);
-        assert!(bg.submit(7, snapshot.clone(), VerifyLimits::default()));
+        assert!(bg.submit(7, Tier::Tier1, snapshot.clone(), VerifyLimits::default()));
         assert_eq!(bg.in_flight_len(), 1);
         assert!(!bg.has_capacity(), "the single worker is busy");
 
