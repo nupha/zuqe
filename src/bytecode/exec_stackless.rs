@@ -843,6 +843,52 @@ impl Bytecode {
             }};
         }
 
+        // Inline TCO: recycle the current frame in place at the caller's depth,
+        // keeping the `callers` chain untouched. The label is passed in because
+        // `macro_rules!` resolves labels at the definition site.
+        macro_rules! inline_tail_switch {
+            ($label:lifetime, $callee_bc:expr, $callee_fun:expr, $args:expr,
+             $callee_this:expr, $captured:expr) => {{
+                let callee_bc = $callee_bc;
+                // Copy the args first (the buffer is freed below); SmallVec
+                // keeps the common ≤4-arg case stack-only.
+                let tail_args: SmallVec<[JSValue; 4]> = $args.iter().copied().collect();
+                let orig_prev = frame!(cur_frame_idx).prev;
+                let tail_depth = frame!(cur_frame_idx).depth.saturating_sub(1);
+                arena_mut!().detach_and_free(cur_frame_idx);
+                let new_idx = match build_callee_frame(
+                    arena_mut!(),
+                    tail_depth,
+                    $callee_fun.into(),
+                    callee_bc,
+                    &tail_args,
+                    $callee_this,
+                ) {
+                    Ok(idx) => idx,
+                    Err(e) => {
+                        match e {
+                            FrameAllocError::Oom => {
+                                let _ = realm_scope.throw_stack_fail();
+                            }
+                            FrameAllocError::Exceeded => {
+                                let _ = realm_scope.throw_stack_exceeded();
+                            }
+                        }
+                        inline_unwind_dead!($label);
+                    }
+                };
+                frame_mut!(new_idx).prev = orig_prev;
+                inline_switch_frame!(
+                    callee_bc,
+                    new_idx,
+                    $captured,
+                    $callee_this,
+                    JSValue::UNDEFINED
+                );
+                continue $label;
+            }};
+        }
+
         if throwed {
             // An interrupt is control flow, not a JS exception: it bypasses
             // catch handling entirely. Otherwise a caller's `catch` could
@@ -1306,14 +1352,7 @@ impl Bytecode {
                                 SP_GO!(1);
                             }
                             SpecialObject::HomeObject => {
-                                SP_PUT!(
-                                    0,
-                                    if let Some(ho) = func_home!() {
-                                        JSValue::from(ho)
-                                    } else {
-                                        JSValue::UNDEFINED
-                                    }
-                                );
+                                SP_PUT!(0, func_home!().map_or(JSValue::UNDEFINED, JSValue::from));
                                 SP_GO!(1);
                             }
                             SpecialObject::VarObject => {
@@ -1581,44 +1620,14 @@ impl Bytecode {
                                             };
                                         }
                                         // Inline TCO: recycle at the same depth.
-                                        // Copy args first (the buffer is freed
-                                        // below); SmallVec keeps ≤4 args on stack.
-                                        let tail_args: SmallVec<[JSValue; 4]> =
-                                            args_slice.iter().copied().collect();
-                                        let orig_prev = frame!(cur_frame_idx).prev;
-                                        let tail_depth =
-                                            frame!(cur_frame_idx).depth.saturating_sub(1);
-                                        arena_mut!().detach_and_free(cur_frame_idx);
-                                        let new_idx = match build_callee_frame(
-                                            arena_mut!(),
-                                            tail_depth,
-                                            bfun.into(),
+                                        inline_tail_switch!(
+                                            'arena_loop,
                                             bc,
-                                            &tail_args,
+                                            bfun,
+                                            args_slice,
                                             JSValue::UNDEFINED,
-                                        ) {
-                                            Ok(idx) => idx,
-                                            Err(e) => {
-                                                match e {
-                                                    FrameAllocError::Oom => {
-                                                        let _ = realm_scope.throw_stack_fail();
-                                                    }
-                                                    FrameAllocError::Exceeded => {
-                                                        let _ = realm_scope.throw_stack_exceeded();
-                                                    }
-                                                }
-                                                inline_unwind_dead!('arena_loop);
-                                            }
-                                        };
-                                        frame_mut!(new_idx).prev = orig_prev;
-                                        inline_switch_frame!(
-                                            bc,
-                                            new_idx,
-                                            callee_captured,
-                                            JSValue::UNDEFINED,
-                                            JSValue::UNDEFINED
+                                            callee_captured
                                         );
-                                        continue 'arena_loop;
                                     }
                                 } else {
                                     // Cross-realm non-tail calls fall through to
@@ -1925,45 +1934,15 @@ impl Bytecode {
                                                 this_obj: method_this,
                                             };
                                         }
-                                        // Inline TCO: copy the args before the
-                                        // frame buffer is freed (SmallVec keeps
-                                        // the common ≤4-arg case stack-only).
-                                        let tail_args: SmallVec<[JSValue; 4]> =
-                                            args_slice.iter().copied().collect();
-                                        let orig_prev = frame!(cur_frame_idx).prev;
-                                        let tail_depth =
-                                            frame!(cur_frame_idx).depth.saturating_sub(1);
-                                        arena_mut!().detach_and_free(cur_frame_idx);
-                                        let new_idx = match build_callee_frame(
-                                            arena_mut!(),
-                                            tail_depth,
-                                            bfun.into(),
+                                        // Inline TCO: recycle at the same depth.
+                                        inline_tail_switch!(
+                                            'arena_loop,
                                             bc,
-                                            &tail_args,
+                                            bfun,
+                                            args_slice,
                                             method_this,
-                                        ) {
-                                            Ok(idx) => idx,
-                                            Err(e) => {
-                                                match e {
-                                                    FrameAllocError::Oom => {
-                                                        let _ = realm_scope.throw_stack_fail();
-                                                    }
-                                                    FrameAllocError::Exceeded => {
-                                                        let _ = realm_scope.throw_stack_exceeded();
-                                                    }
-                                                }
-                                                inline_unwind_dead!('arena_loop);
-                                            }
-                                        };
-                                        frame_mut!(new_idx).prev = orig_prev;
-                                        inline_switch_frame!(
-                                            bc,
-                                            new_idx,
-                                            callee_captured,
-                                            method_this,
-                                            JSValue::UNDEFINED
+                                            callee_captured
                                         );
-                                        continue 'arena_loop;
                                     }
                                 } else if inline_calls
                                     && !callers.is_empty()
@@ -2615,10 +2594,12 @@ impl Bytecode {
                             // ── eval was reassigned: run it as a normal call ──
                             // Use inline dispatch to avoid C-stack recursion. In
                             // `return eval(...)` position it is a tail call.
-                            if let Ok(bfun) = BCWrapper::try_from(func_val) {
+                            if let Ok(mut bfun) = BCWrapper::try_from(func_val) {
                                 let bc = bfun.payload().bytecode();
                                 let func_kind = bc.func_kind();
                                 if func_kind == FunctionKind::Normal {
+                                    let callee_captured: *mut [VarRef] =
+                                        bfun.payload_mut().captured_vars_mut();
                                     let args_slice = unsafe {
                                         std::slice::from_raw_parts(call_argv, call_argc as usize)
                                     };
@@ -2628,56 +2609,96 @@ impl Bytecode {
                                     if unlikely(opcode == OpCode::TAIL_EVAL)
                                         && bc.realm() == realm_scope.ctx_ptr
                                     {
-                                        break ExecAction::TailCall {
-                                            callee_bc: bc,
-                                            callee_func_obj: bfun.into(),
-                                            args: args_slice.to_vec(),
-                                            this_obj: JSValue::UNDEFINED,
-                                        };
+                                        // Inside an inline chain the frame must
+                                        // be recycled here; the trampoline only
+                                        // owns its own frame stack.
+                                        if !inline_calls || callers.is_empty() {
+                                            break ExecAction::TailCall {
+                                                callee_bc: bc,
+                                                callee_func_obj: bfun.into(),
+                                                args: args_slice.to_vec(),
+                                                this_obj: JSValue::UNDEFINED,
+                                            };
+                                        }
+                                        inline_tail_switch!(
+                                            'arena_loop,
+                                            bc,
+                                            bfun,
+                                            args_slice,
+                                            JSValue::UNDEFINED,
+                                            callee_captured
+                                        );
                                     }
 
                                     // Non-tail: push a frame. `OP_eval` cannot tell
                                     // tail position, and recycling the script frame
                                     // would be fatal. Depth/byte limits still apply.
-                                    let caller_depth = frame!(cur_frame_idx).depth;
-                                    let callee_frame_idx = match build_callee_frame(
-                                        arena_mut!(),
-                                        caller_depth,
-                                        bfun.into(),
-                                        bc,
-                                        args_slice,
-                                        JSValue::UNDEFINED,
-                                    ) {
-                                        Ok(idx) => idx,
-                                        Err(e) => {
-                                            match e {
-                                                FrameAllocError::Oom => {
-                                                    let _ = realm_scope.throw_stack_fail();
+                                    //
+                                    // A cross-realm call cannot join an inline
+                                    // chain: the trampoline owns its own frame
+                                    // stack, so such a call falls through to
+                                    // `call_internal` (mirrors CALL).
+                                    if inline_calls
+                                        && !callers.is_empty()
+                                        && bc.realm() != realm_scope.ctx_ptr
+                                    {
+                                        // fall through to `call_internal`
+                                    } else {
+                                        let caller_depth = frame!(cur_frame_idx).depth;
+                                        let callee_frame_idx = match build_callee_frame(
+                                            arena_mut!(),
+                                            caller_depth,
+                                            bfun.into(),
+                                            bc,
+                                            args_slice,
+                                            JSValue::UNDEFINED,
+                                        ) {
+                                            Ok(idx) => idx,
+                                            Err(e) => {
+                                                match e {
+                                                    FrameAllocError::Oom => {
+                                                        let _ = realm_scope.throw_stack_fail();
+                                                    }
+                                                    FrameAllocError::Exceeded => {
+                                                        let _ = realm_scope.throw_stack_exceeded();
+                                                    }
                                                 }
-                                                FrameAllocError::Exceeded => {
-                                                    let _ = realm_scope.throw_stack_exceeded();
-                                                }
+
+                                                // Route through Exception: the catch
+                                                // scan must cleanse the stack first.
+                                                break ExecAction::Exception;
                                             }
+                                        };
+                                        frame_mut!(callee_frame_idx).prev = cur_frame_idx;
 
-                                            // Route through Exception: the catch
-                                            // scan must cleanse the stack first.
-                                            break ExecAction::Exception;
+                                        let return_sp = unsafe {
+                                            sp.offset(-(call_argc as isize + 1))
+                                                .offset_from(sp_base)
                                         }
-                                    };
-                                    frame_mut!(callee_frame_idx).prev = cur_frame_idx;
+                                            as usize;
 
-                                    let return_sp = unsafe {
-                                        sp.offset(-(call_argc as isize + 1)).offset_from(sp_base)
-                                    } as usize;
+                                        if inline_calls && bc.realm() == realm_scope.ctx_ptr {
+                                            inline_call_switch!(
+                                                bc,
+                                                callee_frame_idx,
+                                                callee_captured,
+                                                return_sp,
+                                                JSValue::UNDEFINED,
+                                                JSValue::UNDEFINED,
+                                                None
+                                            );
+                                            continue 'arena_loop;
+                                        }
 
-                                    break ExecAction::CallBytecode {
-                                        callee_bc: bc,
-                                        callee_frame_idx,
-                                        return_sp,
-                                        this_obj: JSValue::UNDEFINED,
-                                        new_target: JSValue::UNDEFINED,
-                                        ctor_this: None,
-                                    };
+                                        break ExecAction::CallBytecode {
+                                            callee_bc: bc,
+                                            callee_frame_idx,
+                                            return_sp,
+                                            this_obj: JSValue::UNDEFINED,
+                                            new_target: JSValue::UNDEFINED,
+                                            ctor_this: None,
+                                        };
+                                    }
                                 }
                             }
 
@@ -4591,5 +4612,73 @@ mod tests {
             EvalFlags::empty(),
         )
         .expect("context must stay usable after a trampoline panic");
+    }
+
+    /// `return eval(...)` with `eval` rebound to a normal function is a
+    /// `TAIL_EVAL`, i.e. a real tail call. Inside an inline chain it must be
+    /// recycled in place: the trampoline only owns its own frame stack, so
+    /// escaping to it would drop the parked callers.
+    #[test]
+    fn a_rebound_tail_eval_stays_in_the_inline_chain() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        let v = ctx
+            .eval(
+                b"(function () { \
+                    var count = 0; \
+                    function f(n) { \
+                      'use strict'; \
+                      if (n === 0) { count += 1; return 0; } \
+                      return eval(n - 1); \
+                    } \
+                    eval('var eval = f;'); \
+                    f(20000); \
+                    return count; \
+                  })();",
+                &EvalName::Name("rebound-tail-eval.js".into()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            v.as_int(),
+            Some(1),
+            "the rebound tail eval did not reach its base case exactly once"
+        );
+    }
+
+    /// The non-tail spelling (`var x = eval(...)`) must join the inline chain
+    /// too; pushing a frame and escaping to the trampoline breaks the same
+    /// contract.
+    #[test]
+    fn a_rebound_non_tail_eval_stays_in_the_inline_chain() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        let v = ctx
+            .eval(
+                b"(function () { \
+                    function f(n) { \
+                      'use strict'; \
+                      if (n === 0) { return 0; } \
+                      var x = eval(n - 1); \
+                      return x + 1; \
+                    } \
+                    eval('var eval = f;'); \
+                    return f(10); \
+                  })();",
+                &EvalName::Name("rebound-non-tail-eval.js".into()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .unwrap();
+
+        assert_eq!(v.as_int(), Some(10), "the rebound eval call returned wrong");
     }
 }
