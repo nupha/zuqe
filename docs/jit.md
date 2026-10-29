@@ -18,7 +18,9 @@ while the interpreter stays the reference for correctness.
 - **Bounded and observable**: code memory, metadata, queue length and compile
   attempts are quota-limited; counters are exported through `JitMetrics`.
 - **Portable in design, Unix-first in practice**: W^X code memory with an
-  aarch64 i-cache flush; macOS/Windows executable memory is not implemented yet.
+  aarch64 i-cache flush. Linux x86_64/aarch64 (qemu) and **Intel macOS** work;
+  Apple Silicon (`MAP_JIT`) and Windows (`VirtualAlloc`/`VirtualProtect`) are not
+  implemented yet.
 
 ## What it is not
 
@@ -27,9 +29,14 @@ while the interpreter stays the reference for correctness.
 - Not a second implementation of JavaScript semantics: complex operations
   (arithmetic coercion, property access, calls, throws) are executed by calling
   the interpreter's own Rust functions.
-- Not an inlining compiler: no frame inlining, no source-level deopt. Function
-  calls run through a helper that keeps the caller's frame authoritative
-  (single-shape inline calls are future work).
+- Not a general inlining compiler: there is a monomorphic direct-call path and a
+  small frame-inlining subset (pure integer bodies plus the loop/call/exception/
+  allocation extensions), but no source-level inlining and no `DeoptMap`. The
+  general call path is a helper that keeps the caller's frame authoritative.
+- Not a full property-access compiler: object shapes stay in helpers by default.
+  A few shapes — array and typed-array elements, own data properties, global
+  variable slots — are inlined **behind guards that re-check on every access**;
+  a miss falls back to the helper, so a shape change is just one miss.
 - Not a tracing/GC-integrated JIT: values live in the same frame buffer the
   interpreter uses; there are no register-resident GC roots.
 - Not a `with`/generator/`async`/`eval`/`import` compiler: those opcodes are
@@ -131,7 +138,12 @@ next call → native entry runs; on exit the interpreter continues
    the result back.
 5. **Calls keep the caller in native code.** The `call` helpers run the callee
    through `call_internal` on the same frame: a native callee is entered
-   natively, and the caller never exits to the interpreter (D-6, route A).
+   natively, and the caller never exits to the interpreter (D-6, route A). A
+   monomorphic site whose recorded callee matches enters that callee's machine
+   code directly, without `call_internal` or the trampoline (route B, step 1);
+   a small eligible subset is lowered into the caller's own code with no second
+   activation (route B, step 2). `f.apply(thisArg, args)` with a packed array has
+   its own direct path.
 6. **Speculation is guarded and reversible.** Tier 2 emits an inline `Int`
    (and `Float64`) fast path only when the feedback table saw those types, with a
    runtime guard; a miss falls back to the helper. A function whose guards miss
@@ -200,13 +212,15 @@ abandoned and its late completion is discarded.
 | Opcode strategy (generated from the opcode table) | `build_opcodes.rs` → `src/jit/policy.rs` |
 | Pointer-free function snapshot | `src/jit/snapshot.rs` |
 | Frontend gate (decode, CFG, abstract stack, verify) | `src/jit/bytecode/{mod,decode,cfg,stack,verify}.rs` |
-| Baseline + Tier-2 lowering to Cranelift | `src/jit/compiler.rs` |
+| Baseline + Tier-2 lowering, inline guards | `src/jit/compiler.rs` |
+| Monomorphic direct call / frame inlining | `src/jit/direct_call.rs`, `src/jit/inline_call.rs` |
 | Native ABI, frame layout, helper trampolines | `src/jit/abi.rs` |
 | Function-scoped analysis (data-flow facts: liveness, dominators, loops, value numbering) | `src/jit/analysis/{mod,values}.rs` |
 | Tier-2 type feedback table | `src/jit/feedback.rs` |
 | Hotness counters, thresholds, tier policy | `src/jit/runtime/hotness.rs`, `src/jit/config.rs` |
 | Compilation queue and function lifecycle | `src/jit/runtime/coordinator.rs` |
 | Executable memory (W^X, i-cache) and code cache | `src/jit/runtime/install.rs`, `src/jit/platform.rs`, `src/jit/code_cache.rs` |
+| Measured compile cost (the cost gate's input) | `src/jit/rate.rs` |
 | Interpreter integration points | `src/bytecode/exec_stackless.rs` (entry/back-edge hooks, `invoke_native`), `src/runtime/tick.rs` |
 | Per-function native entry slot | `src/function/bytecode.rs` (`FunctionSlot`) |
 
@@ -337,28 +351,40 @@ matches it by design. Test262 and the pinned corpora cover that.
 |---|---|---|
 | White-box lowering harness | `src/jit/test_harness.rs`, `src/jit/inline_call.rs`, `src/jit/compiler.rs` | `cargo test --features jit --lib` |
 | Differential (4 modes, bit-exact) | `tests/jit/jit_differential.rs` | `cargo test --features jit --test jit jit_differential` |
-| Per-opcode end-to-end + claim audit | `tests/jit/jit_opcodes.rs`, `tests/jit/opcode-claims.py` | `cargo test --features jit --test jit_opcodes` |
+| Per-opcode end-to-end + claim audit | `tests/jit/jit_opcodes.rs`, `tests/jit/opcode-claims.py` | `cargo test --features jit --test jit jit_opcodes` |
 | Semantic stress | `tests/jit/jit_semantics.rs` | `cargo test --features jit --test jit jit_semantics` |
 | Native vs interpreter, exceptions, interrupts | `tests/jit/jit_verify.rs`, `jit_interrupt.rs` | `cargo test --features jit --test jit` |
 | Tier feedback / speculation | `tests/jit/jit_feedback.rs` | `cargo test --features jit --test jit jit_feedback` |
-| Bench matrix (35 kernels × 4 modes) | `examples/jit-bench.rs`, `tests/jit/jit-bench-matrix.sh` | `./tests/jit/jit-bench-matrix.sh --protocol process` |
+| Inline guards (property/array/typed array/global) | `tests/jit/jit_field.rs`, `jit_array.rs`, `jit_global.rs` | `cargo test --features jit --test jit jit_field` |
+| Calls: direct path, frame inlining, `apply` | `tests/jit/jit_inline_call.rs`, `jit_frame_inline.rs` | `cargo test --features jit --test jit jit_inline_call` |
+| Bench matrix (51 kernels × 4 modes) | `examples/jit-bench.rs`, `tests/jit/jit-bench-matrix.sh` | `./tests/jit/jit-bench-matrix.sh --protocol process` |
 | Compile-threshold sweep | `tests/jit/jit-threshold-grid.sh` | `./tests/jit/jit-threshold-grid.sh` |
 | Feature-gating / hardening gates | `tests/jit/ci-gate.sh`, `tests/jit/ci-sanitize.sh`, `.github/workflows/ci.yml` | `./tests/jit/ci-gate.sh` |
 
 ## Current status
 
 Implemented: baseline + Tier-2 lowering, type feedback and guarded
-int/float fast paths, tier-down, property/array access helpers with inline
-caches, global-variable helpers, cross-block residency / DCE / CSE, native calls
-(route A), back-edge OSR, code-cache retirement, metrics/quotas, worker-thread
-compilation (`Jit::poll` only dispatches, drains and installs), and the
-two-gate tiering (a first gate compiles the baseline tier, a second gate
+int/float fast paths, tier-down, cross-block residency / DCE / CSE, back-edge
+OSR (including post-call resume entries), code-cache retirement, metrics/quotas,
+worker-thread compilation (`Jit::poll` only dispatches, drains and installs), and
+the two-gate tiering (a first gate compiles the baseline tier, a second gate
 promotes the function to the optimizing tier; the native tier reports its own
 activations and back edges back into the hotness counters, and a demoted
 function waits out a cooldown before it is promoted again).
 
-Not implemented: single-shape inline calls (D-6 route B), macOS/Windows
-executable memory, and real-hardware aarch64 validation. ASan is blocked by the
-allocator under ASan, not by the JIT (see `tests/jit/ci-sanitize.sh`); TSan runs
-clean. `with`/generator/`async`/`eval`/`import` opcodes stay rejected by design.
-See [`memo/jit_todo.md`](../memo/jit_todo.md) for the current list.
+Also implemented, on the access side: inline guards for array and typed-array
+element reads/writes, own data property reads/writes (including `get_field2` /
+`get_array_el2` and a typed array's `length`), and global variable reads/writes
+— each re-checked per access. On the call side: the monomorphic direct path
+(route B step 1), a frame-inlining subset (route B step 2), and the
+`Function.prototype.apply` method-call direct path.
+
+Not implemented: a broader frame-inlining subset, `call_constructor` direct
+entry, cross-eval content identity (the code cache is keyed by bytecode node),
+Apple Silicon/Windows executable memory, and real-hardware aarch64 validation.
+ASan is blocked by the allocator under ASan, not by the JIT (see
+`tests/jit/ci-sanitize.sh`); TSan runs clean. `with`/generator/`async`/`eval`/
+`import` opcodes stay rejected by design. Kernel-level performance is uneven
+after the recent interpreter speedups: see [`memo/jit_todo.md`](../memo/jit_todo.md)
+for the measured matrix, the kernels where native code currently loses, and the
+task list.

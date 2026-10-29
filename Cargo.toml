@@ -43,10 +43,10 @@ intl402 = ["dep:icu", "dep:fixed_decimal"]
 dump_bytecode = []
 debug_gc = []
 
-# Tiered bytecode JIT. Off by default: when disabled it adds no dependency and
-# changes no runtime structure or execution path. Verification and Cranelift
-# lowering run on worker threads; the runtime thread only dispatches, drains
-# and installs.
+# Tiered bytecode JIT. when disabled
+# it adds no dependency and changes no runtime structure or execution path.
+# Verification and Cranelift lowering run on worker threads; the runtime thread
+# only dispatches, drains and installs.
 jit = [
     "dep:cranelift-codegen",
     "dep:cranelift-frontend",
@@ -175,8 +175,6 @@ name = "persistent"
 path = "examples/persistent/main.rs"
 required-features = ["persistent"]
 
-# Uses JSValue::dump/restore, which only exist behind `persistent`; without
-# this the auto-discovered example breaks every plain `cargo test`.
 [[example]]
 name = "corpus"
 path = "examples/corpus/main.rs"
