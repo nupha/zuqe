@@ -17,10 +17,10 @@ while the interpreter stays the reference for correctness.
   translate is *never* compiled; it simply keeps running interpreted.
 - **Bounded and observable**: code memory, metadata, queue length and compile
   attempts are quota-limited; counters are exported through `JitMetrics`.
-- **Portable in design, Unix-first in practice**: W^X code memory with an
-  aarch64 i-cache flush. Linux x86_64/aarch64 (qemu) and **Intel macOS** work;
-  Apple Silicon (`MAP_JIT`) and Windows (`VirtualAlloc`/`VirtualProtect`) are not
-  implemented yet.
+- **Portable by design**: W^X code memory (`mmap`/`mprotect` on Unix,
+  `VirtualAlloc`/`VirtualProtect`/`FlushInstructionCache` on Windows) with an
+  aarch64 i-cache flush. Linux x86_64/aarch64 (qemu), **Intel macOS** and
+  **Windows x86_64** work; Apple Silicon (`MAP_JIT`) is not implemented yet.
 
 ## What it is not
 
@@ -411,7 +411,7 @@ element reads/writes, own data property reads/writes (including `get_field2` /
 
 Not implemented: a broader frame-inlining subset, `call_constructor` direct
 entry, cross-eval content identity (the code cache is keyed by bytecode node),
-Apple Silicon/Windows executable memory, and real-hardware aarch64 validation.
+Apple Silicon executable memory, and real-hardware aarch64 validation.
 ASan is blocked by the allocator under ASan, not by the JIT (see
 `tests/jit/ci-sanitize.sh`); TSan runs clean. `with`/generator/`async`/`eval`/
 `import` opcodes stay rejected by design. Kernel-level performance is uneven

@@ -60,6 +60,7 @@ jit = [
     "dep:cranelift-native",
     "dep:cranelift-module",
     "dep:cranelift-object",
+    "dep:windows-sys",
 ]
 
 # Protect temporarily dangling GC objects taken out of traced locations before
@@ -147,6 +148,16 @@ cranelift-frontend = { version = "0.116.1", optional = true }
 cranelift-native = { version = "0.116.1", optional = true }
 cranelift-module = { version = "0.116.1", optional = true }
 cranelift-object = { version = "0.116.1", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+# Executable code memory for the JIT: VirtualAlloc / VirtualProtect /
+# FlushInstructionCache. Optional so a jit-less build still adds no dependency.
+windows-sys = { version = "0.61.0", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+] }
 
 [build-dependencies]
 cc = "1.0"

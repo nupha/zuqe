@@ -5,19 +5,18 @@
 //!
 //! Minimal W^X: map RW, write the code, then flip the page to RX with no write
 //! permission, and — on aarch64, where the instruction cache is not coherent
-//! with the data cache — flush the i-cache for the published range. The rest of
-//! the cross-platform layer (macOS `MAP_JIT` write protection, Windows
-//! `VirtualAlloc`/`VirtualProtect`/`FlushInstructionCache`, W^X splitting) is
-//! the remaining platform work; this covers the Unix hosts the JIT can target.
+//! with the data cache — flush the i-cache for the published range.
+//!
+//! * **Unix**: anonymous `mmap`/`mprotect`/`munmap`.
+//! * **Windows**: `VirtualAlloc(PAGE_READWRITE)` → `VirtualProtect(PAGE_EXECUTE_READ)`
+//!   → `FlushInstructionCache(GetCurrentProcess(), ...)`, and `VirtualFree`.
 //!
 //! Portability notes (what the remaining hosts need):
-//! * **macOS**: `mmap(..., MAP_JIT)` — required on Apple Silicon; writes go
+//! * **macOS on Apple Silicon**: `mmap(..., MAP_JIT)` is required; writes go
 //!   through `pthread_jit_write_protect_np` (or the `pthread_jit_write_with_callback_np`
 //!   allow-list callback when the process is not entitled), and the flush is
 //!   `sys_icache_invalidate`. Plain `mprotect` (what this file does) is enough
 //!   only for Intel macOS.
-//! * **Windows**: `VirtualAlloc(PAGE_READWRITE)` → `VirtualProtect(PAGE_EXECUTE_READ)`
-//!   → `FlushInstructionCache(GetCurrentProcess(), ...)`.
 //! * **aarch64**: done here (see [`flush_icache`]).
 
 use super::error::JitError;
@@ -85,7 +84,35 @@ impl CodeMem {
                 len: page_round_up(len),
             })
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::System::Memory::{
+                MEM_COMMIT, MEM_RESERVE, PAGE_READWRITE, VirtualAlloc,
+            };
+
+            let len = page_round_up(len);
+            // SAFETY: a fresh private mapping at an address chosen by the OS;
+            // the length is page-rounded, so the later protect covers it whole.
+            let ptr = unsafe {
+                VirtualAlloc(
+                    std::ptr::null(),
+                    len,
+                    MEM_COMMIT | MEM_RESERVE,
+                    PAGE_READWRITE,
+                )
+            };
+            if ptr.is_null() {
+                return Err(JitError::Platform(format!(
+                    "VirtualAlloc failed: {}",
+                    std::io::Error::last_os_error()
+                )));
+            }
+            Ok(Self {
+                ptr: ptr.cast(),
+                len,
+            })
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = len;
             Err(JitError::UnsupportedTarget("executable memory"))
@@ -129,7 +156,32 @@ impl CodeMem {
             flush_icache(self.ptr.cast_const(), self.len);
             Ok(())
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::System::Diagnostics::Debug::FlushInstructionCache;
+            use windows_sys::Win32::System::Memory::{PAGE_EXECUTE_READ, VirtualProtect};
+            use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+            let mut old = 0;
+            // SAFETY: `self.ptr`/`self.len` describe a committed mapping we own.
+            let ok =
+                unsafe { VirtualProtect(self.ptr.cast(), self.len, PAGE_EXECUTE_READ, &mut old) };
+            if ok == 0 {
+                return Err(JitError::Platform(format!(
+                    "VirtualProtect failed: {}",
+                    std::io::Error::last_os_error()
+                )));
+            }
+            // Not strictly needed on x86_64 (coherent i-cache), but Windows
+            // requires it after writing code and it is what makes the bytes
+            // visible on other cores.
+            // SAFETY: flushing the range we just wrote in our own process.
+            unsafe {
+                FlushInstructionCache(GetCurrentProcess(), self.ptr.cast(), self.len);
+            }
+            Ok(())
+        }
+        #[cfg(not(any(unix, windows)))]
         {
             Err(JitError::UnsupportedTarget("executable memory"))
         }
@@ -146,10 +198,16 @@ impl CodeMem {
 
 impl Drop for CodeMem {
     fn drop(&mut self) {
-        #[cfg(unix)]
-        // SAFETY: unmapping a mapping we own; it is never used afterwards.
+        // SAFETY: releasing a mapping we own; it is never used afterwards.
         unsafe {
+            #[cfg(unix)]
             libc::munmap(self.ptr.cast(), self.len);
+
+            #[cfg(windows)]
+            {
+                use windows_sys::Win32::System::Memory::{MEM_RELEASE, VirtualFree};
+                VirtualFree(self.ptr.cast(), 0, MEM_RELEASE);
+            }
         }
     }
 }
@@ -210,14 +268,30 @@ fn page_round_up(len: usize) -> usize {
     len.div_ceil(page) * page
 }
 
-/// Real-hardware check of the whole publication path on aarch64 (this is the
-/// platform the i-cache flush exists for; x86_64 cannot exercise it). Runs only
-/// on an aarch64 runner — `tests/jit/ci-gate.sh`'s matrix lists it.
-#[cfg(all(test, target_arch = "aarch64"))]
+/// Windows commits in allocation granularity (64 KiB) but protects and frees by
+/// page; 4 KiB is the page size on every Windows architecture Rust targets, and
+/// `VirtualAlloc` rounds the request up on its own.
+#[cfg(windows)]
+fn page_round_up(len: usize) -> usize {
+    const PAGE: usize = 4096;
+    len.max(1).div_ceil(PAGE) * PAGE
+}
+
+/// Real-hardware checks of the publication path on the hosts that need one:
+/// aarch64 (the i-cache flush) and Windows (VirtualAlloc/VirtualProtect). A
+/// plain x86_64 Unix host has neither a flush nor a protection step to prove.
+#[cfg(all(
+    test,
+    any(
+        all(unix, target_arch = "aarch64"),
+        all(windows, target_arch = "x86_64")
+    )
+))]
 mod tests {
     use super::CodeMem;
 
     /// `mov w0, #imm16; ret`.
+    #[cfg(all(unix, target_arch = "aarch64"))]
     fn return_code(value: u16) -> [u8; 8] {
         let mut code = [0u8; 8];
         code[..4].copy_from_slice(&(0x5280_0000u32 | (u32::from(value) << 5)).to_le_bytes());
@@ -225,12 +299,25 @@ mod tests {
         code
     }
 
+    #[cfg(all(unix, target_arch = "aarch64"))]
     #[test]
     fn published_code_runs_after_the_icache_flush() {
         let code = return_code(42);
         let mem = CodeMem::alloc(code.len()).expect("alloc");
         mem.write(&code).expect("write");
         mem.make_executable().expect("make executable");
+        let entry: unsafe extern "C" fn() -> i32 = unsafe { std::mem::transmute(mem.entry()) };
+        assert_eq!(unsafe { entry() }, 42);
+    }
+
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    #[test]
+    fn published_code_runs_after_virtualprotect() {
+        // `mov eax, 42; ret`.
+        let code = [0xb8u8, 42, 0, 0, 0, 0xc3];
+        let mem = CodeMem::alloc(code.len()).expect("VirtualAlloc");
+        mem.write(&code).expect("write");
+        mem.make_executable().expect("VirtualProtect");
         let entry: unsafe extern "C" fn() -> i32 = unsafe { std::mem::transmute(mem.entry()) };
         assert_eq!(unsafe { entry() }, 42);
     }
