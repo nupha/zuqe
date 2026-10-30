@@ -54,7 +54,7 @@ pub(crate) use direct_call::DirectCall;
 pub(crate) use feedback::FeedbackSlot;
 
 use {
-    abi::{HELPERS, JitExecFrame},
+    abi::{HELPERS, JitExecFrame, LIT_ATOM_MAX},
     bytecode::VerifyLimits,
     code_cache::CodeCache,
     runtime::{
@@ -895,6 +895,7 @@ pub(crate) fn invoke_native(
         global_var_obj,
         global_var_cache: bc.global_var_cache_sites(),
         scope_local_peak: 0,
+        lit_atoms: [0; LIT_ATOM_MAX],
     };
     // SAFETY: `entry` was produced by `compile` for this exact bytecode layout
     // and ABI, and the slot is only populated while the code cache keeps the

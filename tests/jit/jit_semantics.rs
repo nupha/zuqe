@@ -153,6 +153,39 @@ const CASES: &[SemCase] = sem_cases! {
         "f(2)",
         "'cml:' + f(3)";
 
+    // ── object literals (T25's merged window) ──
+    // The merged path: every field value is a local/constant push, so the
+    // whole run lowers as one helper call. Enumeration order and the values
+    // must be exactly what the interpreter produces.
+    literal_merged_data_fields => Compiles =
+        "var __seed = 0; function f(n){ var __z = 0; var a = n + 1; var b = n * 2; var o = { x: a, y: b, z: n, w: 7, u: null, t: undefined, s: 'k', r: a }; return Object.keys(o).join(',') + '|' + o.x + o.y + o.z + o.w + (o.u === null) + (o.t === undefined) + o.s + o.r; }",
+        "f(1)",
+        "f(4)",
+        "'lmd:' + f(6)";
+    // A duplicate key is an update, not the batch's append: the window must
+    // truncate before it and the second definition still wins. (All values are
+    // local reads so the run stays inside the merge whitelist.)
+    literal_duplicate_key_truncates => Compiles =
+        "var __seed = 0; function f(n){ var __z = 0; var p = n; var q = n + 1; var o = { a: p, b: q, a: q }; return Object.keys(o).join(',') + '|' + o.a + o.b; }",
+        "f(1)",
+        "f(5)",
+        "'ldk:' + f(9)";
+    // Mixed field kinds: a `__proto__`, an accessor, a computed key and a
+    // spread all break the run — the merged prefix and the per-op suffix must
+    // compose to the interpreter's object.
+    literal_mixed_fields_fall_back => Compiles =
+        "var __seed = 0; var K = 'ck'; function f(n){ var __z = 0; var p = n; var q = n + 1; var o = { a: p, b: q, __proto__: null, get g(){ return 11; }, [K]: q, ...{ c: p } }; return Object.keys(o).join(',') + '|' + o.a + o.b + o.g + o.ck + o.c + (o.__proto__ === null ? 1 : 0); }",
+        "f(1)",
+        "f(2)",
+        "'lmf:' + f(3)";
+    // More fields than the merge bound (LIT_ATOM_MAX): the window caps and
+    // the rest keeps the per-field helpers.
+    literal_long_literal_caps => Compiles =
+        "var __seed = 0; function f(n){ var __z = 0; var o = { f1: n, f2: n, f3: n, f4: n, f5: n, f6: n, f7: n, f8: n, f9: n, f10: n, f11: n + 1 }; return Object.keys(o).length + '|' + o.f1 + o.f8 + o.f9 + o.f11; }",
+        "f(1)",
+        "f(2)",
+        "'llc:' + f(3)";
+
     // ── closures ──
     closure_counter => Compiles =
         "var __seed = 0; function apply(g){ var __z = 0; return g(); } function f(n){ var __z = 0; var m = n; var r = apply(function(){ var __u = 0; m = m + 1; return m; }); return r + n; }",

@@ -269,6 +269,7 @@ pub(crate) fn run_function(body: &[u8], args: u16, vars: u16, arguments: &[u64])
         global_var_obj: JSValue::UNDEFINED,
         global_var_cache: std::ptr::null_mut(),
         scope_local_peak: 0,
+        lit_atoms: [0; super::abi::LIT_ATOM_MAX],
     };
 
     let mem = publish(&compiled);

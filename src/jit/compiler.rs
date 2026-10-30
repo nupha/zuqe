@@ -79,8 +79,8 @@ use super::{
         HELPER_ITERATOR_CLOSE, HELPER_ITERATOR_GET_VALUE_DONE, HELPER_ITERATOR_NEXT, HELPER_LNOT,
         HELPER_LT, HELPER_LTE, HELPER_MAKE_ARG_REF, HELPER_MAKE_LOC_REF, HELPER_MAKE_VAR_REF,
         HELPER_MAKE_VAR_REF_REF, HELPER_MOD, HELPER_MUL, HELPER_NEG, HELPER_NEQ, HELPER_NIP_CATCH,
-        HELPER_NOT, HELPER_OBJECT, HELPER_OK, HELPER_OR, HELPER_PLUS, HELPER_POST_DEC,
-        HELPER_POST_INC, HELPER_POW, HELPER_PRIVATE_IN, HELPER_PRIVATE_SYMBOL,
+        HELPER_NOT, HELPER_OBJECT, HELPER_OBJECT_LITERAL, HELPER_OK, HELPER_OR, HELPER_PLUS,
+        HELPER_POST_DEC, HELPER_POST_INC, HELPER_POW, HELPER_PRIVATE_IN, HELPER_PRIVATE_SYMBOL,
         HELPER_PUSH_BIGINT_I32, HELPER_PUT_ARRAY_EL, HELPER_PUT_FIELD, HELPER_PUT_PRIVATE_FIELD,
         HELPER_PUT_REF_VALUE, HELPER_PUT_SUPER_VALUE, HELPER_PUT_VAR, HELPER_PUT_VAR_INIT,
         HELPER_PUT_VAR_REF, HELPER_PUT_VAR_REF_CHECK, HELPER_PUT_VAR_REF_CHECK_INIT, HELPER_REGEXP,
@@ -89,7 +89,8 @@ use super::{
         HELPER_STRICT_NEQ, HELPER_SUB, HELPER_THROW, HELPER_THROW_ERROR, HELPER_TO_BOOL,
         HELPER_TO_OBJECT, HELPER_TO_PROPKEY, HELPER_TYPEOF, HELPER_WITH_DELETE_VAR,
         HELPER_WITH_GET_REF, HELPER_WITH_GET_VAR, HELPER_WITH_MAKE_REF, HELPER_WITH_MISS,
-        HELPER_WITH_PUT_VAR, HELPER_XOR, INLINE_METHOD_BIT, JitExecFrame, SPEC_MISS_IMM2,
+        HELPER_WITH_PUT_VAR, HELPER_XOR, INLINE_METHOD_BIT, JitExecFrame, LIT_ATOM_MAX,
+        SPEC_MISS_IMM2,
     },
     analysis::{Analysis, LocalRef, RedundantExpressions},
     bytecode::{
@@ -153,6 +154,9 @@ const O_HELPERS: i32 = offset_of!(JitExecFrame, helpers) as i32;
 const O_THIS: i32 = offset_of!(JitExecFrame, this) as i32;
 const O_IMM: i32 = offset_of!(JitExecFrame, imm) as i32;
 const O_IMM2: i32 = offset_of!(JitExecFrame, imm2) as i32;
+/// T25: the merged object literal's atoms, stored one `u32` each right before
+/// the `h_object_literal` call.
+const O_LIT_ATOMS: i32 = offset_of!(JitExecFrame, lit_atoms) as i32;
 const O_PC: i32 = offset_of!(JitExecFrame, pc) as i32;
 const O_OUT_VALUE: i32 = offset_of!(JitExecFrame, out_value) as i32;
 const O_OUT_PC: i32 = offset_of!(JitExecFrame, out_pc) as i32;
@@ -420,7 +424,7 @@ pub(crate) fn is_cse_expression(name: &str) -> bool {
 /// Every opcode the baseline lowers as a pure stack shuffle. Exported like
 /// `policy::opcode_names` so the coverage gate in `tests/jit_opcodes.rs` can
 /// check its oracle set against the real table instead of a copied list.
-pub fn shuffle_opcodes() -> &'static [&'static str] {
+pub const fn shuffle_opcodes() -> &'static [&'static str] {
     &[
         "nip", "nip1", "dup", "dup1", "dup2", "dup3", "insert2", "insert3", "insert4", "perm3",
         "perm4", "perm5", "swap", "swap2", "rot3l", "rot3r", "rot4l", "rot5l",
@@ -546,6 +550,11 @@ struct State<'a> {
     /// Counter for the variable-id block an inlined body owns. Every emission
     /// gets a fresh block: Cranelift forbids declaring a variable twice.
     inline_tag: u32,
+    /// T25: the merged object-literal windows, keyed by the `object` pc.
+    lit_windows: HashMap<u32, LiteralWindow>,
+    /// T25: instructions below this pc were consumed by a merged window
+    /// lowered at `object`; the driver loop skips them.
+    skip_until_pc: u32,
 }
 
 /// Block-local register copies of local/argument slots (the stack-slot register cache, the read half
@@ -1128,6 +1137,59 @@ fn call_stack_helper(
     b.ins().load(types::I64, MemFlags::new(), fv.frame, O_SP)
 }
 
+/// Emit one of the pure value pushes a merged literal window (T25) accepts as
+/// a field value. Each pushes exactly one slot; the register cache tracks them
+/// like any other push, and the merged helper's flush roots them before the
+/// one call that builds the literal.
+fn lower_literal_push(
+    state: &mut State,
+    b: &mut FunctionBuilder,
+    fv: &FrameVals,
+    insn: &Instruction,
+    sp: Value,
+) -> Value {
+    match insn.name() {
+        "push_i32" => {
+            let v = b.ins().iconst(types::I64, i64::from(insn.operand_u32(1)));
+            state.stack.push_int(b, sp, v)
+        }
+        "push_const" => {
+            let idx = insn.operand_u32(1) as usize;
+            let v = b
+                .ins()
+                .load(types::I64, MemFlags::new(), fv.cpools, (idx * 8) as i32);
+            let is_int = state.const_meta.get(idx).is_some_and(|meta| meta.tag == 0);
+            if is_int {
+                state.stack.push_int(b, sp, v)
+            } else {
+                state.stack.push(b, sp, v)
+            }
+        }
+        "get_loc" => {
+            let idx = u32::from(insn.operand_u16(1));
+            let v = state
+                .locals
+                .read(b, fv.var_base, false, idx, loc_offset_u16(insn));
+            state.stack.push(b, sp, v)
+        }
+        "get_arg" => {
+            let idx = u32::from(insn.operand_u16(1));
+            let v = state
+                .locals
+                .read(b, fv.arg_base, true, idx, loc_offset_u16(insn));
+            state.stack.push(b, sp, v)
+        }
+        "undefined" => {
+            let v = b.ins().iconst(types::I64, UNDEFINED_BITS);
+            state.stack.push(b, sp, v)
+        }
+        _ => {
+            let v = b.ins().iconst(types::I64, 2i64 << 48); // null
+            state.stack.push(b, sp, v)
+        }
+    }
+}
+
 /// Like [`call_stack_helper`], but for a helper that **always** leaves the
 /// frame: it reports `HELPER_EXCEPTION` (or `HELPER_INTERRUPT`) whatever the
 /// operand was. There is then no continuation to emit, so the instruction is a
@@ -1706,6 +1768,97 @@ fn build_inline_plan(callee: &InlineCallee, identity: u64) -> Option<super::inli
     })
 }
 
+/// T25's merged object literal: the `object` seed plus the run of
+/// (simple value push, `define_field`) pairs that follow it **inside one
+/// basic block**, keyed by the `object` pc.
+///
+/// A window is only merged when every field's value is a pure stack push that
+/// can neither throw nor call a helper (`push_i32`/`push_const`/`get_loc`/
+/// `get_arg`/`undefined`/`null`) — that is what makes it safe to defer all
+/// `define_field`s to the end: nothing between the pushes can observe the
+/// partially built literal, and the helper call's flush roots every value.
+/// A duplicate atom (`{a:1, a:2}`, an update rather than an append), a window
+/// longer than [`LIT_ATOM_MAX`], or a run that would exceed the frame's
+/// operand stack stops the merge; the per-op path below then handles it.
+/// A merged object-literal window (see [`literal_windows`]).
+#[derive(Clone)]
+struct LiteralWindow {
+    /// The field atoms, in source order (`imm` carries the count).
+    atoms: Vec<u32>,
+    /// The instruction indices (into the verified stream) of the N value
+    /// pushes, in source order — the merged lowering emits them itself.
+    value_indices: Vec<usize>,
+    /// The pc just past the window's last `define_field` — where the merged
+    /// helper reports on failure and where the driver resumes lowering.
+    end_pc: u32,
+}
+
+/// Whether an opcode is one of the pure value pushes a merged literal window
+/// accepts as a field value. Each pushes exactly one slot and cannot exit.
+fn is_literal_push(name: &str) -> bool {
+    matches!(
+        name,
+        "push_i32" | "push_const" | "get_loc" | "get_arg" | "undefined" | "null"
+    )
+}
+
+fn literal_windows(verified: &VerifiedFunction, osr_pcs: &[u32]) -> HashMap<u32, LiteralWindow> {
+    let instructions = verified.instructions();
+    let heights = verified.stack_heights();
+    let stack_size = usize::from(verified.snapshot().stack_size);
+    let mut out = HashMap::new();
+    for block in verified.control_flow_graph().blocks() {
+        let range = block.instruction_range();
+        let mut i = range.start;
+        while i < range.end {
+            if instructions[i].name() != "object" {
+                i += 1;
+                continue;
+            }
+            let start_height = usize::from(heights[i]);
+            let mut atoms: Vec<u32> = Vec::new();
+            let mut value_indices: Vec<usize> = Vec::new();
+            let mut j = i + 1;
+            while atoms.len() < LIT_ATOM_MAX && j + 1 < range.end {
+                let value = &instructions[j];
+                let define = &instructions[j + 1];
+                if !is_literal_push(value.name()) || define.name() != "define_field" {
+                    break;
+                }
+                // An OSR resume point inside the window would re-enter with the
+                // un-merged stack shape, so the run stops before one.
+                if osr_pcs.contains(&value.pc()) || osr_pcs.contains(&define.pc()) {
+                    break;
+                }
+                let atom = define.operand_u32(1);
+                if atoms.contains(&atom) {
+                    break;
+                }
+                atoms.push(atom);
+                value_indices.push(j);
+                j += 2;
+            }
+            // The merged window stacks all N values at once where the original
+            // only ever held one, so it needs the frame's headroom for it.
+            if !atoms.is_empty() && start_height + atoms.len() <= stack_size {
+                let last = &instructions[j - 1];
+                out.insert(
+                    instructions[i].pc(),
+                    LiteralWindow {
+                        atoms,
+                        value_indices,
+                        end_pc: last.pc() + last.size() as u32,
+                    },
+                );
+            }
+            // The run (merged or not) is consumed: a later `object` cannot
+            // pair with a `define_field` already claimed here.
+            i = j;
+        }
+    }
+    out
+}
+
 fn lower(
     b: &mut FunctionBuilder,
     fv: &FrameVals,
@@ -1756,6 +1909,8 @@ fn lower(
         inline_sites: inline_call_sites(verified),
         native_sites: native_call_sites(verified),
         inline_tag: 0,
+        lit_windows: literal_windows(verified, osr_pcs),
+        skip_until_pc: 0,
     };
     let entry_block = state.block_for(b, 0);
     if osr_pcs.is_empty() {
@@ -1777,6 +1932,10 @@ fn lower(
         };
         let cranelift_block = state.blocks[&start_pc];
         b.switch_to_block(cranelift_block);
+        // T25: a merged window never crosses a block, and blocks lower in
+        // worklist order (their pcs are not monotonic), so the skip bound is
+        // local to the block that set it.
+        state.skip_until_pc = 0;
         // Cross-block carry: slots carried across the incoming edges arrive as
         // block parameters — re-seed the model from them. The model itself
         // never crosses a block; every edge delivers it through `edge_args`.
@@ -1809,6 +1968,11 @@ fn lower(
         let base = range.start;
         let total = range.end - base;
         for (offset, insn) in instructions[range].iter().enumerate() {
+            // T25: instructions already covered by a merged literal window
+            // (lowered at its `object`) are not lowered again.
+            if insn.pc() < state.skip_until_pc {
+                continue;
+            }
             // Anchor the stack cache to the verified entry height of this
             // instruction: pushes/pops inside it are tracked incrementally.
             let index = base + offset;
@@ -2331,6 +2495,55 @@ fn lower_insn(
                 HELPER_PUSH_BIGINT_I32,
                 pc + size,
             );
+            return Step::Continue(sp);
+        }
+        // T25: `object` plus the (simple push, `define_field`)* run that
+        // follows it in this block collapses into one helper call that builds
+        // the whole literal. The window's pushes are emitted here; the driver
+        // skips the instructions it covers (`skip_until_pc`). No window means
+        // the plain `object` helper, as before.
+        "object" => {
+            let window = state.lit_windows.get(&pc).cloned();
+            let Some(window) = window else {
+                let sp = call_stack_helper(state, b, fv, helper_sig, sp, HELPER_OBJECT, pc + size);
+                return Step::Continue(sp);
+            };
+            let instructions = verified.instructions();
+            let mut sp = sp;
+            for (i, (&index, &atom)) in window
+                .value_indices
+                .iter()
+                .zip(window.atoms.iter())
+                .enumerate()
+            {
+                let atom = b.ins().iconst(types::I32, i64::from(atom));
+                b.ins().store(
+                    MemFlags::new(),
+                    atom,
+                    fv.frame,
+                    O_LIT_ATOMS + (i as i32) * 4,
+                );
+                sp = lower_literal_push(state, b, fv, &instructions[index], sp);
+            }
+            let count = b
+                .ins()
+                .iconst(types::I32, i64::from(window.atoms.len() as u32));
+            b.ins().store(MemFlags::new(), count, fv.frame, O_IMM);
+            let sp = call_stack_helper(
+                state,
+                b,
+                fv,
+                helper_sig,
+                sp,
+                HELPER_OBJECT_LITERAL,
+                window.end_pc,
+            );
+            // The window's net effect is `object`'s: N pushes then the
+            // helper's `-N + 1` leaves the literal at `start_height + 1`. The
+            // flush emptied the cache, so only the anchor (height + no
+            // tracked effect) keeps the driver's cross-check quiet.
+            state.stack.anchor(start_height + 1);
+            state.skip_until_pc = window.end_pc;
             return Step::Continue(sp);
         }
         _ => {}
@@ -5747,6 +5960,105 @@ mod tests {
         assert!(
             shl < shr,
             "a shift result skips the consumer's check: {shl} vs {shr} bytes"
+        );
+    }
+
+    /// T25's merged literal: the atoms ride in `JitExecFrame::lit_atoms`,
+    /// addressed by generated code through `O_LIT_ATOMS`. Pin the offset the
+    /// way the other frame-layout contracts are pinned — a field that moves
+    /// without the constant moving would make the stores land elsewhere in the
+    /// frame (silently, since the helper reads the array by field, not offset).
+    #[test]
+    fn the_literal_atom_offset_is_stable() {
+        assert_eq!(
+            O_LIT_ATOMS as usize,
+            offset_of!(JitExecFrame, lit_atoms),
+            "O_LIT_ATOMS must track the frame field"
+        );
+        // The generated code stores one `u32` per field, up to LIT_ATOM_MAX;
+        // those stores must stay inside the array and off the neighbouring
+        // immediates the same call sequence writes (`imm` carries the count).
+        let start = O_LIT_ATOMS as usize;
+        let end = start + LIT_ATOM_MAX * 4;
+        for neighbour in [
+            offset_of!(JitExecFrame, imm),
+            offset_of!(JitExecFrame, imm2),
+        ] {
+            assert!(
+                end <= neighbour || neighbour + 4 <= start,
+                "the atom stores overlap another immediate"
+            );
+        }
+    }
+
+    /// T25's window scan: `object` plus a run of (pure push, `define_field`)
+    /// pairs merges; a field value the window cannot defer (here `add`, which
+    /// may call a helper) or a duplicate atom (`{a:1, a:2}`, an update rather
+    /// than the batch append) truncates it, and the compile still succeeds.
+    #[test]
+    fn literal_window_scan_and_fallbacks() {
+        let verified = |parts: &[&[u8]]| {
+            let snapshot = snapshot(seq(parts), 0, 2);
+            verify(snapshot, VerifyLimits::default()).expect("verify hand-written body")
+        };
+        let define = |atom: u32| seq(&[&[op::OP_define_field], &u32b(atom)]);
+
+        // `{a: <push>, b: <push>}`: both fields merge into one window.
+        let merged = verified(&[
+            &[op::OP_object],
+            &push_i32(1),
+            &define(1),
+            &push_i32(2),
+            &define(2),
+            &[op::OP_return],
+        ]);
+        let windows = literal_windows(&merged, &[]);
+        assert_eq!(windows.len(), 1, "one merged literal window");
+        let window = &windows[&0];
+        assert_eq!(window.atoms, vec![1, 2], "both atoms in source order");
+        assert_eq!(window.value_indices.len(), 2, "both value pushes");
+        assert!(
+            window.end_pc > merged.instructions()[4].pc(),
+            "the window ends past the last define_field"
+        );
+
+        // `{a: <push>, b: x + y}`: `add` can call a helper, so the run stops
+        // after the first field and the rest keeps the per-op path.
+        let truncated = verified(&[
+            &[op::OP_object],
+            &push_i32(1),
+            &define(1),
+            &loc(op::OP_get_loc, 0),
+            &loc(op::OP_get_loc, 1),
+            &[op::OP_add],
+            &define(2),
+            &[op::OP_return],
+        ]);
+        let windows = literal_windows(&truncated, &[]);
+        assert_eq!(windows.len(), 1, "the safe prefix still merges");
+        assert_eq!(windows[&0].atoms, vec![1], "only the pure field merges");
+
+        // `{a: <push>, a: <push>}`: the duplicate atom is an update, not the
+        // batch's append, so the window stops before it.
+        let duplicate = verified(&[
+            &[op::OP_object],
+            &push_i32(1),
+            &define(7),
+            &push_i32(2),
+            &define(7),
+            &[op::OP_return],
+        ]);
+        let windows = literal_windows(&duplicate, &[]);
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[&0].atoms, vec![7], "the duplicate truncates the run");
+
+        // An OSR resume point inside the window would re-enter with the
+        // un-merged stack shape, so it stops the merge there entirely.
+        let osr_pc = merged.instructions()[1].pc();
+        let windows = literal_windows(&merged, &[osr_pc]);
+        assert!(
+            windows.is_empty(),
+            "an OSR point inside the run disables the merge"
         );
     }
 

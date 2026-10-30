@@ -262,7 +262,17 @@ pub(crate) struct JitExecFrame {
     /// grows with the run. `invoke_native` folds it into
     /// `JitMetrics::scope_local_peak`.
     pub scope_local_peak: u32,
+    /// the atoms of a merged object literal. The generated code stores
+    /// them here right before `h_object_literal` runs (like `imm`, they are
+    /// per-call immediates the helper signature cannot carry); only that
+    /// helper reads them, and only the count in `imm` entries are live.
+    pub lit_atoms: [u32; LIT_ATOM_MAX],
 }
+
+/// The largest object literal T25 merges into one `h_object_literal` call.
+/// A window with more fields keeps the per-field helper sequence, so this is
+/// a code-shape bound, not a semantic one.
+pub(crate) const LIT_ATOM_MAX: usize = 8;
 
 /// The object in the prototype chain that *owns* `prop` (the one whose own
 /// property it is), and how far up the chain it was found.
@@ -2277,6 +2287,45 @@ unsafe extern "C" fn h_object(f: *mut JitExecFrame) -> u32 {
     }
 }
 
+/// T25's merged object literal: `[v1, ..., vN, ^] -> [obj, ^]`, where `imm` is
+/// `N` and `lit_atoms[..N]` holds the field atoms (compile-time checked to be
+/// pairwise distinct, so the batch transition's "no duplicates" contract holds).
+///
+/// One trip into Rust builds the whole literal: a fresh base object plus one
+/// batched shape transition ([`ObjectImpl::add_own_properties`]) instead of
+/// `N` `define_field` round trips. Every value is read straight out of the
+/// operand stack before the batch runs, so a collection inside it sees them
+/// (the frame is the GC window); the fresh object is unobservable until the
+/// helper returns, which is what lets the values be defined after all of them
+/// were evaluated.
+unsafe extern "C" fn h_object_literal(f: *mut JitExecFrame) -> u32 {
+    unsafe {
+        let f = &mut *f;
+        let n = f.imm as usize;
+        debug_assert!(n >= 1 && n <= LIT_ATOM_MAX, "literal window is bounded");
+        let sp = f.sp;
+        let base = sp.sub(n);
+        let mut props = [(crate::atom::Atom::NULL, 0u32, JSValue::UNDEFINED); LIT_ATOM_MAX];
+        for (i, slot) in props.iter_mut().enumerate().take(n) {
+            *slot = (
+                crate::atom::Atom::from_id(f.lit_atoms[i]),
+                crate::object::JS_PROP_C_W_E,
+                *base.add(i),
+            );
+        }
+        let mut obj = match scope_of(f).create_base_object() {
+            Ok(obj) => obj,
+            Err(_) => return HELPER_EXCEPTION,
+        };
+        if obj.add_own_properties(scope_of(f), &props[..n]).is_err() {
+            return HELPER_EXCEPTION;
+        }
+        *base = JSValue::from(obj);
+        f.sp = base.add(1);
+        HELPER_OK
+    }
+}
+
 /// `object` inside an inlined body: allocate an empty object and leave
 /// it in `scratch` instead of the caller's operand stack. The helper cannot
 /// collect (an allocation only sets `gc_req`), so the unrooted scratch slot is
@@ -3089,7 +3138,7 @@ fn apply_direct_call(
 }
 
 /// Stack helpers in call order; the compiler loads entry `id` and calls it.
-pub(crate) const HELPER_COUNT: usize = 126;
+pub(crate) const HELPER_COUNT: usize = 127;
 pub(crate) const HELPER_ADD: usize = 0;
 pub(crate) const HELPER_SUB: usize = 1;
 pub(crate) const HELPER_MUL: usize = 2;
@@ -3321,6 +3370,8 @@ pub(crate) const HELPER_ALLOC_ARRAY0: usize = 124;
 /// Index of [`h_call_apply`], a native-callee method site's fast path for
 /// `Function.prototype.apply`.
 pub(crate) const HELPER_CALL_APPLY: usize = 125;
+/// Index of [`h_object_literal`], T25's merged object-literal builder.
+pub(crate) const HELPER_OBJECT_LITERAL: usize = 126;
 
 /// The helper dispatch table. Function pointers are immutable and never
 /// interchanged, so sharing the table across threads is sound.
@@ -3455,4 +3506,5 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_alloc_object as *const (),
     h_alloc_array0 as *const (),
     h_call_apply as *const (),
+    h_object_literal as *const (),
 ]);
