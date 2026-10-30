@@ -1267,6 +1267,14 @@ fn compile_summary_line(entries: &[(Mode, u64, u64)]) -> String {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Cross-engine comparison: dump the kernels as TSV (name/define/work) so
+    // the same workload can run under another engine's harness.
+    if args.first().map(String::as_str) == Some("--dump-kernels") {
+        for k in KERNELS {
+            println!("{}\t{}\t{}", k.name, k.define, k.work);
+        }
+        return;
+    }
     if run_one(&args) {
         return;
     }
