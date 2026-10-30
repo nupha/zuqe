@@ -377,9 +377,12 @@ fn the_global_guard_is_bit_exact_across_modes() {
 /// (`let s`) goes through `global_var_obj` instead.
 #[test]
 fn the_top_level_osr_loop_uses_the_guard() {
+    // The loop must outlive the compile: install only lands on a back edge, so
+    // a loop shorter than the worker's compile latency (a few ms) ends still
+    // interpreted and `native_entries` never moves.
     let sources = [
-        "var s = 1; for (var i = 1; i < 20000; i++) s = (s + i) | 0; s;",
-        "let s = 1; for (let i = 1; i < 20000; i++) s = (s + i) | 0; s;",
+        "var s = 1; for (var i = 1; i < 2000000; i++) s = (s + i) | 0; s;",
+        "let s = 1; for (let i = 1; i < 2000000; i++) s = (s + i) | 0; s;",
     ];
     for src in sources {
         let mut rt = Runtime::create().expect("runtime");
