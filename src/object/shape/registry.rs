@@ -139,9 +139,23 @@ impl ShapeRegistry {
     }
 
     /// Trace all registered shapes through the GC trace context.
-    /// Bucket heads (and their `registry_next` chains) are added to the
-    /// traced set, which keeps them alive during the current GC cycle.
+    ///
+    /// With `gc_generations`, every node in every bucket chain is submitted,
+    /// not just the bucket heads: `resize()` reverses a chain, so a chain can
+    /// hold old→young links, and a minor stops descending at the first old
+    /// (Black) node. Submitting every shape keeps young shapes reachable
+    /// regardless of chain order. Without the feature the heads are enough
+    /// (a full mark descends the chain).
     pub(crate) fn trace_all(&self, gcx: &mut GcTraceCtx) {
+        #[cfg(feature = "gc_generations")]
+        for head in self.buckets.iter().flatten() {
+            let mut ptr = Some(*head);
+            while let Some(node) = ptr {
+                gcx.add(node);
+                ptr = unsafe { node.as_ref().next };
+            }
+        }
+        #[cfg(not(feature = "gc_generations"))]
         for head in self.buckets.iter().flatten() {
             gcx.add(*head);
         }

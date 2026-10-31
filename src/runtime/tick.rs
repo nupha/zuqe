@@ -325,8 +325,10 @@ impl RuntimeImpl {
             return TickStatus::Idle;
         }
 
-        if self.gc_req || self.gc_heap().should_gc() {
-            self.gc_collect();
+        // The tick is the fallback safepoint for a due threshold (the batched
+        // allocation check normally promotes it to `gc_req` first).
+        if self.gc_should_collect() || self.gc_heap().should_gc() {
+            self.gc_collect_dispatch();
         }
 
         // Process FinalizationRegistry cleanups collected during GC

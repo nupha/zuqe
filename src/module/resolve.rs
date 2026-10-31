@@ -280,9 +280,7 @@ impl ModuleDef {
                                                     vr.set_value(&mut ctx.rt_ptr(), ns.into());
                                                     vr
                                                 };
-                                                md_func
-                                                    .payload_mut()
-                                                    .set_closure(import_var_idx as usize, vref);
+                                                md_func.set_closure(import_var_idx as usize, vref);
                                             }
                                         }
                                         ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
@@ -298,9 +296,7 @@ impl ModuleDef {
                                                     .payload()
                                                     .get_closure(var_idx as usize)
                                             });
-                                            md_func
-                                                .payload_mut()
-                                                .set_closure(import_var_idx as usize, vr);
+                                            md_func.set_closure(import_var_idx as usize, vr);
                                         }
                                     }
                                 }

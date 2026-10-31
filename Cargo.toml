@@ -79,6 +79,7 @@ default = [
     "big_int",
     "all_unicode",
     "async_support",
+    "gc_generations",
     "jit",
 
     "builtin_mapset",

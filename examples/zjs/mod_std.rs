@@ -158,6 +158,12 @@ fn js_gc(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
+/// Request a minor collection (a no-op without `gc_generations`).
+fn js_gc_minor(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
+    ctx.rt_mut().gc_minor_request();
+    Ok(JSValue::UNDEFINED)
+}
+
 /// Live bytes accounted by the GC heap (diagnostics/regression tests).
 fn js_gc_memory(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     Ok(JSValue::from(ctx.rt().gc_memory_used() as f64))
@@ -195,6 +201,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
     FieldDef::FUNC("puts", 1, js_file_puts, 0), // stdout
     FieldDef::FUNC("evalScript", 1, js_evalScript, 0),
     FieldDef::FUNC("gc", 0, js_gc, 0),
+    FieldDef::FUNC("gcMinor", 0, js_gc_minor, 0),
     FieldDef::FUNC("gcMemory", 0, js_gc_memory, 0),
     FieldDef::FUNC("gcStats", 0, js_gc_stats, 0),
     FieldDef::FUNC("exit", 1, std_exit, 0),

@@ -1658,8 +1658,9 @@ unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
         if scope.poll_interrupts() {
             return HELPER_INTERRUPT;
         }
+
         let mut rt = scope.rt_ptr();
-        if rt.gc_req {
+        if rt.gc_should_collect() {
             // A scope that is never cleared accumulates its LOCAL list, and
             // every `remove_local` then scans it linearly. The high-water mark
             // is sampled here, right before the clear, and reported as a bench
@@ -1685,7 +1686,7 @@ unsafe extern "C" fn h_safepoint(f: *mut JitExecFrame) -> u32 {
             if f.gc_scope_kind != GcScopeKind::None as u32 {
                 scope.clear_locals();
             }
-            rt.gc_collect();
+            rt.gc_collect_dispatch();
         }
         HELPER_OK
     }
@@ -2394,7 +2395,8 @@ unsafe extern "C" fn h_close_loc(f: *mut JitExecFrame) -> u32 {
         let f = &mut *f;
         let idx = f.imm as u16;
         let frame_idx = FrameIndex::from_u32(f.cur_frame_idx);
-        (*f.arena).close_loc_ref(frame_idx, idx);
+        let mut rt = scope_of(f).rt_ptr();
+        (*f.arena).close_loc_ref(frame_idx, idx, rt.gc_heap_mut());
         HELPER_OK
     }
 }

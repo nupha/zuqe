@@ -22,7 +22,10 @@ function spin() {
 }
 
 const start = std.gcStats();
-check(start.minorCount === 0, "no minor collections before Phase 2");
+check(
+    typeof start.minorCount === "number" && start.minorCount >= 0,
+    "minor counter is a non-negative number",
+);
 check(start.majorCount >= 0, "major counter is non-negative");
 check(start.timeNs >= 0, "time counter is non-negative");
 

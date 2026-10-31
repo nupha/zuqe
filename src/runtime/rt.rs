@@ -159,6 +159,20 @@ pub struct RuntimeImpl {
     pub(crate) gc_alloc_check_interval: u32,
     /// gc request flag
     pub(crate) gc_req: bool,
+    /// minor collection request flag (`gc_generations`). A major request wins.
+    #[cfg(feature = "gc_generations")]
+    pub(crate) gc_minor_req: bool,
+    /// `memory_used` at the end of the last minor/major: bytes allocated since
+    /// then are the young-byte budget used to trigger a minor.
+    #[cfg(feature = "gc_generations")]
+    pub(crate) young_base: usize,
+    /// Young-byte threshold (`0` = minor disabled). Derived from the major
+    /// threshold and adapted by the minor survival rate.
+    #[cfg(feature = "gc_generations")]
+    pub(crate) young_threshold: usize,
+    /// Lower bound for `young_threshold` (`max(initial_major/8, GC_ARENA_CAP)`).
+    #[cfg(feature = "gc_generations")]
+    pub(crate) young_min: usize,
 
     /// Completed collection counters (Phase 0 observability). Updated only in
     /// the collection epilogue, never on the allocation hot path.
@@ -234,6 +248,16 @@ pub struct RuntimeImpl {
     /// `gc_trace_fns` survives this Vec's growth; freed when the runtime drops.
     #[cfg(feature = "zapi")]
     pub(crate) zapi_gc_tracers: Vec<Box<crate::zapi::ZapiGcTracer>>,
+    /// Live instances of zapi classes (`gc_generations` only).
+    ///
+    /// The zapi ABI has no write-barrier entry point, so an extension can write
+    /// a young node into the opaque payload of an old instance without the GC
+    /// knowing. Root-tracing every live instance on a minor re-traces those
+    /// payloads through the extension's `gc_trace` callback, which closes that
+    /// gap without an ABI change. Pruned on each minor; extensions normally
+    /// hold few instances.
+    #[cfg(all(feature = "zapi", feature = "gc_generations"))]
+    pub(crate) zapi_instances: Vec<gc_lite::GcWeak<crate::object::ObjectImpl>>,
     /// Runtime-finalize hooks of the zapi modules imported into this runtime
     /// (deduped by pointer). Called once each, in reverse import order, at the
     /// end of `finalize()` so extensions can release runtime-scoped native
@@ -430,6 +454,14 @@ impl RuntimeImpl {
             gc_part_hot: gc_part_id,
             gc_job: None,
             gc_req: false,
+            #[cfg(feature = "gc_generations")]
+            gc_minor_req: false,
+            #[cfg(feature = "gc_generations")]
+            young_base: 0,
+            #[cfg(feature = "gc_generations")]
+            young_threshold: 0,
+            #[cfg(feature = "gc_generations")]
+            young_min: 0,
             gc_minor_count: 0,
             gc_major_count: 0,
             gc_minor_freed: 0,
@@ -466,6 +498,8 @@ impl RuntimeImpl {
             zapi_class_defs: Vec::new(),
             #[cfg(feature = "zapi")]
             zapi_gc_tracers: Vec::new(),
+            #[cfg(all(feature = "zapi", feature = "gc_generations"))]
+            zapi_instances: Vec::new(),
             #[cfg(feature = "zapi")]
             zapi_module_finalizers: Vec::new(),
 
@@ -488,6 +522,15 @@ impl RuntimeImpl {
         rt.refresh_thread_stack_top();
 
         init_static_class_defs()?;
+
+        // Startup allocations belong to "already accounted" memory: rebase the
+        // young budget and derive it from the (tiny) initial major threshold.
+        #[cfg(feature = "gc_generations")]
+        {
+            rt.young_base = rt.gc_heap.memory_used();
+            rt.young_min = (rt.gc_heap.gc_threshold() / 8).max(GC_ARENA_CAP / 2);
+            rt.young_threshold = rt.young_min;
+        }
 
         Ok(rt)
     }
@@ -900,10 +943,11 @@ mod tests {
         rt.gc_collect();
 
         assert_eq!(rt.gc_major_count(), majors + 1);
+        #[cfg(not(feature = "gc_generations"))]
         assert_eq!(
             rt.gc_minor_count(),
             0,
-            "no minor collections before Phase 2"
+            "no minor collections without the feature"
         );
         assert!(rt.gc_major_freed() > 0, "major freed bytes accumulate");
         assert!(rt.gc_time_ns() > 0, "major time accumulates");

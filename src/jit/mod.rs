@@ -802,7 +802,21 @@ pub(crate) fn note_local_update(
 /// Call-site feedback hook: record the callee seen at a call site (the direct-call path).
 /// A no-op unless a JIT is attached and the function is still interpreted.
 #[inline]
-pub(crate) fn note_call(rt: &RuntimeImpl, bc: &Bytecode, site: u32, callee: JSValue) {
+pub(crate) fn note_call(rt: &mut RuntimeImpl, bc: &Bytecode, site: u32, callee: JSValue) {
+    // `FeedbackTable.calls[].callee` is a strong edge from the caller bytecode
+    // node to the callee bytecode node (BytecodeImpl::trace relies on it). The
+    // caller may be old and the callee young, so this edge needs the
+    // generational barrier.
+    #[cfg(feature = "gc_generations")]
+    {
+        let callee_bc = crate::function::BCWrapper::try_from(callee)
+            .ok()
+            .map(|bfun| bfun.payload().bytecode());
+        if let Some(cb) = callee_bc {
+            rt.gc_heap_mut().bind(bc.gc_node_ptr(), cb.gc_node_ptr());
+        }
+    }
+
     if let Some(state) = rt.jit.as_deref() {
         state.note_call(bc, site, callee);
     }

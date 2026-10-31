@@ -13,6 +13,9 @@ use crate::{
     value::JSValue,
 };
 
+#[cfg(feature = "gc_generations")]
+use crate::gc::GcHeapExt;
+
 /// Internal data for a WeakRef instance.
 /// Per ES2027: target can be an Object or a non-registered Symbol.
 pub struct WeakRefData {
@@ -311,6 +314,10 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             }
         };
         frd.entries.push(entry);
+        // Write barrier: the registry payload now strongly holds `held_value`.
+        #[cfg(feature = "gc_generations")]
+        ctx.gc_heap_mut()
+            .bind_value(this_obj.gc_node_ptr(), &held_val);
     }
 
     // Add back-reference from target to this FinalizationRegistry (objects only)

@@ -12,10 +12,13 @@ use crate::{
     context::{ContextPtr, ScopedContext},
     error::JSResult,
     object::{NativeFunction, Object, ObjectImpl, PayloadPtr},
-    runtime::js_check_thread_stack_overflow,
+    runtime::{RuntimeImpl, js_check_thread_stack_overflow},
     value::JSValue,
     vm_stack::{ExecMode, FrameAllocError, FrameState, VmStack},
 };
+
+#[cfg(feature = "gc_generations")]
+use crate::gc::GcHeapExt;
 
 use super::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR, js_function_set_properties};
 
@@ -173,6 +176,28 @@ impl NFuncPayload {
 }
 
 impl NativeFunction {
+    /// Bind every binding-data value to this function's GC node.
+    ///
+    /// `CallContext::replace_data` writes a new value into the payload; the
+    /// function node may be old while the value is young, so the edge needs a
+    /// generational barrier. The caller runs it after the native body returns,
+    /// because `CallContext` holds no heap reference. A no-op without
+    /// `gc_generations`.
+    fn bind_data_to_self(&self, rt: &mut RuntimeImpl) {
+        #[cfg(feature = "gc_generations")]
+        {
+            let Some(data) = self.payload().data.as_deref() else {
+                return;
+            };
+            let owner = self.gc_node_ptr();
+            for value in data {
+                rt.gc_heap_mut().bind_value(owner, value);
+            }
+        }
+        #[cfg(not(feature = "gc_generations"))]
+        let _ = rt;
+    }
+
     /// Call native function
     pub fn class_call(
         ctx: &mut ScopedContext,
@@ -248,6 +273,7 @@ impl NativeFunction {
         };
 
         let result = nfunc.payload_mut().call(this_obj, nargs, flags);
+        nfunc.bind_data_to_self(&mut rt);
 
         // Cleanup: restore active_trampoline_frame and free frame (on both success and error paths).
         rt.active_frame_index = prev_frame;
@@ -325,6 +351,7 @@ impl NativeFunction {
         };
 
         let result = nfunc.payload_mut().call(this_val, nargs, 0);
+        nfunc.bind_data_to_self(&mut rt);
 
         rt.active_frame_index = saved_active;
 

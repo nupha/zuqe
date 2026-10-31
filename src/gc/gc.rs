@@ -108,10 +108,101 @@ impl RuntimeImpl {
 
         if self.gc_alloc_count >= self.gc_alloc_check_interval {
             self.gc_alloc_count = 0;
+
+            // Major wins: if both are due, request only the major.
+            #[cfg(feature = "gc_generations")]
+            {
+                if self.gc_heap.should_gc() {
+                    self.gc_req = true;
+                } else if self.young_threshold > 0
+                    && self.gc_heap.memory_used().saturating_sub(self.young_base)
+                        > self.young_threshold
+                {
+                    self.gc_minor_req = true;
+                }
+            }
+            #[cfg(not(feature = "gc_generations"))]
             if self.gc_heap.should_gc() {
                 self.gc_req = true;
             }
         }
+    }
+
+    /// Whether a collection is due at an interpreter/JIT safepoint.
+    ///
+    /// Only explicit requests: the threshold is promoted to `gc_req` by the
+    /// batched allocation check (and by `tick`), exactly as without the
+    /// generational feature. Checking `should_gc()` here would collect earlier
+    /// and change the major cadence.
+    #[inline(always)]
+    pub(crate) fn gc_should_collect(&self) -> bool {
+        #[cfg(feature = "gc_generations")]
+        {
+            self.gc_req || self.gc_minor_req
+        }
+        #[cfg(not(feature = "gc_generations"))]
+        {
+            self.gc_req
+        }
+    }
+
+    /// Safepoint dispatch: a due major takes priority over a due minor.
+    ///
+    /// The `should_gc()` clause only matters when `tick` calls this with a due
+    /// threshold but no request; the interpreter/JIT only call it when a request
+    /// is already pending, so major cadence is unchanged.
+    #[inline(always)]
+    pub(crate) fn gc_collect_dispatch(&mut self) {
+        #[cfg(feature = "gc_generations")]
+        {
+            if self.gc_req || self.gc_heap.should_gc() {
+                self.gc_collect();
+            } else if self.gc_minor_req {
+                self.gc_minor();
+            }
+        }
+        #[cfg(not(feature = "gc_generations"))]
+        self.gc_collect();
+    }
+
+    /// Lower bound for the adapted budget at the current major threshold:
+    /// `max(major/8, young_min)`. Halving never goes below it, which keeps a
+    /// high-reclaim workload from degenerating into a minor storm.
+    #[cfg(feature = "gc_generations")]
+    #[inline]
+    fn young_floor(&self) -> usize {
+        (self.gc_heap.gc_threshold() / 8).max(self.young_min)
+    }
+
+    /// Re-clamp the minor budget after a major. A disabled automatic major
+    /// threshold disables minor too; the adapted value is kept inside
+    /// `[major/8, major]`.
+    #[cfg(feature = "gc_generations")]
+    pub(crate) fn recompute_young_threshold(&mut self) {
+        let major = self.gc_heap.gc_threshold();
+        if major == 0 {
+            self.young_threshold = 0;
+        } else {
+            let lower = self.young_floor();
+            let upper = major.max(lower);
+            self.young_threshold = self.young_threshold.clamp(lower, upper);
+        }
+    }
+
+    /// G4.3: adapt the young budget to the last minor's reclaim rate.
+    ///
+    /// Low reclaim (<10%) jumps to the major threshold; <25% doubles; high
+    /// reclaim (>75%) halves down to `max(major/8, young_min)`. Anything in
+    /// between is left alone (avoids oscillation on mixed workloads).
+    #[cfg(feature = "gc_generations")]
+    fn adapt_young_threshold(&mut self, young_bytes: usize, freed: usize) {
+        if self.young_threshold == 0 {
+            return;
+        }
+        let lower = self.young_floor();
+        let upper = self.gc_heap.gc_threshold().max(lower);
+        self.young_threshold =
+            adapted_threshold(self.young_threshold, young_bytes, freed, lower, upper);
     }
 
     /// collect garbage
@@ -119,13 +210,57 @@ impl RuntimeImpl {
         log::trace!("[collect] {partition_id:?}");
         let started = std::time::Instant::now();
 
-        // ensure marking cycle is started
+        // ensure marking cycle is started (this also merges the young chain)
         self.gc_heap_mut().mark(partition_id, 0);
 
         // --- Phase 1: Remove unused shapes (use_count == 0) ---
         self.shape_registry.remove_unused();
 
-        // --- Phase 2: Trace shape registry into its own GcTraceCtx ---
+        // --- Phase 2/3: Trace every root into the gray list ---
+        self.trace_runtime_roots(partition_id, false);
+
+        let mut freed = 0;
+        if self.gc_heap_mut().mark(partition_id, usize::MAX) {
+            // mark cycle done, use two-phase sweep.
+            if let Some(white) = self.gc_heap_mut().sweep_unlink(partition_id) {
+                freed = self.sweep_white(partition_id, white);
+            }
+        }
+
+        // update new gc threshold (major only; a minor must not move it)
+        let used = self.gc_heap().memory_used();
+        self.gc_heap_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
+        // Young bytes are counted from the end of the sweep.
+        #[cfg(feature = "gc_generations")]
+        {
+            self.young_base = used;
+            self.gc_minor_req = false;
+            self.recompute_young_threshold();
+        }
+
+        log::trace!("[collect] {partition_id:?} free {freed} bytes");
+
+        self.gc_req = false;
+        self.gc_major_count += 1;
+        self.gc_major_freed = self.gc_major_freed.saturating_add(freed);
+        self.gc_time_ns = self
+            .gc_time_ns
+            .saturating_add(started.elapsed().as_nanos() as u64);
+        freed
+    }
+
+    /// Trace the runtime root set (shape registry, contexts, vm stack, pending
+    /// promises/async states, exception, eval base URL, JIT, job, user traces,
+    /// future registry, user state) into the heap's gray list.
+    ///
+    /// Shared by major and minor: a root added only to one of them is a
+    /// use-after-free waiting to happen. `force_roots` is set by a minor so that
+    /// old (Black) root containers are still descended; the old children they
+    /// report are skipped by the GC.
+    fn trace_runtime_roots(&mut self, partition_id: GcPartitionId, force_roots: bool) {
+        #[cfg(not(feature = "gc_generations"))]
+        let _ = force_roots;
+        // --- Trace shape registry into its own GcTraceCtx ---
         // (field-level borrows to avoid &self conflicts with later &mut self)
         let shape_nodes = {
             let heap = &self.gc_heap;
@@ -134,7 +269,7 @@ impl RuntimeImpl {
             shape_gcx.take_nodes()
         };
 
-        // --- Phase 3: Trace other GC roots (contexts, stack, etc.) ---
+        // --- Trace other GC roots (contexts, stack, etc.) ---
         let other_nodes = {
             let heap = &self.gc_heap;
             let mut gcx = heap.create_trace_ctx(256);
@@ -229,53 +364,139 @@ impl RuntimeImpl {
             // mark the host user state attached at runtime creation
             self.user_state.trace(&mut gcx);
 
+            // zapi payloads have no ABI write barrier: re-trace the children of
+            // every old instance so a young value the extension wrote into its
+            // opaque payload survives the minor. The instance itself is not
+            // rooted, so old garbage is still collected on the next major.
+            #[cfg(all(feature = "zapi", feature = "gc_generations"))]
+            if force_roots {
+                for weak in &self.zapi_instances {
+                    if let Some(inst) = weak.upgrade(heap) {
+                        let node = inst.into_raw().node_ptr();
+                        if !unsafe { node.as_ref().is_young() } {
+                            heap.trace_node(node, &mut gcx);
+                        }
+                    }
+                }
+            }
+
             gcx.take_nodes()
         };
 
-        // --- Phase 4: Add all traced nodes to gray list ---
+        // --- Add all traced nodes to gray list ---
         for n in shape_nodes.into_iter().chain(other_nodes) {
             if unsafe { n.as_ref().partition_id() } == partition_id {
+                #[cfg(feature = "gc_generations")]
+                if force_roots {
+                    self.gc_heap_mut().add_gray_node_force(n);
+                } else {
+                    self.gc_heap_mut().add_gray_node(n);
+                }
+                #[cfg(not(feature = "gc_generations"))]
                 self.gc_heap_mut().add_gray_node(n);
             }
         }
+    }
+
+    /// White-list teardown shared by minor and major: runtime side-effects, then
+    /// trivial payload drops, then dispose.
+    fn sweep_white(&mut self, partition_id: GcPartitionId, white: GcNodeLink) -> usize {
+        // Pre-drop cleanup — runtime side-effects for dying nodes (atom
+        // removal, object finalize). Runs with the runtime's own &mut self and
+        // NO drop_fn executing, so no re-entrancy is possible by construction.
+        self.pre_drop_cleanup(&white);
+
+        // Drop payloads — Drop impls are trivial (no RuntimeImpl access), so
+        // holding &mut self across this is sound. Only drops white
+        // non-root/non-local nodes; root/local survivors are kept by
+        // sweep_dispose and freed later.
+        let registry = self.gc_heap().type_registry();
+        gc_lite::GcHeap::sweep_drop_payloads(&white, registry);
+
+        // Dispose — frees memory, updates accounting (needs &mut GcHeap).
+        self.gc_heap_mut().sweep_dispose(partition_id, white)
+    }
+
+    /// Minor (young-generation) collection: only the young chain plus the
+    /// remembered old→young edges is marked; survivors are promoted and the
+    /// young chain ends empty (promote-once).
+    #[cfg(feature = "gc_generations")]
+    pub(crate) fn gc_minor(&mut self) -> usize {
+        let started = std::time::Instant::now();
+        let partition_id = self.gc_part_id();
+
+        // v1 is single-partition; mark_grays only drains one partition's grays.
+        debug_assert_eq!(
+            self.gc_heap().partition_count(),
+            1,
+            "gc_generations v1 supports a single partition"
+        );
+
+        // Bytes allocated since the last collection: denominator for the
+        // survival-rate backoff.
+        let young_bytes = self.gc_heap().memory_used().saturating_sub(self.young_base);
+
+        // Shape churn is exactly the young garbage a ctor/objlit workload
+        // produces; drop unused shapes before marking.
+        self.shape_registry.remove_unused();
+
+        self.gc_heap_mut().minor_prepare(partition_id);
+        self.trace_runtime_roots(partition_id, true);
 
         let mut freed = 0;
-        if self.gc_heap_mut().mark(partition_id, usize::MAX) {
-            // mark cycle done, use two-phase sweep.
-            //
-            // Phase 1: Unlink white nodes (needs &mut GcHeap).
-            if let Some(white) = self.gc_heap_mut().sweep_unlink(partition_id) {
-                // Phase 2: Pre-drop cleanup — runtime side-effects for dying
-                // nodes (atom removal, object finalize). Runs with the
-                // runtime's own &mut self and NO drop_fn executing, so no
-                // re-entrancy is possible by construction.
-                self.pre_drop_cleanup(&white);
-
-                // Phase 3: Drop payloads — Drop impls are trivial (no
-                // RuntimeImpl access), so holding &mut self across this is
-                // sound. Only drops white non-root/non-local nodes; root/local
-                // survivors are kept by sweep_dispose and freed later.
-                let registry = self.gc_heap().type_registry();
-                gc_lite::GcHeap::sweep_drop_payloads(&white, registry);
-
-                // Phase 4: Dispose — frees memory, updates accounting (needs &mut GcHeap).
-                freed = self.gc_heap_mut().sweep_dispose(partition_id, white);
+        if self.gc_heap_mut().mark_grays(partition_id, usize::MAX) {
+            if let Some(white) = self.gc_heap_mut().minor_sweep_unlink(partition_id) {
+                freed = self.sweep_white(partition_id, white);
             }
         }
 
-        // update new gc threshold
+        // Debug validator: no allocation may run between the dispose above and
+        // this mark, so freed addresses are still unrecycled.
+        #[cfg(all(debug_assertions, feature = "gc_generations"))]
+        self.dbg_verify_after_minor(partition_id);
+
+        // A minor never moves the major threshold (that would make majors
+        // fire more often). Only the young budget is rebased/adapted.
+        self.adapt_young_threshold(young_bytes, freed);
         let used = self.gc_heap().memory_used();
-        self.gc_heap_mut().set_gc_threshold(used + (used >> 1)); // x1.5 of
-
-        log::trace!("[collect] {partition_id:?} free {freed} bytes");
-
-        self.gc_req = false;
-        self.gc_major_count += 1;
-        self.gc_major_freed = self.gc_major_freed.saturating_add(freed);
+        self.young_base = used;
+        self.gc_minor_req = false;
+        // Drop weak handles whose instance has been collected.
+        #[cfg(all(feature = "zapi", feature = "gc_generations"))]
+        {
+            let heap = &self.gc_heap;
+            self.zapi_instances.retain(|w| w.upgrade(heap).is_some());
+        }
+        self.gc_minor_count += 1;
+        self.gc_minor_freed = self.gc_minor_freed.saturating_add(freed);
         self.gc_time_ns = self
             .gc_time_ns
             .saturating_add(started.elapsed().as_nanos() as u64);
+
+        log::trace!("[minor] {partition_id:?} free {freed} bytes");
         freed
+    }
+
+    /// Debug-only validator for the generational write barriers.
+    ///
+    /// Runs a full mark + sweep right after a minor (before any mutator
+    /// allocation), so freed addresses are still unrecycled. gc-lite panics
+    /// when a live root or a traced child points at a node the minor just
+    /// freed. Finishing the cycle keeps the "old nodes are Black" invariant
+    /// that the next minor relies on.
+    #[cfg(all(debug_assertions, feature = "gc_generations"))]
+    fn dbg_verify_after_minor(&mut self, partition_id: GcPartitionId) {
+        self.gc_heap_mut().mark(partition_id, 0);
+        self.shape_registry.remove_unused();
+        self.trace_runtime_roots(partition_id, false);
+        if self.gc_heap_mut().mark(partition_id, usize::MAX) {
+            if let Some(white) = self.gc_heap_mut().sweep_unlink(partition_id) {
+                self.sweep_white(partition_id, white);
+            }
+        }
+        // Addresses may be recycled by the next allocation, so the check is
+        // only valid for the mark that just ran.
+        self.gc_heap_mut().dbg_clear_minor_freed();
     }
 
     #[inline(always)]
@@ -349,6 +570,16 @@ impl RuntimeImpl {
         self.gc_req = true;
     }
 
+    /// Request a minor collection. A no-op without `gc_generations`; the next
+    /// safepoint runs it, unless a major is also pending.
+    #[inline(always)]
+    pub const fn gc_minor_request(&mut self) {
+        #[cfg(feature = "gc_generations")]
+        {
+            self.gc_minor_req = true;
+        }
+    }
+
     /// request gc collect
     #[inline(always)]
     pub const fn gc_has_request(&self) -> bool {
@@ -367,8 +598,8 @@ impl RuntimeImpl {
         self.gc_heap().memory_used()
     }
 
-    /// Completed minor collections since runtime creation (0 until the
-    /// `gc_generations` path is wired in).
+    /// Completed minor collections since runtime creation (always 0 without the
+    /// `gc_generations` feature).
     pub const fn gc_minor_count(&self) -> u64 {
         self.gc_minor_count
     }
@@ -427,5 +658,53 @@ impl ScopedContext<'_> {
         if let Some(n) = val.as_gc_node() {
             self.gc_state().add_non_local(n);
         }
+    }
+}
+
+/// Pure core of the G4.3 young-budget backoff (bounded, no oscillation in the
+/// 25–75% band).
+#[cfg(feature = "gc_generations")]
+fn adapted_threshold(
+    current: usize,
+    young_bytes: usize,
+    freed: usize,
+    lower: usize,
+    upper: usize,
+) -> usize {
+    if young_bytes == 0 || current == 0 {
+        return current;
+    }
+    let freed = freed as u128;
+    let young = young_bytes as u128;
+    if freed * 10 < young {
+        // Almost nothing reclaimed: go straight to the major threshold.
+        upper
+    } else if freed * 4 < young {
+        current.saturating_mul(2).min(upper)
+    } else if freed * 4 > young * 3 {
+        (current / 2).max(lower)
+    } else {
+        current
+    }
+}
+
+#[cfg(all(test, feature = "gc_generations"))]
+mod young_backoff_tests {
+    use super::adapted_threshold;
+
+    #[test]
+    fn backoff_is_bounded_and_converges() {
+        // 0% reclaimed -> jump to the upper bound
+        assert_eq!(adapted_threshold(64, 100, 0, 32, 1000), 1000);
+        // 10% reclaimed -> double
+        assert_eq!(adapted_threshold(64, 100, 10, 32, 1000), 128);
+        // 50% reclaimed -> unchanged (no oscillation)
+        assert_eq!(adapted_threshold(64, 100, 50, 32, 1000), 64);
+        // 90% reclaimed -> halve, floored
+        assert_eq!(adapted_threshold(64, 100, 90, 40, 1000), 40);
+        // doubled value is capped by the upper bound
+        assert_eq!(adapted_threshold(900, 100, 10, 32, 1000), 1000);
+        // empty young budget is a no-op
+        assert_eq!(adapted_threshold(64, 0, 0, 32, 1000), 64);
     }
 }

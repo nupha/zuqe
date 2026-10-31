@@ -317,6 +317,28 @@ promises. It is now borrowed only for the final leftover insert.
 - [ ] Did you avoid a global roots `Vec` with manual push/pop, and avoid relying on
       `gc_protect_transient` or scope protection across JS?
 
+**Rule 5 (generational write barrier, only relevant with `gc_generations`)**
+
+With the opt-in `gc_generations` feature a minor only marks the young generation plus the
+remembered set, so an **old container that starts referencing a young node** must record the edge:
+
+- [ ] Property slots / array elements / Map/Set entries / closure variables: already routed through
+      `bind` (`set_prop_slot`, `bind_value`, `VarRef::set_value`/`detach`).
+- [ ] Native payload (`cc.replace_data`): `NativeFunction::class_call*` binds every binding-data value
+      back to the function node after the callback returns.
+- [ ] JIT call feedback (`note_call`) binds the caller bytecode to the recorded callee bytecode.
+- [ ] A new payload write that bypasses these must call
+      `rt.gc_heap_mut().bind_value(owner_node, &value)` (or `GcRef::with_write_barrier` when only
+      the owner is known; the owner's `GcTrace` must then report the edge).
+- [ ] Root containers (contexts, shape registry, jobs, user state) are force-descended by a minor;
+      do not rely on a young child of an old root staying alive by accident.
+- [ ] zapi extensions have no ABI write barrier entry point. The engine compensates by re-tracing the
+      payload of every **old** zapi instance on each minor (through the class `gc_trace` callback),
+      so a young value written into an opaque payload is still found. This is a fallback: a
+      value-carrying barrier (planned for a future `zuqe_zapi` ABI) avoids re-scanning every old
+      instance. Extension `gc_trace` callbacks must report every GC field they hold — the fallback
+      can only see what `gc_trace` reports.
+
 ## Customized GC tracer
 
 In case your native class or module have garbage collectable senario, you may register a customized gc trace handler to trace your gc'ed nodes.

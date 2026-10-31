@@ -717,7 +717,7 @@ impl Bytecode {
                 let ret_val = $ret_val;
                 let caller = callers.pop().expect("inline return without caller");
                 // Detach VarRefs before recycling the frame buffer.
-                arena_mut!().detach_and_free(cur_frame_idx);
+                arena_mut!().detach_and_free(cur_frame_idx, rt.gc_heap_mut());
                 if let Some(saved) = caller.caller_scope {
                     ret_val.promote(&cur_scope);
                     // SAFETY: `saved` was parked directly below `cur_scope`.
@@ -800,7 +800,7 @@ impl Bytecode {
                         if is_start {
                             return ExecAction::Unwind;
                         }
-                        arena_mut!().detach_and_free(cur_frame_idx);
+                        arena_mut!().detach_and_free(cur_frame_idx, rt.gc_heap_mut());
                         continue;
                     }
 
@@ -837,7 +837,7 @@ impl Bytecode {
                     if is_start {
                         return ExecAction::Unwind;
                     }
-                    arena_mut!().detach_and_free(cur_frame_idx);
+                    arena_mut!().detach_and_free(cur_frame_idx, rt.gc_heap_mut());
                 }
                 continue $label;
             }};
@@ -855,7 +855,7 @@ impl Bytecode {
                 let tail_args: SmallVec<[JSValue; 4]> = $args.iter().copied().collect();
                 let orig_prev = frame!(cur_frame_idx).prev;
                 let tail_depth = frame!(cur_frame_idx).depth.saturating_sub(1);
-                arena_mut!().detach_and_free(cur_frame_idx);
+                arena_mut!().detach_and_free(cur_frame_idx, rt.gc_heap_mut());
                 let new_idx = match build_callee_frame(
                     arena_mut!(),
                     tail_depth,
@@ -1470,7 +1470,7 @@ impl Bytecode {
                     }
                     OpCode::CLOSE_LOC => {
                         let idx = PC_FETCH!(u16);
-                        arena_mut!().close_loc_ref(cur_frame_idx, idx);
+                        arena_mut!().close_loc_ref(cur_frame_idx, idx, rt.gc_heap_mut());
                     }
 
                     // ── Closure variable refs ──
@@ -1582,7 +1582,7 @@ impl Bytecode {
                         #[cfg(feature = "jit")]
                         if jit_active {
                             crate::jit::note_call(
-                                &rt,
+                                &mut rt,
                                 &cur_bc,
                                 (unsafe { pc.offset_from(pc_base) } as u32) - 3,
                                 func,
@@ -1902,7 +1902,7 @@ impl Bytecode {
                         #[cfg(feature = "jit")]
                         if jit_active {
                             crate::jit::note_call(
-                                &rt,
+                                &mut rt,
                                 &cur_bc,
                                 (unsafe { pc.offset_from(pc_base) } as u32) - 3,
                                 func,
@@ -3861,11 +3861,11 @@ impl Bytecode {
                     rt.gc_collect();
                 }
                 #[cfg(not(all(debug_assertions, feature = "debug_gc")))]
-                if rt.gc_req {
+                if rt.gc_should_collect() {
                     // GC scans up to `cur_sp_offset`; sync the moved `sp` first.
                     sync_sp!();
                     realm_scope.clear_locals_from_depth(gc_scope_base_depth);
-                    rt.gc_collect();
+                    rt.gc_collect_dispatch();
                 }
             }; // opcodes inner loop
 
@@ -3915,7 +3915,7 @@ impl Bytecode {
                             save_sp!((finally_sp + 1) as i32);
                             continue 'arena_loop;
                         }
-                        arena_mut!().detach_and_free(cur_frame_idx);
+                        arena_mut!().detach_and_free(cur_frame_idx, rt.gc_heap_mut());
                         inline_unwind_dead!('arena_loop);
                     };
                     save_sp!(new_sp as i32);
@@ -4225,7 +4225,7 @@ pub(crate) fn execute_trampoline(
 
                 // Detach the outgoing frame's VarRefs and recycle it before
                 // allocating the callee, keeping the bump region bounded.
-                arena.detach_and_free(cur_frame_idx);
+                arena.detach_and_free(cur_frame_idx, rt_ptr.gc_heap_mut());
 
                 // On failure, propagate as a normal uncaught exception so
                 // enclosing try/catch/finally still run.
@@ -4298,7 +4298,7 @@ pub(crate) fn execute_trampoline(
                             unsafe { std::ptr::read(sp_base.offset(sp_offset as isize - 1)) };
                         // Detach VarRefs before freeing (an async arrow may have
                         // captured them, e.g. `new.target`).
-                        arena.detach_and_free(cur_frame_idx);
+                        arena.detach_and_free(cur_frame_idx, rt_ptr.gc_heap_mut());
                         // Promote before the scope pop so the value stays LOCAL
                         // in the caller's scope. A borrowed scope has no locals.
                         if cur_trampoline_scope.owns_scope() {
@@ -4335,7 +4335,7 @@ pub(crate) fn execute_trampoline(
                 if !is_outermost {
                     // Detach VarRefs before freeing; they would dangle after the
                     // region is reused.
-                    arena.detach_and_free(cur_frame_idx);
+                    arena.detach_and_free(cur_frame_idx, rt_ptr.gc_heap_mut());
                 }
                 // Promote before the scope pop.
 
@@ -4415,7 +4415,7 @@ pub(crate) fn execute_trampoline(
                 let is_outermost = virtual_frames.is_empty();
                 if !is_outermost {
                     // Detach VarRefs before freeing (as on Return).
-                    arena.detach_and_free(cur_frame_idx);
+                    arena.detach_and_free(cur_frame_idx, rt_ptr.gc_heap_mut());
                 }
                 if let Some(caller_vf) = virtual_frames.pop() {
                     (cur_bc, cur_frame_idx, pc_offset, sp_offset) =

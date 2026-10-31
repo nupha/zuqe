@@ -238,7 +238,38 @@ impl BCWrapper {
             .unwrap()
     }
 
+    /// Debug freshness check for a payload write out of this function node.
+    ///
+    /// `set_closure` / `set_home_object` are "freshness safe": the function
+    /// node is normally newly created (young), so a young value is fine, while
+    /// an old function only ever receives old values. If this trips on a real
+    /// path, that path needs a `bind_value` barrier.
+    #[cfg(all(debug_assertions, feature = "gc_generations"))]
+    #[inline(always)]
+    fn debug_assert_fresh_target(&self, target: std::ptr::NonNull<gc_lite::GcHead>, what: &str) {
+        let func = unsafe { self.0.node_ptr().as_ref() };
+        let value = unsafe { target.as_ref() };
+        debug_assert!(
+            func.is_young() || !value.is_young(),
+            "{what}: an old function node received a young GC value without a write barrier"
+        );
+    }
+
+    /// Set a closure variable ref, with the generational freshness check in
+    /// debug + `gc_generations` builds.
+    #[inline]
+    pub(crate) fn set_closure(&mut self, nth: usize, vref: VarRef) {
+        #[cfg(all(debug_assertions, feature = "gc_generations"))]
+        self.debug_assert_fresh_target(vref.gc_node_ptr(), "set_closure");
+        self.payload_mut().set_closure(nth, vref);
+    }
+
     pub(crate) fn method_set_home_object(&mut self, home_obj: Option<Object>) {
+        #[cfg(all(debug_assertions, feature = "gc_generations"))]
+        if let Some(obj) = &home_obj {
+            self.debug_assert_fresh_target(obj.gc_node_ptr(), "set_home_object");
+        }
+
         let fo = self.payload_mut();
         if fo.bytecode().need_home_object() {
             fo.set_home_object(home_obj);

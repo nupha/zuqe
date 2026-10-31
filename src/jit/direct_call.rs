@@ -165,7 +165,7 @@ pub(crate) fn call_native_direct(
         Some(pair) => pair,
         // The code was retired between the check above and here: fall back.
         None => {
-            arena.detach_and_free(frame_idx);
+            arena.detach_and_free(frame_idx, rt.gc_heap_mut());
             if let Some(s) = callee_scope {
                 drop(s.into_inner());
             }

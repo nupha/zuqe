@@ -1010,7 +1010,13 @@ unsafe extern "C" fn zapi_new_instance(
         JSValue::UNDEFINED,
         PayloadPtr::opaque(cid, payload),
     ) {
-        Ok(obj) => JSValue::from(obj).0,
+        Ok(obj) => {
+            // No ABI write barrier exists: remember the instance so a minor can
+            // re-trace its payload (see `RuntimeImpl::zapi_instances`).
+            #[cfg(feature = "gc_generations")]
+            ctx.rt_mut().zapi_instances.push(obj.downgrade());
+            JSValue::from(obj).0
+        }
         Err(_) => ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
     }
 }
@@ -2382,6 +2388,98 @@ mod class_registration_tests {
                 "a parent that registers later must still chain"
             );
             Ok::<(), i32>(())
+        })?;
+        Ok(())
+    }
+
+    /// A zapi extension has no ABI write barrier. An old instance whose opaque
+    /// payload gains a young value must still keep it: a minor re-traces the
+    /// payloads of old zapi instances via their `gc_trace` callback.
+    #[test]
+    #[cfg(all(feature = "gc_generations", debug_assertions))]
+    fn old_zapi_instance_payload_keeps_a_young_value_across_a_minor() -> Result<(), i32> {
+        use std::ffi::{c_char, c_void};
+
+        use zuqe_zapi::ffi::{ZqClassDef, ZqGcTraceCtxS, ZqRawCtx};
+
+        struct GenPayload {
+            value: JSValue,
+        }
+
+        unsafe extern "C" fn fin(_rt: *mut c_void, opaque: *mut c_void) {
+            if !opaque.is_null() {
+                drop(unsafe { Box::from_raw(opaque as *mut GenPayload) });
+            }
+        }
+
+        unsafe extern "C" fn trace(gcx: *mut ZqGcTraceCtxS, opaque: *mut c_void) {
+            let p = unsafe { &*(opaque as *const GenPayload) };
+            unsafe {
+                let _ = super::zapi_gc_mark(gcx, p.value.0);
+            }
+        }
+
+        let _lock = REG_LOCK.lock().unwrap();
+
+        let zq: *const ZqClassDef = Box::leak(Box::new(ZqClassDef {
+            name: c"GenPayload".as_ptr() as *const c_char,
+            parent_class: std::ptr::null(),
+            finalize: Some(fin),
+            gc_trace: Some(trace),
+            call: None,
+            has_instance: None,
+            call_arity: 0,
+            proto_entries_len: 0,
+            proto_entries: std::ptr::null(),
+            static_entries_len: 0,
+            static_entries: std::ptr::null(),
+        }));
+
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+        let id = ctx.with_new_scope(|cx| unsafe {
+            super::zapi_register_class(cx as *mut ScopedContext as ZqRawCtx, zq)
+        });
+        assert!(id >= 0, "class registration failed");
+
+        let payload = Box::into_raw(Box::new(GenPayload {
+            value: JSValue::UNDEFINED,
+        }));
+
+        ctx.with_root_scope(|mut cx| -> Result<(), i32> {
+            let raw = unsafe {
+                super::zapi_new_instance(
+                    &mut cx as *mut ScopedContext as ZqRawCtx,
+                    zq,
+                    payload as *mut c_void,
+                )
+            };
+            assert_ne!(
+                raw,
+                super::ZQ_API_TABLE.const_values[zuqe_zapi::ffi::ZQ_CONST_VALUE_SLOT_EXCEPTION],
+                "instance creation failed for class {id}"
+            );
+
+            // Promote the rooted instance to the old generation.
+            cx.rt_mut().gc_minor();
+
+            // Simulate an extension write: a fresh, unrooted object goes into
+            // the opaque payload without any write barrier.
+            let young = cx.create_base_object()?;
+            let node = young.gc_node_ptr();
+            cx.remove_local(node);
+            unsafe { (*payload).value = young.into() };
+
+            cx.rt_mut().gc_minor();
+
+            assert!(
+                cx.rt()
+                    .gc_heap()
+                    .nodes(cx.rt().gc_part_id())
+                    .any(|n| n == node),
+                "young value written into an old zapi payload was collected by a minor"
+            );
+            Ok(())
         })?;
         Ok(())
     }

@@ -357,10 +357,10 @@ impl VmStack {
     /// Replaces the manually paired `try_var_refs_mut` + `detach` loop +
     /// `free_frame` pattern in the trampoline's frame-recycling paths.
     #[inline]
-    pub(crate) fn detach_and_free(&mut self, idx: FrameIndex) {
+    pub(crate) fn detach_and_free(&mut self, idx: FrameIndex, heap: &mut gc_lite::GcHeap) {
         if let Some(var_refs) = self.try_var_refs_mut(idx) {
             for vr in var_refs {
-                vr.detach();
+                vr.detach_with_barrier(heap);
             }
         }
         self.free_frame(idx);
@@ -655,14 +655,19 @@ impl VmStack {
     /// reachable until the frame returns. The closures that still reference a
     /// closed ref keep it alive on their own.
     #[inline]
-    pub(crate) fn close_loc_ref(&mut self, idx: FrameIndex, var_idx: u16) {
+    pub(crate) fn close_loc_ref(
+        &mut self,
+        idx: FrameIndex,
+        var_idx: u16,
+        heap: &mut gc_lite::GcHeap,
+    ) {
         let Some(slot) = self.var_refs.get_mut(idx.0 as usize) else {
             return;
         };
         let Some(pos) = slot.iter().position(|v| v.is_match(var_idx, false)) else {
             return;
         };
-        slot[pos].detach();
+        slot[pos].detach_with_barrier(heap);
         slot.swap_remove(pos);
     }
 

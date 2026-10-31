@@ -3,7 +3,7 @@
 
 use std::{cell::UnsafeCell, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcHeap, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{RuntimeImpl, context::ScopedContext, gc::GcHeapExt, gcref_wrapper, value::JSValue};
 
@@ -135,6 +135,21 @@ impl VarRef {
     pub(crate) fn set_value(&mut self, rt: &mut RuntimeImpl, new_value: JSValue) {
         self.set_value_internal(new_value);
         rt.gc_heap_mut().bind_value(self.gc_node_ptr(), &new_value);
+    }
+
+    /// Detach the frame binding and remember the captured value on the VarRef
+    /// node. The frame slot was a GC root; once the frame is freed the only
+    /// edge to the value is this (possibly old) node. The barrier is a no-op
+    /// without `gc_generations`.
+    pub(crate) fn detach_with_barrier(&mut self, heap: &mut GcHeap) {
+        unsafe { self.0.as_mut() }.detach();
+        #[cfg(feature = "gc_generations")]
+        {
+            let value = unsafe { self.0.as_ref() }.value();
+            heap.bind_value(self.gc_node_ptr(), &value);
+        }
+        #[cfg(not(feature = "gc_generations"))]
+        let _ = heap;
     }
 
     pub(crate) fn create(ctx: &mut ScopedContext, value: JSValue) -> Result<Self, i32> {
