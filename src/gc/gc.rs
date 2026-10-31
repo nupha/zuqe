@@ -217,7 +217,7 @@ impl RuntimeImpl {
         self.shape_registry.remove_unused();
 
         // --- Phase 2/3: Trace every root into the gray list ---
-        self.trace_runtime_roots(partition_id, false);
+        self.trace_runtime_roots(false);
 
         let mut freed = 0;
         if self.gc_heap_mut().mark(partition_id, usize::MAX) {
@@ -261,7 +261,7 @@ impl RuntimeImpl {
     /// use-after-free waiting to happen. `force_roots` is set by a minor so that
     /// old (Black) root containers are still descended; the old children they
     /// report are skipped by the GC.
-    fn trace_runtime_roots(&mut self, partition_id: GcPartitionId, force_roots: bool) {
+    fn trace_runtime_roots(&mut self, force_roots: bool) {
         #[cfg(not(feature = "gc_generations"))]
         let _ = force_roots;
         // --- Trace shape registry into its own GcTraceCtx ---
@@ -388,17 +388,17 @@ impl RuntimeImpl {
         };
 
         // --- Add all traced nodes to gray list ---
+        // Each node joins its own partition's gray list; cross-partition roots
+        // must not be filtered out (a partition's collection drains its own).
         for n in shape_nodes.into_iter().chain(other_nodes) {
-            if unsafe { n.as_ref().partition_id() } == partition_id {
-                #[cfg(feature = "gc_generations")]
-                if force_roots {
-                    self.gc_heap_mut().add_gray_node_force(n);
-                } else {
-                    self.gc_heap_mut().add_gray_node(n);
-                }
-                #[cfg(not(feature = "gc_generations"))]
+            #[cfg(feature = "gc_generations")]
+            if force_roots {
+                self.gc_heap_mut().add_gray_node_force(n);
+            } else {
                 self.gc_heap_mut().add_gray_node(n);
             }
+            #[cfg(not(feature = "gc_generations"))]
+            self.gc_heap_mut().add_gray_node(n);
         }
     }
 
@@ -431,14 +431,6 @@ impl RuntimeImpl {
             return 0;
         }
         let started = std::time::Instant::now();
-        let partition_id = self.gc_part_id();
-
-        // v1 is single-partition; mark_grays only drains one partition's grays.
-        debug_assert_eq!(
-            self.gc_heap().partition_count(),
-            1,
-            "gc_generations v1 supports a single partition"
-        );
 
         // Bytes allocated since the last collection: denominator for the
         // survival-rate backoff.
@@ -448,24 +440,27 @@ impl RuntimeImpl {
         // produces; drop unused shapes before marking.
         self.shape_registry.remove_unused();
 
-        self.gc_heap_mut().minor_prepare(partition_id);
-        self.trace_runtime_roots(partition_id, true);
+        // A minor covers the young generation of every partition; it needs a
+        // quiescent heap (no partition mid-mark from a partial major).
+        if !self.gc_heap_mut().minor_prepare() {
+            self.gc_minor_req = false;
+            return 0;
+        }
+        self.trace_runtime_roots(true);
 
         let promote_after = self.young_promote_after as u32;
-        let mut freed = 0;
-        if self.gc_heap_mut().mark_grays(partition_id, usize::MAX) {
-            if let Some(white) = self
-                .gc_heap_mut()
-                .minor_sweep_unlink(partition_id, promote_after)
-            {
-                freed = self.sweep_white(partition_id, white);
+        let mut freed = 0usize;
+        self.gc_heap_mut().mark_grays_all();
+        if let Some(whites) = self.gc_heap_mut().minor_sweep_unlink(promote_after) {
+            for (pid, white) in whites {
+                freed = freed.saturating_add(self.sweep_white(pid, white));
             }
         }
 
         // Debug validator: no allocation may run between the dispose above and
         // this mark, so freed addresses are still unrecycled.
         #[cfg(all(debug_assertions, feature = "gc_generations"))]
-        self.dbg_verify_after_minor(partition_id);
+        self.dbg_verify_after_minor();
 
         // A minor never moves the major threshold (that would make majors
         // fire more often). Only the young budget is rebased/adapted.
@@ -482,7 +477,7 @@ impl RuntimeImpl {
             .gc_time_ns
             .saturating_add(started.elapsed().as_nanos() as u64);
 
-        log::trace!("[minor] {partition_id:?} free {freed} bytes");
+        log::trace!("[minor] free {freed} bytes");
         freed
     }
 
@@ -503,13 +498,15 @@ impl RuntimeImpl {
     /// freed. Finishing the cycle keeps the "old nodes are Black" invariant
     /// that the next minor relies on.
     #[cfg(all(debug_assertions, feature = "gc_generations"))]
-    fn dbg_verify_after_minor(&mut self, partition_id: GcPartitionId) {
+    fn dbg_verify_after_minor(&mut self) {
+        let partition_id = self.gc_part_id();
         self.gc_heap_mut().mark(partition_id, 0);
         self.shape_registry.remove_unused();
-        self.trace_runtime_roots(partition_id, false);
-        if self.gc_heap_mut().mark(partition_id, usize::MAX) {
-            if let Some(white) = self.gc_heap_mut().sweep_unlink(partition_id) {
-                self.sweep_white(partition_id, white);
+        self.trace_runtime_roots(false);
+        self.gc_heap_mut().mark_grays_all();
+        for pid in self.gc_heap().partition_ids() {
+            if let Some(white) = self.gc_heap_mut().sweep_unlink(pid) {
+                self.sweep_white(pid, white);
             }
         }
         // Addresses may be recycled by the next allocation, so the check is
