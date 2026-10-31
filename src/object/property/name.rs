@@ -159,13 +159,17 @@ impl ObjectImpl {
                     if !has_err {
                         let atom_kind = pk.atom.desc_kind(ctx.rt());
                         if (flags >> (atom_kind as u8)) & 1 != 0 {
-                            let mut is_enumerable = false;
-
-                            if flags & (JS_GPN_SET_ENUM | JS_GPN_ENUM_ONLY) != 0
-                                && let Some(d) = self.get_own_property(ctx, pk.atom)?
+                            // Ask the exotic provider's descriptor when the
+                            // caller wants enumerability; its `PropertyKey`
+                            // flag is not reliable (Proxy uses it as an
+                            // invariant marker).
+                            let is_enumerable = if flags & (JS_GPN_SET_ENUM | JS_GPN_ENUM_ONLY) != 0
                             {
-                                is_enumerable = d.flags & JS_PROP_ENUMERABLE != 0;
-                            }
+                                self.get_own_property(ctx, pk.atom)?
+                                    .is_some_and(|d| d.flags & JS_PROP_ENUMERABLE != 0)
+                            } else {
+                                pk.is_enumerable
+                            };
 
                             if is_enumerable || flags & JS_GPN_ENUM_ONLY == 0 {
                                 let isa = if let Some(i) = pk.atom.to_array_index(ctx.rt()) {
@@ -180,7 +184,7 @@ impl ObjectImpl {
                                     PropertyKey {
                                         atom: pk.atom,
                                         kind: isa,
-                                        is_enumerable: pk.is_enumerable,
+                                        is_enumerable,
                                         is_exotic: true,
                                     },
                                 )
