@@ -667,20 +667,24 @@ impl ObjectImpl {
             let this = Object::from(self.gc_ref());
 
             if let Some(ws) = &mut self.weak_refs {
-                for o in ws.drain(..).filter_map(|w| w.upgrade(heap)) {
+                // `weak_refs` is shared with FinalizationRegistry back-refs;
+                // keep those for the block below instead of draining them.
+                ws.retain(|w| {
+                    let Some(o) = w.upgrade(heap) else {
+                        return false;
+                    };
                     let mut o = Object::from(o.into_raw());
-                    debug_assert!(
-                        matches!(
-                            o.class_id(),
-                            crate::JS_CLASS_WEAKSET | crate::JS_CLASS_WEAKMAP
-                        ),
-                        "must be WeakSet or WeakMap object"
-                    );
-
+                    if !matches!(
+                        o.class_id(),
+                        crate::JS_CLASS_WEAKSET | crate::JS_CLASS_WEAKMAP
+                    ) {
+                        return true;
+                    }
                     if let Some(ms) = o.payload_mapset_mut() {
                         ms.remove_weak_obj(this);
                     }
-                }
+                    false
+                });
             }
         }
 

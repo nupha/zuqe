@@ -173,6 +173,17 @@ impl RuntimeImpl {
                 s.trace(&mut gcx);
             }
 
+            // FinalizationRegistry cleanups collected by the previous GC are
+            // queued here until the next tick drains them. They are the only
+            // owners of `callback`/`held_value` in that window, so a GC running
+            // before the tick must trace them (`ContextPtr` is covered by
+            // `context_list`).
+            #[cfg(feature = "builtin_weakref")]
+            for (callback, held_value, _) in self.finrec_pending_cleanups.iter() {
+                callback.trace(&mut gcx);
+                held_value.trace(&mut gcx);
+            }
+
             // trace error value
             if let Exception::Error(err) = self.exception() {
                 err.trace(&mut gcx);

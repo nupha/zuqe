@@ -575,4 +575,49 @@ mod tests {
         assert_eq!(rt_b.tick(), TickStatus::Idle);
         Ok(())
     }
+
+    /// 回归：FR cleanup 在两次 GC 之间只由 `finrec_pending_cleanups` 持有。
+    ///
+    /// 第一次 GC 把 target 回收、把 (callback, held_value) 排进 pending；tick
+    /// 尚未排空时再触发一次 GC，这两个值必须被根扫描保住，否则排队项会拿着
+    /// 已释放节点进入下一轮 tick。
+    #[cfg(feature = "builtin_weakref")]
+    #[test]
+    fn finrec_pending_values_survive_gc_before_tick() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        ctx.eval(
+            br#"
+                globalThis.__got = 0;
+                globalThis.__fr = new FinalizationRegistry(v => { globalThis.__got = v.marker; });
+                (() => { const target = {}; __fr.register(target, { marker: 42 }); })();
+            "#,
+            &EvalName::Name("finrec.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )?;
+
+        rt.gc_collect();
+        assert_eq!(
+            rt.finrec_pending_cleanups.len(),
+            1,
+            "target collected and cleanup queued"
+        );
+
+        // GC again before the queue is drained: the queued callback/held value
+        // are the only owners in this window.
+        rt.gc_collect();
+        rt.process_finrec_cleanups();
+        drain(&mut rt);
+
+        let got = ctx.eval(
+            b"globalThis.__got",
+            &EvalName::Name("finrec.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )?;
+        assert_eq!(got, JSValue::from(42), "held value survives the extra GC");
+        Ok(())
+    }
 }
