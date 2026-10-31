@@ -180,7 +180,7 @@ impl RuntimeImpl {
     #[cfg(feature = "gc_generations")]
     pub(crate) fn recompute_young_threshold(&mut self) {
         let major = self.gc_heap.gc_threshold();
-        if major == 0 {
+        if major == 0 || self.young_promote_after == 0 {
             self.young_threshold = 0;
         } else {
             let lower = self.young_floor();
@@ -226,6 +226,10 @@ impl RuntimeImpl {
                 freed = self.sweep_white(partition_id, white);
             }
         }
+
+        // Drop collected zapi instance handles even when no minor runs.
+        #[cfg(all(feature = "zapi", feature = "gc_generations"))]
+        self.prune_zapi_instances();
 
         // update new gc threshold (major only; a minor must not move it)
         let used = self.gc_heap().memory_used();
@@ -422,6 +426,10 @@ impl RuntimeImpl {
     /// young chain ends empty (promote-once).
     #[cfg(feature = "gc_generations")]
     pub(crate) fn gc_minor(&mut self) -> usize {
+        if self.young_promote_after == 0 {
+            self.gc_minor_req = false;
+            return 0;
+        }
         let started = std::time::Instant::now();
         let partition_id = self.gc_part_id();
 
@@ -443,9 +451,13 @@ impl RuntimeImpl {
         self.gc_heap_mut().minor_prepare(partition_id);
         self.trace_runtime_roots(partition_id, true);
 
+        let promote_after = self.young_promote_after as u32;
         let mut freed = 0;
         if self.gc_heap_mut().mark_grays(partition_id, usize::MAX) {
-            if let Some(white) = self.gc_heap_mut().minor_sweep_unlink(partition_id) {
+            if let Some(white) = self
+                .gc_heap_mut()
+                .minor_sweep_unlink(partition_id, promote_after)
+            {
                 freed = self.sweep_white(partition_id, white);
             }
         }
@@ -463,10 +475,7 @@ impl RuntimeImpl {
         self.gc_minor_req = false;
         // Drop weak handles whose instance has been collected.
         #[cfg(all(feature = "zapi", feature = "gc_generations"))]
-        {
-            let heap = &self.gc_heap;
-            self.zapi_instances.retain(|w| w.upgrade(heap).is_some());
-        }
+        self.prune_zapi_instances();
         self.gc_minor_count += 1;
         self.gc_minor_freed = self.gc_minor_freed.saturating_add(freed);
         self.gc_time_ns = self
@@ -475,6 +484,15 @@ impl RuntimeImpl {
 
         log::trace!("[minor] {partition_id:?} free {freed} bytes");
         freed
+    }
+
+    /// Drop weak handles to collected zapi instances. Called at every minor and
+    /// major so the list stays bounded even when minors are disabled (`promote
+    /// == 0`).
+    #[cfg(all(feature = "zapi", feature = "gc_generations"))]
+    fn prune_zapi_instances(&mut self) {
+        let heap = &self.gc_heap;
+        self.zapi_instances.retain(|w| w.upgrade(heap).is_some());
     }
 
     /// Debug-only validator for the generational write barriers.
@@ -570,13 +588,43 @@ impl RuntimeImpl {
         self.gc_req = true;
     }
 
-    /// Request a minor collection. A no-op without `gc_generations`; the next
-    /// safepoint runs it, unless a major is also pending.
+    /// Set the promotion generation count: `0` disables minors (major-only),
+    /// `1` promotes after one minor, `2` after two. Values above 2 clamp to 2.
+    /// A no-op without `gc_generations`.
+    ///
+    /// `0` keeps the generational bookkeeping (young chain, remembered set) but
+    /// never schedules or runs a minor; see `docs/gc.md`. It is not the same as
+    /// compiling without the feature (that removes the bookkeeping entirely).
+    #[inline]
+    pub fn gc_set_promote_after(&mut self, x: u8) {
+        #[cfg(feature = "gc_generations")]
+        {
+            let x = x.min(2);
+            self.young_promote_after = x;
+            if x == 0 {
+                self.young_threshold = 0;
+                self.gc_minor_req = false;
+            } else {
+                // Start the young budget from the current heap size and re-derive
+                // the threshold for the new promotion mode.
+                self.young_base = self.gc_heap.memory_used();
+                self.recompute_young_threshold();
+            }
+        }
+        #[cfg(not(feature = "gc_generations"))]
+        let _ = x;
+    }
+
+    /// Request a minor collection. A no-op without `gc_generations` or when
+    /// minors are disabled (`promote == 0`); the next safepoint runs it, unless
+    /// a major is also pending.
     #[inline(always)]
     pub const fn gc_minor_request(&mut self) {
         #[cfg(feature = "gc_generations")]
         {
-            self.gc_minor_req = true;
+            if self.young_promote_after != 0 {
+                self.gc_minor_req = true;
+            }
         }
     }
 

@@ -17,6 +17,11 @@ import * as std from "std";
 
 const KERNEL = scriptArgs[1] || "churn-ctor";
 const N = +(scriptArgs[2] || 200000);
+const PROMOTE_AFTER = scriptArgs[3] === undefined ? -1 : +scriptArgs[3];
+
+// X-generation sweep: 0 disables minors, 1/2 select the promotion count;
+// -1 keeps the engine default.
+if (PROMOTE_AFTER >= 0) std.gcPromote(PROMOTE_AFTER);
 
 let peak = 0;
 
@@ -119,6 +124,7 @@ const gc_ns = s1.timeNs - s0.timeNs;
 const out = {
     kernel: KERNEL,
     n: N,
+    promoteAfter: PROMOTE_AFTER,
     result: result,
     wallMs: wall_ms,
     gcMs: +(gc_ns / 1e6).toFixed(2),

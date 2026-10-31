@@ -164,6 +164,17 @@ fn js_gc_minor(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     Ok(JSValue::UNDEFINED)
 }
 
+/// Set the promotion generation count (0 = disable minors, 1 or 2 = survive
+/// that many minors before promotion; a no-op without `gc_generations`).
+fn js_gc_promote(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
+    let x = cc.arg(0).to_number(ctx)?.to_i32();
+    if !(0..=2).contains(&x) {
+        return Err(ctx.throw_range_error("gcPromote expects 0, 1 or 2"));
+    }
+    ctx.rt_mut().gc_set_promote_after(x as u8);
+    Ok(JSValue::UNDEFINED)
+}
+
 /// Live bytes accounted by the GC heap (diagnostics/regression tests).
 fn js_gc_memory(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     Ok(JSValue::from(ctx.rt().gc_memory_used() as f64))
@@ -187,6 +198,11 @@ fn js_gc_stats(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     o.set_property_str(ctx, "minorFreed", JSValue::from(minor_freed as f64))?;
     o.set_property_str(ctx, "majorFreed", JSValue::from(major_freed as f64))?;
     o.set_property_str(ctx, "timeNs", JSValue::from(time_ns as f64))?;
+    o.set_property_str(
+        ctx,
+        "generations",
+        JSValue::from(cfg!(feature = "gc_generations")),
+    )?;
     Ok(o.into())
 }
 
@@ -202,6 +218,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
     FieldDef::FUNC("evalScript", 1, js_evalScript, 0),
     FieldDef::FUNC("gc", 0, js_gc, 0),
     FieldDef::FUNC("gcMinor", 0, js_gc_minor, 0),
+    FieldDef::FUNC("gcPromote", 1, js_gc_promote, 0),
     FieldDef::FUNC("gcMemory", 0, js_gc_memory, 0),
     FieldDef::FUNC("gcStats", 0, js_gc_stats, 0),
     FieldDef::FUNC("exit", 1, std_exit, 0),

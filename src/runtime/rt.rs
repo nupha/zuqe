@@ -173,6 +173,9 @@ pub struct RuntimeImpl {
     /// Lower bound for `young_threshold` (`max(initial_major/8, GC_ARENA_CAP)`).
     #[cfg(feature = "gc_generations")]
     pub(crate) young_min: usize,
+    /// Survive this many minors before promotion (X; `1` = promote-once).
+    #[cfg(feature = "gc_generations")]
+    pub(crate) young_promote_after: u8,
 
     /// Completed collection counters (Phase 0 observability). Updated only in
     /// the collection epilogue, never on the allocation hot path.
@@ -462,6 +465,8 @@ impl RuntimeImpl {
             young_threshold: 0,
             #[cfg(feature = "gc_generations")]
             young_min: 0,
+            #[cfg(feature = "gc_generations")]
+            young_promote_after: 2,
             gc_minor_count: 0,
             gc_major_count: 0,
             gc_minor_freed: 0,
@@ -924,6 +929,30 @@ mod tests {
     fn default_user_state() {
         let rt = crate::Runtime::create().unwrap();
         let _: &DummyUserState = rt.user_state::<DummyUserState>();
+    }
+
+    #[test]
+    #[cfg(feature = "gc_generations")]
+    fn promote_zero_disables_minor_and_reenables() -> Result<(), i32> {
+        let mut rt = crate::Runtime::create()?;
+        let before = rt.gc_minor_count();
+
+        rt.gc_set_promote_after(0);
+        assert_eq!(rt.young_threshold, 0, "0 must disable the minor budget");
+        assert_eq!(rt.gc_minor(), 0, "gc_minor must be a no-op when disabled");
+        assert_eq!(rt.gc_minor_count(), before);
+        rt.gc_minor_request();
+        rt.gc_collect_dispatch();
+        assert_eq!(rt.gc_minor_count(), before, "no minor request may fire");
+
+        rt.gc_set_promote_after(2);
+        assert!(rt.young_threshold > 0, "2 must restore the minor budget");
+        assert_eq!(rt.gc_minor(), 0, "empty heap frees nothing");
+        assert_eq!(rt.gc_minor_count(), before + 1);
+
+        rt.gc_set_promote_after(9);
+        assert_eq!(rt.young_promote_after, 2, "values above 2 clamp to 2");
+        Ok(())
     }
 
     #[test]

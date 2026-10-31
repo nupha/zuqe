@@ -135,7 +135,7 @@ function roundTrip(name, read) {
 
 // ── FinalizationRegistry registration ──────────────────────────────────────
 {
-    const registry = new FinalizationRegistry(() => {});
+    const registry = new FinalizationRegistry(() => { });
     minor();
     (() => {
         const target = {};
@@ -144,6 +144,41 @@ function roundTrip(name, read) {
     minor();
     major();
     check(typeof registry.unregister === "function", "registry lost");
+}
+
+// ── promotion count 0/1/2 ──────────────────────────────────────────────────
+if (std.gcStats().generations) {
+    const before = std.gcStats().minorCount;
+    std.gcPromote(0);
+
+    for (let i = 0; i < 20000; i++) ({ a: i, b: { c: i }, d: [i, i + 1] });
+    spin();
+    check(
+        std.gcStats().minorCount === before,
+        "gcPromote(0) must not run minors",
+    );
+    std.gcMinor();
+    spin();
+    check(
+        std.gcStats().minorCount === before,
+        "gcMinor() must be a no-op at gcPromote(0)",
+    );
+
+    std.gcPromote(2);
+    std.gcMinor();
+    spin();
+    check(
+        std.gcStats().minorCount > before,
+        "minors work again after gcPromote(2)",
+    );
+
+    let rejected = false;
+    try {
+        std.gcPromote(9);
+    } catch (e) {
+        rejected = e instanceof RangeError;
+    }
+    check(rejected, "gcPromote(9) must throw RangeError");
 }
 
 // Automatic minor path: churn enough young objects that the young budget is

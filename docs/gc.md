@@ -338,6 +338,10 @@ remembered set, so an **old container that starts referencing a young node** mus
       value-carrying barrier (planned for a future `zuqe_zapi` ABI) avoids re-scanning every old
       instance. Extension `gc_trace` callbacks must report every GC field they hold — the fallback
       can only see what `gc_trace` reports.
+- [ ] Runtime switch: `gc_set_promote_after(0)` (zjs `std.gcPromote(0)`) disables minors
+      (major-only) without rebuilding. It keeps the young chain and remembered-set bookkeeping, so
+      it is **not** the same as building without `gc_generations`; use the feature-off build when a
+      host needs the zero-bookkeeping path.
 
 ## Customized GC tracer
 
