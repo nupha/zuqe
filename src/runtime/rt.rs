@@ -160,6 +160,15 @@ pub struct RuntimeImpl {
     /// gc request flag
     pub(crate) gc_req: bool,
 
+    /// Completed collection counters (Phase 0 observability). Updated only in
+    /// the collection epilogue, never on the allocation hot path.
+    pub(crate) gc_minor_count: u64,
+    pub(crate) gc_major_count: u64,
+    /// Cumulative bytes reclaimed and time spent in completed collections.
+    pub(crate) gc_minor_freed: usize,
+    pub(crate) gc_major_freed: usize,
+    pub(crate) gc_time_ns: u64,
+
     /// Rooted pending Promises that must survive GC even if no user code holds a reference.
     pub(crate) gc_pending_promises: Vec<Promise>,
     /// Rooted pending async-function execution states. An AsyncState escapes its
@@ -421,6 +430,11 @@ impl RuntimeImpl {
             gc_part_hot: gc_part_id,
             gc_job: None,
             gc_req: false,
+            gc_minor_count: 0,
+            gc_major_count: 0,
+            gc_minor_freed: 0,
+            gc_major_freed: 0,
+            gc_time_ns: 0,
             gc_alloc_count: 0,
             gc_alloc_check_interval: GC_ALLOC_CHECK_INTERVAL,
             gc_user_trace: Vec::new(),
@@ -867,5 +881,32 @@ mod tests {
     fn default_user_state() {
         let rt = crate::Runtime::create().unwrap();
         let _: &DummyUserState = rt.user_state::<DummyUserState>();
+    }
+
+    #[test]
+    fn gc_counters_track_completed_collections() -> Result<(), i32> {
+        use crate::eval::{EvalFlags, EvalName, EvalType};
+
+        let mut rt = crate::Runtime::create()?;
+        let mut ctx = rt.create_context(crate::ScopedContext::ECMA_CONTEXT_SETUP)?;
+        ctx.eval(
+            b"for (let i = 0; i < 10000; i++) { ({ a: i }); }",
+            &EvalName::Name("gc-counters.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )?;
+
+        let majors = rt.gc_major_count();
+        rt.gc_collect();
+
+        assert_eq!(rt.gc_major_count(), majors + 1);
+        assert_eq!(
+            rt.gc_minor_count(),
+            0,
+            "no minor collections before Phase 2"
+        );
+        assert!(rt.gc_major_freed() > 0, "major freed bytes accumulate");
+        assert!(rt.gc_time_ns() > 0, "major time accumulates");
+        Ok(())
     }
 }

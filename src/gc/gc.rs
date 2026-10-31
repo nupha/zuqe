@@ -117,6 +117,7 @@ impl RuntimeImpl {
     /// collect garbage
     pub(crate) fn gc_collect_in(&mut self, partition_id: GcPartitionId) -> usize {
         log::trace!("[collect] {partition_id:?}");
+        let started = std::time::Instant::now();
 
         // ensure marking cycle is started
         self.gc_heap_mut().mark(partition_id, 0);
@@ -269,6 +270,11 @@ impl RuntimeImpl {
         log::trace!("[collect] {partition_id:?} free {freed} bytes");
 
         self.gc_req = false;
+        self.gc_major_count += 1;
+        self.gc_major_freed = self.gc_major_freed.saturating_add(freed);
+        self.gc_time_ns = self
+            .gc_time_ns
+            .saturating_add(started.elapsed().as_nanos() as u64);
         freed
     }
 
@@ -359,6 +365,31 @@ impl RuntimeImpl {
     /// automatic-GC threshold is derived from.
     pub fn gc_memory_used(&self) -> usize {
         self.gc_heap().memory_used()
+    }
+
+    /// Completed minor collections since runtime creation (0 until the
+    /// `gc_generations` path is wired in).
+    pub const fn gc_minor_count(&self) -> u64 {
+        self.gc_minor_count
+    }
+
+    /// Completed major collections since runtime creation.
+    pub const fn gc_major_count(&self) -> u64 {
+        self.gc_major_count
+    }
+
+    /// Cumulative bytes reclaimed by minor / major collections.
+    pub const fn gc_minor_freed(&self) -> usize {
+        self.gc_minor_freed
+    }
+
+    pub const fn gc_major_freed(&self) -> usize {
+        self.gc_major_freed
+    }
+
+    /// Cumulative wall time spent in GC collections, in nanoseconds.
+    pub const fn gc_time_ns(&self) -> u64 {
+        self.gc_time_ns
     }
 
     pub fn gc_set_memory_limit(&mut self, limit: usize) -> usize {

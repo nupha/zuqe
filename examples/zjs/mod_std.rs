@@ -163,6 +163,27 @@ fn js_gc_memory(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
     Ok(JSValue::from(ctx.rt().gc_memory_used() as f64))
 }
 
+/// Snapshot of the GC counters (diagnostics/baseline scripts).
+fn js_gc_stats(ctx: &mut ScopedContext, _: CallContext) -> JSResult {
+    let (minor_count, major_count, minor_freed, major_freed, time_ns) = {
+        let rt = ctx.rt();
+        (
+            rt.gc_minor_count(),
+            rt.gc_major_count(),
+            rt.gc_minor_freed(),
+            rt.gc_major_freed(),
+            rt.gc_time_ns(),
+        )
+    };
+    let mut o = ctx.create_base_object()?;
+    o.set_property_str(ctx, "minorCount", JSValue::from(minor_count as f64))?;
+    o.set_property_str(ctx, "majorCount", JSValue::from(major_count as f64))?;
+    o.set_property_str(ctx, "minorFreed", JSValue::from(minor_freed as f64))?;
+    o.set_property_str(ctx, "majorFreed", JSValue::from(major_freed as f64))?;
+    o.set_property_str(ctx, "timeNs", JSValue::from(time_ns as f64))?;
+    Ok(o.into())
+}
+
 fn std_exit(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let n = cc.arg(0).to_number(ctx)?.to_i32();
     ctx.rt_mut().interrupt(ExitCode::from(n as u8));
@@ -175,6 +196,7 @@ const MOD_STD_ENTRIES: &[FieldDef] = &[
     FieldDef::FUNC("evalScript", 1, js_evalScript, 0),
     FieldDef::FUNC("gc", 0, js_gc, 0),
     FieldDef::FUNC("gcMemory", 0, js_gc_memory, 0),
+    FieldDef::FUNC("gcStats", 0, js_gc_stats, 0),
     FieldDef::FUNC("exit", 1, std_exit, 0),
     FieldDef::LAZY_VALUE(
         "in",

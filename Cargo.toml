@@ -40,6 +40,9 @@ builtin_math = []
 builtin_weakref = []
 intl402 = ["dep:icu", "dep:fixed_decimal"]
 
+# Generational GC (opt-in). Off must stay byte-for-byte on the current path.
+gc_generations = ["gc-lite/gc_generations"]
+
 dump_bytecode = []
 debug_gc = []
 
@@ -207,3 +210,8 @@ required-features = ["intl402"]
 name = "jit-bench"
 path = "examples/jit-bench.rs"
 required-features = ["jit"]
+
+# Development-time override: edits in the sibling gc-lite checkout must be
+# visible here. Remove (or bump the dependency) before publishing.
+[patch.crates-io]
+gc-lite = { path = "../gc-lite-v2" }
