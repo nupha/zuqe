@@ -899,11 +899,11 @@ fn reject_member_collisions(
 ) -> Result<(), i32> {
     let mut seen: Vec<Atom> = Vec::new();
 
-    let mut claim = |ctx: &mut ScopedContext,
-                     seen: &mut Vec<Atom>,
-                     fields: &[ZqFieldDef],
-                     reserved: &[&str],
-                     what: &str|
+    let claim = |ctx: &mut ScopedContext,
+                 seen: &mut Vec<Atom>,
+                 fields: &[ZqFieldDef],
+                 reserved: &[&str],
+                 what: &str|
      -> Result<(), i32> {
         for f in fields {
             let Some(name) = f.name_str() else {

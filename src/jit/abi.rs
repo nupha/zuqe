@@ -684,7 +684,7 @@ unsafe extern "C" fn h_push_atom(f: *mut JitExecFrame) -> u32 {
 /// marks this helper call as the bail of an `int` fast path. The count lives in
 /// the activation, so `invoke_native` can fold it without double-counting
 /// recursive calls.
-unsafe fn note_spec_miss(f: &mut JitExecFrame) {
+const unsafe fn note_spec_miss(f: &mut JitExecFrame) {
     if f.imm2 == SPEC_MISS_IMM2 {
         f.guard_misses = f.guard_misses.saturating_add(1);
     }
@@ -2305,7 +2305,8 @@ unsafe extern "C" fn h_object_literal(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
         let n = f.imm as usize;
-        debug_assert!(n >= 1 && n <= LIT_ATOM_MAX, "literal window is bounded");
+        debug_assert!((1..=LIT_ATOM_MAX).contains(&n), "literal window is bounded");
+
         let sp = f.sp;
         let base = sp.sub(n);
         let mut props = [(crate::atom::Atom::NULL, 0u32, JSValue::UNDEFINED); LIT_ATOM_MAX];

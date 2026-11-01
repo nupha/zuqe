@@ -171,7 +171,7 @@ pub(crate) struct VerifiedFunction {
 }
 
 impl VerifiedFunction {
-    pub(crate) fn snapshot(&self) -> &CompileSnapshot {
+    pub(crate) const fn snapshot(&self) -> &CompileSnapshot {
         &self.snapshot
     }
 
@@ -228,7 +228,7 @@ fn special_object_rejection(instruction: &Instruction) -> bool {
         && instruction.operand_u8(1) == SPECIAL_OBJECT_IMPORT_META
 }
 
-fn decode_error_pc(error: &DecodeError) -> u32 {
+const fn decode_error_pc(error: &DecodeError) -> u32 {
     match *error {
         DecodeError::UnknownOpcode { pc, .. }
         | DecodeError::InvalidOpcode { pc }

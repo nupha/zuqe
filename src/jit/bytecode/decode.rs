@@ -66,7 +66,7 @@ impl Instruction {
         opcode_info_final(self.op)
     }
 
-    pub(crate) fn format(&self) -> OpcodeFormat {
+    pub(crate) const fn format(&self) -> OpcodeFormat {
         self.info().fmt
     }
 

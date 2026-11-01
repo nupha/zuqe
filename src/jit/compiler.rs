@@ -1859,6 +1859,7 @@ fn literal_windows(verified: &VerifiedFunction, osr_pcs: &[u32]) -> HashMap<u32,
     out
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower(
     b: &mut FunctionBuilder,
     fv: &FrameVals,
@@ -3566,33 +3567,6 @@ fn lower_fast_binary(
     Step::Continue(b.use_var(sp_var))
 }
 
-/// The layout contracts between the engine and the JIT.
-///
-/// The generated code reads the engine's memory directly, so every field it
-/// touches is a contract between the engine and the JIT. **Changing the layout
-/// of one of them means changing the matching contract — and the tests that
-/// pin it must be updated with it** (the rule: a payload the JIT reads has a
-/// layout test in its own module).
-///
-/// | what the JIT reads | the contract | pinned by |
-/// |---|---|---|
-/// | the object's flags word (class id + flags) and its payload pointer | `object::jit_layout` | `object::obj::tests` + `jit::tests` |
-/// | the object's shape pointer, its property slots (data pointer + count) and the shape's id | `object::jit_layout` | `object::shape::tests` + `object::obj::tests` + `jit::tests` |
-/// | a property slot's tag and the value it holds | `object::JSProperty` (`tag_offset`, `normal_value_offset`, `slot_size`) | `object::property::prop::tests` |
-/// | the inline-cache site's first way (shape pointer, shape id, slot) | `function::jit_layout` | `function::bytecode::inline_cache_site_tests` |
-/// | an array's elements (data pointer + length) | `array::ArrayPayload` (`elements_*_offset`) | `array::tests` |
-/// | a buffer's bytes (data pointer + length + "directly readable") and its detached flag | `builtins::array_buffer` (`BUFFER_VIEW_*`, `BUFFER_DETACHED_OFFSET`) | `builtins::array_buffer::abuf::tests` |
-/// | a typed array's view (buffer, byte offset, element count, out-of-bounds flag) | `builtins::typed_array::jit_layout` | `builtins::typed_array::ta::tests` + `jit::tests` |
-///
-/// The offsets are `offset_of!`-derived, so a field that *moves* is fine; what
-/// the tests pin is the *meaning* of each field and the width it is loaded
-/// with.
-mod layout_contracts {
-    /// The rule, in one place: a payload the JIT reads has a layout test in
-    /// its own module.
-    pub(crate) const RULE: &str = "a payload the JIT reads has a layout test in its own module";
-}
-
 /// How a typed array's element becomes a `JSValue` — the interpreter's
 /// `typed_array_el!` arms, one by one.
 #[derive(Clone, Copy)]
@@ -3696,7 +3670,7 @@ enum FieldRead {
 
 impl FieldRead {
     /// The slot the result lands in, relative to the stack pointer.
-    fn result_offset(self) -> i32 {
+    const fn result_offset(self) -> i32 {
         match self {
             // The target's slot.
             FieldRead::Replace => -8,
@@ -3729,7 +3703,7 @@ enum ArrayRead {
 
 impl ArrayRead {
     /// The slot the result lands in, relative to the stack pointer.
-    fn result_offset(self) -> i32 {
+    const fn result_offset(self) -> i32 {
         match self {
             ArrayRead::Replace => -16,
             ArrayRead::Keep => -8,
@@ -3766,6 +3740,7 @@ impl ArrayRead {
 /// every access, so a shape change (the array stops being fast, it grows, it
 /// is replaced) is a **guard miss**, not a stale read — no invalidation
 /// channel is needed.
+#[allow(clippy::too_many_arguments)]
 fn lower_get_array_el_fast(
     state: &mut State,
     b: &mut FunctionBuilder,
@@ -4544,6 +4519,7 @@ fn lower_put_array_el_fast(
 /// [`layout_contracts`]: the object's shape pointer and its property slots,
 /// the shape's id, and the inline-cache site's first way.
 #[cfg(feature = "inline_cache")]
+#[allow(clippy::too_many_arguments)]
 fn lower_get_field_fast(
     state: &mut State,
     b: &mut FunctionBuilder,
@@ -5278,6 +5254,7 @@ fn emit_global_guard(b: &mut FunctionBuilder, fv: &FrameVals, insn: &Instruction
 /// two global objects inline, behind [`emit_global_guard`]. A TDZ slot, an
 /// unbound name and everything the guard declines take the helper, which owns
 /// the full semantics (errors included).
+#[allow(clippy::too_many_arguments)]
 fn lower_get_var_fast(
     state: &mut State,
     b: &mut FunctionBuilder,
@@ -5348,6 +5325,7 @@ fn lower_get_var_fast(
 /// A lexical binding's `init` skips the TDZ and writability checks exactly like
 /// `set_global_var`'s `Init` mode; every other shape (an unbound name, a
 /// read-only property, an accessor, a strict-mode add) takes the helper.
+#[allow(clippy::too_many_arguments)]
 fn lower_put_var_fast(
     state: &mut State,
     b: &mut FunctionBuilder,
@@ -5620,6 +5598,7 @@ fn lower_add_loc_int(
 /// untouched; a non-int local or an `i32` overflow falls back to the
 /// `inc_loc`/`dec_loc` helper (see [`lower_add_loc_int`] for why that is a
 /// helper call rather than an interpreter exit).
+#[allow(clippy::too_many_arguments)]
 fn lower_incdec_loc_int(
     state: &mut State,
     b: &mut FunctionBuilder,
@@ -5809,6 +5788,7 @@ fn lower_with(
     emit_cond_branch(b, fv, sp_var, state, insn, sp, hit, true);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_cond_branch(
     b: &mut FunctionBuilder,
     fv: &FrameVals,
@@ -6050,7 +6030,11 @@ mod tests {
         ]);
         let windows = literal_windows(&duplicate, &[]);
         assert_eq!(windows.len(), 1);
-        assert_eq!(windows[&0].atoms, vec![7], "the duplicate truncates the run");
+        assert_eq!(
+            windows[&0].atoms,
+            vec![7],
+            "the duplicate truncates the run"
+        );
 
         // An OSR resume point inside the window would re-enter with the
         // un-merged stack shape, so it stops the merge there entirely.
@@ -7711,7 +7695,7 @@ mod tests {
             "L reads slot 1 with `put_loc` before any flush"
         );
         // The fallthrough block only drops and pushes — nothing to carry.
-        assert!(carried.get(&9).is_none(), "drop/push read no entry slot");
+        assert!(!carried.contains_key(&9), "drop/push read no entry slot");
         assert_eq!(heights.get(&13), Some(&1), "both edges merge at height 1");
         // And the plumbing lowers: parameters on the join, args on both edges.
         compile_bytes(bytes, 0, 2).expect("join with carried parameters compiles");
@@ -7734,7 +7718,7 @@ mod tests {
         ]);
         let (carried, _) = carried_of(bytes, 0, 2);
         assert!(
-            carried.get(&13).is_none(),
+            !carried.contains_key(&13),
             "the helper's frame flush ends the walk: {carried:?}"
         );
     }
@@ -7764,7 +7748,7 @@ mod tests {
             Some([1, 2].as_slice()),
             "the fast path reads both entry slots before flushing"
         );
-        assert!(carried.get(&18).is_none(), "the middle block only shuffles");
+        assert!(!carried.contains_key(&18), "the middle block only shuffles");
         assert_eq!(heights.get(&29), Some(&2));
     }
 

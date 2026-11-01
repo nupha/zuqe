@@ -1362,7 +1362,7 @@ mod tests {
             *((node as *const u8).add(jit_layout::PROP_DATA_OFFSET as usize) as *const u64)
         };
         // The first slot: the tag and the value it holds.
-        let slot = unsafe { slots as *const u8 };
+        let slot = slots as *const u8;
         let tag = unsafe { *slot.add(JSProperty::tag_offset() as usize) };
         assert_eq!(
             tag, PROP_TAG_NORMAL,
@@ -1780,7 +1780,7 @@ mod tests {
                     EvalFlags::empty(),
                 )
                 .unwrap();
-            let expected: i32 = (0..300).map(|i| i * (round + 1) + 0).sum::<i32>();
+            let expected: i32 = (0..300).map(|i| (i * (round + 1))).sum::<i32>();
             assert_eq!(
                 got.as_int(),
                 Some(expected),

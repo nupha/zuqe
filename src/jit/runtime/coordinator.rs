@@ -282,7 +282,7 @@ impl Coordinator {
 
     /// The first gate: a function that has no code yet is compiled as soon as
     /// it is hot. Returns the tier to compile.
-    fn crossed_first_gate(record: &mut FunctionRecord, tier: Tier) -> Option<Tier> {
+    const fn crossed_first_gate(record: &mut FunctionRecord, tier: Tier) -> Option<Tier> {
         if record.queued
             || !matches!(record.lifecycle, Lifecycle::Cold)
             || !record.hotness.crossed_first_gate(&record.thresholds)

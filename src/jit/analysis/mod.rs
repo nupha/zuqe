@@ -37,9 +37,7 @@ use std::{collections::HashMap, ops::Range};
 
 use crate::bytecode::OpcodeFormat;
 
-use super::bytecode::{
-    cfg::ControlFlowGraph, decode::Instruction, stack::local_index, verify::VerifiedFunction,
-};
+use super::bytecode::{decode::Instruction, stack::local_index, verify::VerifiedFunction};
 
 mod values;
 
@@ -127,11 +125,11 @@ impl Analysis {
         }
         for (index, block) in cfg.blocks().iter().enumerate() {
             for &succ_pc in block.successors() {
-                if let Some(&succ) = block_of_pc.get(&succ_pc) {
-                    if !blocks[index].succ.contains(&succ) {
-                        blocks[index].succ.push(succ);
-                        blocks[succ].pred.push(index);
-                    }
+                if let Some(&succ) = block_of_pc.get(&succ_pc)
+                    && !blocks[index].succ.contains(&succ)
+                {
+                    blocks[index].succ.push(succ);
+                    blocks[succ].pred.push(index);
                 }
             }
         }
@@ -331,27 +329,31 @@ fn def_use(instructions: &[Instruction], range: Range<usize>) -> (Vec<LocalRef>,
     let mut uses: Vec<LocalRef> = Vec::new();
     let mut defs: Vec<LocalRef> = Vec::new();
     let mut written: Vec<LocalRef> = Vec::new();
+
     for instruction in &instructions[range] {
         let name = instruction.name();
         let format = instruction.format();
-        if reads_slot(name, format) {
-            if let Some(slot) = frame_slot(instruction) {
-                if !written.contains(&slot) && !uses.contains(&slot) {
-                    uses.push(slot);
-                }
-            }
+
+        if reads_slot(name, format)
+            && let Some(slot) = frame_slot(instruction)
+            && !written.contains(&slot)
+            && !uses.contains(&slot)
+        {
+            uses.push(slot);
         }
-        if writes_slot(name, format) {
-            if let Some(slot) = frame_slot(instruction) {
-                if !written.contains(&slot) {
-                    written.push(slot);
-                }
-                if !defs.contains(&slot) {
-                    defs.push(slot);
-                }
+
+        if writes_slot(name, format)
+            && let Some(slot) = frame_slot(instruction)
+        {
+            if !written.contains(&slot) {
+                written.push(slot);
+            }
+            if !defs.contains(&slot) {
+                defs.push(slot);
             }
         }
     }
+
     (uses, defs)
 }
 

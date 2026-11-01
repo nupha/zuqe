@@ -37,19 +37,22 @@ pub(crate) struct CodeBlock {
 }
 
 impl CodeBlock {
-    pub(crate) fn new(mem: CodeMem) -> Self {
+    #[inline(always)]
+    pub(crate) const fn new(mem: CodeMem) -> Self {
         Self {
             bytes: mem.len(),
             mem,
         }
     }
 
+    #[inline(always)]
     pub(crate) const fn len(&self) -> usize {
         self.bytes
     }
 
     /// Start of the published code, i.e. the `NativeEntry` address.
-    pub(crate) fn entry(&self) -> *const u8 {
+    #[inline(always)]
+    pub(crate) const fn entry(&self) -> *const u8 {
         self.mem.entry()
     }
 }
@@ -96,15 +99,18 @@ impl CodeSlot {
     }
 
     /// Whether this mapping was ever entered.
-    pub(crate) fn entered(&self) -> bool {
+    #[inline(always)]
+    pub(crate) const fn entered(&self) -> bool {
         self.entered.get()
     }
 
-    pub(crate) fn has_code(&self) -> bool {
+    #[inline(always)]
+    pub(crate) const fn has_code(&self) -> bool {
         // SAFETY: single-threaded read.
         unsafe { &*self.code.get() }.is_some()
     }
 
+    #[inline]
     fn bytes(&self) -> usize {
         // SAFETY: single-threaded read.
         unsafe { &*self.code.get() }
@@ -112,12 +118,14 @@ impl CodeSlot {
             .map_or(0, |code| code.len())
     }
 
-    fn last_use(&self) -> u64 {
+    #[inline(always)]
+    const fn last_use(&self) -> u64 {
         self.last_use.get()
     }
 
     /// Retire the code. The mapping is unmapped as soon as the last
     /// `Rc<CodeBlock>` goes away.
+    #[inline(always)]
     fn evict(&self) {
         // SAFETY: single-threaded; the caller is `Jit::poll`, between native
         // activations.

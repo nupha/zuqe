@@ -86,7 +86,7 @@ impl AbstractState {
             .find_map(|(index, handler_pc)| handler_pc.map(|pc| (*index, pc)))
     }
 
-    fn cell_count(&self) -> usize {
+    const fn cell_count(&self) -> usize {
         self.locals.len().saturating_add(self.stack.len())
     }
 
@@ -124,7 +124,7 @@ struct WorkBudget {
 }
 
 impl WorkBudget {
-    fn charge(&mut self, pc: u32, units: usize) -> Result<(), VerifyError> {
+    const fn charge(&mut self, pc: u32, units: usize) -> Result<(), VerifyError> {
         self.used = self.used.saturating_add(units);
         if self.used > self.limit {
             return Err(VerifyError::new(
@@ -208,7 +208,7 @@ pub(crate) fn copied_stack_values(name: &str, popped: &[SlotKind]) -> Option<Vec
     Some(values)
 }
 
-fn check_stack_size(
+const fn check_stack_size(
     snapshot: &CompileSnapshot,
     instruction: &Instruction,
     state: &AbstractState,

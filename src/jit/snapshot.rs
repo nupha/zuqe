@@ -266,7 +266,7 @@ impl CompileSnapshot {
 
 /// The worker contract: a snapshot crosses to the compiler thread.
 const _: fn() = || {
-    fn assert_send<T: Send>() {}
+    const fn assert_send<T: Send>() {}
     assert_send::<CompileSnapshot>();
 };
 
