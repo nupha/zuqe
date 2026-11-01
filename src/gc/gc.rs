@@ -154,7 +154,7 @@ impl RuntimeImpl {
     /// generational feature. Checking `should_gc()` here would collect earlier
     /// and change the major cadence.
     #[inline(always)]
-    pub(crate) fn gc_should_collect(&self) -> bool {
+    pub(crate) const fn gc_should_collect(&self) -> bool {
         #[cfg(feature = "gc_generations")]
         {
             self.gc_req || self.gc_minor_req
