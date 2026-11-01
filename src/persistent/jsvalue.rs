@@ -334,8 +334,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
         }
     }
 
-    #[inline]
-    pub(crate) fn read_u8(&mut self) -> Result<u8, BytecodeSerializeError> {
+    pub(super) const fn read_u8(&mut self) -> Result<u8, BytecodeSerializeError> {
         if self.pos >= self.buf.len() {
             return Err(BytecodeSerializeError::Eof);
         }
@@ -344,8 +343,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
         Ok(v)
     }
 
-    #[inline]
-    pub(crate) fn read_u32(&mut self) -> Result<u32, BytecodeSerializeError> {
+    pub(super) fn read_u32(&mut self) -> Result<u32, BytecodeSerializeError> {
         if self.pos + 4 > self.buf.len() {
             return Err(BytecodeSerializeError::Eof);
         }
@@ -355,8 +353,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
         Ok(u32::from_le_bytes(b))
     }
 
-    #[inline]
-    pub(crate) fn read_u16(&mut self) -> Result<u16, BytecodeSerializeError> {
+    pub(super) fn read_u16(&mut self) -> Result<u16, BytecodeSerializeError> {
         if self.pos + 2 > self.buf.len() {
             return Err(BytecodeSerializeError::Eof);
         }
@@ -367,12 +364,11 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
     }
 
     #[inline]
-    pub(crate) fn read_i32(&mut self) -> Result<i32, BytecodeSerializeError> {
+    pub(super) fn read_i32(&mut self) -> Result<i32, BytecodeSerializeError> {
         Ok(self.read_u32()? as i32)
     }
 
-    #[inline]
-    pub(crate) fn read_u64(&mut self) -> Result<u64, BytecodeSerializeError> {
+    pub(super) fn read_u64(&mut self) -> Result<u64, BytecodeSerializeError> {
         if self.pos + 8 > self.buf.len() {
             return Err(BytecodeSerializeError::Eof);
         }
@@ -383,17 +379,16 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
     }
 
     #[inline]
-    pub(crate) fn read_i64(&mut self) -> Result<i64, BytecodeSerializeError> {
+    pub(super) fn read_i64(&mut self) -> Result<i64, BytecodeSerializeError> {
         Ok(self.read_u64()? as i64)
     }
 
     #[inline]
-    pub(crate) fn read_f64(&mut self) -> Result<f64, BytecodeSerializeError> {
+    pub(super) fn read_f64(&mut self) -> Result<f64, BytecodeSerializeError> {
         Ok(f64::from_bits(self.read_u64()?))
     }
 
-    #[inline]
-    pub(crate) fn read_bytes(&mut self, n: usize) -> Result<Vec<u8>, BytecodeSerializeError> {
+    pub(super) fn read_bytes(&mut self, n: usize) -> Result<Vec<u8>, BytecodeSerializeError> {
         if self.pos + n > self.buf.len() {
             return Err(BytecodeSerializeError::Eof);
         }
@@ -402,8 +397,7 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
         Ok(v)
     }
 
-    #[inline]
-    pub(crate) fn read_string(&mut self) -> Result<String, BytecodeSerializeError> {
+    pub(super) fn read_string(&mut self) -> Result<String, BytecodeSerializeError> {
         let n = self.read_u32()? as usize;
         let b = self.read_bytes(n)?;
         String::from_utf8(b).map_err(|e| BytecodeSerializeError::Encode(e.to_string()))

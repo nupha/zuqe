@@ -320,7 +320,7 @@ fn js_os_poll(ctx: &mut ScopedContext) -> bool {
                 let mut count = 0_u32;
                 {
                     let b = rws.borrow();
-                    for (fd, _) in b.iter() {
+                    for fd in b.keys() {
                         if *fd == 0 {
                             // stdin only!
                             handles[count as usize] = _get_osfhandle(*fd);

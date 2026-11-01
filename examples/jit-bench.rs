@@ -695,7 +695,7 @@ fn eval(ctx: &mut Context, src: &[u8]) -> JSValue {
 /// the default (eager 1/1 for the first gate).
 fn parse_thresholds(args: &[String]) -> Thresholds {
     let mut th = Thresholds::default();
-    let mut set = |flag: &str, slot: &mut u32| {
+    let set = |flag: &str, slot: &mut u32| {
         let Some(i) = args.iter().position(|a| a == flag) else {
             return;
         };
@@ -879,18 +879,15 @@ fn site_count_lines(entries: &[(Mode, SiteCounts)]) -> Vec<String> {
         )
     };
     vec![
-        pair(
-            "property_guard (hits/misses)",
-            |c| (c.property_hits, c.property_misses),
-        ),
-        pair(
-            "global_guard (hits/misses)",
-            |c| (c.global_hits, c.global_misses),
-        ),
-        pair(
-            "inline_call (hits/misses)",
-            |c| (c.inline_hits, c.inline_misses),
-        ),
+        pair("property_guard (hits/misses)", |c| {
+            (c.property_hits, c.property_misses)
+        }),
+        pair("global_guard (hits/misses)", |c| {
+            (c.global_hits, c.global_misses)
+        }),
+        pair("inline_call (hits/misses)", |c| {
+            (c.inline_hits, c.inline_misses)
+        }),
         single("frame_inline_hits", |c| c.frame_inline),
         single("specialized_guard_misses", |c| c.spec_guard_misses),
         single("scope_local_peak", |c| c.scope_local_peak),

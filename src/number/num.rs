@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use core::f64;
-
-use crate::{context::ScopedContext, value::JSValue};
+use crate::{JSValueTag, context::ScopedContext, value::JSValue};
 
 use super::{
     IntOrFloat, MAX_SAFE_INTEGER, NumValue, SAFE_INTEGER_RANGE, ToNumberHintEnum, f64_to_i32,
@@ -282,28 +280,24 @@ impl JSValue {
         flag: ToNumberHintEnum,
     ) -> Result<NumValue, i32> {
         match self.tag() {
-            crate::JSValueTag::Int | crate::JSValueTag::Bool => Ok(NumValue::Float(
-                IntOrFloat::Int64(self.payload_i32().into()),
-            )),
-            crate::JSValueTag::Float64 => {
-                Ok(NumValue::Float(unsafe { self.as_float_unchecked().into() }))
-            }
-            crate::JSValueTag::Null => Ok(NumValue::Float(IntOrFloat::Int64(0))),
-            crate::JSValueTag::Undefined => Ok(NumValue::Float(if undefined_is_nan {
+            JSValueTag::Int | JSValueTag::Bool => Ok(NumValue::Float(IntOrFloat::Int64(
+                self.payload_i32().into(),
+            ))),
+            JSValueTag::Float64 => Ok(NumValue::Float(unsafe { self.as_float_unchecked().into() })),
+            JSValueTag::Null => Ok(NumValue::Float(IntOrFloat::Int64(0))),
+            JSValueTag::Undefined => Ok(NumValue::Float(if undefined_is_nan {
                 IntOrFloat::Float64(f64::NAN)
             } else {
                 IntOrFloat::Int64(0)
             })),
-            crate::JSValueTag::String => unsafe {
+            JSValueTag::String => unsafe {
                 Ok(NumValue::Float(self.as_string_unchecked().to_number(ctx)))
             },
-            crate::JSValueTag::Object => unsafe {
+            JSValueTag::Object => unsafe {
                 Ok(NumValue::Float(self.as_object_unchecked().to_number(ctx)?))
             },
-            crate::JSValueTag::Symbol => {
-                Err(ctx.throw_type_error("cannot convert Symbol to number"))
-            }
-            crate::JSValueTag::BigInt => {
+            JSValueTag::Symbol => Err(ctx.throw_type_error("cannot convert Symbol to number")),
+            JSValueTag::BigInt => {
                 #[cfg(feature = "big_int")]
                 {
                     match flag {
@@ -322,7 +316,7 @@ impl JSValue {
                     Err(ctx.throw_type_error("Cannot convert a BigInt value to a number"))
                 }
             }
-            crate::JSValueTag::Exception => {
+            JSValueTag::Exception => {
                 #[cfg(debug_assertions)]
                 unreachable!();
                 #[cfg(not(debug_assertions))]

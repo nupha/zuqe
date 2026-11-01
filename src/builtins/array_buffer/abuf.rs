@@ -170,53 +170,10 @@ pub struct ArrayBufferPayload {
 }
 
 impl ArrayBufferPayload {
-    /// The bytes as the JIT sees them.
-    pub(crate) fn view(&self) -> BufferView {
-        self.view
-    }
-
     /// Refresh the mirror the JIT reads (the property inline guard). Every mutation of the
     /// buffer's data must call this.
     fn sync_view(&mut self) {
         self.view = self.data.view();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The mirror must follow every change of the buffer's data — the JIT
-    /// reads it to find the elements.
-    #[test]
-    fn the_view_follows_the_data() {
-        let mut payload = ArrayBufferPayload {
-            view: ABufData::Empty.view(),
-            data: ABufData::Empty,
-            detached: false,
-            typed_array_list: Vec::new(),
-            resizable: false,
-            max_byte_length: 0,
-            opaque: std::ptr::null_mut(),
-        };
-        assert_eq!(payload.view.direct, 0, "an empty buffer is not readable");
-
-        let bytes = vec![1u8, 2, 3, 4].into_boxed_slice();
-        payload.replace(ABufData::Owned(bytes));
-        assert_eq!(payload.view.direct, 1);
-        assert_eq!(payload.view.len, 4);
-        // SAFETY: the view points at the buffer's own bytes (checked above).
-        let read =
-            unsafe { std::slice::from_raw_parts(payload.view.data, payload.view.len as usize) };
-        assert_eq!(read, &[1, 2, 3, 4]);
-
-        // A shared buffer's bytes live behind a lock: the JIT must not read
-        // them without it, so the view says "not directly readable".
-        payload.replace(ABufData::Shared(std::sync::Arc::new(
-            std::sync::RwLock::new(vec![0u8; 2].into_boxed_slice()),
-        )));
-        assert_eq!(payload.view.direct, 0);
-        assert_eq!(payload.view.len, 0);
     }
 }
 
@@ -840,4 +797,42 @@ pub fn js_shared_array_buffer_constructor(ctx: &mut ScopedContext, cc: CallConte
         std::ptr::null_mut(),
     )
     .map(JSValue::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The mirror must follow every change of the buffer's data — the JIT
+    /// reads it to find the elements.
+    #[test]
+    fn the_view_follows_the_data() {
+        let mut payload = ArrayBufferPayload {
+            view: ABufData::Empty.view(),
+            data: ABufData::Empty,
+            detached: false,
+            typed_array_list: Vec::new(),
+            resizable: false,
+            max_byte_length: 0,
+            opaque: std::ptr::null_mut(),
+        };
+        assert_eq!(payload.view.direct, 0, "an empty buffer is not readable");
+
+        let bytes = vec![1u8, 2, 3, 4].into_boxed_slice();
+        payload.replace(ABufData::Owned(bytes));
+        assert_eq!(payload.view.direct, 1);
+        assert_eq!(payload.view.len, 4);
+        // SAFETY: the view points at the buffer's own bytes (checked above).
+        let read =
+            unsafe { std::slice::from_raw_parts(payload.view.data, payload.view.len as usize) };
+        assert_eq!(read, &[1, 2, 3, 4]);
+
+        // A shared buffer's bytes live behind a lock: the JIT must not read
+        // them without it, so the view says "not directly readable".
+        payload.replace(ABufData::Shared(std::sync::Arc::new(
+            std::sync::RwLock::new(vec![0u8; 2].into_boxed_slice()),
+        )));
+        assert_eq!(payload.view.direct, 0);
+        assert_eq!(payload.view.len, 0);
+    }
 }

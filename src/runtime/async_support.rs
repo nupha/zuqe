@@ -31,15 +31,6 @@ pub struct RunFuture<'rt> {
     _marker: PhantomData<&'rt mut Runtime>,
 }
 
-impl<'rt> RunFuture<'rt> {
-    const fn new(rt: RuntimePtr) -> Self {
-        Self {
-            rt,
-            _marker: PhantomData,
-        }
-    }
-}
-
 impl RuntimePtr {
     /// The event-loop driver for the runtime at this pointer.
     ///
@@ -47,8 +38,11 @@ impl RuntimePtr {
     /// pending — the same promise a `Context` makes about the runtime it
     /// belongs to, and the one [`Runtime::run_async`] makes about the handle
     /// it borrows.
-    pub(crate) fn run_async<'rt>(self) -> RunFuture<'rt> {
-        RunFuture::new(self)
+    pub(crate) const fn run_async<'rt>(self) -> RunFuture<'rt> {
+        RunFuture {
+            rt: self,
+            _marker: PhantomData,
+        }
     }
 }
 
@@ -65,7 +59,7 @@ impl<'rt> std::future::Future for RunFuture<'rt> {
                 Poll::Pending
             }
             TickStatus::Park(hint) => {
-                (*this.rt).park.park_for(cx.waker(), hint);
+                this.rt.park.park_for(cx.waker(), hint);
                 Poll::Pending
             }
             TickStatus::Idle => {

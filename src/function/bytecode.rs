@@ -983,7 +983,9 @@ mod inline_cache_site_tests {
             jit_layout::SITE_SIZE,
             std::mem::size_of::<InlineCacheSite>() as i64
         );
-        assert!(jit_layout::SITE_SIZE >= 4 * 24);
+        const {
+            assert!(jit_layout::SITE_SIZE >= 4 * 24);
+        }
     }
 
     #[test]

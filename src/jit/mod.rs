@@ -1167,10 +1167,7 @@ mod tests {
     #[test]
     fn the_array_layout_contract_holds_from_a_js_value() {
         use crate::{
-            EvalFlags, EvalName, EvalType, ScopedContext,
-            jit::layout::{
-                array_buffer as buffer_layout, object as jit_layout, typed_array as ta_layout,
-            },
+            EvalFlags, EvalName, EvalType, ScopedContext, jit::layout::object as jit_layout,
         };
 
         let mut rt = crate::Runtime::create().unwrap();

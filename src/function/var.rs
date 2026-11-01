@@ -235,21 +235,8 @@ impl FunctionDef {
 
     #[inline]
     pub(crate) fn find_lexical_global_var(&self, name: Atom) -> Option<&JSGlobalVar> {
-        self.find_global_var(name)
-            .and_then(|v| if v.is_lexical() { Some(v) } else { None })
+        self.find_global_var(name).filter(|&v| v.is_lexical())
     }
-
-    // #[inline]
-    // pub(crate) fn find_global_var_mut(&mut self, name: Atom) -> Option<&mut JSGlobalVar> {
-    //     self.global_vars.iter_mut().find(|x| x.var_name == name)
-    // }
-
-    // #[inline]
-    // /// `name` is not consumed.
-    // pub(crate) fn find_lexical_global_var_mut(&mut self, name: Atom) -> Option<&mut JSGlobalVar> {
-    //     self.find_global_var_mut(name)
-    //         .and_then(|v| if v.is_lexical() { Some(v) } else { None })
-    // }
 
     /// add new argument to the function, returns arg index or error.
     pub fn add_arg(&mut self, ctx: &mut ScopedContext, name: Atom) -> Result<u16, i32> {

@@ -181,10 +181,6 @@ impl Asm {
         self.code[at + 1..at + 5].copy_from_slice(&relative.to_le_bytes());
     }
 
-    pub(crate) fn bytes(&self) -> Vec<u8> {
-        self.code.clone()
-    }
-
     pub(crate) fn take(self) -> Vec<u8> {
         self.code
     }

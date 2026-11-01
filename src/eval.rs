@@ -745,6 +745,37 @@ impl<'c> Context<'c> {
     }
 }
 
+impl JSValue {
+    /// eval value:
+    /// - String: eval source script and return result,
+    /// - otherwise returns as-is.
+    pub(crate) fn eval_object(
+        &self,
+        ctx: &mut ScopedContext,
+        caller_frame_idx: FrameIndex,
+        this_obj: JSValue,
+        eval_type: EvalType,
+        eval_flags: EvalFlags,
+        var_scope_idx: i32,
+    ) -> JSResult {
+        // PerformEval step 2: only a primitive String is evaluated; a String
+        // object (new String(...)) is returned as-is (`as_string(false)`), not coerced.
+        if let Some(s) = self.as_string(false) {
+            ctx.compile_then_run(
+                caller_frame_idx,
+                this_obj,
+                s.content().encode_utf8_bytes(true).as_ref(),
+                "<string>",
+                eval_type,
+                eval_flags,
+                var_scope_idx,
+            )
+        } else {
+            Ok(*self)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{cell::Cell, rc::Rc};
@@ -844,36 +875,5 @@ mod tests {
         assert!(p.a_ran.get(), "the context's own runtime must be driven");
         assert!(!p.b_ran.get(), "another runtime must not be driven");
         Ok(())
-    }
-}
-
-impl JSValue {
-    /// eval value:
-    /// - String: eval source script and return result,
-    /// - otherwise returns as-is.
-    pub(crate) fn eval_object(
-        &self,
-        ctx: &mut ScopedContext,
-        caller_frame_idx: FrameIndex,
-        this_obj: JSValue,
-        eval_type: EvalType,
-        eval_flags: EvalFlags,
-        var_scope_idx: i32,
-    ) -> JSResult {
-        // PerformEval step 2: only a primitive String is evaluated; a String
-        // object (new String(...)) is returned as-is (`as_string(false)`), not coerced.
-        if let Some(s) = self.as_string(false) {
-            ctx.compile_then_run(
-                caller_frame_idx,
-                this_obj,
-                s.content().encode_utf8_bytes(true).as_ref(),
-                "<string>",
-                eval_type,
-                eval_flags,
-                var_scope_idx,
-            )
-        } else {
-            Ok(*self)
-        }
     }
 }

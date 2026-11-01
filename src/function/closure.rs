@@ -448,22 +448,22 @@ impl Bytecode {
         // shape transitions. proto == None is every current caller; an explicit
         // prototype keeps the general path below (its shape is not cacheable
         // per class).
-        let mut obj = if proto.is_none() {
+        let obj = if proto.is_none() {
             let shape = ctx.function_object_shape(self.func_kind(), has_proto_prop)?;
-            let obj = ctx.create_instance_with_shape(
+            let o = ctx.create_instance_with_shape(
                 shape,
                 PayloadPtr::new(class_id, BFuncPayload::new(*self, captures)),
             )?;
-            fill_function_slots(ctx, obj, self, has_proto_prop)?;
-            obj
+            fill_function_slots(ctx, o, self, has_proto_prop)?;
+            o
         } else {
-            let mut obj = ctx.create_instance_with_proto(
+            let mut o = ctx.create_instance_with_proto(
                 proto.or_else(|| ctx.class_proto(class_id)),
                 PayloadPtr::new(class_id, BFuncPayload::new(*self, captures)),
             )?;
             js_function_set_properties(
                 ctx,
-                obj,
+                o,
                 if self.func_name.is_null() {
                     Atom::CONST_empty_string
                 } else {
@@ -473,22 +473,22 @@ impl Bytecode {
             )?;
             if let Some(gen_class_id) = self.func_kind().generator_class_id() {
                 let proto = ctx.create_base_object_with_proto(ctx.class_proto(gen_class_id))?;
-                obj.define_property_value(
+                o.define_property_value(
                     ctx,
                     Atom::CONST_prototype,
                     proto.into(),
                     JS_PROP_WRITABLE,
                 )?;
             } else if self.has_prototype() {
-                obj.set_flag_constructor(true);
-                obj.define_lazy_property(
+                o.set_flag_constructor(true);
+                o.define_lazy_property(
                     ctx,
                     Atom::CONST_prototype,
                     LazyInit::Prototype,
                     JS_PROP_WRITABLE,
                 )?;
             }
-            obj
+            o
         };
 
         Ok(BCWrapper(obj.gc_ref()))

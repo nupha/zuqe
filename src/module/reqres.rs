@@ -24,7 +24,7 @@ pub(crate) struct ModuleDependency {
 }
 
 impl ModuleDependency {
-    pub(crate) fn new(module_name: Atom, attributes: JSValue) -> Self {
+    pub(crate) const fn new(module_name: Atom, attributes: JSValue) -> Self {
         Self {
             module_name,
             module: None,
@@ -32,26 +32,26 @@ impl ModuleDependency {
         }
     }
 
-    #[inline]
-    pub(crate) fn module(&self) -> Option<ModuleDef> {
+    #[inline(always)]
+    pub(super) const fn module(&self) -> Option<ModuleDef> {
         self.module
     }
 
     /// The resolved module for a reborrow (a write barrier cannot be needed
     /// until the reference itself is installed).
     #[inline]
-    pub(crate) fn module_mut(&mut self) -> Option<&mut ModuleDef> {
+    pub(super) const fn module_mut(&mut self) -> Option<&mut ModuleDef> {
         self.module.as_mut()
     }
 
-    #[inline]
-    pub(crate) fn attributes(&self) -> JSValue {
+    #[inline(always)]
+    pub(super) const fn attributes(&self) -> JSValue {
         self.attributes
     }
 
     /// Install the resolved module and bind the owner→module edge: the owner
     /// may already be old while this dependency is resolved.
-    pub(crate) fn set_module(
+    pub(super) fn set_module(
         &mut self,
         ctx: &ScopedContext,
         owner: NonNull<GcHead>,
@@ -285,6 +285,47 @@ fn attrs_are_same(ctx: &mut ScopedContext, a: JSValue, b: JSValue) -> bool {
     type_a == type_b
 }
 
+/// default module filename normalizer
+///
+/// Called only for non-native specifiers: native modules are resolved earlier in
+/// `js_host_resolve_imported_module`, before normalization runs. By the time we
+/// reach here, `base_name` is always a canonical `file://` URL (the importing
+/// module's name). The import specifier itself may be:
+///
+/// * a relative reference (`./foo`, `../bar`) — resolved via `Url::join`, which
+///   handles `.`/`..` and works uniformly for `file:` and `http:` bases;
+/// * an absolute filesystem path (`C:/x.js`, `/usr/x.js`) — converted to a URL
+///   directly;
+/// * a full URL (`file://...`, future `https://...`) — passed through.
+///
+/// Note: `file://` canonicalization (symlink resolution) is done centrally in
+/// `js_host_resolve_imported_module` so it applies to custom normalizers too.
+///
+/// This is the initial value of `RuntimeImpl::module_normalize_func`, so it needs
+/// no registration.
+///
+/// `_ctx` is unused — resolution here is pure URL algebra — but the parameter is
+/// what makes this a `ModuleNormalizeFn` rather than a private helper, so the
+/// builtin default can live in the same field as any host override.
+///
+/// Crate-internal on purpose: a host picks its resolution policy once, at
+/// startup, and never reads the current value back. So there is no supported way
+/// to *restore* this default after overriding it — keep a host-side copy of the
+/// pointer if a reset path is needed.
+pub(crate) fn js_default_module_normalizer(
+    _: &mut ScopedContext,
+    base_name: &Url,
+    name: &str,
+) -> Result<Url, i32> {
+    if Path::new(name).is_absolute() {
+        // A bare absolute filesystem path: URL-ify it directly.
+        path_to_url(name).map_err(|_| -1)
+    } else {
+        // Resolve relative to the importing module's URL.
+        base_name.join(name).map_err(|_| -1)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -361,46 +402,5 @@ mod tests {
             "All is the union, in load order"
         );
         Ok(())
-    }
-}
-
-/// default module filename normalizer
-///
-/// Called only for non-native specifiers: native modules are resolved earlier in
-/// `js_host_resolve_imported_module`, before normalization runs. By the time we
-/// reach here, `base_name` is always a canonical `file://` URL (the importing
-/// module's name). The import specifier itself may be:
-///
-/// * a relative reference (`./foo`, `../bar`) — resolved via `Url::join`, which
-///   handles `.`/`..` and works uniformly for `file:` and `http:` bases;
-/// * an absolute filesystem path (`C:/x.js`, `/usr/x.js`) — converted to a URL
-///   directly;
-/// * a full URL (`file://...`, future `https://...`) — passed through.
-///
-/// Note: `file://` canonicalization (symlink resolution) is done centrally in
-/// `js_host_resolve_imported_module` so it applies to custom normalizers too.
-///
-/// This is the initial value of `RuntimeImpl::module_normalize_func`, so it needs
-/// no registration.
-///
-/// `_ctx` is unused — resolution here is pure URL algebra — but the parameter is
-/// what makes this a `ModuleNormalizeFn` rather than a private helper, so the
-/// builtin default can live in the same field as any host override.
-///
-/// Crate-internal on purpose: a host picks its resolution policy once, at
-/// startup, and never reads the current value back. So there is no supported way
-/// to *restore* this default after overriding it — keep a host-side copy of the
-/// pointer if a reset path is needed.
-pub(crate) fn js_default_module_normalizer(
-    _: &mut ScopedContext,
-    base_name: &Url,
-    name: &str,
-) -> Result<Url, i32> {
-    if Path::new(name).is_absolute() {
-        // A bare absolute filesystem path: URL-ify it directly.
-        path_to_url(name).map_err(|_| -1)
-    } else {
-        // Resolve relative to the importing module's URL.
-        base_name.join(name).map_err(|_| -1)
     }
 }

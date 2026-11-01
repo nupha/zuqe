@@ -3989,7 +3989,7 @@ fn lower_get_array_el_fast(
 
     // Every arm loads the element and leaves it in the slot the array
     // occupied, like the plain-array path.
-    let mut arm = |b: &mut FunctionBuilder, element: TaElement| {
+    let arm = |b: &mut FunctionBuilder, element: TaElement| {
         let value = lower_typed_array_element(b, base, index, element);
         b.ins()
             .store(MemFlags::new(), value, sp, shape.result_offset());
@@ -4118,7 +4118,6 @@ fn lower_put_array_el_fast(
     let elemented_blk = b.create_block();
     let typed_blk = b.create_block();
     let ta_view = b.create_block();
-    let ta_buffer = b.create_block();
     let ta_kind = b.create_block();
     let ta_done = b.create_block();
     // The operands stay in registers on the fast path; the helper's own
@@ -5565,7 +5564,7 @@ fn lower_add_loc_int(
     b.ins().store(MemFlags::new(), boxed, fv.var_base, byte_off);
     let sp_next = b.ins().iadd_imm(sp, -8);
     b.def_var(sp_var, sp_next);
-    b.ins().jump(cont, &[boxed.into()]);
+    b.ins().jump(cont, &[boxed]);
 
     b.switch_to_block(slow);
     // Leave the operand on the stack and set `imm`; the helper pops it and
@@ -5581,7 +5580,7 @@ fn lower_add_loc_int(
     let slow_local = b
         .ins()
         .load(types::I64, MemFlags::new(), fv.var_base, byte_off);
-    b.ins().jump(cont, &[slow_local.into()]);
+    b.ins().jump(cont, &[slow_local]);
 
     b.switch_to_block(cont);
     // Pop2/push1 would be wrong here: this op only pops the operand — the
@@ -6813,11 +6812,11 @@ mod tests {
             let access: Vec<u8> = if name == "with_put_var" {
                 vec![op::OP_drop]
             } else {
-                (0..pushed).flat_map(|i| push_i32(i as i32)).collect()
+                (0..pushed).flat_map(push_i32).collect()
             };
             let mut bytes = Vec::new();
             for i in 0..pops {
-                bytes.extend_from_slice(&push_i32(i as i32));
+                bytes.extend_from_slice(&push_i32(i));
             }
             bytes.push(code);
             bytes.extend_from_slice(&u32b(0));

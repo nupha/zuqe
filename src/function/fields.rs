@@ -457,7 +457,7 @@ mod tests {
     #[test]
     fn installing_a_name_twice_is_refused() -> Result<(), i32> {
         let mut rt = Runtime::create()?;
-        let mut ctx = rt.create_context(|cx| ScopedContext::ECMA_CONTEXT_SETUP(cx))?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
 
         ctx.with_new_scope(|cx| {
             let mut obj = cx.create_base_object()?;

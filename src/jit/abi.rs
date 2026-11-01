@@ -395,7 +395,7 @@ impl FunctionSlot {
     /// Whether the installed code may still be promoted to the optimizing
     /// tier (the second gate).
     #[inline]
-    pub(crate) fn promotable(&self) -> bool {
+    pub(crate) const fn promotable(&self) -> bool {
         self.promotable.get()
     }
 

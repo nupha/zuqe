@@ -104,7 +104,7 @@ fn run_with(
 
     eval(&mut ctx, &name, define).expect("setup");
     if let Some(jit) = &jit {
-        settle(&jit);
+        settle(jit);
         assert!(
             jit.metrics().functions_compiled > 0,
             "the loop must be compiled for this test to mean anything"

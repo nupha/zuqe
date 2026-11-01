@@ -303,7 +303,7 @@ pub(crate) fn divmod_mag(a: &[u64], b: &[u64]) -> (Vec<u64>, Vec<u64>) {
 }
 
 /// Number of significant bits of a magnitude.
-pub(crate) fn bit_length(a: &[u64]) -> u64 {
+pub(crate) const fn bit_length(a: &[u64]) -> u64 {
     if a.is_empty() {
         return 0;
     }

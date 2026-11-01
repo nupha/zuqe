@@ -648,6 +648,21 @@ impl RuntimeImpl {
         }
     }
 
+    /// Run a minor collection immediately. Host test API (wired to
+    /// `Aike.gcMinor`): compiled only in debug builds so release hosts
+    /// cannot depend on it. No-op without `gc_generations`.
+    #[cfg(debug_assertions)]
+    pub fn gc_minor_now(&mut self) -> usize {
+        #[cfg(feature = "gc_generations")]
+        {
+            self.gc_minor()
+        }
+        #[cfg(not(feature = "gc_generations"))]
+        {
+            0
+        }
+    }
+
     /// request gc collect
     #[inline(always)]
     pub const fn gc_has_request(&self) -> bool {

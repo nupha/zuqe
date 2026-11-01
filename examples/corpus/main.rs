@@ -56,7 +56,7 @@ fn out_line(line: &str) {
 }
 
 fn out_take() -> String {
-    OUT.with_borrow_mut(|o| std::mem::take(o))
+    OUT.with_borrow_mut(std::mem::take)
 }
 
 fn js_print(ctx: &mut ScopedContext, cc: zuqe::CallContext) -> JSResult {
@@ -377,10 +377,11 @@ async fn main() -> ExitCode {
         if args.tiers != "all" && (args.tiers == "core") == case.tier_host {
             continue;
         }
-        if let Some(f) = &args.only {
-            if !case.stem.contains(f.as_str()) && !case.path.to_string_lossy().contains(f) {
-                continue;
-            }
+        if let Some(f) = &args.only
+            && !case.stem.contains(f.as_str())
+            && !case.path.to_string_lossy().contains(f)
+        {
+            continue;
         }
 
         let tag = format!(

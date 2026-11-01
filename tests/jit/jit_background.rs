@@ -228,9 +228,6 @@ fn dropping_a_jit_with_work_in_flight_joins_every_worker() {
         );
         // Dispatch and drop without draining: the workers are mid-flight.
         jit.poll();
-        drop(jit);
-        drop(ctx);
-        drop(rt);
     }
 }
 

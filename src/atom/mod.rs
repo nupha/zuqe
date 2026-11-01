@@ -44,7 +44,7 @@ fn build_host_const_table(
             continue;
         }
 
-        if let Some(a) = Atom::lookup_const(*name, AtomKind::String) {
+        if let Some(a) = Atom::lookup_const(name, AtomKind::String) {
             id_map.insert(*name, a.id());
             continue;
         }
@@ -186,7 +186,8 @@ mod tests {
         // the const id, not mint shadowed host copies. "ZzFakeHost" is not a
         // const nor a linkme-registered host class in test builds, so it must
         // be minted as a fresh host const atom.
-        let (table, map) = build_host_const_table(&["Object", "Symbol", "ZzFakeHost", "ZzFakeHost"]);
+        let (table, map) =
+            build_host_const_table(&["Object", "Symbol", "ZzFakeHost", "ZzFakeHost"]);
         assert_eq!(map["Object"], Atom::CONST_Object.id());
         assert_eq!(map["Symbol"], Atom::CONST_Symbol.id());
         let host_id = map["ZzFakeHost"];

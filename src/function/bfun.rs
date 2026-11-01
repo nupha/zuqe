@@ -625,7 +625,7 @@ mod tests {
             let f = eval_global(&mut cx, b"globalThis.__wb_fn");
             let mut f = f.as_object_BCWrapper().unwrap();
 
-            let mut vref = VarRef::create(&mut cx, JSValue::from(123))?;
+            let vref = VarRef::create(&mut cx, JSValue::from(123))?;
             assert!(
                 cx.remove_local(vref.gc_node_ptr()),
                 "the fresh VarRef must be scope-local before the minor"

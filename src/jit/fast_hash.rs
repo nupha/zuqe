@@ -20,7 +20,7 @@ use std::hash::{BuildHasher, Hasher};
 
 /// splitmix64's finalizer: a full avalanche over the key's bits.
 #[inline]
-fn mix(value: u64) -> u64 {
+const fn mix(value: u64) -> u64 {
     let mut z = value.wrapping_add(0x9E37_79B9_7F4A_7C15);
     z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
     z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
@@ -32,17 +32,17 @@ fn mix(value: u64) -> u64 {
 pub(crate) struct FastHasher(u64);
 
 impl Hasher for FastHasher {
-    #[inline]
+    #[inline(always)]
     fn finish(&self) -> u64 {
         self.0
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_u32(&mut self, value: u32) {
         self.0 = mix(value as u64);
     }
 
-    #[inline]
+    #[inline(always)]
     fn write_u64(&mut self, value: u64) {
         self.0 = mix(value);
     }

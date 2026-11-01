@@ -50,7 +50,7 @@ fn eval_once(source: &[u8], attach: Option<JitConfig>) -> (String, Option<JitMet
     let observed = observe(result);
     let metrics = jit.as_ref().map(|jit| {
         // Outside `with_new_scope`: verify everything the run queued.
-        settle(&jit);
+        settle(jit);
         jit.metrics()
     });
     (observed, metrics)
@@ -719,7 +719,7 @@ fn native_throws_match_the_interpreter() {
         function tdz(n){ \
           try { { let a; return a; } } catch (e) { return e.name + ':' + e.message; } return 'none'; } \
         looped(1); escapes; caller(1); constAssign(1); tdz(1);";
-    for (call, expected) in [
+    for (call, _expected) in [
         (
             "looped(30)",
             "10:ok|ok|e1|ok|ok|e4|ok|ok|e7|ok|ok|e10|ok|ok|e13|ok|ok|e16|ok|ok|e19|ok|ok|e22|ok|ok|e25|ok|ok|e28",

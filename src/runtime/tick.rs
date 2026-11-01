@@ -4,7 +4,6 @@
 use std::time::Instant;
 
 use gc_lite::GcNode;
-use smallvec::SmallVec;
 
 use crate::{
     Exception, WakeReceiver, WakeSender,
@@ -153,7 +152,8 @@ pub(super) fn tick_tree(mut rt: RuntimePtr) -> TickStatus {
         //
         // Inline for the usual case: a runtime has few children, and this
         // buffer is rebuilt on every tick of the tree.
-        let mut out = SmallVec::<[super::Runtime; 4]>::with_capacity((&*rt).children.len());
+        let mut out =
+            smallvec::SmallVec::<[super::Runtime; 4]>::with_capacity((&*rt).children.len());
         for w in (&*rt).children.iter() {
             if let Some(rc) = w.upgrade() {
                 out.push(super::Runtime::from_inner(rc));

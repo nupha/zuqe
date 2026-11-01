@@ -56,7 +56,7 @@ pub(crate) const CLASS_OTHER: u16 = 1 << 9;
 
 /// Which type classes a value belongs to. One class per value, so a site's
 /// operand mask stays small and merging is a bitwise OR.
-pub(crate) fn type_class(v: JSValue) -> u16 {
+pub(super) const fn type_class(v: JSValue) -> u16 {
     match v.tag() {
         JSValueTag::Int => CLASS_INT,
         JSValueTag::Float64 => CLASS_FLOAT,
@@ -84,11 +84,11 @@ pub(crate) fn type_class(v: JSValue) -> u16 {
 /// `memo/jit_impl.md` §5.1 / §8.1). Sites with no result (branch conditions)
 /// keep it 0.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct SiteFeedback {
-    pub(crate) lhs: u16,
-    pub(crate) rhs: u16,
-    pub(crate) result: u16,
-    pub(crate) samples: u16,
+pub(super) struct SiteFeedback {
+    pub(super) lhs: u16,
+    pub(super) rhs: u16,
+    pub(super) result: u16,
+    pub(super) samples: u16,
 }
 
 /// How many distinct sites one function may record. Past the cap the table
@@ -105,22 +105,22 @@ const MAX_CALL_SITES: usize = 256;
 
 /// One call site: the callee the interpreter saw there.
 #[derive(Debug)]
-pub(crate) struct CallSiteFeedback {
+struct CallSiteFeedback {
     /// The opcode offset of the call site.
-    pub(crate) pc: u32,
+    pc: u32,
     /// The callee's identity (its bytecode node's address); 0 when the callee
     /// was not a bytecode function (a native function, a bound function, …) —
     /// such a site is never monomorphic.
-    pub(crate) callee_id: u64,
+    callee_id: u64,
     /// The callee seen at this site, kept alive so its identity stays unique:
     /// a collected bytecode node's address could be reused by another node,
     /// and a stale guard would then match the wrong function.
-    pub(crate) callee: Option<Bytecode>,
+    callee: Option<Bytecode>,
     /// A second, different callee turned up here: the site is polymorphic and
     /// the monomorphic guard would miss from then on.
-    pub(crate) polymorphic: bool,
+    polymorphic: bool,
     /// Calls observed at this site.
-    pub(crate) samples: u32,
+    samples: u32,
 }
 
 /// A call site as the compiler sees it: the callee's identity and whether the
@@ -131,22 +131,22 @@ pub(crate) struct CallSiteFeedback {
 /// pointer-free. The table keeps the callee alive, so the address stays
 /// unique for as long as the site exists.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct CallSite {
+pub(super) struct CallSite {
     /// The opcode offset of the call site.
-    pub(crate) pc: u32,
+    pub(super) pc: u32,
     /// The callee's identity (the bytecode node's address); 0 when the callee
     /// was not a bytecode function.
-    pub(crate) callee: u64,
+    pub(super) callee: u64,
     /// Whether a second, different callee turned up at this site.
-    pub(crate) polymorphic: bool,
+    pub(super) polymorphic: bool,
     /// Index into `CompileSnapshot::inline_callees` when the compiler may
     /// inline the callee's body at this site.
-    pub(crate) inline: Option<u32>,
+    pub(super) inline: Option<u32>,
 }
 
 /// The identity of a callee: the address of its bytecode node. Stable for as
 /// long as the node is alive — the call-site table keeps it alive.
-pub(crate) fn callee_id(bc: &Bytecode) -> u64 {
+fn callee_id(bc: &Bytecode) -> u64 {
     bc.gc_node_ptr().as_ptr() as u64
 }
 
@@ -157,7 +157,7 @@ pub(crate) fn callee_id(bc: &Bytecode) -> u64 {
 /// value JavaScript cannot steer, and every recorded site pays one hash — so
 /// SipHash's cost buys nothing here.
 #[derive(Debug, Default)]
-pub(crate) struct FeedbackTable {
+struct FeedbackTable {
     sites: HashMap<u32, SiteFeedback, FastHasherBuilder>,
     /// Observations recorded so far, saturating. The hotness policy reads this
     /// as "measured work" (one add per recorded opcode, no scan of the sites);
@@ -322,7 +322,7 @@ impl FeedbackSlot {
     /// Record one observation at `site` (bytecode pc). The table is allocated
     /// on the first record, so functions that never execute a feedback site
     /// pay only the `None` check. Returns true when `site` was new.
-    pub(crate) fn record(&self, site: u32, lhs: u16, rhs: u16, result: u16) -> bool {
+    pub(super) fn record(&self, site: u32, lhs: u16, rhs: u16, result: u16) -> bool {
         // SAFETY: single-threaded interpreter; same discipline as
         // `BytecodeImpl::inline_cache` — each observation is a short,
         // non-reentrant update with no aliasing `&mut` held across a call.
@@ -334,7 +334,7 @@ impl FeedbackSlot {
     /// Observations recorded so far — the hotness policy's "measured work".
     /// Zero means "nothing recorded" (a baseline tier, or a function that never
     /// reached a feedback site), not "measured as nothing".
-    pub(crate) fn total_samples(&self) -> u32 {
+    pub(super) fn total_samples(&self) -> u32 {
         // SAFETY: single-threaded; a plain read of the count.
         match unsafe { &*self.0.get() } {
             Some(table) => table.total_samples(),
@@ -344,7 +344,7 @@ impl FeedbackSlot {
 
     /// Copy the recorded sites (sorted by pc) for `CompileSnapshot`, keeping
     /// only sites with at least `min_samples` observations.
-    pub(crate) fn snapshot(&self, min_samples: u32) -> Vec<(u32, SiteFeedback)> {
+    pub(super) fn snapshot(&self, min_samples: u32) -> Vec<(u32, SiteFeedback)> {
         // SAFETY: single-threaded; called from `Jit::poll`, never mid-opcode.
         match unsafe { &*self.0.get() } {
             Some(table) => table.snapshot(min_samples),
@@ -355,7 +355,7 @@ impl FeedbackSlot {
     /// Record the callee seen at the call site `site` (bytecode pc).
     ///
     /// Returns true when the site is new.
-    pub(crate) fn record_call(&self, site: u32, callee: Option<Bytecode>) -> bool {
+    pub(super) fn record_call(&self, site: u32, callee: Option<Bytecode>) -> bool {
         // SAFETY: single-threaded; same discipline as `record` above.
         let cell = unsafe { &mut *self.0.get() };
         cell.get_or_insert_with(|| Box::new(FeedbackTable::default()))
@@ -363,7 +363,7 @@ impl FeedbackSlot {
     }
 
     /// The call sites, in site-id order, for `CompileSnapshot`.
-    pub(crate) fn snapshot_calls(&self) -> Vec<CallSite> {
+    pub(super) fn snapshot_calls(&self) -> Vec<CallSite> {
         // SAFETY: single-threaded; called from `Jit::poll`, never mid-opcode.
         match unsafe { &*self.0.get() } {
             Some(table) => table.snapshot_calls(),
@@ -373,7 +373,7 @@ impl FeedbackSlot {
 
     /// The callee recorded at the call site `id` — the monomorphic guard
     /// (the direct-call path) compares the live callee against it.
-    pub(crate) fn call_callee(&self, id: u32) -> Option<Bytecode> {
+    pub(super) fn call_callee(&self, id: u32) -> Option<Bytecode> {
         // SAFETY: single-threaded; a plain read of the table.
         match unsafe { &*self.0.get() } {
             Some(table) => table.call_callee(id),

@@ -613,7 +613,7 @@ pub(super) fn instantiate_hoisted_definitions(
     }
 
     // add the global variables (only happens if FunctionDef::is_global_var is true)
-    let global_vars: Vec<_> = s.global_vars.drain(..).collect();
+    let global_vars: Vec<_> = std::mem::take(&mut s.global_vars);
     for hf in global_vars {
         #[derive(Debug, Clone, Copy, PartialEq)]
         enum ClosureKind {
