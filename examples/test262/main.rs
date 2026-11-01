@@ -176,6 +176,13 @@ pub struct Args {
     /// (e.g. with and without `--jit`) can be diffed line by line
     #[arg(long = "verdict-file", value_name = "FILE")]
     pub verdict_file: Option<String>,
+
+    /// Minor-promotion age for every test runtime: 1 promotes after one minor
+    /// (most sensitive for write-barrier assertions), 2 is the release default.
+    /// Debug builds default to 1, release builds to 2.
+    #[arg(long = "gc-promote-after", value_name = "N",
+          value_parser = clap::value_parser!(u8).range(1..=2))]
+    pub gc_promote_after: Option<u8>,
 }
 
 /// Merge CLI flags onto the config loaded from the file. A CLI flag takes
@@ -291,6 +298,11 @@ async fn main_impl() {
             eprintln!("error: --jit requires a build with the `jit` cargo feature");
             std::process::exit(1);
         }
+    }
+
+    // `--gc-promote-after` overrides the engine default (debug: 1, release: 2).
+    if let Some(gc_promote_after) = args.gc_promote_after {
+        runner::set_gc_promote_after(gc_promote_after);
     }
 
     // Install a panic hook that prints the script currently being run. This is

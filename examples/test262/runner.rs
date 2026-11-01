@@ -5,7 +5,7 @@ use std::{
     cell::RefCell,
     fs::File,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicI32, Ordering},
+    sync::atomic::{AtomicI32, AtomicU8, Ordering},
 };
 
 use url::Url;
@@ -51,6 +51,14 @@ fn val_to_string(ctx: &mut ScopedContext, v: JSValue) -> String {
 
 /// counter of "Test262:AsyncTestComplete" messages
 pub static ASYNC_DONE: AtomicI32 = AtomicI32::new(0);
+
+/// Minor-promotion age applied to every per-test runtime (`--gc-promote-after`).
+/// Set once from `main`; 0 means "leave the engine default".
+static GC_PROMOTE_AFTER: AtomicU8 = AtomicU8::new(0);
+
+pub fn set_gc_promote_after(x: u8) {
+    GC_PROMOTE_AFTER.store(x, Ordering::Relaxed);
+}
 
 /// Whether `--jit` was requested: set once from `main` before any test runs.
 #[cfg(feature = "jit")]
@@ -627,6 +635,13 @@ pub async fn run_test_file(
             Ok(())
         })
         .unwrap();
+
+    // `--gc-promote-after`: applied per runtime before any test JS runs. Absent,
+    // the engine default stays in effect (debug: 1, release: 2).
+    let gc_promote_after = GC_PROMOTE_AFTER.load(Ordering::Relaxed);
+    if gc_promote_after != 0 {
+        ctx.rt_mut().gc_set_promote_after(gc_promote_after);
+    }
 
     // `--jit`: one runtime per test, so attach here (exactly once per runtime)
     // before any JS runs. Without the flag this stays inert: no attach, no polls.

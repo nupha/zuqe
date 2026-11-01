@@ -179,9 +179,15 @@ pub struct RuntimeImpl {
 
     /// Completed collection counters (Phase 0 observability). Updated only in
     /// the collection epilogue, never on the allocation hot path.
+    ///
+    /// Minor counters only exist in generational builds; `gc_minor_count()` and
+    /// `gc_minor_freed()` return 0 without the feature. Major counters and the
+    /// shared elapsed time are needed in every build (majors always run).
+    #[cfg(feature = "gc_generations")]
     pub(crate) gc_minor_count: u64,
     pub(crate) gc_major_count: u64,
     /// Cumulative bytes reclaimed and time spent in completed collections.
+    #[cfg(feature = "gc_generations")]
     pub(crate) gc_minor_freed: usize,
     pub(crate) gc_major_freed: usize,
     pub(crate) gc_time_ns: u64,
@@ -465,10 +471,14 @@ impl RuntimeImpl {
             young_threshold: 0,
             #[cfg(feature = "gc_generations")]
             young_min: 0,
+            // Debug builds promote after one minor: the shorter young phase
+            // exposes a missing old→young barrier sooner. Release keeps two.
             #[cfg(feature = "gc_generations")]
-            young_promote_after: 2,
+            young_promote_after: if cfg!(debug_assertions) { 1 } else { 2 },
+            #[cfg(feature = "gc_generations")]
             gc_minor_count: 0,
             gc_major_count: 0,
+            #[cfg(feature = "gc_generations")]
             gc_minor_freed: 0,
             gc_major_freed: 0,
             gc_time_ns: 0,

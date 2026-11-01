@@ -43,6 +43,7 @@ cargo run --example test262 --features intl402 -- --preset ES2025
 | `--jit` | Attach a JIT to every per-test runtime with eager thresholds (call/loop = 1) so queued functions are dispatched to the worker during the test (the engine polls automatically at trampoline frame boundaries and ticks; the runner settles between variants). Verdicts must stay identical to a run without the flag. Place it **before** any test glob (the positional arg is trailing). Requires the `jit` cargo feature (on by default). |
 | `--jit-production` | Same, but with the **production** thresholds (32/56) plus the cost gate: a function is compiled only when it runs often enough to pay for its compile. This is what a host runs; the eager thresholds above maximize the *native coverage* of a conformance run, not its speed. The wall-clock difference is large (a full run: ~25 min eager vs ~2 min production). |
 | `--verdict-file <FILE>` | Writes one JSONL line per test (`{"script":…,"status":"pass\|fail\|skip"}`) in run order, for diffing two runs (e.g. ± `--jit`). |
+| `--gc-promote-after <N>` | Minor-promotion age for every test runtime: `1` promotes after one minor (the most sensitive setting for write-barrier assertions), `2` after two. Defaults to the engine default: `1` in debug builds, `2` in release. |
 
 ### Filtering semantics (exact)
 

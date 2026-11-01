@@ -616,7 +616,6 @@ impl RuntimeImpl {
     /// `0` keeps the generational bookkeeping (young chain, remembered set) but
     /// never schedules or runs a minor; see `docs/gc.md`. It is not the same as
     /// compiling without the feature (that removes the bookkeeping entirely).
-    #[inline]
     pub fn gc_set_promote_after(&mut self, x: u8) {
         #[cfg(feature = "gc_generations")]
         {
@@ -663,31 +662,48 @@ impl RuntimeImpl {
     ///
     /// Hosts use this to observe allocation pressure; it is also the value the
     /// automatic-GC threshold is derived from.
-    pub fn gc_memory_used(&self) -> usize {
+    pub const fn gc_memory_used(&self) -> usize {
         self.gc_heap().memory_used()
     }
 
     /// Completed minor collections since runtime creation (always 0 without the
     /// `gc_generations` feature).
     pub const fn gc_minor_count(&self) -> u64 {
-        self.gc_minor_count
+        #[cfg(feature = "gc_generations")]
+        {
+            self.gc_minor_count
+        }
+        #[cfg(not(feature = "gc_generations"))]
+        {
+            0
+        }
     }
 
     /// Completed major collections since runtime creation.
+    #[inline(always)]
     pub const fn gc_major_count(&self) -> u64 {
         self.gc_major_count
     }
 
     /// Cumulative bytes reclaimed by minor / major collections.
     pub const fn gc_minor_freed(&self) -> usize {
-        self.gc_minor_freed
+        #[cfg(feature = "gc_generations")]
+        {
+            self.gc_minor_freed
+        }
+        #[cfg(not(feature = "gc_generations"))]
+        {
+            0
+        }
     }
 
+    #[inline(always)]
     pub const fn gc_major_freed(&self) -> usize {
         self.gc_major_freed
     }
 
     /// Cumulative wall time spent in GC collections, in nanoseconds.
+    #[inline(always)]
     pub const fn gc_time_ns(&self) -> u64 {
         self.gc_time_ns
     }

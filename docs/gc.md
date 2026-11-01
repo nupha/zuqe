@@ -136,7 +136,9 @@ collection (`zuqe = { features = ["gc_generations"] }`). Builds without it keep 
 single-generation path. With it on, each partition is split into a young chain and an old chain:
 
 - A fresh allocation is **young** (age 0) and is swept by every minor unless marked.
-- A young node that survives `promote_after` minors (default **2**) is promoted to **old**
+- A young node that survives `promote_after` minors is promoted to **old**.
+  The default is **1 in debug builds** (the shorter young phase surfaces a
+  missing old→young barrier sooner) and **2 in release builds**.
   (Black).
 - A **major** merges the whole young chain first: every live node is old afterwards.
 - A minor never sweeps old nodes; old garbage waits for a major.
