@@ -17,9 +17,6 @@ use crate::{
     vm_stack::{ExecMode, FrameAllocError, FrameState, VmStack},
 };
 
-#[cfg(feature = "gc_generations")]
-use crate::gc::GcHeapExt;
-
 use super::{CallContext, IteratorState, JS_CALL_FLAG_CONSTRUCTOR, js_function_set_properties};
 
 pub type CallbackFn = fn(ctx: &mut ScopedContext, cc: CallContext) -> JSResult;

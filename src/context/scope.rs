@@ -194,6 +194,20 @@ impl<'a> ScopedContext<'a> {
         self.ctx_ptr.bind_node_value(owner, child);
     }
 
+    /// Write barrier for an `Atom` stored in `owner`.
+    ///
+    /// An atom owns no node itself; its descriptor string does. Const and
+    /// small-int atoms have no GC descriptor, so they are a no-op.
+    #[inline]
+    pub(crate) fn bind_atom(&self, owner: NonNull<GcHead>, atom: crate::atom::Atom) {
+        if atom.is_null() || atom.is_const() || atom.is_small_int() {
+            return;
+        }
+        if let Some(s) = self.rt().atom_desc_string(atom.id()) {
+            self.bind_node(owner, s.gc_node_ptr());
+        }
+    }
+
     /// get gc scope state
     #[inline]
     #[allow(unused_unsafe)] // debug_assert may trigger unused unsafe warning

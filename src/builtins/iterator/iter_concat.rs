@@ -54,6 +54,7 @@ pub(crate) fn js_iterator_concat_next(ctx: &mut ScopedContext, cc: CallContext) 
         .as_object()
         .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
+    let owner = this_obj.gc_node_ptr();
     let cd = this_obj.payload_iterator_concat()
         .ok_or_else(|| ctx.throw_type_error("not an Iterator Concat"))?;
 
@@ -82,6 +83,10 @@ pub(crate) fn js_iterator_concat_next(ctx: &mut ScopedContext, cc: CallContext) 
             let next_method = iter_obj.get_property(ctx, crate::atom::Atom::CONST_next)?;
             cd.iter.set(Some(iter_obj));
             cd.next.set(next_method);
+            // The concat helper may already be old while the iterator and its
+            // next method it just created are young.
+            ctx.bind_node_value(owner, iter_val);
+            ctx.bind_node_value(owner, next_method);
         }
 
         let cur_iter_obj = cd.iter.get().unwrap();

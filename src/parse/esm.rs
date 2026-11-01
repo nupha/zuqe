@@ -348,13 +348,18 @@ impl<'s> JSParseState<'s> {
                         })
                     });
                     if let Some((import_name, req_idx)) = import_info {
-                        let last = md.export_entries.last_mut().unwrap();
-                        last.export_type = ExportType::JS_EXPORT_TYPE_INDIRECT(req_idx);
-                        last.local_name = if import_name == Atom::CONST__star_ {
+                        let new_local_name = if import_name == Atom::CONST__star_ {
                             Atom::CONST__star_
                         } else {
                             import_name
                         };
+                        let owner = md.gc_node_ptr();
+                        {
+                            let last = md.export_entries.last_mut().unwrap();
+                            last.export_type = ExportType::JS_EXPORT_TYPE_INDIRECT(req_idx);
+                            last.local_name = new_local_name;
+                        }
+                        self.ctx().bind_atom(owner, new_local_name);
                     }
 
                     if self.token.kind != TokenKind::Char(',') {
@@ -535,11 +540,13 @@ impl<'s> JSParseState<'s> {
                 .try_reserve(2)
                 .map_err(|_| self.ctx().throw_out_of_memory())?;
         }
+        let owner = md.gc_node_ptr();
         md.import_entries.push(ImportEntry {
             var_idx,
             import_name,
             req_module_idx: 0,
         });
+        self.ctx().bind_atom(owner, import_name);
 
         Ok(())
     }

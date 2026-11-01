@@ -3,7 +3,7 @@
 
 use std::cmp::Ordering;
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_MODULE_NS,
@@ -181,8 +181,12 @@ impl ModuleDefImpl {
                 local_name,
                 export_name,
             });
+
+            let owner = self.gc_head_ptr();
+            ctx.bind_atom(owner, local_name);
+            ctx.bind_atom(owner, export_name);
             if let Some(child) = child {
-                self.bind_node(ctx, child);
+                ctx.bind_node(owner, child);
             }
 
             Ok(())

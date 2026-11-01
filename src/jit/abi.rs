@@ -22,7 +22,6 @@ use crate::{
         NativeFunction, VarRef, build_arg_list, js_build_arguments, js_build_mapped_arguments,
         js_function_apply,
     },
-    gc::GcHeapExt,
     object::{JS_PROP_NORMAL, JS_PROP_TMASK, JSProperty, Object, ThrowPolicy},
     vm_stack::{FrameIndex, VmStack},
 };
@@ -1937,7 +1936,11 @@ unsafe extern "C" fn h_set_home_object(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
         let sp = f.sp;
-        crate::bytecode::class_ops::set_home_object(&mut *sp.offset(-1), *sp.offset(-2));
+        crate::bytecode::class_ops::set_home_object(
+            scope_of(f),
+            &mut *sp.offset(-1),
+            *sp.offset(-2),
+        );
         HELPER_OK
     }
 }

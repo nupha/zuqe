@@ -3720,7 +3720,7 @@ impl Bytecode {
                     }
                     OpCode::SET_HOME_OBJECT => {
                         // [home_obj, func, ^] -> [home_obj, func, ^]
-                        class_ops::set_home_object(SP_MUT!(-1), SP_VAL!(-2));
+                        class_ops::set_home_object(realm_scope, SP_MUT!(-1), SP_VAL!(-2));
                     }
                     OpCode::DEFINE_METHOD | OpCode::DEFINE_METHOD_COMPUTED => {
                         let (is_computed, atom, op_flags) =

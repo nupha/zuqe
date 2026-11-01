@@ -7,9 +7,7 @@ use crate::{
     atom::Atom,
     context::ScopedContext,
     function::BCWrapper,
-    module::{
-        ExportType, JSModuleStatus, ModuleDef, ResolveExport, bind_child, js_create_module_var,
-    },
+    module::{ExportType, JSModuleStatus, ModuleDef, ResolveExport, js_create_module_var},
     runtime::js_check_thread_stack_overflow,
     utils::unlikely,
 };
@@ -284,7 +282,11 @@ impl ModuleDef {
                                                     vr.set_value(&mut ctx.rt_ptr(), ns.into());
                                                     vr
                                                 };
-                                                md_func.set_closure(import_var_idx as usize, vref);
+                                                md_func.set_closure(
+                                                    ctx,
+                                                    import_var_idx as usize,
+                                                    vref,
+                                                );
                                             }
                                         }
                                         ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } => {
@@ -300,7 +302,7 @@ impl ModuleDef {
                                                     .payload()
                                                     .get_closure(var_idx as usize)
                                             });
-                                            md_func.set_closure(import_var_idx as usize, vr);
+                                            md_func.set_closure(ctx, import_var_idx as usize, vr);
                                         }
                                     }
                                 }
@@ -330,7 +332,7 @@ impl ModuleDef {
                             debug_assert_ne!(*var_idx, u16::MAX);
                             let vr = md_func.payload().get_closure(*var_idx as usize);
                             var_ref.replace(vr);
-                            bind_child(ctx, owner, vr.gc_node_ptr());
+                            ctx.bind_node(owner, vr.gc_node_ptr());
                         }
                     }
                     debug_assert!(cur_module.func_created);

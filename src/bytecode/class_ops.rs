@@ -69,9 +69,9 @@ pub(crate) fn set_proto(
 }
 
 /// `set_home_object`: `[home_obj, func] -> [home_obj, func]` (delta `0`).
-pub(crate) fn set_home_object(func: &mut JSValue, home_obj: JSValue) {
+pub(crate) fn set_home_object(ctx: &ScopedContext, func: &mut JSValue, home_obj: JSValue) {
     if let Some(mut fo) = func.as_object_BCWrapper() {
-        fo.method_set_home_object(home_obj.as_object());
+        fo.method_set_home_object(ctx, home_obj.as_object());
     } else {
         #[cfg(debug_assertions)]
         unreachable!("SET_HOME_OBJECT expect BytecodeFunction object");

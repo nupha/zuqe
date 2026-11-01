@@ -10,7 +10,6 @@ use crate::{
     atom::Atom,
     context::{ContextImpl, ScopedContext},
     error::JSResult,
-    gc::GcHeapExt,
     object::{JS_SpeciesConstructor, Object, PromiseResolveFunc},
     utils::unlikely,
     value::JSValue,
@@ -179,7 +178,7 @@ impl Promise {
                     fail.resolving_funcs[1],
                     fail.handler,
                 ] {
-                    ctx.gc_heap_mut().bind_value(self_node, &v);
+                    ctx.bind_node_value(self_node, v);
                 }
 
                 self.payload_mut().add_reaction(success, fail);
@@ -288,7 +287,7 @@ impl Promise {
             rt.gc_pending_promises.swap_remove(idx);
         }
 
-        ctx.gc_heap_mut().bind_value(self.gc_node_ptr(), &value); // write barrier
+        ctx.bind_node_value(self.gc_node_ptr(), value); // write barrier
 
         let (state, is_handled) = {
             let s = if is_reject {

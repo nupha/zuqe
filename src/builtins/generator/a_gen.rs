@@ -559,6 +559,9 @@ fn js_async_generator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
 
     let this = cc.this();
     let mut obj = this.as_object();
+    let owner = obj.as_ref().map(|o| o.gc_node_ptr());
+    let result = cc.arg(0);
+    let promise_val = JSValue::from(promise);
     if let Some(s) = obj
         .as_mut()
         .filter(|o| o.class_id() == JS_CLASS_ASYNC_GENERATOR)
@@ -566,11 +569,21 @@ fn js_async_generator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     {
         let req = Box::new(JSAsyncGeneratorRequest {
             completion_type: cc.magic(),
-            result: cc.arg(0),
-            promise: promise.into(),
+            result,
+            promise: promise_val,
             resolving_funcs,
         });
         s.queue.push(req);
+
+        // The generator object may already be old while the request and its
+        // resolving functions are young, so record every queue edge.
+        if let Some(owner) = owner {
+            ctx.bind_node_value(owner, result);
+            ctx.bind_node_value(owner, promise_val);
+            for f in resolving_funcs {
+                ctx.bind_node_value(owner, f);
+            }
+        }
 
         if s.state() != AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING {
             s.resume_next(ctx);

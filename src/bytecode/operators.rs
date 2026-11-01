@@ -162,7 +162,7 @@ pub(crate) fn js_op_define_class_for_arena(
         bc.make_closure_for_arena(ctx, None, captured_vars, arena, parent_frame_idx)?;
     ctx.link_class_extends(proto, Some(ctor.into()), parent_proto, parent_class.as_object())?;
 
-    ctor.method_set_home_object(Some(proto));
+    ctor.method_set_home_object(ctx, Some(proto));
     ctor.set_flag_constructor(true);
 
     ctor.define_property_value(
@@ -251,7 +251,7 @@ pub(super) fn js_method_set_properties(
     )?;
 
     if let Some(mut fo) = func_obj.as_object_BCWrapper() {
-        fo.method_set_home_object(home_obj.as_object());
+        fo.method_set_home_object(ctx, home_obj.as_object());
     }
 
     Ok(())
@@ -366,6 +366,9 @@ pub(crate) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
                     if !it.in_prototype_chain {
                         let done = it.prepare_prototype_chain_enum(ctx, ob)?;
                         for name in it.prop_enums.iter() {
+                            // The for-in iterator may already be old while the
+                            // property-name atoms are young.
+                            ctx.bind_atom(enum_obj.gc_node_ptr(), name.atom);
                             enum_obj.define_property_value(
                                 ctx,
                                 name.atom,
@@ -398,6 +401,9 @@ pub(crate) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
                             JS_GPN_STR_OR_INT_MASK | JS_GPN_SET_ENUM,
                         )?;
                         it.prop_count = names.len() as _;
+                        for name in names.iter() {
+                            ctx.bind_atom(enum_obj.gc_node_ptr(), name.atom);
+                        }
                         it.prop_enums = names;
                         it.idx = 0;
                     } else {

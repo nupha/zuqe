@@ -149,8 +149,7 @@ impl ShapeImpl {
             self.has_small_array_index |= is_small_int;
 
             if !prop.is_null() && !prop.is_const() && !prop.is_small_int() {
-                // set Atom string gc node xref
-                ctx.rt_ptr().gc_heap_mut().bind(
+                ctx.rt_ptr().bind_node(
                     shape_node,
                     ctx.rt().atom_desc_string(prop.id()).unwrap().gc_node_ptr(),
                 );

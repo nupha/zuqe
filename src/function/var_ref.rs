@@ -143,8 +143,11 @@ impl VarRef {
     /// without `gc_generations`.
     pub(crate) fn detach_with_barrier(&mut self, heap: &mut GcHeap) {
         unsafe { self.0.as_mut() }.detach();
+
         #[cfg(feature = "gc_generations")]
         {
+            // Frame recycling already holds `&mut GcHeap`; the heap-level
+            // wrapper is the only barrier API available on this path.
             let value = unsafe { self.0.as_ref() }.value();
             heap.bind_value(self.gc_node_ptr(), &value);
         }

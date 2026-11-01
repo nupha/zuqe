@@ -238,41 +238,25 @@ impl BCWrapper {
             .unwrap()
     }
 
-    /// Debug freshness check for a payload write out of this function node.
+    /// Set a closure variable ref and record the function→VarRef edge.
     ///
-    /// `set_closure` / `set_home_object` are "freshness safe": the function
-    /// node is normally newly created (young), so a young value is fine, while
-    /// an old function only ever receives old values. If this trips on a real
-    /// path, that path needs a `bind_value` barrier.
-    #[cfg(all(debug_assertions, feature = "gc_generations"))]
-    #[inline(always)]
-    fn debug_assert_fresh_target(&self, target: std::ptr::NonNull<gc_lite::GcHead>, what: &str) {
-        let func = unsafe { self.0.node_ptr().as_ref() };
-        let value = unsafe { target.as_ref() };
-        debug_assert!(
-            func.is_young() || !value.is_young(),
-            "{what}: an old function node received a young GC value without a write barrier"
-        );
-    }
-
-    /// Set a closure variable ref, with the generational freshness check in
-    /// debug + `gc_generations` builds.
+    /// Linking installs imports into a module function that was created
+    /// earlier, so the function may already be old while the `VarRef` is
+    /// young.
     #[inline]
-    pub(crate) fn set_closure(&mut self, nth: usize, vref: VarRef) {
-        #[cfg(all(debug_assertions, feature = "gc_generations"))]
-        self.debug_assert_fresh_target(vref.gc_node_ptr(), "set_closure");
+    pub(crate) fn set_closure(&mut self, ctx: &ScopedContext, nth: usize, vref: VarRef) {
         self.payload_mut().set_closure(nth, vref);
+        ctx.bind_node(self.0.node_ptr(), vref.gc_node_ptr());
     }
 
-    pub(crate) fn method_set_home_object(&mut self, home_obj: Option<Object>) {
-        #[cfg(all(debug_assertions, feature = "gc_generations"))]
-        if let Some(obj) = &home_obj {
-            self.debug_assert_fresh_target(obj.gc_node_ptr(), "set_home_object");
-        }
-
-        let fo = self.payload_mut();
-        if fo.bytecode().need_home_object() {
-            fo.set_home_object(home_obj);
+    /// Set the method's home object and record the function→object edge.
+    pub(crate) fn method_set_home_object(&mut self, ctx: &ScopedContext, home_obj: Option<Object>) {
+        let need_home = self.payload().bytecode().need_home_object();
+        if need_home {
+            self.payload_mut().set_home_object(home_obj);
+            if let Some(obj) = home_obj {
+                ctx.bind_node(self.0.node_ptr(), obj.gc_node_ptr());
+            }
         }
     }
 }
@@ -601,5 +585,104 @@ impl BytecodeFunction {
 
             Ok(ret_val)
         }
+    }
+}
+
+#[cfg(all(test, feature = "gc_generations"))]
+mod tests {
+    use super::*;
+    use crate::{EvalFlags, EvalName, EvalType, Runtime};
+
+    fn eval_global(cx: &mut ScopedContext, src: &[u8]) -> JSValue {
+        cx.eval(
+            src,
+            &EvalName::Name("gc-barrier-bfun.js".into()),
+            EvalType::Global,
+            EvalFlags::empty(),
+        )
+        .unwrap()
+    }
+
+    /// A module function is created early and linked later, so an old function
+    /// can receive a young `VarRef`; `set_closure` must bind that edge.
+    #[test]
+    fn set_closure_binds_a_young_var_ref_to_an_old_function() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        ctx.with_root_scope(|mut cx| -> Result<(), i32> {
+            eval_global(
+                &mut cx,
+                b"globalThis.__wb_fn = (() => { let captured = 1; return () => captured; })();",
+            );
+
+            // Promote the function (reachable from globalThis) in one minor.
+            cx.rt_mut().gc_set_promote_after(1);
+            cx.rt_mut().gc_minor();
+
+            let f = eval_global(&mut cx, b"globalThis.__wb_fn");
+            let mut f = f.as_object_BCWrapper().unwrap();
+
+            let mut vref = VarRef::create(&mut cx, JSValue::from(123))?;
+            assert!(
+                cx.remove_local(vref.gc_node_ptr()),
+                "the fresh VarRef must be scope-local before the minor"
+            );
+
+            f.set_closure(&cx, 0, vref);
+            cx.rt_mut().gc_minor();
+
+            let ret = eval_global(&mut cx, b"globalThis.__wb_fn()");
+            assert_eq!(
+                ret.as_int(),
+                Some(123),
+                "the VarRef written into the old function was collected"
+            );
+            Ok(())
+        })
+        .unwrap();
+    }
+
+    /// `method_set_home_object` writes a young object into an already-old
+    /// function payload; the edge must be bound.
+    #[test]
+    fn set_home_object_binds_a_young_object_to_an_old_method() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        ctx.with_root_scope(|mut cx| -> Result<(), i32> {
+            eval_global(
+                &mut cx,
+                b"globalThis.__wb_base = class {};
+                  globalThis.__wb_method =
+                      new (class extends __wb_base { m() { return super.constructor; } })().m;",
+            );
+
+            cx.rt_mut().gc_set_promote_after(1);
+            cx.rt_mut().gc_minor();
+
+            let f = eval_global(&mut cx, b"globalThis.__wb_method");
+            let mut f = f.as_object_BCWrapper().unwrap();
+            let obj = cx.create_base_object()?;
+            let node = obj.gc_node_ptr();
+            assert!(
+                cx.remove_local(node),
+                "the fresh home object must be scope-local before the minor"
+            );
+
+            f.method_set_home_object(&cx, Some(obj));
+            cx.rt_mut().gc_minor();
+
+            assert!(
+                cx.rt().gc_heap().contains(node),
+                "the home object written into the old method was collected"
+            );
+            Ok(())
+        })
+        .unwrap();
     }
 }

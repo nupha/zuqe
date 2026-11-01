@@ -13,9 +13,6 @@ use crate::{
     value::JSValue,
 };
 
-#[cfg(feature = "gc_generations")]
-use crate::gc::GcHeapExt;
-
 /// Internal data for a WeakRef instance.
 /// Per ES2027: target can be an Object or a non-registered Symbol.
 pub struct WeakRefData {

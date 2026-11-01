@@ -13,7 +13,6 @@ use crate::{
     context::ScopedContext,
     error::{JS_ThrowReferenceErrorNotDefined, JS_ThrowReferenceErrorUninitialized},
     function::prop_str_to_atom,
-    gc::GcHeapExt,
     object::{
         JS_PROP_HAS_CONFIGURABLE, JS_PROP_HAS_ENUMERABLE, JS_PROP_HAS_WRITABLE, JS_PROP_LAZYINIT,
         JS_PROP_LENGTH, JS_PROP_NO_ADD, JS_PROP_NORMAL, JS_PROP_THROW, JS_PROP_THROW_STRICT,
@@ -449,7 +448,7 @@ impl ObjectImpl {
                             std::cmp::Ordering::Less => {
                                 arr_data.set_nth(index, val);
                                 let self_node = self.gc_head_ptr();
-                                self.rt_ptr().gc_heap_mut().bind_value(self_node, &val);
+                                self.rt_ptr().bind_node_value(self_node, val);
                                 Some(Ok(true))
                             }
                             std::cmp::Ordering::Equal => {
@@ -503,7 +502,7 @@ impl ObjectImpl {
                     if index < arr_data.len() {
                         arr_data.set_nth(index, val);
                         let self_node = self.gc_head_ptr();
-                        self.rt_ptr().gc_heap_mut().bind_value(self_node, &val);
+                        self.rt_ptr().bind_node_value(self_node, val);
                         Some(Ok(true))
                     } else {
                         None

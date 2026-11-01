@@ -242,8 +242,7 @@ impl ContextImpl {
     /// the proto could be prematurely collected.
     pub(crate) fn set_class_proto(&mut self, class_id: ClassID, proto: Object) {
         let self_node = self.gc_head_ptr();
-        self.rt.gc_heap_mut().bind(self_node, proto.gc_node_ptr());
-
+        self.bind_node(self_node, proto.gc_node_ptr());
         self.class_slots[class_id as usize].proto = Some(proto);
     }
 

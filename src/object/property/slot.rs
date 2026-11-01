@@ -9,7 +9,6 @@ use crate::{
     atom::Atom,
     config::JS_PROP_INITIAL_SIZE,
     context::ScopedContext,
-    gc::GcHeapExt,
     object::{LazyInit, Object, ObjectImpl},
     utils::unlikely,
     value::JSValue,
@@ -156,19 +155,18 @@ impl ObjectImpl {
     fn bind_prop_slot(&self, idx: usize) {
         let self_node = self.gc_head_ptr();
         let mut rt = self.rt_ptr();
-        let heap = rt.gc_heap_mut();
 
         match self.prop_slot(idx) {
-            JSProperty::Normal(val) => heap.bind_value(self_node, val),
+            JSProperty::Normal(val) => rt.bind_node_value(self_node, *val),
             JSProperty::GetSet(gs) => {
                 for o in [gs.getter, gs.setter].into_iter().flatten() {
-                    heap.bind(self_node, o.gc_node_ptr());
+                    rt.bind_node(self_node, o.gc_node_ptr());
                 }
             }
-            JSProperty::VarRef(vr) => heap.bind(self_node, vr.gc_node_ptr()),
+            JSProperty::VarRef(vr) => rt.bind_node(self_node, vr.gc_node_ptr()),
             JSProperty::LazyInit(lz) => {
                 if let LazyInit::ModuleNS(m) = &lz.init {
-                    heap.bind(self_node, m.gc_node_ptr());
+                    rt.bind_node(self_node, m.gc_node_ptr());
                 }
             }
             _ => {}

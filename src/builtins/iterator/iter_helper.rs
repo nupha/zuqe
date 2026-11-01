@@ -131,7 +131,7 @@ fn js_iterator_helper_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
     let result = match ip.kind {
         JSIteratorHelperKind::Drop => drop_next(ctx, ip),
         JSIteratorHelperKind::Filter => filter_next(ctx, ip),
-        JSIteratorHelperKind::FlatMap => flatmap_next(ctx, ip),
+        JSIteratorHelperKind::FlatMap => flatmap_next(ctx, this_obj, ip),
         JSIteratorHelperKind::Map => map_next(ctx, ip),
         JSIteratorHelperKind::Take => take_next(ctx, ip),
     };
@@ -186,7 +186,11 @@ fn filter_next(ctx: &mut ScopedContext, ip: &IteratorHelperData) -> JSResult {
     }
 }
 
-fn flatmap_next(ctx: &mut ScopedContext, ip: &IteratorHelperData) -> JSResult {
+fn flatmap_next(
+    ctx: &mut ScopedContext,
+    owner: Object,
+    ip: &IteratorHelperData,
+) -> JSResult {
     let mut index = ip.count.get();
     loop {
         if !ip.has_inner.get() {
@@ -232,6 +236,10 @@ fn flatmap_next(ctx: &mut ScopedContext, ip: &IteratorHelperData) -> JSResult {
             ip.inner.set(inner_iter_val);
             ip.inner_next.set(inner_next);
             ip.has_inner.set(true);
+            // The helper may already be old; the inner iterator and its next
+            // method are young, so bind both edges.
+            ctx.bind_node_value(owner.gc_node_ptr(), inner_iter_val);
+            ctx.bind_node_value(owner.gc_node_ptr(), inner_next);
         }
 
         let inner_val = ip.inner.get();

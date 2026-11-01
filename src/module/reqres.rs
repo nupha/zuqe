@@ -9,7 +9,7 @@ use url::Url;
 use crate::{
     atom::Atom,
     context::{ContextImpl, ScopedContext},
-    module::{ModuleDef, ModuleNameFilter, bind_child, path_to_url, url_to_abspath},
+    module::{ModuleDef, ModuleNameFilter, path_to_url, url_to_abspath},
     value::JSValue,
 };
 
@@ -58,7 +58,7 @@ impl ModuleDependency {
         module: ModuleDef,
     ) {
         self.module = Some(module);
-        bind_child(ctx, owner, module.gc_node_ptr());
+        ctx.bind_node(owner, module.gc_node_ptr());
     }
 }
 
@@ -97,7 +97,9 @@ impl ModuleDef {
 
         self.dependencies
             .push(ModuleDependency::new(module_name, attributes));
-        self.bind_value(ctx, &attributes);
+        let owner = self.gc_node_ptr();
+        ctx.bind_atom(owner, module_name);
+        ctx.bind_node_value(owner, attributes);
 
         // return the new dep index
         Ok(self.dependencies.len() as u16 - 1)

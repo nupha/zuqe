@@ -11,7 +11,6 @@ use crate::{
     IntOrFloat, JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY,
     atom::Atom,
     context::ScopedContext,
-    gc::GcHeapExt,
     number::MAX_SAFE_INTEGER,
     object::{
         JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, JS_PROP_CONFIGURABLE,

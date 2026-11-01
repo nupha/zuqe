@@ -35,21 +35,6 @@ pub(crate) trait ModuleInitFn:
 }
 impl<F> ModuleInitFn for F where F: Fn(&mut ScopedContext, &ModuleDef) -> Result<(), i32> {}
 
-/// Record an edge from a module record (or one of its dependency entries) to a
-/// GC child.
-///
-/// A no-op without `gc_generations`: a full collection marks from the roots and
-/// sees the edge directly, so only a minor needs old→young edges remembered.
-#[inline]
-pub(crate) fn bind_child(
-    _ctx: &ScopedContext,
-    _owner: std::ptr::NonNull<gc_lite::GcHead>,
-    _child: std::ptr::NonNull<gc_lite::GcHead>,
-) {
-    #[cfg(feature = "gc_generations")]
-    _ctx.bind_node(_owner, _child);
-}
-
 pub struct ModuleDefImpl {
     pub(crate) module_name: Atom,
     pub(crate) dependencies: Vec<ModuleDependency>,
@@ -221,40 +206,12 @@ impl ModuleDefImpl {
         self.eval_error
     }
 
-    /// Write barrier for a GC value stored in this module record.
-    ///
-    /// Generational-only. Without `gc_generations` every collection is a
-    /// synchronous full mark from the roots, which traces this edge like any
-    /// other, so there is no old→young window to repair. With it on, a module
-    /// can already be old (Black) while it is still being linked or evaluated —
-    /// the entry module usually is — and a minor only follows remembered
-    /// old→young edges. A young value assigned afterwards must then be bound,
-    /// or the next minor frees it while the module still points at it.
-    #[inline]
-    pub(crate) fn bind_value(&self, _ctx: &ScopedContext, _val: &JSValue) {
-        #[cfg(feature = "gc_generations")]
-        if let Some(child) = _val.as_gc_node() {
-            self.bind_node(_ctx, child);
-        }
-    }
-
-    /// [`bind_value`](Self::bind_value) for a child that is already a node.
-    #[inline]
-    pub(crate) fn bind_node(
-        &self,
-        _ctx: &ScopedContext,
-        _child: std::ptr::NonNull<gc_lite::GcHead>,
-    ) {
-        #[cfg(feature = "gc_generations")]
-        bind_child(_ctx, self.gc_head_ptr(), _child);
-    }
-
-    #[inline]
+    #[inline(always)]
     pub(crate) const fn promise(&self) -> Option<Promise> {
         self.promise
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) const fn resolving_func(&self, i: usize) -> JSValue {
         self.resolving_funcs[i]
     }
@@ -269,9 +226,10 @@ impl ModuleDefImpl {
     ) {
         self.promise = Some(promise);
         self.resolving_funcs = funcs;
-        self.bind_value(ctx, &JSValue::from(promise));
-        self.bind_value(ctx, &funcs[0]);
-        self.bind_value(ctx, &funcs[1]);
+        let owner = self.gc_head_ptr();
+        ctx.bind_node_value(owner, JSValue::from(promise));
+        ctx.bind_node_value(owner, funcs[0]);
+        ctx.bind_node_value(owner, funcs[1]);
     }
 
     #[inline]
@@ -282,11 +240,11 @@ impl ModuleDefImpl {
     pub(crate) fn set_stack_prev(&mut self, ctx: &ScopedContext, prev: Option<ModuleDef>) {
         self.stack_prev = prev;
         if let Some(prev) = prev {
-            self.bind_node(ctx, prev.gc_node_ptr());
+            ctx.bind_node(self.gc_head_ptr(), prev.gc_node_ptr());
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) const fn cycle_root(&self) -> Option<ModuleDef> {
         self.cycle_root
     }
@@ -294,10 +252,10 @@ impl ModuleDefImpl {
     pub(crate) fn set_cycle_root(&mut self, ctx: &ScopedContext, root: ModuleDef) {
         debug_assert!(self.cycle_root.is_none());
         self.cycle_root.replace(root);
-        self.bind_node(ctx, root.gc_node_ptr());
+        ctx.bind_node(self.gc_head_ptr(), root.gc_node_ptr());
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) fn async_parents(&self) -> &[ModuleDef] {
         &self.async_parent_modules
     }
@@ -311,11 +269,11 @@ impl ModuleDefImpl {
             return false;
         }
         self.async_parent_modules.push(m);
-        self.bind_node(ctx, m.gc_node_ptr());
+        ctx.bind_node(self.gc_head_ptr(), m.gc_node_ptr());
         true
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) const fn module_ns(&self) -> Option<Object> {
         self.module_ns
     }
@@ -323,45 +281,45 @@ impl ModuleDefImpl {
     pub(crate) fn set_module_ns(&mut self, ctx: &ScopedContext, ns: Option<Object>) {
         self.module_ns = ns;
         if let Some(ns) = ns {
-            self.bind_value(ctx, &JSValue::from(ns));
+            ctx.bind_node_value(self.gc_head_ptr(), JSValue::from(ns));
         }
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) const fn has_meta_obj(&self) -> bool {
         self.meta_obj.is_some()
     }
 
     fn set_meta_obj(&mut self, ctx: &ScopedContext, o: Object) {
         self.meta_obj = Some(o);
-        self.bind_value(ctx, &JSValue::from(o));
+        ctx.bind_node_value(self.gc_head_ptr(), JSValue::from(o));
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) const fn bytecode(&self) -> JSValue {
         self.bytecode
     }
 
     pub(crate) fn set_bytecode(&mut self, ctx: &ScopedContext, val: JSValue) {
         self.bytecode = val;
-        self.bind_value(ctx, &val);
+        ctx.bind_node_value(self.gc_head_ptr(), val);
     }
 
-    #[inline]
+    #[inline(always)]
     pub(crate) const fn attributes(&self) -> JSValue {
         self.attributes
     }
 
     pub(crate) fn set_attributes(&mut self, ctx: &ScopedContext, attrs: JSValue) {
         self.attributes = attrs;
-        self.bind_value(ctx, &attrs);
+        ctx.bind_node_value(self.gc_head_ptr(), attrs);
     }
 
     /// set eval error, can't be undefined or null
     pub(crate) fn set_eval_error(&mut self, ctx: &ScopedContext, err_val: JSValue) {
         debug_assert!(!err_val.is_undefined_or_null());
         self.eval_error = err_val;
-        self.bind_value(ctx, &err_val);
+        ctx.bind_node_value(self.gc_head_ptr(), err_val);
     }
 
     /// get module `import.meta` object.
@@ -475,8 +433,9 @@ impl ModuleDefImpl {
                     var_ref.replace(vr);
                 }
             }
+            let owner = self.gc_head_ptr();
             for child in bound {
-                self.bind_node(ctx, child);
+                ctx.bind_node(owner, child);
             }
         } else {
             // is bytecode module
@@ -923,4 +882,53 @@ pub(crate) fn js_import_meta(ctx: &mut ScopedContext) -> Result<Object, i32> {
     }
 
     Err(ctx.throw_type_error("import.meta not supported in this context"))
+}
+
+#[cfg(all(test, feature = "gc_generations"))]
+mod tests {
+    use super::*;
+    use crate::Runtime;
+
+    /// A module resolved through another module's dependency is not a direct
+    /// root. Adding a dependency after the module became old must bind the new
+    /// `module_name` atom descriptor.
+    #[test]
+    fn module_dependency_atom_is_bound_when_the_module_is_old() {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .unwrap();
+
+        ctx.with_root_scope(|mut cx| -> Result<(), i32> {
+            cx.rt_mut().gc_set_promote_after(1);
+
+            let a_name = Atom::intern_str(&mut cx, "wb-module-a")?;
+            let mut a = ModuleDef::new(&mut cx, a_name)?;
+            let b_name = Atom::intern_str(&mut cx, "wb-module-b")?;
+            let mut b = ModuleDef::new(&mut cx, b_name)?;
+
+            // Keep `a` alive only through `b`, which stays in loaded_modules.
+            let dep_name = Atom::intern_str(&mut cx, "wb-module-a-dep")?;
+            let idx = b.add_dependency(&mut cx, dep_name, JSValue::UNDEFINED)? as usize;
+            let b_node = b.gc_head_ptr();
+            b.dependencies[idx].set_module(&cx, b_node, a);
+            cx.loaded_modules.retain(|m| *m != a);
+
+            // Promote `a` to old while it is still reachable from `b`.
+            cx.rt_mut().gc_minor();
+
+            // The fresh atom is held only by the new dependency entry.
+            let fresh = Atom::intern_str(&mut cx, "wb-module-a-fresh")?;
+            let desc = cx.rt().atom_desc_string(fresh.id()).unwrap();
+            assert!(
+                cx.remove_local(desc.gc_node_ptr()),
+                "the fresh atom descriptor must be scope-local before the minor"
+            );
+            a.add_dependency(&mut cx, fresh, JSValue::UNDEFINED)?;
+
+            cx.rt_mut().gc_minor();
+            Ok(())
+        })
+        .unwrap();
+    }
 }
