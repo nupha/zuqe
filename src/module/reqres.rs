@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::path::Path;
+use std::{path::Path, ptr::NonNull};
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 use url::Url;
 
 use crate::{
     atom::Atom,
     context::{ContextImpl, ScopedContext},
-    module::{ModuleDef, ModuleNameFilter, path_to_url, url_to_abspath},
+    module::{ModuleDef, ModuleNameFilter, bind_child, path_to_url, url_to_abspath},
     value::JSValue,
 };
 
@@ -17,10 +17,49 @@ use crate::{
 pub(crate) struct ModuleDependency {
     pub module_name: Atom,
     /// None when module is not resolved.
-    pub module: Option<ModuleDef>,
+    module: Option<ModuleDef>,
     /// Import attributes from `with { ... }` clause, or JSValue::UNDEFINED if absent.
     /// A JS object mapping string keys to string values (e.g. { type: "json" }).
-    pub attributes: JSValue,
+    attributes: JSValue,
+}
+
+impl ModuleDependency {
+    pub(crate) fn new(module_name: Atom, attributes: JSValue) -> Self {
+        Self {
+            module_name,
+            module: None,
+            attributes,
+        }
+    }
+
+    #[inline]
+    pub(crate) fn module(&self) -> Option<ModuleDef> {
+        self.module
+    }
+
+    /// The resolved module for a reborrow (a write barrier cannot be needed
+    /// until the reference itself is installed).
+    #[inline]
+    pub(crate) fn module_mut(&mut self) -> Option<&mut ModuleDef> {
+        self.module.as_mut()
+    }
+
+    #[inline]
+    pub(crate) fn attributes(&self) -> JSValue {
+        self.attributes
+    }
+
+    /// Install the resolved module and bind the owner→module edge: the owner
+    /// may already be old while this dependency is resolved.
+    pub(crate) fn set_module(
+        &mut self,
+        ctx: &ScopedContext,
+        owner: NonNull<GcHead>,
+        module: ModuleDef,
+    ) {
+        self.module = Some(module);
+        bind_child(ctx, owner, module.gc_node_ptr());
+    }
 }
 
 impl GcTrace for ModuleDependency {
@@ -56,11 +95,9 @@ impl ModuleDef {
                 .map_err(|_| ctx.throw_out_of_memory())?;
         }
 
-        self.dependencies.push(ModuleDependency {
-            module_name,
-            module: None,
-            attributes,
-        });
+        self.dependencies
+            .push(ModuleDependency::new(module_name, attributes));
+        self.bind_value(ctx, &attributes);
 
         // return the new dep index
         Ok(self.dependencies.len() as u16 - 1)
@@ -185,7 +222,7 @@ pub(super) fn js_host_resolve_imported_module(
     // are distinct module records per-spec.
     let module_name = Atom::intern_str(ctx, norm_name.as_str())?;
     if let Some(m) = ctx.find_module_def(module_name)
-        && attrs_are_same(ctx, m.attributes, attrs)
+        && attrs_are_same(ctx, m.attributes(), attrs)
     {
         return Ok(m);
     }
@@ -195,7 +232,7 @@ pub(super) fn js_host_resolve_imported_module(
     // Store import attributes on the module so future cache lookups
     // can distinguish between modules loaded from the same URL with
     // different attribute types (e.g. `type: "text"` vs no attrs).
-    md.attributes = attrs;
+    md.set_attributes(ctx, attrs);
     Ok(md)
 }
 
@@ -268,10 +305,11 @@ mod tests {
         );
         // Nothing was registered under this name, so a host asking about it
         // learns "absent" rather than guessing.
-        assert!(!ctx
-            .loaded_module_names(ModuleNameFilter::NativeOnly)
-            .iter()
-            .any(|n| n == "nope"));
+        assert!(
+            !ctx.loaded_module_names(ModuleNameFilter::NativeOnly)
+                .iter()
+                .any(|n| n == "nope")
+        );
         Ok(())
     }
 

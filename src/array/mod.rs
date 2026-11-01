@@ -451,7 +451,7 @@ impl Array {
         let self_node = self.gc_node_ptr();
         let mut rt = self.rt_ptr();
         for v in values.iter() {
-            rt.gc_heap_mut().bind_value(self_node, v);
+            rt.bind_node_value(self_node, *v);
         }
 
         self.payload_mut().replace_values(values);
@@ -833,7 +833,7 @@ impl ObjectImpl {
 
         // bind reference relation
         let self_node = self.gc_head_ptr();
-        ctx.rt_ptr().gc_heap_mut().bind_value(self_node, &value);
+        ctx.bind_node_value(self_node, value);
 
         Ok(true)
     }

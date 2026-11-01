@@ -169,11 +169,21 @@ impl ModuleDefImpl {
                 })?;
             }
 
+            let child = match &export_type {
+                ExportType::JS_EXPORT_TYPE_LOCAL {
+                    var_ref: Some(vref),
+                    ..
+                } => Some(vref.gc_node_ptr()),
+                _ => None,
+            };
             self.export_entries.push(ExportEntry {
                 export_type,
                 local_name,
                 export_name,
             });
+            if let Some(child) = child {
+                self.bind_node(ctx, child);
+            }
 
             Ok(())
         }
@@ -373,7 +383,7 @@ impl ModuleDef {
 
         for idx in self.star_export_entries.iter() {
             self.dependencies[*idx as usize]
-                .module
+                .module()
                 .unwrap()
                 .collect_exported_names(ctx, s, true)?;
         }
@@ -425,7 +435,7 @@ impl ModuleDef {
                             } else {
                                 debug_assert_ne!(var_idx, u16::MAX);
                                 module
-                                    .bytecode
+                                    .bytecode()
                                     .as_object_BCWrapper()
                                     .unwrap()
                                     .payload()
@@ -496,11 +506,11 @@ impl ModuleDef {
     /// get module ns object.
     /// if ns object is not initialized, initialize it and return.
     pub(crate) fn ns_object(&mut self, ctx: &mut ScopedContext) -> Result<Object, i32> {
-        if let Some(ns) = self.module_ns {
+        if let Some(ns) = self.module_ns() {
             Ok(ns)
         } else {
             let ns = self.build_module_ns(ctx)?;
-            self.module_ns.replace(ns);
+            self.set_module_ns(ctx, Some(ns));
             Ok(ns)
         }
     }

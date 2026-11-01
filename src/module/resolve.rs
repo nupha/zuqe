@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use gc_lite::GcNode;
+
 use crate::{
     atom::Atom,
     context::ScopedContext,
     function::BCWrapper,
-    module::{ExportType, JSModuleStatus, ModuleDef, ResolveExport, js_create_module_var},
+    module::{
+        ExportType, JSModuleStatus, ModuleDef, ResolveExport, bind_child, js_create_module_var,
+    },
     runtime::js_check_thread_stack_overflow,
     utils::unlikely,
 };
@@ -49,7 +53,7 @@ impl ModuleDef {
                     if me.local_name == Atom::CONST__star_ {
                         // export ns from — per ES spec ResolveExport step 6.iii.1,
                         // return the *imported* module, not self.
-                        let dep = self.dependencies[req_module_idx as usize].module.unwrap();
+                        let dep = self.dependencies[req_module_idx as usize].module().unwrap();
                         Ok(ResolveExport::Found {
                             module: dep,
                             export_type: me.export_type,
@@ -57,7 +61,7 @@ impl ModuleDef {
                             local_name: me.local_name,
                         })
                     } else {
-                        let dep = self.dependencies[req_module_idx as usize].module.unwrap();
+                        let dep = self.dependencies[req_module_idx as usize].module().unwrap();
                         dep.resolve_export_internal(ctx, me.local_name, expect, resolving)
                     }
                 }
@@ -68,7 +72,7 @@ impl ModuleDef {
             if export_name != Atom::CONST_default {
                 // not found in direct or indirect exports: try star exports
                 for idx in self.star_export_entries.iter() {
-                    let dep = self.dependencies[*idx as usize].module.unwrap();
+                    let dep = self.dependencies[*idx as usize].module().unwrap();
                     match dep.resolve_export_internal(ctx, export_name, expect, resolving)? {
                         ResolveExport::Found {
                             module,
@@ -183,7 +187,7 @@ impl ModuleDef {
                 worklist[top].module.dfs_ancestor_index = index;
 
                 // push onto stack_top (same as recursive `self.stack_prev = stack_top.take(); stack_top.replace(*self);`)
-                worklist[top].module.stack_prev = stack_top.take();
+                worklist[top].module.set_stack_prev(ctx, stack_top.take());
                 stack_top.replace(worklist[top].module);
 
                 index += 1;
@@ -194,7 +198,7 @@ impl ModuleDef {
             //   if m1.status == LINKING { self.dfs_ancestor_index = min(..., m1.dfs_ancestor_index); }
             if worklist[top].dep_index > 0 {
                 let prev_dep = worklist[top].module.dependencies[worklist[top].dep_index - 1]
-                    .module
+                    .module()
                     .unwrap();
                 if prev_dep.status == JSModuleStatus::JS_MODULE_STATUS_LINKING {
                     worklist[top].module.dfs_ancestor_index = std::cmp::min(
@@ -215,7 +219,7 @@ impl ModuleDef {
                         && cur_module.export_entries[i].local_name != Atom::CONST__star_
                     {
                         let m1 = cur_module.dependencies[req_module_idx as usize]
-                            .module
+                            .module()
                             .unwrap();
                         let ret =
                             m1.resolve_export(ctx, cur_module.export_entries[i].local_name, None)?;
@@ -239,14 +243,14 @@ impl ModuleDef {
                 if cur_module.init_func.is_none() {
                     // is bytecode module
                     debug_assert!(cur_module.func_created, "module function should be created");
-                    let mut md_func = BCWrapper::try_from(cur_module.bytecode).unwrap();
+                    let mut md_func = BCWrapper::try_from(cur_module.bytecode()).unwrap();
 
                     for i in 0..cur_module.import_entries.len() {
                         let import_var_idx = cur_module.import_entries[i].var_idx;
 
                         let mut reqm = cur_module.dependencies
                             [cur_module.import_entries[i].req_module_idx as usize]
-                            .module
+                            .module()
                             .unwrap();
 
                         if cur_module.import_entries[i].import_name == Atom::CONST__star_ {
@@ -290,7 +294,7 @@ impl ModuleDef {
                                                     dep.func_created,
                                                     "module function must have been created"
                                                 );
-                                                dep.bytecode
+                                                dep.bytecode()
                                                     .as_object_BCWrapper()
                                                     .unwrap()
                                                     .payload()
@@ -318,6 +322,7 @@ impl ModuleDef {
                     }
 
                     // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
+                    let owner = cur_module.gc_head_ptr();
                     for i in 0..cur_module.export_entries.len() {
                         if let ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } =
                             &mut cur_module.export_entries[i].export_type
@@ -325,6 +330,7 @@ impl ModuleDef {
                             debug_assert_ne!(*var_idx, u16::MAX);
                             let vr = md_func.payload().get_closure(*var_idx as usize);
                             var_ref.replace(vr);
+                            bind_child(ctx, owner, vr.gc_node_ptr());
                         }
                     }
                     debug_assert!(cur_module.func_created);
@@ -350,7 +356,7 @@ impl ModuleDef {
                 if cur_module.dfs_index == cur_module.dfs_ancestor_index {
                     loop {
                         let mut m1 = stack_top.take().unwrap();
-                        *stack_top = m1.stack_prev.take();
+                        *stack_top = m1.take_stack_prev();
 
                         m1.status = JSModuleStatus::JS_MODULE_STATUS_LINKED;
                         if m1.eq(cur_module) {
@@ -369,7 +375,7 @@ impl ModuleDef {
             // === PROCESS next dependency ===
             {
                 let dep_idx = worklist[top].dep_index;
-                let child = worklist[top].module.dependencies[dep_idx].module.unwrap();
+                let child = worklist[top].module.dependencies[dep_idx].module().unwrap();
 
                 worklist[top].dep_index += 1;
                 worklist.push(LinkState {
@@ -404,7 +410,7 @@ impl ModuleDef {
             while let Some(mut m1) = stack_top.take() {
                 debug_assert_eq!(m1.status(), JSModuleStatus::JS_MODULE_STATUS_LINKING);
                 m1.status = JSModuleStatus::JS_MODULE_STATUS_UNLINKED;
-                stack_top = m1.stack_prev.take();
+                stack_top = m1.take_stack_prev();
             }
             Err(-1)
         } else {

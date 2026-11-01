@@ -5,10 +5,11 @@ use std::{
     cell::Cell,
     collections::VecDeque,
     ffi::c_void,
+    ptr::NonNull,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use gc_lite::{GcHeap, GcNode, GcRef, GcScope, GcScopeStackId, GcTrace, GcTraceCtx};
+use gc_lite::{GcHead, GcHeap, GcNode, GcRef, GcScope, GcScopeStackId, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
@@ -289,6 +290,38 @@ impl ContextImpl {
     #[inline(always)]
     pub fn gc_heap_mut(&mut self) -> &mut GcHeap {
         self.rt.gc_heap_mut()
+    }
+
+    /// Write barrier for one GC edge: `owner` now references `child`.
+    ///
+    /// The single entry point for write barriers. Values that reference no GC
+    /// node are a no-op, so callers can pass JS values unconditionally. Use
+    /// [`bind_node`](Self::bind_node) / [`bind_node_value`](Self::bind_node_value)
+    /// when the owner is already a node pointer.
+    #[inline]
+    pub fn bind_value(&self, owner: JSValue, child: JSValue) {
+        let Some(owner) = owner.as_gc_node() else {
+            return;
+        };
+        self.bind_node_value(owner, child);
+    }
+
+    /// Node form of [`bind_value`](Self::bind_value): record `owner` → `child`.
+    #[inline]
+    pub(crate) fn bind_node(&self, owner: NonNull<GcHead>, child: NonNull<GcHead>) {
+        let mut rt = self.rt;
+        rt.bind_node(owner, child);
+    }
+
+    /// Node-owner form for the common "owner is already a node, child is a
+    /// value" case. Crate-internal; hosts pass both as `JSValue` through
+    /// [`bind_value`](Self::bind_value).
+    #[inline]
+    pub(crate) fn bind_node_value(&self, owner: NonNull<GcHead>, child: JSValue) {
+        let Some(child) = child.as_gc_node() else {
+            return;
+        };
+        self.bind_node(owner, child);
     }
 
     /// get global object

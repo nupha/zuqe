@@ -46,19 +46,12 @@ impl ModuleDefImpl {
     fn set_evaluated(&mut self, ctx: &mut ScopedContext) {
         self.set_status_evaluated();
 
-        if self.promise.is_some() {
-            debug_assert_eq!(self.cycle_root, Some(ModuleDef::from(self.gc_ref())));
-            let _ = self.resolving_funcs[0].call(ctx, JSValue::UNDEFINED, &[JSValue::UNDEFINED]);
+        if self.promise().is_some() {
+            debug_assert_eq!(self.cycle_root(), Some(ModuleDef::from(self.gc_ref())));
+            let _ = self
+                .resolving_func(0)
+                .call(ctx, JSValue::UNDEFINED, &[JSValue::UNDEFINED]);
         }
-    }
-    #[inline(always)]
-    const fn cycle_root(&self) -> Option<ModuleDef> {
-        self.cycle_root
-    }
-
-    fn set_cycle_root(&mut self, root: ModuleDef) {
-        debug_assert!(self.cycle_root.is_none());
-        self.cycle_root.replace(root);
     }
 
     #[inline(always)]
@@ -106,13 +99,15 @@ impl ModuleDef {
         };
 
         // a promise may be created only on the cycle_root of a cycle
-        if let Some(p) = md.promise {
+        if let Some(p) = md.promise() {
             return Ok(p);
         }
 
         let (promise, rr) = Promise::create(ctx)?;
-        md.promise.replace(promise);
-        md.resolving_funcs = rr;
+        // The module may already be old (the entry module usually is): bind the
+        // young promise and its capability, or the next minor sweeps them and
+        // the module's top-level-await promise can never settle.
+        md.set_capability(ctx, promise, rr);
 
         let mut stack_top: Option<ModuleDef> = None;
 
@@ -127,7 +122,7 @@ impl ModuleDef {
 
                 if !md.async_evaluation() {
                     debug_assert_eq!(md.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
-                    let _ = md.resolving_funcs[0].call(
+                    let _ = md.resolving_func(0).call(
                         ctx,
                         JSValue::UNDEFINED,
                         std::slice::from_ref(&JSValue::UNDEFINED),
@@ -141,17 +136,17 @@ impl ModuleDef {
                     debug_assert_eq!(m1.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATING);
 
                     m1.status = JSModuleStatus::JS_MODULE_STATUS_EVALUATED;
-                    m1.set_eval_error(err);
-                    m1.set_cycle_root(md); // spec bug: should be present
+                    m1.set_eval_error(ctx, err);
+                    m1.set_cycle_root(ctx, md); // spec bug: should be present
 
-                    stack_top = m1.stack_prev.take();
+                    stack_top = m1.take_stack_prev();
                 }
 
                 debug_assert_eq!(md.status(), JSModuleStatus::JS_MODULE_STATUS_EVALUATED);
 
                 // reject
                 let err_val = md.get_eval_error();
-                let _ = md.resolving_funcs[1].call(
+                let _ = md.resolving_func(1).call(
                     ctx,
                     JSValue::UNDEFINED,
                     std::slice::from_ref(&err_val),
@@ -241,7 +236,7 @@ impl ModuleDef {
                 worklist[top].module.pending_async_dependencies = 0;
 
                 // push 'self' on stack
-                worklist[top].module.stack_prev = stack_top.take();
+                worklist[top].module.set_stack_prev(ctx, stack_top.take());
                 stack_top.replace(worklist[top].module);
 
                 index += 1;
@@ -251,7 +246,7 @@ impl ModuleDef {
             // This mirrors the post-recursive-call logic in the recursive version.
             if worklist[top].dep_index > 0 {
                 let mut prev = worklist[top].module.dependencies[worklist[top].dep_index - 1]
-                    .module
+                    .module()
                     .unwrap();
 
                 if prev.status() == JSModuleStatus::JS_MODULE_STATUS_EVALUATING {
@@ -279,9 +274,7 @@ impl ModuleDef {
                 if prev.async_evaluation() {
                     worklist[top].module.pending_async_dependencies += 1;
 
-                    if prev.async_parent_modules.len() == prev.async_parent_modules.capacity()
-                        && prev.async_parent_modules.try_reserve(1).is_err()
-                    {
+                    if !prev.try_push_async_parent(ctx, worklist[top].module) {
                         result = Err(ctx
                             .create_error_object(
                                 ErrorKind::Internal,
@@ -291,8 +284,6 @@ impl ModuleDef {
                             .map_or_else(|| Exception::OutOfMemory.to_value(ctx), JSValue::from));
                         break;
                     }
-
-                    prev.async_parent_modules.push(worklist[top].module);
                 }
             }
 
@@ -310,8 +301,7 @@ impl ModuleDef {
                 // (native ones have no bytecode to read it lazily). Skip when
                 // already set (main entry / dynamic import) to keep a single
                 // call per module and preserve the `main` flag.
-                if cur_module.meta_obj.is_none() && cur_module.set_import_meta(ctx, false).is_err()
-                {
+                if !cur_module.has_meta_obj() && cur_module.set_import_meta(ctx, false).is_err() {
                     result = Err(ctx.take_exception().to_value(ctx));
                     break;
                 }
@@ -355,7 +345,7 @@ impl ModuleDef {
                 if cur_module.dfs_index == cur_module.dfs_ancestor_index {
                     loop {
                         let mut md = stack_top.take().unwrap();
-                        *stack_top = md.stack_prev.take();
+                        *stack_top = md.take_stack_prev();
 
                         md.status = if md.async_evaluation() {
                             JSModuleStatus::JS_MODULE_STATUS_EVALUATING_ASYNC
@@ -364,7 +354,7 @@ impl ModuleDef {
                         };
 
                         // spec bug: cycle_root must be assigned before the test
-                        md.set_cycle_root(*cur_module);
+                        md.set_cycle_root(ctx, *cur_module);
 
                         if md.eq(cur_module) {
                             break;
@@ -382,7 +372,7 @@ impl ModuleDef {
             // === PROCESS next dependency ===
             {
                 let dep_idx = worklist[top].dep_index;
-                let child = worklist[top].module.dependencies[dep_idx].module.unwrap();
+                let child = worklist[top].module.dependencies[dep_idx].module().unwrap();
 
                 worklist[top].dep_index += 1;
                 worklist.push(EvalState {
@@ -399,13 +389,13 @@ impl ModuleDef {
     /// execute module function in async manner
     fn execute_async_module(&self, ctx: &mut ScopedContext) -> Result<(), i32> {
         debug_assert_eq!(
-            self.bytecode.as_object().unwrap().class_id(),
+            self.bytecode().as_object().unwrap().class_id(),
             JS_CLASS_BYTECODE_FUNCTION,
             "expect BytecodeFunction object"
         );
 
         // execute module function in async manner.
-        let md_func = self.bytecode;
+        let md_func = self.bytecode();
         let mut promise = md_func.call_async(ctx, JSValue::UNDEFINED, &[], 0)?;
 
         // Hint: `promise.then()` don't call bytecode execution inside, won't trigger gc collection,
@@ -507,20 +497,20 @@ impl ModuleDef {
         debug_assert!(md.get_eval_error().is_undefined());
         debug_assert!(md.async_evaluation());
 
-        md.set_eval_error(err_val);
+        md.set_eval_error(ctx, err_val);
         md.set_status_evaluated();
 
         // DON'T FOLLOWING CHANGE ORDER
 
         // Per spec (AsyncModuleExecutionRejected):
         // 9. Reject own TopLevelCapability first
-        if md.promise.is_some() {
+        if md.promise().is_some() {
             debug_assert_eq!(md.cycle_root(), Some(md));
-            let func = md.resolving_funcs[1];
+            let func = md.resolving_func(1);
             let _ = func.call(ctx, JSValue::UNDEFINED, std::slice::from_ref(&err_val));
         }
         // 10. Then propagate rejection to async parent modules (leaf-to-root order)
-        for m in md.async_parent_modules.iter() {
+        for m in md.async_parents().iter() {
             Self::execute_async_rejected(
                 ctx,
                 CallContext::new(
@@ -546,7 +536,7 @@ impl ModuleDef {
             }
         } else {
             // is bytecode function
-            let bc = self.bytecode;
+            let bc = self.bytecode();
             debug_assert!(bc.as_object_BCWrapper().is_some());
 
             // eval bytecode function
@@ -578,7 +568,7 @@ fn gather_module_ancestors(
         return Err(ctx.throw_stack_overflow());
     }
 
-    for mut m in module.async_parent_modules.iter().copied() {
+    for mut m in module.async_parents().iter().copied() {
         if !exec_list.contains(&m)
             && m.cycle_root()
                 .is_some_and(|x| x.get_eval_error().is_undefined())

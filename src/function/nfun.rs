@@ -191,7 +191,7 @@ impl NativeFunction {
             };
             let owner = self.gc_node_ptr();
             for value in data {
-                rt.gc_heap_mut().bind_value(owner, value);
+                rt.bind_node_value(owner, *value);
             }
         }
         #[cfg(not(feature = "gc_generations"))]

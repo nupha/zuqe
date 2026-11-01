@@ -55,9 +55,9 @@ pub(crate) fn serialize_module(
         ctx.write_u16(*s);
     }
 
-    ctx.serialize_value(sc, md.bytecode)?;
+    ctx.serialize_value(sc, md.bytecode())?;
 
-    match md.module_ns {
+    match md.module_ns() {
         Some(o) => {
             ctx.write_u8(1);
             ctx.serialize_value(sc, JSValue::from(o))?;
@@ -78,11 +78,7 @@ pub(crate) fn deserialize_module(
     let mut dependencies = Vec::with_capacity(n);
     for _ in 0..n {
         let name: Atom = ctx.read_atom()?;
-        dependencies.push(ModuleDependency {
-            module_name: name,
-            module: None,
-            attributes: JSValue::UNDEFINED,
-        });
+        dependencies.push(ModuleDependency::new(name, JSValue::UNDEFINED));
     }
 
     let n = ctx.read_u32()? as usize;
@@ -144,9 +140,9 @@ pub(crate) fn deserialize_module(
     md.import_entries = import_entries;
     md.export_entries = export_entries;
     md.star_export_entries = star_export_entries;
-    md.bytecode = JSValue::from(bytecode);
+    md.set_bytecode(ctx.ctx, JSValue::from(bytecode));
     md.func_created = func_created;
-    md.module_ns = module_ns;
+    md.set_module_ns(ctx.ctx, module_ns);
 
     Ok(md)
 }

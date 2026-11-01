@@ -316,8 +316,7 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         frd.entries.push(entry);
         // Write barrier: the registry payload now strongly holds `held_value`.
         #[cfg(feature = "gc_generations")]
-        ctx.gc_heap_mut()
-            .bind_value(this_obj.gc_node_ptr(), &held_val);
+        ctx.bind_node_value(this_obj.gc_node_ptr(), held_val);
     }
 
     // Add back-reference from target to this FinalizationRegistry (objects only)

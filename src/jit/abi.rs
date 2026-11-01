@@ -1169,8 +1169,7 @@ pub(crate) unsafe extern "C" fn h_gc_bind(f: *mut JitExecFrame, owner: u64, valu
             return;
         };
         let scope = scope_of(&*f);
-        let mut rt = scope.rt_ptr();
-        rt.gc_heap_mut().bind_value(master, &value);
+        scope.bind_node_value(master, value);
     }
 }
 

@@ -103,6 +103,11 @@ Promotion works through the `ScopeResult` trait, which is implemented for `JSVal
 > reclaimed while you still use it, that is a **use-after-free** — and in debug builds the engine
 > panics (`gc: bad node`). Missing a `trace` is fatal; calling `trace` on a non-node value is a
 > harmless no-op. **When in doubt, trace it.**
+>
+> **With the opt-in `gc_generations` feature there is a second, separate requirement:** `trace`
+> decides what survives a *full* mark; a write of a young node into an **old** container must also
+> record the edge with a write barrier (`bind`). `trace` without a barrier loses the child on the
+> next minor; a barrier without `trace` loses it on the next full mark. See Rule 5.
 
 ### What counts as a GC node
 
@@ -123,6 +128,30 @@ reclaimable) or if it wraps/contains a `GcRef<GcNode>`. Common node types:
 Rules 1 and 2 are the two entry points for **long-lived** Rust-held nodes. A value that is only
 held **during a native call** and is used after JS runs is covered by Rule 4. If a node isn't
 covered by one of these rules, it is unsafe:
+
+### Generations: young, old, and what a minor does
+
+`gc_generations` is an opt-in build feature; enable it on a host build that needs generational
+collection (`zuqe = { features = ["gc_generations"] }`). Builds without it keep the
+single-generation path. With it on, each partition is split into a young chain and an old chain:
+
+- A fresh allocation is **young** (age 0) and is swept by every minor unless marked.
+- A young node that survives `promote_after` minors (default **2**) is promoted to **old**
+  (Black).
+- A **major** merges the whole young chain first: every live node is old afterwards.
+- A minor never sweeps old nodes; old garbage waits for a major.
+- A minor marks the young chain (age>0 survivors are roots) plus the **remembered set** of old
+  nodes that recorded an old→young write. It does not descend into an old node's payload.
+
+Minors run automatically when young allocations exceed the young budget. `gc_minor_request()`
+only *requests* one; it runs at the next safepoint, so a stress caller must execute a few more
+bytecodes. `gc_set_promote_after(0)` disables minors (major-only) but keeps the bookkeeping;
+building without the feature removes it entirely. `gc_set_promote_after` accepts 0/1/2 (larger
+values clamp to 2).
+
+Consequence: a quick script passing proves nothing about barriers. The owner is often already old
+(the entry module, a long-lived stream controller, a cache created at startup), and a major makes
+everything old. Assume any mutated container can be old and bind the write.
 
 ### Rule 1 — class payloads holding GC nodes: implement `GcTrace`
 
@@ -163,6 +192,26 @@ trace(&self, _: &mut GcTraceCtx) {} }` (a foreign type such as `RefCell<T>` cann
 2. **Lazily-cached JS objects are GC nodes too.** A `RefCell<Option<Object>>` cached in the payload
    (e.g. `URL.searchParams`) must be traced once it is only reachable from that payload — with the
    derive this is automatic as long as the field is a traced type.
+3. **`GcTrace` is not a write barrier.** It keeps the payload's children alive across a *full*
+   mark. With `gc_generations`, writing a young value into a payload whose instance may already be
+   old also needs `bind` (Rule 5): the next minor does not descend into the old instance and frees
+   the value. `def_native_object!` payloads have **no** automatic re-trace fallback (only zapi
+   instances do), so route such writes through a setter that binds:
+
+   ```rust
+   payload.cache = Some(obj);
+   ctx.bind_node_value(instance_node, obj);
+   ```
+
+   `ScopedContext::bind_value(owner, child)` is the public write-barrier entry point; the
+   node-based forms (`bind_node_value` / `bind_node`) and `GcHeap::bind` are crate-internal for
+   code that already holds node pointers. Use `bind_value` in every path that has a
+   `ScopedContext`.
+
+   The same applies to a `RefCell<Vec<JSValue>>` or map inside the payload: after appending a
+   young value, bind the **instance** again (`bind` records the owner once per minor and dedupes,
+   so repeated binds are cheap). Remember the remembered set is cleared at each minor, so a write
+   in a later minor needs its own bind; binding once at creation is not a permanent license.
 
 ### Rule 2 — `thread_local!` stores holding GC nodes: register a user GC trace
 
@@ -206,6 +255,10 @@ rt.gc_set_trace_handler(|gcx| {
   may touch the thread-local.
 - The trace fn must cover **all** GC-node fields of the variable; trace every `JSValue`
   unconditionally.
+- The user trace is a GC **root** and a minor force-descends roots, so a value reachable only from
+  a registered thread-local needs no write barrier — the handler must still trace every field, or a
+  full mark loses it. This root treatment does **not** extend to ordinary old containers or to
+  `def_native_object!` payloads (Rule 5).
 
 ### Rule 3 — raw pointers into `Vec` storage: element addresses move on growth (rare)
 
@@ -263,15 +316,20 @@ callback, a thenable check on a value you resolve with, and a getter that runs o
 native call runs (for example the stream controller). Hold it for the exact duration needed and
 release it right after. Prefer a closure-scoped helper so the hold cannot leak or be popped out of
 order. The `aike` case uses `ReadableControllerPayload::with_in_flight`
-(`aike/src/whatwg/stream/readable_controller.rs`):
+(`aike/src/whatwg/stream/readable_controller.rs`); with `gc_generations` its guard binds every
+pushed value to the controller node:
 
 ```rust
-cp.with_in_flight(|held| -> Result<Promise, i32> {
-    held.borrow_mut().push(chunk);      // traced until the closure returns
+cp.with_in_flight(owner, |held| -> Result<Promise, i32> {
+    held.push(ctx, chunk);              // traced until the closure returns, and bound
     if cp.should_call_pull(ctx)? { cp.call_pull(ctx)?; }
     iterator_result_promise(ctx, chunk, false)
 });
 ```
+
+With `gc_generations`, a traced slot only covers the **full** mark. Every value pushed into a
+payload of an instance that may already be old also needs its own write barrier; the next minor
+does not descend into that instance. See Rule 5.
 
 Do **not** fix this by pushing to a global roots `Vec` with manual push/pop. That is a hidden
 discipline with no compile-time check, and an early `?` can leak the root.
@@ -283,6 +341,102 @@ right before the access and drop it before any call that can run JS. The `aike` 
 `enqueue`: the queue was borrowed for the whole `fill_pending_pull_intos`, which resolves
 promises. It is now borrowed only for the final leftover insert.
 
+### Rule 5 — an old container receiving a young value: write barrier
+
+Only builds with the opt-in `gc_generations` feature record these edges. The shape it forces
+(private fields + setters) is right in every build; a feature-off build simply omits the
+generational bookkeeping.
+
+A minor marks the young generation **plus the remembered set**; it does not descend into an old
+(Black) object. Once a container has been promoted, assigning a young node into it must record the edge:
+
+```rust
+// BAD: `md` may already be old when evaluation starts; both writes are invisible
+// to the next minor, which then frees the promise and its resolving functions.
+let (promise, resolve) = Promise::create(ctx)?;
+md.promise = Some(promise);
+md.resolving_funcs = resolve;
+```
+
+(The current `ModuleDef` makes those fields private, so this snippet no longer compiles — that
+is the point. The historical version did direct writes and produced the failure below.)
+
+Nothing panics: the module's top-level-await promise simply can never settle, so the script
+prints its last line and the process never exits. That was the real `distro verify` hang: after
+importing every extension with dynamic `import()` and printing all `ok …` lines, the runtime
+parked forever.
+
+```rust
+// GOOD: one setter owns the write and binds every edge it installs.
+pub(crate) fn set_capability(
+    &mut self,
+    ctx: &ScopedContext,
+    promise: Promise,
+    funcs: [JSValue; 2],
+) {
+    self.promise = Some(promise);
+    self.resolving_funcs = funcs;
+    self.bind_value(ctx, &JSValue::from(promise));
+    self.bind_value(ctx, &funcs[0]);
+    self.bind_value(ctx, &funcs[1]);
+}
+```
+
+Places this class of bug actually shows up:
+
+- capabilities / promise resolvers installed on a long-lived record (module evaluation, async
+  state, pending operations);
+- lazily built caches: module namespace, `import.meta`, parsed or compiled results;
+- resolved dependency edges, exported `VarRef`s, async-parent lists;
+- an error/result slot written once, long after the owner was promoted;
+- a **native payload** field mutated after the instance was created (`RefCell<Option<Object>>`,
+  `Vec<JSValue>`, a cached map). `def_native_object!` payloads have no re-trace fallback: only
+  zapi instances are re-scanned every minor.
+
+Already covered by the engine (do not hand-roll these):
+
+- property slots, array elements, Map/Set entries, closure variables (`VarRef`) — the public
+  mutators (`set_prop_slot`, `bind_value`, `VarRef::set_value`/`detach`) call `bind`; do not write
+  those payloads directly;
+- `CallContext::replace_data` — the binding-data values are rebound to the function node after
+  the callback returns;
+- JIT-generated property/array stores — generated code calls `h_gc_bind` → `bind`;
+- JIT call feedback — `note_call` binds the caller bytecode to the callee bytecode;
+- root containers (contexts, shape registry, jobs, user state) — a minor force-descends them.
+
+The barrier has one primitive — `GcHeap::bind`, the generational remembered set plus tri-color and
+cross-partition bookkeeping — and one public entry point: `ScopedContext::bind_value(owner, child)`.
+The node-based forms (`ContextImpl::bind_node_value` / `bind_node`, `RuntimeImpl::bind_node`,
+`RuntimePtr::bind_node`) are crate-internal for paths that already hold GC node pointers. Values
+that reference no GC node are a no-op. The module setters (`ModuleDef::set_capability`, …) and
+their `bind_child` helper delegate to this API; `GcHeap::bind` is used directly only where no
+context exists (GC finalize paths).
+
+Make the raw field impossible to write: keep GC fields **private** to the payload module and
+expose setters that bind (`set_capability`, `set_module_ns`, `set_attributes`, …). A direct
+assignment from another module then fails to compile instead of silently dangling. `ModuleDef`
+(`src/module/mdef.rs`) is the reference implementation: `bind_value` / `bind_node` /
+`bind_child` are the only write paths, and `ModuleDependency::set_module` does the same for the
+dependency edge.
+
+`trace` must still report the field. A barrier keeps the child alive; `trace` is what makes it
+reachable. Missing either one loses the node (see Rule 1) — the barrier cannot rescue an
+unreported edge.
+
+**Detection:** with debug + `gc_generations`, every minor is followed by
+`GcHeap::dbg_assert_no_stale_old_edges` (gc-lite), called from `RuntimeImpl::gc_minor`. It walks
+**every old node** (reachable or not, all partitions) and traces its current edges; one pointing
+at a node the minor just collected panics with:
+
+```
+a live object still points at a node freed by the last minor:
+child 0x… (freed dtype …), owner 0x… (dtype …) — missing write barrier
+```
+
+Known limits, so do not treat a green run as proof: it only sees edges `trace` reports, only
+paths that actually trigger a minor, and only debug builds. Release builds have no runtime check;
+there the private fields + setters are the guarantee.
+
 ### Review checklist
 
 **Rule 1 (class payload)**
@@ -290,6 +444,8 @@ promises. It is now borrowed only for the final leftover insert.
 - [ ] Does the payload contain GC nodes (`JSValue`/`Object`/native wrapper/callback handle)?
 - [ ] If yes — does the payload type impl `GcTrace` (derive), and does every GC field get traced?
 - [ ] Is it an `extends:` subclass? If so, does the subclass payload type carry its own `GcTrace` impl?
+- [ ] Can a GC field be **written after the instance may already be old**? If yes — the write must go
+      through a setter that calls `bind` (Rule 5). `GcTrace` alone only covers a full mark.
 
 **Rule 2 (`thread_local`)**
 
@@ -316,32 +472,52 @@ promises. It is now borrowed only for the final leftover insert.
       Narrow it to the access, or drop it first.
 - [ ] Did you avoid a global roots `Vec` with manual push/pop, and avoid relying on
       `gc_protect_transient` or scope protection across JS?
+- [ ] If the hold is a payload slot (`Vec<JSValue>`, cache, pending map), is every value **also**
+      bound to the owner (`bind`)? The slot being traced only covers the full mark; the next minor
+      does not descend into an old owner (Rule 5).
 
-**Rule 5 (generational write barrier, only relevant with `gc_generations`)**
+**Rule 5 (generational write barrier, only with `gc_generations`)**
 
-With the opt-in `gc_generations` feature a minor only marks the young generation plus the
-remembered set, so an **old container that starts referencing a young node** must record the edge:
+A minor only marks the young generation plus the remembered set, so an **old container that starts
+referencing a young node** must record the edge:
 
 - [ ] Property slots / array elements / Map/Set entries / closure variables: already routed through
       `bind` (`set_prop_slot`, `bind_value`, `VarRef::set_value`/`detach`).
 - [ ] Native payload (`cc.replace_data`): `NativeFunction::class_call*` binds every binding-data value
       back to the function node after the callback returns.
+- [ ] JIT-generated property/array stores: `h_gc_bind` → `bind`; no action needed.
 - [ ] JIT call feedback (`note_call`) binds the caller bytecode to the recorded callee bytecode.
-- [ ] A new payload write that bypasses these must call
-      `rt.gc_heap_mut().bind_value(owner_node, &value)` (or `GcRef::with_write_barrier` when only
-      the owner is known; the owner's `GcTrace` must then report the edge).
-- [ ] Root containers (contexts, shape registry, jobs, user state) are force-descended by a minor;
-      do not rely on a young child of an old root staying alive by accident.
+- [ ] `def_native_object!` payload fields (`RefCell<Option<Object>>`, `Vec<JSValue>`, caches) have
+      **no** automatic re-trace fallback. A write after the instance may be old must call `bind`
+      (prefer a setter). Only zapi instances get the per-minor re-scan below.
+- [ ] New payload writes go through a **setter on the payload type**, not a direct field
+      assignment. Host code calls `ctx.bind_value(owner, child)`; engine-internal setters may call
+      the crate-private `bind_node_value(owner_node, child)`. Both are no-ops for non-GC values.
+- [ ] The GC fields that can be written after promotion are **private** to the payload module, so a
+      bypass does not compile. Follow `ModuleDef` (`src/module/mdef.rs`): `set_capability`,
+      `set_module_ns`, `set_meta_obj`, `set_attributes`, `set_bytecode`, `set_stack_prev`,
+      `set_cycle_root`, `try_push_async_parent`; `ModuleDependency::set_module` for dependency edges.
+- [ ] The owner's `GcTrace` reports every GC field. A bound but untraced field is still lost; an
+      edge the validator cannot see is an edge nobody can save.
+- [ ] Root containers (contexts, shape registry, jobs, user state) are force-descended by a minor,
+      so writes into them are covered; ordinary old containers are **not** descended.
 - [ ] zapi extensions have no ABI write barrier entry point. The engine compensates by re-tracing the
       payload of every **old** zapi instance on each minor (through the class `gc_trace` callback),
       so a young value written into an opaque payload is still found. This is a fallback: a
       value-carrying barrier (planned for a future `zuqe_zapi` ABI) avoids re-scanning every old
       instance. Extension `gc_trace` callbacks must report every GC field they hold — the fallback
       can only see what `gc_trace` reports.
-- [ ] Runtime switch: `gc_set_promote_after(0)` (zjs `std.gcPromote(0)`) disables minors
-      (major-only) without rebuilding. It keeps the young chain and remembered-set bookkeeping, so
-      it is **not** the same as building without `gc_generations`; use the feature-off build when a
-      host needs the zero-bookkeeping path.
+- [ ] New old→young path: exercised under debug + `gc_generations`, promoting the owner, writing the
+      value, then requesting a minor (`gc_minor_request()`) and letting execution reach the next
+      safepoint. A missing barrier must panic in `dbg_assert_no_stale_old_edges`,
+      i.e. `child … (freed dtype …), owner … (dtype …) — missing write barrier`.
+- [ ] Remember the validator's limits: only traced edges, only paths that actually run a minor, only
+      debug builds. Release correctness rests on the private fields + setters above, not on the
+      validator.
+- [ ] Runtime switch: `gc_set_promote_after(0)` disables minors (major-only) without rebuilding.
+      It keeps the young chain and remembered-set bookkeeping, so it is **not** the same as building
+      without `gc_generations`; use the feature-off build when a host needs the zero-bookkeeping
+      path.
 
 ## Customized GC tracer
 

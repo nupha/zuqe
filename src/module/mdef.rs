@@ -3,7 +3,7 @@
 
 use std::marker::PhantomData;
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 use url::Url;
 
 use crate::{
@@ -35,6 +35,21 @@ pub(crate) trait ModuleInitFn:
 }
 impl<F> ModuleInitFn for F where F: Fn(&mut ScopedContext, &ModuleDef) -> Result<(), i32> {}
 
+/// Record an edge from a module record (or one of its dependency entries) to a
+/// GC child.
+///
+/// A no-op without `gc_generations`: a full collection marks from the roots and
+/// sees the edge directly, so only a minor needs old→young edges remembered.
+#[inline]
+pub(crate) fn bind_child(
+    _ctx: &ScopedContext,
+    _owner: std::ptr::NonNull<gc_lite::GcHead>,
+    _child: std::ptr::NonNull<gc_lite::GcHead>,
+) {
+    #[cfg(feature = "gc_generations")]
+    _ctx.bind_node(_owner, _child);
+}
+
 pub struct ModuleDefImpl {
     pub(crate) module_name: Atom,
     pub(crate) dependencies: Vec<ModuleDependency>,
@@ -45,7 +60,7 @@ pub struct ModuleDefImpl {
     pub(crate) star_export_entries: Vec<u16>,
 
     /// module namespace.
-    pub(crate) module_ns: Option<Object>,
+    module_ns: Option<Object>,
 
     /// for js module, when func_created is:
     /// - true: bytecode field is a function object value
@@ -56,7 +71,7 @@ pub struct ModuleDefImpl {
     /// * Bytecode, when func_created is false,
     /// * BCWrapper function, when func_created is true.
     /// * undefined for uninitialized.
-    pub(crate) bytecode: JSValue,
+    bytecode: JSValue,
     /// init callback for native module
     pub(super) init_func: Option<Box<dyn ModuleInitFn>>,
 
@@ -69,27 +84,27 @@ pub struct ModuleDefImpl {
     pub(super) dfs_index: i32,
     pub(super) dfs_ancestor_index: i32,
 
-    pub(super) stack_prev: Option<ModuleDef>,
-    pub(super) cycle_root: Option<ModuleDef>,
+    stack_prev: Option<ModuleDef>,
+    cycle_root: Option<ModuleDef>,
 
     //
     // temp use during js_module_evaluate()
     //
-    pub(super) async_parent_modules: Vec<ModuleDef>,
+    async_parent_modules: Vec<ModuleDef>,
     pub(super) async_evaluation: bool,
     pub(super) async_evaluation_timestamp: i64,
     pub(super) pending_async_dependencies: i32,
 
-    pub(super) promise: Option<Promise>, // corresponds to spec field: capability
-    pub(super) resolving_funcs: [JSValue; 2], // corresponds to spec field: capability
+    promise: Option<Promise>,      // corresponds to spec field: capability
+    resolving_funcs: [JSValue; 2], // corresponds to spec field: capability
 
     /// undefined means no exception
     eval_error: JSValue,
     /// the `import.meta` object of module
-    pub meta_obj: Option<Object>,
+    meta_obj: Option<Object>,
 
     /// Import attributes (e.g. `type: "json"`)
-    pub(super) attributes: JSValue,
+    attributes: JSValue,
 }
 
 impl GcTrace for ModuleDefImpl {
@@ -206,10 +221,147 @@ impl ModuleDefImpl {
         self.eval_error
     }
 
+    /// Write barrier for a GC value stored in this module record.
+    ///
+    /// Generational-only. Without `gc_generations` every collection is a
+    /// synchronous full mark from the roots, which traces this edge like any
+    /// other, so there is no old→young window to repair. With it on, a module
+    /// can already be old (Black) while it is still being linked or evaluated —
+    /// the entry module usually is — and a minor only follows remembered
+    /// old→young edges. A young value assigned afterwards must then be bound,
+    /// or the next minor frees it while the module still points at it.
+    #[inline]
+    pub(crate) fn bind_value(&self, _ctx: &ScopedContext, _val: &JSValue) {
+        #[cfg(feature = "gc_generations")]
+        if let Some(child) = _val.as_gc_node() {
+            self.bind_node(_ctx, child);
+        }
+    }
+
+    /// [`bind_value`](Self::bind_value) for a child that is already a node.
+    #[inline]
+    pub(crate) fn bind_node(
+        &self,
+        _ctx: &ScopedContext,
+        _child: std::ptr::NonNull<gc_lite::GcHead>,
+    ) {
+        #[cfg(feature = "gc_generations")]
+        bind_child(_ctx, self.gc_head_ptr(), _child);
+    }
+
+    #[inline]
+    pub(crate) const fn promise(&self) -> Option<Promise> {
+        self.promise
+    }
+
+    #[inline]
+    pub(crate) const fn resolving_func(&self, i: usize) -> JSValue {
+        self.resolving_funcs[i]
+    }
+
+    /// Install the module evaluation capability. Both values are young and the
+    /// module may already be old, so both edges are bound here.
+    pub(crate) fn set_capability(
+        &mut self,
+        ctx: &ScopedContext,
+        promise: Promise,
+        funcs: [JSValue; 2],
+    ) {
+        self.promise = Some(promise);
+        self.resolving_funcs = funcs;
+        self.bind_value(ctx, &JSValue::from(promise));
+        self.bind_value(ctx, &funcs[0]);
+        self.bind_value(ctx, &funcs[1]);
+    }
+
+    #[inline]
+    pub(crate) const fn take_stack_prev(&mut self) -> Option<ModuleDef> {
+        self.stack_prev.take()
+    }
+
+    pub(crate) fn set_stack_prev(&mut self, ctx: &ScopedContext, prev: Option<ModuleDef>) {
+        self.stack_prev = prev;
+        if let Some(prev) = prev {
+            self.bind_node(ctx, prev.gc_node_ptr());
+        }
+    }
+
+    #[inline]
+    pub(crate) const fn cycle_root(&self) -> Option<ModuleDef> {
+        self.cycle_root
+    }
+
+    pub(crate) fn set_cycle_root(&mut self, ctx: &ScopedContext, root: ModuleDef) {
+        debug_assert!(self.cycle_root.is_none());
+        self.cycle_root.replace(root);
+        self.bind_node(ctx, root.gc_node_ptr());
+    }
+
+    #[inline]
+    pub(crate) fn async_parents(&self) -> &[ModuleDef] {
+        &self.async_parent_modules
+    }
+
+    /// Append an async parent. False means the backing allocation cannot grow;
+    /// the caller turns that into its own OOM error.
+    pub(crate) fn try_push_async_parent(&mut self, ctx: &ScopedContext, m: ModuleDef) -> bool {
+        if self.async_parent_modules.len() == self.async_parent_modules.capacity()
+            && self.async_parent_modules.try_reserve(1).is_err()
+        {
+            return false;
+        }
+        self.async_parent_modules.push(m);
+        self.bind_node(ctx, m.gc_node_ptr());
+        true
+    }
+
+    #[inline]
+    pub(crate) const fn module_ns(&self) -> Option<Object> {
+        self.module_ns
+    }
+
+    pub(crate) fn set_module_ns(&mut self, ctx: &ScopedContext, ns: Option<Object>) {
+        self.module_ns = ns;
+        if let Some(ns) = ns {
+            self.bind_value(ctx, &JSValue::from(ns));
+        }
+    }
+
+    #[inline]
+    pub(crate) const fn has_meta_obj(&self) -> bool {
+        self.meta_obj.is_some()
+    }
+
+    fn set_meta_obj(&mut self, ctx: &ScopedContext, o: Object) {
+        self.meta_obj = Some(o);
+        self.bind_value(ctx, &JSValue::from(o));
+    }
+
+    #[inline]
+    pub(crate) const fn bytecode(&self) -> JSValue {
+        self.bytecode
+    }
+
+    pub(crate) fn set_bytecode(&mut self, ctx: &ScopedContext, val: JSValue) {
+        self.bytecode = val;
+        self.bind_value(ctx, &val);
+    }
+
+    #[inline]
+    pub(crate) const fn attributes(&self) -> JSValue {
+        self.attributes
+    }
+
+    pub(crate) fn set_attributes(&mut self, ctx: &ScopedContext, attrs: JSValue) {
+        self.attributes = attrs;
+        self.bind_value(ctx, &attrs);
+    }
+
     /// set eval error, can't be undefined or null
-    pub(crate) fn set_eval_error(&mut self, err_val: JSValue) {
+    pub(crate) fn set_eval_error(&mut self, ctx: &ScopedContext, err_val: JSValue) {
         debug_assert!(!err_val.is_undefined_or_null());
         self.eval_error = err_val;
+        self.bind_value(ctx, &err_val);
     }
 
     /// get module `import.meta` object.
@@ -221,7 +373,7 @@ impl ModuleDefImpl {
             let o = ctx.create_base_object_with_proto(None).inspect_err(|_| {
                 let _ = ctx.throw_type_error("import.meta not supported in this context");
             })?;
-            self.meta_obj.replace(o);
+            self.set_meta_obj(ctx, o);
             Ok(o)
         }
     }
@@ -293,7 +445,7 @@ impl ModuleDefImpl {
             }
         }
 
-        self.bytecode = {
+        let value = {
             let p = BFuncPayload::new(bc, var_refs);
             ctx.create_instance_with_proto(
                 Some(ctx.function_proto()),
@@ -301,6 +453,7 @@ impl ModuleDefImpl {
             )?
             .into()
         };
+        self.set_bytecode(ctx, value);
 
         Ok(())
     }
@@ -314,10 +467,16 @@ impl ModuleDefImpl {
 
         if self.init_func.is_some() {
             // is native module: initialize exported variables
+            let mut bound = Vec::with_capacity(self.export_entries.len());
             for me in self.export_entries.iter_mut() {
                 if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &mut me.export_type {
-                    var_ref.replace(js_create_module_var(ctx, false)?);
+                    let vr = js_create_module_var(ctx, false)?;
+                    bound.push(vr.gc_node_ptr());
+                    var_ref.replace(vr);
                 }
+            }
+            for child in bound {
+                self.bind_node(ctx, child);
             }
         } else {
             // is bytecode module
@@ -328,7 +487,7 @@ impl ModuleDefImpl {
 
         // make <eval> function for dependency modules
         for dep in self.dependencies.iter_mut() {
-            dep.module.as_mut().unwrap().create_module_function(ctx)?;
+            dep.module_mut().unwrap().create_module_function(ctx)?;
         }
 
         Ok(())
@@ -405,6 +564,9 @@ impl ModuleDef {
 
         self.resolved = true;
         let base_utf8 = self.module_name.to_utf8(ctx.rt());
+        // Owner for the dependency edges below: the loop holds `self` mutably,
+        // so take the node pointer once and bind through it.
+        let owner = self.gc_head_ptr();
 
         // resolve dependency modules
         let result = (|| -> Result<(), i32> {
@@ -414,10 +576,10 @@ impl ModuleDef {
                     ctx,
                     &base_utf8,
                     &dep_utf8,
-                    dep.attributes,
+                    dep.attributes(),
                 )?;
 
-                dep.module = Some(m1);
+                dep.set_module(ctx, owner, m1);
                 m1.resolve_deps(ctx)?;
             }
             Ok(())
@@ -429,7 +591,7 @@ impl ModuleDef {
             let e = ctx.rt().exception(); // peek only
             debug_assert_ne!(e, crate::Exception::No);
             let err_val = e.to_value(ctx);
-            self.set_eval_error(err_val);
+            self.set_eval_error(ctx, err_val);
             return Err(-1); // current exception is still there
         }
 

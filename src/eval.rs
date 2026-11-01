@@ -325,7 +325,7 @@ impl<'c> ScopedContext<'c> {
         // XXX: Could add a flag to avoid resolution if necessary
         if let Some(mut md) = frame_module {
             // resolve module
-            md.bytecode = JSValue::from(bc);
+            md.set_bytecode(self, JSValue::from(bc));
             md.set_tla(has_await);
             md.resolve_deps(self)?;
             Ok(CompiledBytecode::Module(md))

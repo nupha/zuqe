@@ -610,9 +610,7 @@ impl ObjectImpl {
 
         let obj_node = Object::from(self.gc_ref()).gc_node_ptr();
 
-        self.rt_ptr()
-            .gc_heap_mut()
-            .bind(obj_node, shape.gc_ref().node_ptr());
+        self.rt_ptr().bind_node(obj_node, shape.gc_ref().node_ptr());
 
         self.shape.replace(shape);
     }

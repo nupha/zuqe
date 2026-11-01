@@ -169,6 +169,31 @@ impl<'a> From<&mut ScopedContext<'a>> for ContextPtr {
 }
 
 impl<'a> ScopedContext<'a> {
+    /// Write barrier for one GC edge: `owner` now references `child`.
+    ///
+    /// The host-facing entry point. It is a no-op when either value references
+    /// no GC node (numbers, booleans, symbols with constant atoms, …), so
+    /// callers can pass JS values unconditionally. A feature-off build still
+    /// routes through the same call; `gc_lite` owns the generational half.
+    #[inline(always)]
+    pub fn bind_value(&self, owner: JSValue, child: JSValue) {
+        self.ctx_ptr.bind_value(owner, child);
+    }
+
+    /// Node form for internal callers that already hold GC node pointers.
+    #[inline(always)]
+    pub(crate) fn bind_node(&self, owner: NonNull<GcHead>, child: NonNull<GcHead>) {
+        self.ctx_ptr.bind_node(owner, child);
+    }
+
+    /// Node-owner form for the common "owner is already a node, child is a
+    /// JS value" case. Crate-internal; hosts use
+    /// [`bind_value`](Self::bind_value) with the owner as a `JSValue`.
+    #[inline(always)]
+    pub(crate) fn bind_node_value(&self, owner: NonNull<GcHead>, child: JSValue) {
+        self.ctx_ptr.bind_node_value(owner, child);
+    }
+
     /// get gc scope state
     #[inline]
     #[allow(unused_unsafe)] // debug_assert may trigger unused unsafe warning

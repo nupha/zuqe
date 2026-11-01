@@ -163,7 +163,7 @@ fn js_load_module_internal(
 ) {
     match js_host_resolve_imported_module(ctx, basename, filename, attrs) {
         Ok(mut md) => {
-            md.attributes = attrs;
+            md.set_attributes(ctx, attrs);
 
             if md.resolve_deps(ctx).is_err() {
                 // Error already cached in eval_error by resolve_deps

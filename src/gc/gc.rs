@@ -86,6 +86,25 @@ impl RuntimeImpl {
         &mut self.gc_heap
     }
 
+    /// Write barrier for one GC edge (`owner` now references `child`).
+    ///
+    /// Engine-internal primitive for paths that only hold `&mut RuntimeImpl`;
+    /// callers with a context should use `ScopedContext::bind_value` /
+    /// `bind_node_value` instead.
+    #[inline]
+    pub(crate) fn bind_node(&mut self, owner: NonNull<GcHead>, child: NonNull<GcHead>) {
+        self.gc_heap.bind(owner, child);
+    }
+
+    /// Node-owner form for a JS value child.
+    #[inline]
+    pub(crate) fn bind_node_value(&mut self, owner: NonNull<GcHead>, child: JSValue) {
+        let Some(child) = child.as_gc_node() else {
+            return;
+        };
+        self.bind_node(owner, child);
+    }
+
     /// Get gc parition id
     #[inline(always)]
     pub(crate) const fn gc_part_id(&self) -> GcPartitionId {
@@ -458,9 +477,14 @@ impl RuntimeImpl {
         }
 
         // Debug validator: no allocation may run between the dispose above and
-        // this mark, so freed addresses are still unrecycled.
+        // this mark, so freed addresses are still unrecycled. The old-node
+        // sweep runs first: it also covers old nodes the root mark will free
+        // below, which would otherwise disappear before it could report them.
         #[cfg(all(debug_assertions, feature = "gc_generations"))]
-        self.dbg_verify_after_minor();
+        {
+            self.gc_heap_mut().dbg_assert_no_stale_old_edges();
+            self.dbg_verify_after_minor();
+        }
 
         // A minor never moves the major threshold (that would make majors
         // fire more often). Only the young budget is rebased/adapted.

@@ -813,7 +813,7 @@ pub(crate) fn note_call(rt: &mut RuntimeImpl, bc: &Bytecode, site: u32, callee: 
             .ok()
             .map(|bfun| bfun.payload().bytecode());
         if let Some(cb) = callee_bc {
-            rt.gc_heap_mut().bind(bc.gc_node_ptr(), cb.gc_node_ptr());
+            rt.bind_node(bc.gc_node_ptr(), cb.gc_node_ptr());
         }
     }
 

@@ -134,7 +134,7 @@ impl VarRef {
 
     pub(crate) fn set_value(&mut self, rt: &mut RuntimeImpl, new_value: JSValue) {
         self.set_value_internal(new_value);
-        rt.gc_heap_mut().bind_value(self.gc_node_ptr(), &new_value);
+        rt.bind_node_value(self.gc_node_ptr(), new_value);
     }
 
     /// Detach the frame binding and remember the captured value on the VarRef

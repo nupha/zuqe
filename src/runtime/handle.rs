@@ -13,8 +13,9 @@ use std::{
 use crate::{
     error::Exception,
     runtime::{DummyUserState, RuntimeImpl, RuntimeUserState, tick::TickStatus},
+    value::JSValue,
 };
-
+use gc_lite::GcHead;
 use super::tick::tick_tree;
 
 // ── Thread-local scheduler ─────────────────────────────────────────────
@@ -363,6 +364,25 @@ impl RuntimePtr {
     /// The pointer must be non-null and point at a live runtime.
     pub(crate) const fn from_raw(ptr: *mut RuntimeImpl) -> Self {
         Self(NonNull::new(ptr).expect("runtime pointer must not be null"))
+    }
+
+    /// Write barrier for one GC edge (`owner` now references `child`).
+    ///
+    /// The pointer form of the barrier, for engine code that holds a runtime
+    /// handle but no [`ScopedContext`](crate::ScopedContext). Host code and
+    /// normal engine paths should use the context API instead.
+    #[inline]
+    pub(crate) fn bind_node(&mut self, owner: NonNull<GcHead>, child: NonNull<GcHead>) {
+        self.gc_heap_mut().bind(owner, child);
+    }
+
+    /// Node-owner form for a JS value child.
+    #[inline]
+    pub(crate) fn bind_node_value(&mut self, owner: NonNull<GcHead>, child: JSValue) {
+        let Some(child) = child.as_gc_node() else {
+            return;
+        };
+        self.bind_node(owner, child);
     }
 }
 
