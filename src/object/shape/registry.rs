@@ -86,16 +86,26 @@ impl ShapeRegistry {
         Ok(())
     }
 
-    /// Remove the shape from the registry using double-pointer walk.
+    /// Remove the `shape` from registry.
     pub(crate) fn remove(&mut self, shape: &Shape) {
         let idx = shape.hash() as usize & self.mask;
         let target = shape.gc_ref();
-
         let mut slot: &mut Option<GcRef<ShapeImpl>> = &mut self.buckets[idx];
+
         while let Some(cur) = *slot {
             if cur == target {
-                // Unlink: slot = cur.registry_next
-                *slot = unsafe { (*ShapeImpl::gc_mut_ptr(cur)).next };
+                unsafe {
+                    // Unlink: slot = cur.registry_next
+                    *slot = (*ShapeImpl::gc_mut_ptr(cur)).next;
+
+                    // `ShapeImpl::trace` traces `next` unconditionally. Once the
+                    // shape leaves the chain its `next` is a dangling edge: a
+                    // dead old shape (freed only at the next major) would still
+                    // point into the chain, and a later minor could free the
+                    // target — a stale old→young edge the debug validator
+                    // (and a tracing major) rejects. Cut it at unlink.
+                    (*ShapeImpl::gc_mut_ptr(cur)).next = None;
+                }
                 self.count -= 1;
                 return;
             }
@@ -119,7 +129,14 @@ impl ShapeRegistry {
                 });
                 if should_remove {
                     let cur = slot.unwrap();
-                    *slot = unsafe { (*ShapeImpl::gc_mut_ptr(cur)).next };
+                    unsafe {
+                        *slot = (*ShapeImpl::gc_mut_ptr(cur)).next;
+
+                        // Same as `remove()`: cut the unlinked node's own `next`
+                        // so a dead old shape cannot keep a traced (and possibly
+                        // stale, once the target is minor-freed) chain edge.
+                        (*ShapeImpl::gc_mut_ptr(cur)).next = None;
+                    }
                     self.count -= 1;
                     // Continue with the new head of the chain (same slot)
                 } else if let Some(cur) = slot {
@@ -134,7 +151,7 @@ impl ShapeRegistry {
 
     /// Number of shapes currently registered (tests only).
     #[cfg(test)]
-    pub(crate) fn count(&self) -> usize {
+    pub(crate) const fn count(&self) -> usize {
         self.count
     }
 
@@ -322,5 +339,62 @@ impl RuntimeImpl {
     #[inline(always)]
     pub(crate) fn find_shape_by_proto(&self, proto: Option<Object>) -> Option<Shape> {
         self.shape_registry.find_empty_by_proto(proto)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Runtime, ScopedContext};
+
+    /// A shape leaving the registry must drop its own intrusive-chain `next`:
+    /// `ShapeImpl::trace` traces it, so an unlinked shape (old, dead until the
+    /// next major) would otherwise keep pointing into the chain — a stale
+    /// old→young edge once a minor frees that target.
+    #[test]
+    fn unlink_clears_the_shapes_own_next_edge() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        ctx.with_root_scope(|mut cx| -> Result<(), i32> {
+            let proto = cx.create_base_object()?;
+
+            // Same proto + no props => same hash => same bucket: the second
+            // insert head-links to the first (`s2.next == s1`).
+            let s1 = Shape::create(&mut cx, Some(proto), 0)?;
+            let s2 = Shape::create(&mut cx, Some(proto), 0)?;
+            let s2_ref = s2.gc_ref();
+            unsafe {
+                assert!(
+                    (*ShapeImpl::gc_mut_ptr(s2_ref)).next.is_some(),
+                    "test setup: s2 must chain to s1"
+                );
+            }
+
+            // remove() unlinks s2 from the bucket; its own `next` must be cut.
+            cx.rt_mut().unregister_shape(&s2);
+            unsafe {
+                assert!(
+                    (*ShapeImpl::gc_mut_ptr(s2_ref)).next.is_none(),
+                    "remove() left the unlinked shape's `next` edge intact"
+                );
+            }
+
+            // remove_unused() must do the same for a use_count-0 shape.
+            let s3 = Shape::create(&mut cx, Some(proto), 0)?;
+            let s3_ref = s3.gc_ref();
+            drop(s3); // use_count -> 0
+            cx.rt_mut().shape_registry.remove_unused();
+            unsafe {
+                assert!(
+                    (*ShapeImpl::gc_mut_ptr(s3_ref)).next.is_none(),
+                    "remove_unused() left the unlinked shape's `next` edge intact"
+                );
+            }
+
+            // s1 stays registered and reachable through the bucket head.
+            assert!(cx.rt().is_shape_registered(&s1));
+            Ok(())
+        })
     }
 }

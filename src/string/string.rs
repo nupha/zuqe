@@ -682,6 +682,11 @@ impl StringRef {
             GcRef::<RopeImpl>::from_ref_unchecked(ri).node_info();
         }
         ri.flat.set(Some(s));
+        // Write barrier: the rope may already be old while the memoised flat
+        // node is young (its LOCAL protection ends when the allocating scope
+        // exits). Without the bind a minor sweeps the flat node and leaves
+        // `rope.flat` dangling.
+        ctx.bind_node(self.gc_node_ptr(), s.node_ptr());
 
         Ok(flat)
     }
