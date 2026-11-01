@@ -46,8 +46,26 @@ fn load_ext_lib(abs_path: &Path) -> Result<&'static ExtLib, String> {
         return Ok(entry);
     }
 
+    // Resolve the extension's dependencies from its own directory first, not
+    // from the host executable's directory.
+    #[cfg(windows)]
+    let lib: Library = unsafe {
+        use libloading::os::windows::{
+            LOAD_LIBRARY_SEARCH_DEFAULT_DIRS, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
+            Library as WinLibrary,
+        };
+        WinLibrary::load_with_flags(
+            abs_path,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS,
+        )
+        .map(Into::into)
+    }
+    .map_err(|e| format!("could not load library '{}': {e}", abs_path.display()))?;
+
+    #[cfg(not(windows))]
     let lib = unsafe { Library::new(abs_path) }
         .map_err(|e| format!("could not load library '{}': {e}", abs_path.display()))?;
+
     // The extension's own load path, as `module_path()` and `__file__` report it.
     let path = CString::new(abs_path.to_string_lossy().as_ref())
         .map_err(|e| format!("invalid extension path '{}': {e}", abs_path.display()))?;
