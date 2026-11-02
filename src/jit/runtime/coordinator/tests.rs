@@ -1,8 +1,4 @@
-use std::hash::Hasher;
-
 use super::*;
-
-use crate::jit::fast_hash::FastHasher;
 
 /// A coordinator with the two gates: the first at `calls`/`loops`, the
 /// second at `tier2_calls`/`tier2_loops`.
@@ -141,29 +137,6 @@ fn mixed_calls_and_loops_share_one_budget() {
     assert!(
         c.record_call(&mut m, 7, &opcodes, 0).is_some(),
         "16×56 + 28×32 crosses the budget with neither corner reached"
-    );
-}
-
-/// The map's hash has to spread the node addresses over the buckets.
-/// They are aligned pointers, so a hash that keeps their low bits would
-/// file them all under one bucket and turn every lookup into a walk over
-/// the same chain. The mixer itself is pinned in `jit::fast_hash`.
-#[test]
-fn the_pointer_hash_spreads_aligned_keys() {
-    let hash_of = |ptr: u64| {
-        let mut h = FastHasher::default();
-        h.write_u64(ptr);
-        h.finish()
-    };
-    // The addresses the GC hands out: aligned, and a page apart.
-    let keys = [
-        0x1000u64, 0x2000, 0x3000, 0x4000, 0x5000, 0x6000, 0x7000, 0x8000,
-    ];
-    // The low bits pick the bucket (128 of them is a small table).
-    let buckets: std::collections::HashSet<u64> = keys.iter().map(|k| hash_of(*k) & 0x7f).collect();
-    assert!(
-        buckets.len() > keys.len() / 2,
-        "the hash clusters the keys: {buckets:?}"
     );
 }
 

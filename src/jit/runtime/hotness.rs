@@ -26,7 +26,9 @@ use crate::{
     jit::policy::{JitPolicy, policy_for},
 };
 
-/// Why a function needed the thresholds it did. Kept for diagnostics.
+/// Why a function got the thresholds it did. Read by the tests; the runtime
+/// keeps it as the field's only consumer, so a new rule must be spelled out
+/// here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum HotReason {
     NeutralBase,

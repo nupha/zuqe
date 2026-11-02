@@ -36,6 +36,7 @@
 
 use std::cell::Cell;
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use cranelift_codegen::{
     Context,
@@ -48,6 +49,7 @@ use crate::{
     JSValue,
     function::GcScopeKind,
     jit::{
+        Jit,
         abi::{HELPERS, JitExecFrame},
         bytecode::{VerifyLimits, verify},
         compiler,
@@ -125,12 +127,6 @@ impl Asm {
 
     pub(crate) fn op(&mut self, op: u8) -> &mut Self {
         self.code.push(op);
-        self
-    }
-
-    pub(crate) fn op_u8(&mut self, op: u8, operand: u8) -> &mut Self {
-        self.code.push(op);
-        self.code.push(operand);
         self
     }
 
@@ -749,5 +745,24 @@ mod tests {
             let out = run_function(&body, 2, 0, &[target, int(index)]);
             assert_eq!(out, Some(expected), "{name}: wrong read");
         }
+    }
+}
+
+/// Bring the JIT to rest before asserting on compile results: `poll` is
+/// non-blocking, so spin until the queue is empty and no attempt is in flight.
+pub(crate) fn settle(jit: &Jit) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        jit.poll();
+        let m = jit.metrics();
+        if m.queue_len == 0 && m.functions_compiling == 0 {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the compiler never settled: {m:?}"
+        );
+        // The worker compiles in the background; give it the CPU.
+        std::thread::sleep(Duration::from_micros(50));
     }
 }

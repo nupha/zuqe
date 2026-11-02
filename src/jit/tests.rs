@@ -1,3 +1,4 @@
+use super::test_harness::settle;
 use super::*;
 
 /// The record-table key must not be the GC address.
@@ -380,27 +381,6 @@ fn the_property_layout_contract_holds_from_a_js_value() {
     );
 }
 
-/// Bring the JIT to rest before asserting on compile results. `poll` is
-/// non-blocking, so spin until no attempt is in flight and the queue is
-/// empty.
-fn settle(jit: &Jit) {
-    use std::time::{Duration, Instant};
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        jit.poll();
-        let m = jit.metrics();
-        if m.queue_len == 0 && m.functions_compiling == 0 {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the compiler workers never settled: {m:?}"
-        );
-        // The worker compiles in the background; give it the CPU.
-        std::thread::sleep(Duration::from_micros(50));
-    }
-}
-
 #[test]
 fn attach_reports_metrics_and_target() {
     let rt = crate::Runtime::create().unwrap();
@@ -776,7 +756,7 @@ fn background_compilation_races_the_interpreter_gc_and_eviction() {
                 EvalFlags::empty(),
             )
             .unwrap();
-        let expected: i32 = (0..300).map(|i| (i * (round + 1))).sum::<i32>();
+        let expected: i32 = (0..300).map(|i| i * (round + 1)).sum::<i32>();
         assert_eq!(
             got.as_int(),
             Some(expected),

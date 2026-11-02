@@ -109,26 +109,8 @@ const fn tier_label(tier: Tier) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::jit::test_harness::settle;
     use crate::{EvalFlags, EvalName, EvalType, Jit, JitConfig, Runtime, ScopedContext};
-
-    /// Spin until the queue is drained and no attempt is in flight (`poll` is
-    /// non-blocking).
-    fn settle(jit: &Jit) {
-        use std::time::{Duration, Instant};
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
-            jit.poll();
-            let m = jit.metrics();
-            if m.queue_len == 0 && m.functions_compiling == 0 {
-                return;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "the compiler never settled: {m:?}"
-            );
-            std::thread::sleep(Duration::from_micros(50));
-        }
-    }
 
     /// Feature-gate smoke: one hot function through the real pipeline must
     /// leave a `.clif`/`.bin` pair in the dump directory (run with
