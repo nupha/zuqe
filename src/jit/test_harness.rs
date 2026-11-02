@@ -5,41 +5,34 @@
 
 //! Test-only: assemble bytecode by hand, compile it with the real JIT, run it.
 //!
-//! **This file is test infrastructure.** It is declared with `#[cfg(test)]`
-//! in `jit/mod.rs` *and* gated again with `#![cfg(test)]` here, so a normal
-//! (non-test) build never compiles it; production code cannot reach it.
+//! **This file is test infrastructure.** It is declared with `#[cfg(test)]` in
+//! `jit/mod.rs` *and* gated again with `#![cfg(test)]` here, so a non-test build
+//! never compiles it; production code cannot reach it.
 //!
-//! The JS frontend never emits some opcodes (and the bytecode optimizer
-//! rewrites others away), so a JS-level test cannot pin their lowering. This
-//! module descends one level: it builds the opcode stream, verifies it, runs
-//! the *same* compiler, maps the machine code executable, and calls it.
+//! The JS frontend never emits some opcodes (and the optimizer rewrites others
+//! away), so a JS-level test cannot pin their lowering. This module descends one
+//! level: it builds the opcode stream, verifies it, runs the *same* compiler,
+//! maps the machine code executable, and calls it.
 //!
-//! Two entry points cover the two lowering shapes:
-//! * [`run_function`] compiles a hand-written body as a whole function and
-//!   reads `out_value` back (the normal tier-1 path).
-//! * [`run_inline`] wraps [`super::inline_call::lower`] in a `(base) -> value`
-//!   machine function, so the copied-body lowering can be checked on its own.
+//! Two entry points cover the two lowering shapes: [`run_function`] compiles a
+//! hand-written body as a whole function and reads `out_value` back (the normal
+//! tier-1 path); [`run_inline`] wraps [`super::inline_call::lower`] in a
+//! `(base) -> value` machine function so the copied-body lowering is checked on
+//! its own.
 //!
-//! Both runners are for **pure bodies**: no helper may run, because the
-//! synthetic frame has no scope/arena/bytecode behind it. A helper call is a
-//! bug in the test, not a supported input. A real heap object may still be
-//! passed in as an argument (a typed array for the inline element paths): the
-//! fast path only dereferences the object, so it needs no scope — and a guard
-//! miss becomes a fault instead of a silently passing helper call.
+//! Both runners are for **pure bodies**: a helper call would fault, because the
+//! synthetic frame has no scope/arena/bytecode behind it — that is a bug in the
+//! test, not a supported input. A real heap object may still be passed in (a
+//! typed array for the inline element paths): the fast path only dereferences
+//! it, and a guard miss faults instead of silently reaching a helper.
 //!
-//! **What belongs here vs. the differential suites** (the canonical rule is
-//! `docs/jit.md`, "Testing framework"; this is the short version):
-//! * Here: facts the JS frontend cannot produce (opcodes/shapes it never
-//!   emits), internals JS cannot observe (the argument-window layout, emission
-//!   counts, raw element bytes, a store's width), and the proof that a given
-//!   lowering *ran* (a synthetic frame has no scope, so a guard miss faults).
-//! * Differential (`tests/jit/*`): everything user-observable under real
-//!   engine state — guard misses, helpers, GC, detach/resize/shared buffers,
-//!   prototypes, user code and exceptions.
-//! * An **exhaustive per-opcode / per-conversion table with hardcoded expected
-//!   values** also belongs here: differential only catches "the two sides
-//!   disagree", not "both are wrong". Keep such a table to lowering facts; do
-//!   not re-test user-visible semantics the differential suites already cover.
+//! **What belongs here vs. the differential suites**: here go facts the
+//! frontend cannot produce, internals JS cannot observe (argument-window
+//! layout, emission counts, raw element bytes, store width), and the proof that
+//! a lowering *ran*; everything user-observable under real engine state belongs
+//! to `tests/jit/*`. An exhaustive per-opcode / per-conversion table with
+//! hardcoded expectations also belongs here — differential only catches
+//! disagreement, not "both are wrong".
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -716,7 +709,7 @@ mod tests {
 
     /// The typed array read's width / byte-offset / `Uint32` sign paths run in
     /// the generated code, with the exact tags the JIT produces. Every float
-    /// element follows `From<f64> for JSValue` (T9): an integral value that
+    /// element follows `From<f64> for JSValue`: an integral value that
     /// fits an `i32` folds to an `Int`, `-0.0` and out-of-`i32` magnitudes stay
     /// `Float64`.
     #[test]
@@ -739,7 +732,7 @@ mod tests {
             ("c8", 0, int(250)),
             ("f32", 0, float(1.5)),
             ("f32f", 0, float(f64::from(0.1f32))),
-            // T9: the integral folds run in the generated code too.
+            // The integral folds run in the generated code too.
             ("f32i", 0, int(100)),
             ("f64", 0, float(1.5)),
             ("f64i", 0, int(3)),

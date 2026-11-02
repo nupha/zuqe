@@ -3,26 +3,23 @@
 
 //! Hotness state machine.
 //!
-//! The interpreter counts entries and backward branches here; when a function
-//! crosses its threshold it is queued for compilation exactly once. Thresholds
+//! The interpreter counts entries and backward branches here; a function that
+//! crosses its threshold is queued for compilation exactly once. Thresholds
 //! start from the configured base. The function's static shape (bytecode size,
-//! helper density) can raise them on any tier; measured work — the Tier 2
-//! feedback table (type feedback) supplies it — can lower them further.
+//! helper density) can raise them, and measured work — the tier-2 feedback
+//! table supplies it — can lower them further.
 //!
-//! Two gates, two tiers: the first gate compiles the
-//! **baseline** tier, the second one promotes the function to the **optimizing**
-//! tier. Each gate is one **weighted budget**: an entry
-//! weighs as much as the configured loop threshold, a back edge as much as the
-//! call threshold, and the gate fires once the sum reaches their product —
-//! `loops_weight × calls + calls_weight × loops ≥ budget`. The line runs
-//! through the configured two corner points (unchanged from the old
-//! `calls ≥ C ∨ loops ≥ L` gates), so `calls*W + loops` is the explicit form of
-//! "an entry is worth more than a back edge" instead of an intuition.
+//! Two gates, two tiers: the first compiles the **baseline**, the second
+//! promotes to the **optimizing** tier. Each gate is one **weighted budget**:
+//! an entry weighs as much as the configured loop threshold, a back edge as
+//! much as the call threshold, and the gate fires once the sum reaches their
+//! product — `calls_weight × loops + loops_weight × calls ≥ budget`. The line
+//! passes through both configured corner points, so a lone count still fires at
+//! exactly `C` entries or `L` back edges.
 //!
-//! The counters behind both gates are the same, but the second gate must also
-//! see the work a function does *after* it was compiled — the interpreter stops
-//! counting then, so the native tier reports its own activations and back
-//! edges back into the same counters.
+//! The second gate must also see work done *after* compilation: the interpreter
+//! stops counting then, so the native tier reports its own activations and back
+//! edges into the same counters.
 
 use crate::{
     bytecode::{OP_COUNT_FINAL, opcode_info_final},
@@ -82,8 +79,8 @@ const SIZE_FACTOR_MAX: u32 = 4 * SIZE_SCALE;
 impl GateBudget {
     /// The budget line through the configured pair's two corner points: `N`
     /// entries alone (`N = call_threshold`) and `L` back edges alone
-    /// (`L = loop_threshold`) fire, exactly where the old OR-gates did (T8).
-    /// `u32 × u32` fits `u64` exactly, so no saturation is needed.
+    /// (`L = loop_threshold`) both fire. `u32 × u32` fits `u64` exactly, so no
+    /// saturation is needed.
     const fn of(calls: u32, loops: u32) -> Self {
         Self {
             calls_weight: loops,
@@ -114,9 +111,9 @@ pub(crate) struct AdaptiveInputs {
     pub(crate) bytecode_bytes: u32,
     pub(crate) instruction_count: u32,
     pub(crate) helper_ops: u32,
-    /// Interpreter work measured for this function. `None` until Tier 2
-    /// feedback exists (type feedback); while it is `None` the thresholds are the
-    /// configured base, exactly as before.
+    /// Interpreter work measured for this function. `None` until tier-2
+    /// feedback exists; while it is `None` the thresholds are the configured
+    /// base.
     pub(crate) measured_work: Option<u32>,
 }
 
@@ -173,33 +170,25 @@ impl AdaptiveInputs {
     }
 
     /// Larger and helper-dominated functions need more evidence before we
-    /// spend compile time on them; functions already shown to do a lot of work
-    /// can be compiled sooner. The static shape (bytecode size / helper
-    /// density) is read unconditionally, so it also guides a tier that records
-    /// no measurements; the measured work only lowers the base.
+    /// spend compile time on them; a function already shown to do a lot of work
+    /// can be compiled sooner. The static shape is read unconditionally, so it
+    /// also guides a tier that records nothing; measured work only lowers the
+    /// base. The size is a continuous factor (`× (1 + bytes/1024)`, capped at
+    /// 4x), doubled again for a helper-dominated body (still capped).
     ///
-    /// The size is a **continuous** factor (`× (1 + bytes/1024)`, capped at
-    /// 4x) instead of the old one-shot `bytes >= 4096 → ×2` step, and a
-    /// helper-dominated function doubles that factor on top (the total stays
-    /// capped at 4x).
+    /// `payback` is the cost gate: the activations a function must be observed
+    /// at before its compile can pay for itself, derived from the measured
+    /// compile cost and the host's estimate of what native execution saves. It
+    /// is a floor under the thresholds, so a function called a handful of times
+    /// is never compiled.
     ///
-    /// `payback` is the **cost gate**: the number of activations a
-    /// function must be observed at before its compile can pay for itself,
-    /// derived from the measured cost of a compile and the host's estimate of
-    /// what native execution saves. It is a floor under the thresholds, so a
-    /// function that is called a handful of times is not compiled at all.
-    ///
-    /// An eager base (both thresholds 1) is left alone: the host asked for
-    /// "compile on the first event", and raising that would silently defeat
-    /// the diagnostic/test harnesses that rely on it.
-    ///
-    /// T8: each gate is one **weighted budget**. The configured pair `(C, L)`
-    /// survives as the line's two corner points — `C` entries alone and `L`
-    /// back edges alone fire exactly as before — but a mixed function now
-    /// fires early: the crossing is `L×calls + C×loops ≥ C×L`, so e.g.
-    /// `C/2` entries plus `L/2` back edges are enough (the line cuts the
-    /// rectangle's corner). The cost gate floors the pair, and the line follows
-    /// it.
+    /// Each gate is one weighted budget whose line passes through the configured
+    /// pair's corner points: `C` entries alone or `L` back edges alone fire, and
+    /// a mixed function fires at `L×calls + C×loops ≥ C×L` (half of each is
+    /// enough). The cost gate floors the pair and the line follows it. An eager
+    /// base (both thresholds 1) is left alone: the host asked for "compile on
+    /// the first event", and raising it would silently defeat the tests and
+    /// diagnostics that rely on it.
     pub(crate) fn thresholds(
         &self,
         base_calls: u32,
@@ -218,7 +207,7 @@ impl AdaptiveInputs {
         }
         // Proven work outranks the static shape: a function observed doing a lot
         // of interpreter work is worth compiling even if it is large. The
-        // budget follows the halved pair (T8: half the calls, half the back
+        // budget follows the halved pair (half the calls, half the back
         // edges).
         if self.measured_work.is_some_and(|work| work >= 4096) {
             return HotThresholds {

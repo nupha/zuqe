@@ -20,7 +20,7 @@ fn cacheable_slot(obj: &Object, slot: usize, flags: u32) -> bool {
     flags & JS_PROP_TMASK == JS_PROP_NORMAL && matches!(obj.prop_slot(slot), JSProperty::Normal(_))
 }
 
-/// Refresh this site's inline-guard cache after a helper call (T10): record
+/// Refresh this site's inline-guard cache after a helper call: record
 /// the own data property the helper used, or clear the entry so the guard
 /// stops paying for a lookup it can never serve.
 ///

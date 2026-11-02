@@ -238,7 +238,7 @@ pub(crate) const HELPER_ALLOC_ARRAY0: usize = 124;
 /// Index of [`h_call_method_apply`], a native-callee method site's fast path for
 /// `Function.prototype.apply`.
 pub(crate) const HELPER_CALL_APPLY: usize = 125;
-/// Index of [`h_object_literal`], T25's merged object-literal builder.
+/// Index of [`h_object_literal`], the merged object-literal builder.
 pub(crate) const HELPER_OBJECT_LITERAL: usize = 126;
 
 /// The helper dispatch table. Function pointers are immutable and never

@@ -120,7 +120,7 @@ fn entry_crosses_threshold_once() {
     assert_eq!(m.distinct_functions, 1);
 }
 
-/// T8 end to end: the two interpreter hooks feed **one** weighted budget.
+/// The two interpreter hooks feed **one** weighted budget.
 /// 16 entries plus 28 back edges cross the 32/56 line although neither
 /// counter has reached its own corner (16 < 32, 28 < 56) — the wiring the
 /// `hotness` unit tests cannot see.

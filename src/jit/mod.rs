@@ -113,9 +113,9 @@ pub(crate) struct JitState {
     /// Worker threads and the in-flight attempts they are running.
     /// Single-writer state like the rest of `JitState`.
     background: RefCell<BackgroundCompiler>,
-    /// Set by a loop back edge when there is queued work; the interpreter's
-    /// trampoline polls at its next safe iteration (deferred polling) so functions hot
-    /// inside one `eval` can run natively.
+    /// Set whenever work is queued for the compiler: the interpreter's
+    /// trampoline then polls at its next safe iteration (deferred polling), so
+    /// functions hot inside one `eval` can run natively.
     poll_requested: Cell<bool>,
     /// Number of native activations currently on the Rust stack. Automatic
     /// polling is only allowed at zero: retiring a live mapping (single-owner mapping) while
@@ -445,15 +445,12 @@ impl JitState {
     fn poll(&self) {
         let mut m = self.metrics.get();
 
-        // Abandon whatever is past the budget before draining, so a result that
-        // only arrived because the host was slow is discarded (the worker model).
-        // The worker keeps running; its late completion is dropped by attempt
-        // id.
-        //
-        // shortcut: expiry runs before the drain, so a result that arrived
-        // within the budget but was not drained before the deadline is also
-        // discarded. Timestamping a completion on arrival would avoid that; not
-        // needed while the default budget (30 s) is far above a compile.
+        // Abandon whatever is past the budget before draining: a result that only
+        // arrived because the host was slow is discarded, and the worker's late
+        // completion is dropped by attempt id. Expiry runs before the drain, so a
+        // completion that arrived within the budget but was not drained in time
+        // is discarded too — acceptable while the default budget (30 s) is far
+        // above a compile.
         let timeout = self.coordinator.borrow().timeout();
         let expired = self.background.borrow_mut().expire(timeout);
         for id in expired {
@@ -853,7 +850,7 @@ pub(crate) fn invoke_native(
 ) -> Option<(JitExitKind, JitExecFrame)> {
     let state = rt.jit.as_deref()?;
     let entry = bc.jit.entry()?;
-    // T10: the two global objects are context roots, so the frame can hold them
+    // The two global objects are context roots, so the frame can hold them
     // as plain values (no tracing); the sites' shapes are re-checked on every
     // access.
     let (global_obj, global_var_obj) = if scope.is_null() {
@@ -945,7 +942,7 @@ pub(crate) fn invoke_native(
         property_guard_misses: m
             .property_guard_misses
             .saturating_add(u64::from(frame.property_guard_misses)),
-        // T10: the global-variable guard's hits and misses (observability only).
+        // The global-variable guard's hits and misses (observability only).
         global_guard_hits: m
             .global_guard_hits
             .saturating_add(u64::from(frame.global_guard_hits)),

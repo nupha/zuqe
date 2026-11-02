@@ -114,8 +114,8 @@ fn poll_prunes_the_record_table() {
 }
 
 /// The record table must not grow with `eval` churn: a host that keeps
-/// evaluating short-lived functions used to accumulate one record per
-/// distinct function for the whole runtime lifetime. Idle records are
+/// evaluating short-lived functions would otherwise accumulate one record
+/// per distinct function for the whole runtime lifetime. Idle records are
 /// swept, so the table stays around the live set.
 #[test]
 fn the_record_table_does_not_grow_with_eval_churn() {
@@ -581,7 +581,7 @@ fn gc_between_enqueue_and_poll_still_installs() {
     );
 }
 
-/// M2b-8: when the platform refuses executable memory the attempt must
+/// When the platform refuses executable memory the attempt must
 /// fail, be retried once, settle the function in the interpreter — and the
 /// observable result must not change. This is the fault-injection half of
 /// the hardening gate (generated code cannot run under Miri).

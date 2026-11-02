@@ -20,7 +20,7 @@ fn state(calls: u32, loops: u32) -> HotnessState {
 fn without_measurements_the_base_is_unchanged() {
     let th = AdaptiveInputs::default().thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
     assert_eq!(th.reason, HotReason::NeutralBase);
-    // T8: the budget line keeps the two OR-gates' corner points — `C`
+    // The budget line keeps the two corner points — `C`
     // entries alone and `L` back edges alone fire exactly as before.
     assert!(!state(31, 0).crossed_first_gate(&th));
     assert!(state(32, 0).crossed_first_gate(&th));
@@ -33,8 +33,8 @@ fn without_measurements_the_base_is_unchanged() {
     assert!(state(0, 2048).crossed_second_gate(&th));
 }
 
-/// T8's point: the two gates are one **weighted budget**, so a function
-/// with half of each is hot too (the line cuts the OR-rectangle's corner).
+/// The two gates are one **weighted budget**, so a function
+/// with half of each is hot too.
 #[test]
 fn the_budget_mixes_calls_and_loops() {
     let th = AdaptiveInputs::default().thresholds(BASE.0, BASE.1, BASE.2, BASE.3, 0);
@@ -46,8 +46,8 @@ fn the_budget_mixes_calls_and_loops() {
 }
 
 /// The static shape is read even when no measurement exists (a baseline
-/// tier), so the audit's "dead input" concern cannot come back: a
-/// helper-dominated function doubles its base with `measured_work: None`.
+/// tier): a helper-dominated function doubles its base with
+/// `measured_work: None`.
 #[test]
 fn a_helper_dense_function_doubles_without_a_measurement() {
     let inputs = AdaptiveInputs {
@@ -108,9 +108,9 @@ fn large_bytecode_doubles_the_base() {
     );
 }
 
-/// The size factor is **continuous**: `1 + bytes/1024`,
-/// capped at 4x. The old rule was a one-shot `bytes >= 4096 → ×2`, so a
-/// 500-byte and a 4000-byte function got the same treatment.
+/// The size factor is **continuous**: `1 + bytes/1024`, capped at 4x. A
+/// 500-byte and a 4000-byte function get different thresholds because the
+/// compile cost grows with the size while the benefit does not.
 #[test]
 fn the_size_factor_scales_continuously() {
     let factor = |bytes: u32| {
@@ -196,8 +196,8 @@ fn an_eager_base_is_never_adapted() {
 
 /// The compile-rate gate: the cost gate is a **floor** under the thresholds. A function
 /// that is called a handful of times cannot pay for a compile, so it is
-/// not compiled at all — whatever the configured thresholds say. With T8
-/// the floor lifts the pair first and the budget line follows it.
+/// not compiled at all — whatever the configured thresholds say. The floor
+/// lifts the pair first and the budget line follows it.
 #[test]
 fn the_cost_gate_raises_the_thresholds_to_the_payback() {
     let inputs = AdaptiveInputs {

@@ -204,10 +204,9 @@ impl VerifiedFunction {
 
 /// `special_object` kinds whose frame semantics the baseline tier cannot model.
 /// `ImportMeta` is module state (`import.meta` needs the module record, not the
-/// frame). `MappedArguments` used to be rejected here too; the JIT helper now
-/// calls the interpreter's own builder
-/// ([`crate::function::argument::js_build_mapped_arguments`]), so the aliasing
-/// `VarRef`s into the frame's argument slots are created exactly as the
+/// frame). `MappedArguments` is accepted: the JIT helper calls the interpreter's
+/// own builder ([`crate::function::argument::js_build_mapped_arguments`]), so the
+/// aliasing `VarRef`s into the frame's argument slots are created exactly as the
 /// interpreter creates them.
 pub(crate) const SPECIAL_OBJECT_IMPORT_META: u8 = 6;
 

@@ -125,10 +125,9 @@ impl FunctionRecord {
     }
 }
 
-/// Tier-down: how many speculative guard misses one function may take before it is
-/// recompiled without speculation. Shortcut: a fixed threshold instead of a
-/// per-site profitability model; raise/lower it if the guard-miss metric shows
-/// the wrong trade-off.
+/// Tier-down: how many speculative guard misses one function may take before it
+/// is recompiled without speculation. A fixed per-function threshold; the
+/// guard-miss metric shows whether the trade-off is right.
 pub(crate) const TIER_DOWN_MISSES: u64 = 64;
 
 /// The record table's floor: below this many records a sweep is not worth its

@@ -47,7 +47,7 @@ impl JitExitKind {
 pub(crate) const GLOBAL_CACHE_LEXICAL: u8 = 1;
 pub(crate) const GLOBAL_CACHE_GLOBAL: u8 = 2;
 
-/// One global-variable site's inline-guard cache (T10).
+/// One global-variable site's inline-guard cache.
 ///
 /// The generated guard re-checks the owning object's shape (pointer + id) and
 /// re-reads the slot and its tag on **every** access, so a change is a miss,
@@ -183,11 +183,11 @@ pub(crate) struct JitExecFrame {
     /// These two are *observability only*: a miss is expected (and common),
     /// so it must never feed the tier-down (that is `guard_misses`' job).
     pub property_guard_misses: u32,
-    /// T10 instrumentation: global-variable accesses the inline guard answered
+    /// Global-variable accesses the inline guard answered
     /// directly (an own data property of `global_obj`/`global_var_obj`).
     /// `invoke_native` folds it into `JitMetrics::global_guard_hits`.
     pub global_guard_hits: u32,
-    /// T10 instrumentation: global-variable accesses handed back to the helper
+    /// Global-variable accesses handed back to the helper
     /// (an unbound name, a TDZ slot, a read-only binding, an accessor, a shape
     /// change). Observability only, like the property counters.
     pub global_guard_misses: u32,
@@ -215,18 +215,18 @@ pub(crate) struct JitExecFrame {
     /// an inlined body. The generated code reads it immediately; no GC point
     /// can run between the helper and the read.
     pub scratch: JSValue,
-    /// The global object, as a tagged `JSValue` (T10). Both global objects are
+    /// The global object, as a tagged `JSValue`. Both global objects are
     /// roots of their context, so the frame needs no tracing for them.
     pub global_obj: JSValue,
-    /// `global_var_obj`: the `let`/`const` bindings (T10). It shadows
+    /// `global_var_obj`: the `let`/`const` bindings. It shadows
     /// [`Self::global_obj`].
     pub global_var_obj: JSValue,
     /// The running function's global-variable site cache, one entry per
-    /// `global_var_refs` index (T10).
+    /// `global_var_refs` index.
     pub global_var_cache: *mut GlobalVarCache,
     /// The largest GC-scope LOCAL list this activation's safepoints saw,
     /// sampled just before a deferred collection clears it. A scope that is
-    /// never cleared (the caller-scope leak, VM-B3) shows up as a peak that
+    /// never cleared shows up as a peak that
     /// grows with the run. `invoke_native` folds it into
     /// `JitMetrics::scope_local_peak`.
     pub scope_local_peak: u32,
@@ -237,7 +237,7 @@ pub(crate) struct JitExecFrame {
     pub lit_atoms: [u32; LIT_ATOM_MAX],
 }
 
-/// The largest object literal T25 merges into one `h_object_literal` call.
+/// The largest object literal a merged window covers in one `h_object_literal` call.
 /// A window with more fields keeps the per-field helper sequence, so this is
 /// a code-shape bound, not a semantic one.
 pub(crate) const LIT_ATOM_MAX: usize = 8;

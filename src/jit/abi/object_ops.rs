@@ -596,7 +596,7 @@ pub(super) unsafe extern "C" fn h_object(f: *mut JitExecFrame) -> u32 {
     }
 }
 
-/// T25's merged object literal: `[v1, ..., vN, ^] -> [obj, ^]`, where `imm` is
+/// The merged object literal: `[v1, ..., vN, ^] -> [obj, ^]`, where `imm` is
 /// `N` and `lit_atoms[..N]` holds the field atoms (compile-time checked to be
 /// pairwise distinct, so the batch transition's "no duplicates" contract holds).
 ///
