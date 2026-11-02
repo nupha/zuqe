@@ -228,6 +228,10 @@ fn atomic_rmw(
     value_bits: u64,
     op: impl Fn(u64, u64) -> u64,
 ) -> JSResult {
+    // The value coercion (`ToBigInt`/`ToNumber`) runs user code after the index
+    // was validated and may have detached the buffer; re-check before the
+    // access (spec: a detached buffer throws TypeError).
+    ta.ensure_attached(ctx)?;
     let (width, signed, is_bigint) = elem_info(cid).unwrap();
     let mask = mask_for(width);
     let old_bits = ta.with_bytes_mut(|buf| {
@@ -250,6 +254,10 @@ fn validate_index(
     // recorded bounds.
     let length = ta.length();
     let idx = index_val.to_index(ctx)? as usize;
+    // The index coercion can run user code that detaches the buffer between the
+    // validation above and the memory access; the spec re-checks and throws a
+    // TypeError here. Without it the byte access sees an empty slice and panics.
+    ta.ensure_attached(ctx)?;
     if idx >= length {
         return Err(ctx.throw_range_error("Atomics: index out of range"));
     }
@@ -305,6 +313,8 @@ pub fn js_atomics_store(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // truncation, and the *converted* value is what store returns.
     let ret = store_return_value(ctx, cc.arg(2), is_bigint)?;
     let value_bits = value_to_bits(ctx, cc.arg(2), signed, is_bigint, width)?;
+    // `ToNumber`/`ToBigInt` of the value may detach the buffer (spec: re-check).
+    ta.ensure_attached(ctx)?;
     // Atomics.store returns the stored (converted) value, not the previous value.
     ta.with_bytes_mut(|buf| {
         let off = nth * (width as usize / 8);
@@ -333,6 +343,8 @@ pub fn js_atomics_compare_exchange(ctx: &mut ScopedContext, cc: CallContext) -> 
     let nth = validate_index(ctx, &ta, cc.arg(1))?;
     let expected = value_to_bits(ctx, cc.arg(2), signed, is_bigint, width)?;
     let replacement = value_to_bits(ctx, cc.arg(3), signed, is_bigint, width)?;
+    // Both conversions can run user code that detaches the buffer.
+    ta.ensure_attached(ctx)?;
     let mask = mask_for(width);
     let old_bits = ta.with_bytes_mut(|buf| {
         let off = nth * (width as usize / 8);
@@ -589,6 +601,9 @@ pub fn js_atomics_wait(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let mask = mask_for(width);
     let elem_off = nth * (width as usize / 8);
 
+    // The index coercion above may have detached the buffer; the spec re-checks
+    // before the access and throws a TypeError.
+    ta.ensure_attached(ctx)?;
     let current = ta.with_bytes(|buf| read_bits(buf, elem_off, width) & mask);
     let expected_bits = value_to_bits(ctx, cc.arg(2), signed, is_bigint, width)?;
 
@@ -719,6 +734,9 @@ pub fn js_atomics_wait_async(ctx: &mut ScopedContext, cc: CallContext) -> JSResu
     // Read current value and compare with the expected value.
     let mask = mask_for(width);
     let off = nth as usize * (width as usize / 8);
+    // `ToBigInt`/`ToNumber` and the timeout coercion run user code that may
+    // detach the buffer; re-check before reading (spec: TypeError).
+    ta.ensure_attached(ctx)?;
     let current = ta.with_bytes(|buf| read_bits(buf, off, width) & mask);
 
     let mut result = ctx.create_base_object()?;

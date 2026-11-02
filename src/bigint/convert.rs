@@ -252,20 +252,77 @@ pub(crate) fn to_u128_exact(bi: &BigIntRef) -> Option<u128> {
     }
 }
 
-/// Convert a BigInt to a `f64`. Precision loss for magnitudes beyond 2^53 is
-/// allowed by the spec (BigInt→Number coercion). Huge values saturate to ±Inf.
+/// Convert a BigInt to a `f64` (`Number(bigint)`).
+///
+/// Round to nearest, ties to even, **once**: the significand is the top 53
+/// bits plus one round bit and a sticky bit taken from everything below it.
+///
+/// Folding the limbs through `d * 2^64 + limb` instead rounds at every limb
+/// (double rounding) and picks the wrong neighbour near a binade boundary —
+/// e.g. `2n**65n - 2n**12n + 2n**11n - 1n` is 2047/4096 of the way up from
+/// `2**65 - 2**12` (round down) while the folded form lands on `2**65`.
+///
+/// A value that rounds up to `2**1024` overflows to ±Infinity, exactly like
+/// `Number.MAX_VALUE`'s upper neighbour.
 pub(crate) fn to_f64(bi: &BigIntRef) -> f64 {
     let i = bi.as_impl();
     if i.is_zero() {
         return 0.0;
     }
-    // fold from the most significant limb; use the exact power so large
-    // magnitudes overflow to ±Inf instead of losing the sign.
-    let mut d = 0.0f64;
-    for &l in i.limbs().iter().rev() {
-        d = d * 18446744073709551616.0 + l as f64;
-    }
+    let limbs = i.limbs();
+    let bits = i.bit_length();
+
+    let d = if bits <= 53 {
+        // The whole magnitude fits the significand: exact.
+        debug_assert_eq!(limbs.len(), 1, "a <= 53-bit value has one limb");
+        limbs[0] as f64
+    } else if bits > 1024 {
+        // Beyond the largest finite binade: no rounding can recover it.
+        f64::INFINITY
+    } else {
+        // Drop every bit below `shift`, keeping 53 of them.
+        let shift = bits - 53;
+        let mut m: u64 = 0;
+        for k in 0..53 {
+            if bigint_bit_at(limbs, shift + k) {
+                m |= 1 << k;
+            }
+        }
+        let round = bigint_bit_at(limbs, shift - 1);
+        if round && (bigint_any_bit_below(limbs, shift - 1) || m & 1 == 1) {
+            // Ties go to the even significand; otherwise round up.
+            m += 1;
+        }
+        // `m` may carry into 2^53 (the next binade); scaling by the exact power
+        // of two keeps that right, and overflows to +Inf at 2^1024.
+        m as f64 * 2f64.powi(shift as i32)
+    };
+
     if i.sign() { -d } else { d }
+}
+
+/// Bit `idx` (0 = least significant) of a little-endian limb array.
+#[inline]
+fn bigint_bit_at(limbs: &[u64], idx: usize) -> bool {
+    let limb = idx / 64;
+    limb < limbs.len() && (limbs[limb] >> (idx % 64)) & 1 == 1
+}
+
+/// Whether any bit below `idx` is set (the sticky bit of a rounding).
+#[inline]
+fn bigint_any_bit_below(limbs: &[u64], idx: usize) -> bool {
+    if idx == 0 {
+        return false;
+    }
+    let full = idx / 64;
+    if limbs[..full.min(limbs.len())].iter().any(|&l| l != 0) {
+        return true;
+    }
+    match limbs.get(full) {
+        // Bits [0, idx % 64) of the limb that holds the cut.
+        Some(&l) if idx % 64 != 0 => l & ((1u64 << (idx % 64)) - 1) != 0,
+        _ => false,
+    }
 }
 
 /// `ToBigInt64` (BigInt → 64-bit two's complement, wrapping mod 2^64).
@@ -345,5 +402,92 @@ pub(crate) fn f64_integer_to_limbs(d: f64) -> Vec<u64> {
             }
         }
         super::ops::normalize_vec(limbs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime::Runtime;
+
+    fn with_ctx(f: impl FnOnce(&mut ScopedContext)) {
+        let mut rt = Runtime::create().unwrap();
+        let mut ctx = rt.create_context(|_| Ok(())).unwrap();
+        ctx.with_new_scope(|scope| {
+            f(scope);
+        });
+    }
+
+    fn num(scope: &mut ScopedContext, decimal: &str) -> f64 {
+        let bi = parse_str(scope, decimal, 10).unwrap();
+        to_f64(&bi)
+    }
+
+    /// `Number(bigint)` rounds once, to nearest with ties to even. Folding the
+    /// limbs (`d * 2^64 + limb`) rounds at every limb instead, which lands on
+    /// the wrong neighbour near a binade boundary: this value is 2047/4096 of
+    /// the way up from `2^65 - 2^12` and must round **down** to it.
+    #[test]
+    fn to_f64_rounds_once_near_a_binade_boundary() {
+        with_ctx(|scope| {
+            // 2^65 - 2^12 + 2^11 - 1
+            assert_eq!(
+                num(scope, "36893488147419101183"),
+                // 2^65 - 2^12, exactly representable (the binade below 2^65
+                // has a 2^12 spacing).
+                36893488147419099136.0
+            );
+        });
+    }
+
+    /// Ties go to the even significand, in both directions.
+    #[test]
+    fn to_f64_breaks_ties_to_even() {
+        with_ctx(|scope| {
+            // 2^53 + 1: between 2^53 (even) and 2^53 + 2 → down.
+            assert_eq!(num(scope, "9007199254740993"), 9007199254740992.0);
+            // 2^53 + 3: between 2^53 + 2 and 2^53 + 4 → up to the even one.
+            assert_eq!(num(scope, "9007199254740995"), 9007199254740996.0);
+        });
+    }
+
+    /// Overflow: the largest finite value survives, one ulp above the top
+    /// binade's midpoint becomes Infinity.
+    #[test]
+    fn to_f64_saturates_at_the_largest_finite_value() {
+        with_ctx(|scope| {
+            // 2^1024 - 2^971 == f64::MAX
+            assert_eq!(
+                num(
+                    scope,
+                    "179769313486231570814527423731704356798070567525844996598917476803157260780028538760589558632766878171540458953514382464234321326889464182768467546703537516986049910576551282076245490090389328944075868508455133942304583236903222948165808559332123348274797826204144723168738177180919299881250404026184124858368"
+                ),
+                f64::MAX
+            );
+            // 2^1024 - 2^970 - 1: just below the midpoint → MAX_VALUE.
+            assert_eq!(
+                num(
+                    scope,
+                    "179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497791"
+                ),
+                f64::MAX
+            );
+            // 2^1024 - 2^970: the midpoint, ties to the even 2^1024 → Infinity.
+            assert_eq!(
+                num(
+                    scope,
+                    "179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792"
+                ),
+                f64::INFINITY
+            );
+            // 2^1024 is past the largest finite value.
+            assert_eq!(
+                num(
+                    scope,
+                    "179769313486231590772930519078902473361797697894230657273430081157732675805500963132708477322407536021120113879871393357658789768814416622492847430639474124377767893424865485276302219601246094119453082952085005768838150682342462881473913110540827237163350510684586298239947245938479716304835356329624224137216"
+                ),
+                f64::INFINITY
+            );
+        });
     }
 }

@@ -171,8 +171,16 @@ impl TwoNumbers {
         match self {
             Self::Int(a, b) => {
                 if b >= 0 {
-                    JSValue::from((a as i64).pow(b as u32))
-                    // JSValue::from(a.pow(b as u32)) // <-- this may overflow
+                    // `**` follows Number semantics: an exact integer result
+                    // keeps the int tag, but the result may exceed i64 (2 ** 64,
+                    // 3 ** 40, …). `i64::pow` panics under debug assertions and
+                    // silently wraps in release, so fall back to the f64 result
+                    // when the integer power overflows.
+                    let a = a as i64;
+                    match a.checked_pow(b as u32) {
+                        Some(n) => JSValue::from(n),
+                        None => JSValue::from((a as f64).powf(b as f64)),
+                    }
                 } else {
                     JSValue::from((a as f64).powf(b as f64))
                 }
@@ -1235,6 +1243,32 @@ fn cmp_bigint_number(bi: &BigIntRef, n: &IntOrFloat) -> Option<Ordering> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `**` follows Number semantics, so an integer power that overflows i64
+    /// must fall back to the f64 result instead of panicking (debug) or
+    /// wrapping (release).
+    #[test]
+    fn pow_overflow_falls_back_to_f64() {
+        fn as_f64(v: JSValue) -> f64 {
+            match v.as_int() {
+                Some(i) => i as f64,
+                // SAFETY: a non-int JSValue from `pow` is a float.
+                None => unsafe { v.as_float_unchecked() },
+            }
+        }
+
+        assert_eq!(as_f64(TwoNumbers::Int(2, 10).pow()), 1024.0);
+        assert_eq!(as_f64(TwoNumbers::Int(0, 0).pow()), 1.0);
+        // 2^64, 3^40 and -2^63 all exceed the i32 fast path.
+        assert_eq!(as_f64(TwoNumbers::Int(2, 64).pow()), 18446744073709551616.0);
+        assert_eq!(as_f64(TwoNumbers::Int(3, 40).pow()), 12157665459056928768.0);
+        assert_eq!(
+            as_f64(TwoNumbers::Int(-2, 63).pow()),
+            -9223372036854775808.0
+        );
+        assert!(as_f64(TwoNumbers::Int(2, 1024).pow()).is_infinite());
+        assert_eq!(as_f64(TwoNumbers::Int(2, -1).pow()), 0.5);
+    }
 
     /// `& | ^` must follow ECMA-262 ToInt32: truncate toward zero, reduce
     /// modulo 2^32, then reinterpret as a signed 32-bit integer. The result
