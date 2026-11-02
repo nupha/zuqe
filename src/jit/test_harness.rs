@@ -50,7 +50,7 @@ use crate::{
     function::GcScopeKind,
     jit::{
         Jit,
-        abi::{HELPERS, JitExecFrame},
+        abi::{EXIT_DONE, FLOAT64_ADDEND, HELPERS, JitExecFrame},
         bytecode::{VerifyLimits, verify},
         compiler,
         feedback::CallSite,
@@ -72,7 +72,6 @@ pub(crate) const UNINITIALIZED: u64 = 4 << 48;
 
 /// Not a valid `JSValue`: the body took the bailout edge.
 const BAILED: u64 = 0xDEAD_BEEF_DEAD_BEEF;
-const EXIT_DONE: u32 = 0;
 
 thread_local! {
     /// How many inline bodies the current test thread lowered. A hand-written
@@ -100,7 +99,7 @@ pub(crate) fn int(value: i32) -> u64 {
 
 /// The tagged bits of a `Float64` (`js_new_float64`'s encoding).
 pub(crate) fn float(value: f64) -> u64 {
-    value.to_bits().wrapping_sub(0xFFF9 << 48)
+    value.to_bits().wrapping_sub(FLOAT64_ADDEND as u64)
 }
 
 /// A raw `JSValue` from its tagged bits (for tags JS tests cannot construct
@@ -263,7 +262,7 @@ pub(crate) fn run_function(body: &[u8], args: u16, vars: u16, arguments: &[u64])
     let entry: unsafe extern "C" fn(*mut JitExecFrame) -> u32 =
         unsafe { std::mem::transmute(mem.entry()) };
     let raw = unsafe { entry(&raw mut frame) };
-    (raw == EXIT_DONE).then_some(frame.out_value.0)
+    (i64::from(raw) == EXIT_DONE).then_some(frame.out_value.0)
 }
 
 /// Run a hand-written *callee body* through [`super::inline_call::lower`] and

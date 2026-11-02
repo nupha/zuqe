@@ -39,6 +39,16 @@ impl JitExitKind {
     }
 }
 
+/// The raw codes above, as the `i64` the lowering embeds. Derived from
+/// [`JitExitKind`] so the two cannot drift.
+pub(crate) const EXIT_DONE: i64 = JitExitKind::Done as i64;
+pub(crate) const EXIT_RESUME: i64 = JitExitKind::Resume as i64;
+pub(crate) const EXIT_RETRY: i64 = JitExitKind::Retry as i64;
+
+/// The addend that turns a real double's raw bits into a `JSValue` payload
+/// (`From<f64>`: the top 16 bits must land in the Float64 tag window).
+pub(crate) const FLOAT64_ADDEND: i64 = 0xFFF9 << 48;
+
 /// Which object a cached global variable lives on.
 ///
 /// `let`/`const` bindings live on `global_var_obj`, which shadows the global
