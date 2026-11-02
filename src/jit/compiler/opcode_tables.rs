@@ -212,27 +212,28 @@ pub(super) enum FastOp {
     Sar,
 }
 
-/// Maps an opcode name to its fast-path form and the fallback helper id.
-pub(super) fn fast_binary(name: &str) -> Option<(FastOp, usize)> {
+/// Maps an opcode name to its fast-path form. The fallback helper id comes from
+/// [`helper_id`], so the name→helper mapping has one source.
+pub(super) fn fast_binary(name: &str) -> Option<FastOp> {
     use FastOp::*;
     Some(match name {
-        "add" => (Add, HELPER_ADD),
-        "sub" => (Sub, HELPER_SUB),
-        "mul" => (Mul, HELPER_MUL),
-        "lt" => (Lt, HELPER_LT),
-        "lte" => (Lte, HELPER_LTE),
-        "gt" => (Gt, HELPER_GT),
-        "gte" => (Gte, HELPER_GTE),
-        "eq" => (Eq, HELPER_EQ),
-        "neq" => (Neq, HELPER_NEQ),
-        "strict_eq" => (StrictEq, HELPER_STRICT_EQ),
-        "strict_neq" => (StrictNeq, HELPER_STRICT_NEQ),
-        "and" => (And, HELPER_AND),
-        "or" => (Or, HELPER_OR),
-        "xor" => (Xor, HELPER_XOR),
-        "shl" => (Shl, HELPER_SHL),
-        "shr" => (Shr, HELPER_SHR),
-        "sar" => (Sar, HELPER_SAR),
+        "add" => Add,
+        "sub" => Sub,
+        "mul" => Mul,
+        "lt" => Lt,
+        "lte" => Lte,
+        "gt" => Gt,
+        "gte" => Gte,
+        "eq" => Eq,
+        "neq" => Neq,
+        "strict_eq" => StrictEq,
+        "strict_neq" => StrictNeq,
+        "and" => And,
+        "or" => Or,
+        "xor" => Xor,
+        "shl" => Shl,
+        "shr" => Shr,
+        "sar" => Sar,
         _ => return None,
     })
 }

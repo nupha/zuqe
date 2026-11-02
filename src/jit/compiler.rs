@@ -1069,7 +1069,7 @@ fn lower_insn(
     if name == "div" {
         return lower_fast_div(state, b, fv, sp_var, helper_sig, sp, insn);
     }
-    if let Some((op, helper_id)) = fast_binary(name) {
+    if let Some(op) = fast_binary(name) {
         // The CSE pass: a repeat of an expression the same block already
         // computed over the same proven-numeric values. The result is still in
         // a register, and the copy *is* the instruction — no tag checks, no
@@ -1077,7 +1077,8 @@ fn lower_insn(
         if let Some(reg) = state.cse_reuse(insn.pc()) {
             return lower_cse_reuse(state, b, sp, reg);
         }
-        return lower_fast_binary(state, b, fv, sp_var, helper_sig, sp, insn, op, helper_id);
+        let fallback = helper_id(name).expect("a fast binary has a helper");
+        return lower_fast_binary(state, b, fv, sp_var, helper_sig, sp, insn, op, fallback);
     }
     if let Some(id) = helper_id(name) {
         let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
