@@ -120,12 +120,12 @@ pub struct JitMetrics {
     /// Calls at a monomorphic site that took the fast path (the direct-call path):
     /// either the callee's compiled code was entered directly or the
     /// inline guard passed and the copied body ran in the caller.
-    pub inline_call_hits: u64,
+    pub mono_call_hits: u64,
     /// Calls whose site passed the inline guard and ran the callee's body
     /// inside the caller (the inlined call path). The body may still bail to the
     /// general path on an operand the inline subset does not implement; this
     /// counter only says the guard was passed.
-    pub frame_inline_hits: u64,
+    pub inline_body_hits: u64,
     /// Nested call sites inside a copied body whose constant-identity guard
     /// passed (the inlined call path).
     pub nested_inline_hits: u64,
@@ -133,7 +133,7 @@ pub struct JitMetrics {
     /// missed (the callee was not the recorded one), or the
     /// callee could not run directly (a generator, a cross-realm callee, one
     /// that allocates GC nodes).
-    pub inline_call_misses: u64,
+    pub mono_call_misses: u64,
     /// Observability for the scope's LOCAL list: the largest one seen at a JIT
     /// safepoint, sampled right before a deferred collection clears it. It is a
     /// high-water mark (a scope that is never cleared grows without bound and
@@ -207,18 +207,18 @@ impl JitMetrics {
         self.global_guard_misses = self
             .global_guard_misses
             .saturating_add(u64::from(frame.global_guard_misses));
-        self.inline_call_hits = self
-            .inline_call_hits
-            .saturating_add(u64::from(frame.inline_call_hits));
-        self.frame_inline_hits = self
-            .frame_inline_hits
-            .saturating_add(u64::from(frame.frame_inline_hits));
+        self.mono_call_hits = self
+            .mono_call_hits
+            .saturating_add(u64::from(frame.mono_call_hits));
+        self.inline_body_hits = self
+            .inline_body_hits
+            .saturating_add(u64::from(frame.inline_body_hits));
         self.nested_inline_hits = self
             .nested_inline_hits
             .saturating_add(u64::from(frame.nested_inline_hits));
-        self.inline_call_misses = self
-            .inline_call_misses
-            .saturating_add(u64::from(frame.inline_call_misses));
+        self.mono_call_misses = self
+            .mono_call_misses
+            .saturating_add(u64::from(frame.mono_call_misses));
         // A high-water mark, so the max — not a sum.
         self.scope_local_peak = self.scope_local_peak.max(u64::from(frame.scope_local_peak));
     }

@@ -200,17 +200,17 @@ pub(crate) struct JitExecFrame {
     /// Calls at a monomorphic site that took the direct path (the
     /// callee's compiled code was entered without the interpreter's call
     /// protocol), or the guard-passed inline site.
-    pub inline_call_hits: u32,
+    pub mono_call_hits: u32,
     /// The inlined call path: calls whose site passed the inline guard and ran
     /// the callee's body copied into the caller.
-    pub frame_inline_hits: u32,
+    pub inline_body_hits: u32,
     /// The inlined call path: nested call sites inside a copied body
     /// whose constant-identity guard passed. Counted by the generated code.
     pub nested_inline_hits: u32,
     /// Calls at a monomorphic site whose guard missed (the callee
     /// was not the recorded one), or whose callee the direct path could not
     /// serve — those took the general call path.
-    pub inline_call_misses: u32,
+    pub mono_call_misses: u32,
     /// The inlined call path: the value an allocation helper produced for
     /// an inlined body. The generated code reads it immediately; no GC point
     /// can run between the helper and the read.

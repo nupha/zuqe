@@ -57,7 +57,7 @@ use super::{
     abi::{
         GLOBAL_CACHE_LEXICAL, HELPER_ADD, HELPER_ADD_BRAND, HELPER_ADD_LOC, HELPER_AND,
         HELPER_APPEND, HELPER_APPLY, HELPER_ARRAY_FROM, HELPER_CALL, HELPER_CALL_APPLY,
-        HELPER_CALL_CONSTRUCTOR, HELPER_CALL_INLINE, HELPER_CALL_METHOD, HELPER_CALL_METHOD_INLINE,
+        HELPER_CALL_CONSTRUCTOR, HELPER_CALL_METHOD, HELPER_CALL_METHOD_MONO, HELPER_CALL_MONO,
         HELPER_CHECK_BRAND, HELPER_CHECK_CTOR, HELPER_CHECK_CTOR_RETURN, HELPER_CLOSE_LOC,
         HELPER_COPY_DATA_PROPERTIES, HELPER_DEC, HELPER_DEFINE_ARRAY_EL, HELPER_DEFINE_CLASS,
         HELPER_DEFINE_CLASS_COMPUTED, HELPER_DEFINE_FIELD, HELPER_DEFINE_METHOD,
@@ -838,8 +838,8 @@ fn lower_insn(
                     let site = b.ins().iconst(types::I32, i64::from(site_id));
                     b.ins().store(MemFlags::new(), site, fv.frame, O_IMM2);
                     match name {
-                        "call" => HELPER_CALL_INLINE,
-                        "call_method" => HELPER_CALL_METHOD_INLINE,
+                        "call" => HELPER_CALL_MONO,
+                        "call_method" => HELPER_CALL_METHOD_MONO,
                         _ => id,
                     }
                 }

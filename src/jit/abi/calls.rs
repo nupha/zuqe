@@ -139,7 +139,7 @@ pub(super) unsafe extern "C" fn h_call_method(f: *mut JitExecFrame) -> u32 {
 /// no interpreter frame prologue. The guard is the recorded callee — a call
 /// whose callee is not it (or one the direct path cannot serve) falls back
 /// to the general path below.
-pub(super) unsafe extern "C" fn h_call_inline(f: *mut JitExecFrame) -> u32 {
+pub(super) unsafe extern "C" fn h_call_mono(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
         let argc = f.imm as usize;
@@ -161,8 +161,8 @@ pub(super) unsafe extern "C" fn h_call_inline(f: *mut JitExecFrame) -> u32 {
 
 /// `call_method <argc>` at a *monomorphic* site (the direct-call path):
 /// `[this, func, arg1..argN, ^] -> [ret, ^]`. Same guard and fallback as
-/// [`h_call_inline`]; the receiver is the callee's `this`.
-pub(super) unsafe extern "C" fn h_call_method_inline(f: *mut JitExecFrame) -> u32 {
+/// [`h_call_mono`]; the receiver is the callee's `this`.
+pub(super) unsafe extern "C" fn h_call_method_mono(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
         let argc = f.imm as usize;
@@ -194,19 +194,19 @@ fn note_direct(
 ) -> Option<Result<JSValue, u32>> {
     match direct {
         crate::jit::DirectCall::Done(value) => {
-            f.inline_call_hits = f.inline_call_hits.saturating_add(1);
+            f.mono_call_hits = f.mono_call_hits.saturating_add(1);
             Some(Ok(value))
         }
         crate::jit::DirectCall::Exception => {
-            f.inline_call_hits = f.inline_call_hits.saturating_add(1);
+            f.mono_call_hits = f.mono_call_hits.saturating_add(1);
             Some(Err(HELPER_EXCEPTION))
         }
         crate::jit::DirectCall::Interrupt => {
-            f.inline_call_hits = f.inline_call_hits.saturating_add(1);
+            f.mono_call_hits = f.mono_call_hits.saturating_add(1);
             Some(Err(HELPER_INTERRUPT))
         }
         crate::jit::DirectCall::Fallback => {
-            f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+            f.mono_call_misses = f.mono_call_misses.saturating_add(1);
             None
         }
     }
@@ -250,11 +250,11 @@ unsafe fn try_direct_call(
 ) -> Option<Result<JSValue, u32>> {
     // The guard: the callee must be exactly the recorded one.
     let Some(recorded) = (unsafe { recorded_callee(f) }) else {
-        f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+        f.mono_call_misses = f.mono_call_misses.saturating_add(1);
         return None;
     };
     if !callee_is(func, recorded) {
-        f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+        f.mono_call_misses = f.mono_call_misses.saturating_add(1);
         return None;
     }
     let direct = {
@@ -307,15 +307,15 @@ pub(super) unsafe extern "C" fn h_inline_guard(f: *mut JitExecFrame) -> u32 {
         let base = f.sp.offset(-(argc as isize) - if method { 2 } else { 1 });
         let func = if method { *base.add(1) } else { *base };
         let Some(recorded) = recorded_callee_at(f, site) else {
-            f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+            f.mono_call_misses = f.mono_call_misses.saturating_add(1);
             return 0;
         };
         if callee_is(func, recorded) {
-            f.inline_call_hits = f.inline_call_hits.saturating_add(1);
-            f.frame_inline_hits = f.frame_inline_hits.saturating_add(1);
+            f.mono_call_hits = f.mono_call_hits.saturating_add(1);
+            f.inline_body_hits = f.inline_body_hits.saturating_add(1);
             1
         } else {
-            f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+            f.mono_call_misses = f.mono_call_misses.saturating_add(1);
             0
         }
     }
@@ -425,11 +425,11 @@ unsafe fn try_builtin_apply(
     array_arg: JSValue,
 ) -> Option<Result<JSValue, u32>> {
     let Ok(native) = NativeFunction::try_from(func) else {
-        f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+        f.mono_call_misses = f.mono_call_misses.saturating_add(1);
         return None;
     };
     if native.payload().callback != Callback::Func(js_function_apply) {
-        f.inline_call_misses = f.inline_call_misses.saturating_add(1);
+        f.mono_call_misses = f.mono_call_misses.saturating_add(1);
         return None;
     }
 

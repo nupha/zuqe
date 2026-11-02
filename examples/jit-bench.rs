@@ -778,9 +778,9 @@ impl SiteCounts {
         "property_guard_misses",
         "global_guard_hits",
         "global_guard_misses",
-        "inline_call_hits",
-        "inline_call_misses",
-        "frame_inline_hits",
+        "mono_call_hits",
+        "mono_call_misses",
+        "inline_body_hits",
         "specialized_guard_misses",
         "scope_local_peak",
     ];
@@ -791,9 +791,9 @@ impl SiteCounts {
             property_misses: m.property_guard_misses,
             global_hits: m.global_guard_hits,
             global_misses: m.global_guard_misses,
-            inline_hits: m.inline_call_hits,
-            inline_misses: m.inline_call_misses,
-            frame_inline: m.frame_inline_hits,
+            inline_hits: m.mono_call_hits,
+            inline_misses: m.mono_call_misses,
+            frame_inline: m.inline_body_hits,
             spec_guard_misses: m.specialized_guard_misses,
             scope_local_peak: m.scope_local_peak,
         }
@@ -888,7 +888,7 @@ fn site_count_lines(entries: &[(Mode, SiteCounts)]) -> Vec<String> {
         pair("inline_call (hits/misses)", |c| {
             (c.inline_hits, c.inline_misses)
         }),
-        single("frame_inline_hits", |c| c.frame_inline),
+        single("inline_body_hits", |c| c.frame_inline),
         single("specialized_guard_misses", |c| c.spec_guard_misses),
         single("scope_local_peak", |c| c.scope_local_peak),
     ]

@@ -220,7 +220,7 @@ inline_caller(1);";
     );
 
     assert!(
-        native.metrics.frame_inline_hits > 0,
+        native.metrics.inline_body_hits > 0,
         "the callee was not inlined, so the test does not cover T7.1: {:?}",
         native.metrics
     );

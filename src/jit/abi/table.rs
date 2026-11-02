@@ -222,11 +222,11 @@ pub(crate) const HELPER_APPLY: usize = 118;
 /// Index of [`h_gc_bind`], called with the barrier's own signature
 /// (`frame`, owner node, stored value).
 pub(crate) const HELPER_GC_BIND: usize = 119;
-/// Index of [`h_call_inline`], the direct call at a monomorphic site.
-pub(crate) const HELPER_CALL_INLINE: usize = 120;
-/// Index of [`h_call_method_inline`], the direct method call at a monomorphic
+/// Index of [`h_call_mono`], the direct call at a monomorphic site.
+pub(crate) const HELPER_CALL_MONO: usize = 120;
+/// Index of [`h_call_method_mono`], the direct method call at a monomorphic
 /// site (the direct-call path).
-pub(crate) const HELPER_CALL_METHOD_INLINE: usize = 121;
+pub(crate) const HELPER_CALL_METHOD_MONO: usize = 121;
 /// Index of [`h_inline_guard`], the guard an inlined monomorphic call site
 /// tests before running the callee's body in the caller (the inlined call path).
 pub(crate) const HELPER_INLINE_GUARD: usize = 122;
@@ -368,8 +368,8 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_call_constructor as *const (),
     h_apply as *const (),
     h_gc_bind as *const (),
-    h_call_inline as *const (),
-    h_call_method_inline as *const (),
+    h_call_mono as *const (),
+    h_call_method_mono as *const (),
     h_inline_guard as *const (),
     h_alloc_object as *const (),
     h_alloc_empty_array as *const (),

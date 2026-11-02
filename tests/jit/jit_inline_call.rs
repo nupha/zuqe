@@ -89,11 +89,11 @@ fn a_monomorphic_site_takes_the_direct_path() {
         "the direct path must not change the result"
     );
     assert!(
-        metrics.inline_call_hits > 0,
+        metrics.mono_call_hits > 0,
         "the monomorphic site never took the direct path: {metrics:?}"
     );
     assert_eq!(
-        metrics.inline_call_misses, 0,
+        metrics.mono_call_misses, 0,
         "the guard never missed on a monomorphic site: {metrics:?}"
     );
 }
@@ -134,7 +134,7 @@ fn a_polymorphic_site_falls_back() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "str:21:22");
     assert_eq!(
-        metrics.inline_call_hits, 0,
+        metrics.mono_call_hits, 0,
         "a polymorphic site must not take the direct path: {metrics:?}"
     );
 }
@@ -154,11 +154,11 @@ fn a_guard_miss_falls_back() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "str:6:7");
     assert!(
-        metrics.inline_call_hits > 0,
+        metrics.mono_call_hits > 0,
         "the recorded callee never took the direct path: {metrics:?}"
     );
     assert!(
-        metrics.inline_call_misses > 0,
+        metrics.mono_call_misses > 0,
         "the changed callee never missed the guard: {metrics:?}"
     );
 }
@@ -228,11 +228,11 @@ fn apply_takes_the_direct_path() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "int:169", "apply must not change the result");
     assert!(
-        metrics.inline_call_hits > 0,
+        metrics.mono_call_hits > 0,
         "the apply builtin never took the direct path: {metrics:?}"
     );
     assert_eq!(
-        metrics.inline_call_misses, 0,
+        metrics.mono_call_misses, 0,
         "the apply builtin never missed: {metrics:?}"
     );
 }
@@ -298,11 +298,11 @@ fn apply_falls_back_when_the_builtin_is_replaced() {
     // `(thisArg, argumentArray)`, not the applied arguments.
     assert_eq!(result, "str:3:03,4");
     assert!(
-        metrics.inline_call_hits > 0,
+        metrics.mono_call_hits > 0,
         "the recorded builtin never took the direct path: {metrics:?}"
     );
     assert!(
-        metrics.inline_call_misses > 0,
+        metrics.mono_call_misses > 0,
         "the replaced builtin never fell back: {metrics:?}"
     );
 }
@@ -337,7 +337,7 @@ fn apply_callee_resumes_in_the_interpreter() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "str:e:ReferenceError");
     assert!(
-        metrics.inline_call_hits > 0,
+        metrics.mono_call_hits > 0,
         "the applied callee did not take the direct path: {metrics:?}"
     );
 }
@@ -357,7 +357,7 @@ fn apply_callee_that_allocates_agrees() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "int:1275");
     assert!(
-        metrics.inline_call_hits > 0,
+        metrics.mono_call_hits > 0,
         "the allocating callee did not take the direct path: {metrics:?}"
     );
 }
@@ -393,7 +393,7 @@ fn a_callee_that_needs_the_interpreter_resumes_there() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "str:e:ReferenceError");
     assert!(
-        metrics.inline_call_hits > 0,
+        metrics.mono_call_hits > 0,
         "the direct path was not taken: {metrics:?}"
     );
 }

@@ -72,7 +72,7 @@ fn agree_inlined(label: &str, setup: &str, main: &str) {
         );
         if mode != Mode::Interpreter {
             assert!(
-                metrics.frame_inline_hits > 0,
+                metrics.inline_body_hits > 0,
                 "{label} was not inlined in {}: {metrics:?}",
                 mode.label()
             );
@@ -93,7 +93,7 @@ fn agree_without_inlining(label: &str, setup: &str, main: &str) {
             mode.label()
         );
         assert_eq!(
-            metrics.frame_inline_hits,
+            metrics.inline_body_hits,
             0,
             "{label} must not be inlined in {}: {metrics:?}",
             mode.label()
@@ -114,11 +114,11 @@ fn a_pure_monomorphic_callee_is_inlined() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "int:2450");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the inline guard never passed: {metrics:?}"
     );
     assert_eq!(
-        metrics.inline_call_misses, 0,
+        metrics.mono_call_misses, 0,
         "the guard never missed on a monomorphic site: {metrics:?}"
     );
 }
@@ -157,7 +157,7 @@ fn a_forward_branch_is_inlined() {
     // sum of |i| for i in [-20, 20)
     assert_eq!(result, "int:400");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the branch-shaped callee was not inlined: {metrics:?}"
     );
 }
@@ -175,11 +175,11 @@ fn a_loop_inside_the_callee_is_inlined() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "int:2450");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the loop-shaped callee was not inlined: {metrics:?}"
     );
     assert_eq!(
-        metrics.inline_call_misses, 0,
+        metrics.mono_call_misses, 0,
         "the guard never missed on a monomorphic site: {metrics:?}"
     );
 }
@@ -216,7 +216,7 @@ fn a_gc_at_an_inlined_backedge_keeps_the_frame_valid() {
     let res = eval(&mut ctx, &name, "caller({ v: 5 }, 10)");
     assert_eq!(describe(&mut ctx, res), "int:50");
     assert!(
-        jit.metrics().frame_inline_hits > 0,
+        jit.metrics().inline_body_hits > 0,
         "the loop was not inlined: {:?}",
         jit.metrics()
     );
@@ -237,7 +237,7 @@ fn a_nested_call_is_inlined() {
     // sum over i in [0, 20): 2 * (i + 1)
     assert_eq!(result, "int:420");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the outer call chain was not inlined: {metrics:?}"
     );
     assert!(
@@ -280,7 +280,7 @@ fn a_try_catch_body_is_inlined() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "str:7:9");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the try/catch body was not inlined: {metrics:?}"
     );
 }
@@ -298,7 +298,7 @@ fn a_throw_through_an_inlined_body_is_caught_by_the_caller() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "str:1:caught:1");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the throwing body was not inlined: {metrics:?}"
     );
 }
@@ -316,7 +316,7 @@ fn an_allocation_inside_the_callee_is_inlined() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "bool:false");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the allocating body was not inlined: {metrics:?}"
     );
 }
@@ -333,7 +333,7 @@ fn an_empty_array_literal_is_inlined() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "bool:true");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the array-allocating body was not inlined: {metrics:?}"
     );
 }
@@ -351,7 +351,7 @@ fn an_allocation_plus_a_loop_stays_on_the_direct_path() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "str:object");
     assert_eq!(
-        metrics.frame_inline_hits, 0,
+        metrics.inline_body_hits, 0,
         "allocation + safepoint must not inline: {metrics:?}"
     );
 }
@@ -386,7 +386,7 @@ fn a_gc_after_an_inlined_allocation_keeps_the_object() {
     let res = eval(&mut ctx, &name, "caller(4)");
     assert_eq!(describe(&mut ctx, res), "bool:true");
     assert!(
-        jit.metrics().frame_inline_hits > 0,
+        jit.metrics().inline_body_hits > 0,
         "the allocating body was not inlined: {:?}",
         jit.metrics()
     );
@@ -407,7 +407,7 @@ fn a_nested_guard_miss_falls_back() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "str:40:50");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the monomorphic outer site was not inlined: {metrics:?}"
     );
     assert!(
@@ -430,7 +430,7 @@ fn a_non_int_operand_bails_to_the_general_path() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "str:3:ab");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the monomorphic site never passed the inline guard: {metrics:?}"
     );
 }
@@ -477,7 +477,7 @@ fn an_int_overflow_bails() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "f64:2147483648.0");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the inline guard was not reached: {metrics:?}"
     );
 }
@@ -512,7 +512,7 @@ fn two_inline_sites_get_separate_variable_blocks() {
     // sum over i in [0, 20): (i + 1) + (i + 2)
     assert_eq!(result, "int:440");
     assert!(
-        metrics.frame_inline_hits >= 2,
+        metrics.inline_body_hits >= 2,
         "both sites must pass the inline guard: {metrics:?}"
     );
 }
@@ -546,7 +546,7 @@ fn a_pure_method_is_inlined() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "int:860");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the method site never passed the inline guard: {metrics:?}"
     );
 }
@@ -565,11 +565,11 @@ fn a_guard_miss_falls_back() {
     let (result, metrics) = run(Mode::Tier1, setup, main);
     assert_eq!(result, "str:6:7");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the recorded callee was never inlined: {metrics:?}"
     );
     assert!(
-        metrics.inline_call_misses > 0,
+        metrics.mono_call_misses > 0,
         "the changed callee never missed the guard: {metrics:?}"
     );
 }
@@ -756,7 +756,7 @@ fn a_poisoned_operand_runs_user_code_once() {
     assert_eq!(actual, expected);
     assert_eq!(actual, "str:4:1", "`valueOf` ran more than once");
     assert!(
-        metrics.frame_inline_hits > 0,
+        metrics.inline_body_hits > 0,
         "the monomorphic site never reached the inline guard: {metrics:?}"
     );
 }
