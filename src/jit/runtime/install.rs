@@ -21,7 +21,7 @@ pub(crate) struct Published {
     /// The install replaced existing code.
     pub(crate) replaced: bool,
     /// The replaced code had never been entered.
-    pub(crate) replaced_unused: bool,
+    pub(crate) replaced_never_entered: bool,
 }
 
 /// Map, publish and install `bytes` for `bytecode`. Returns `None` when nothing
@@ -47,6 +47,6 @@ pub(crate) fn publish(
     Some(Published {
         evicted,
         replaced: replaced.is_some(),
-        replaced_unused: replaced.is_some_and(|old| !old.entered()),
+        replaced_never_entered: replaced.is_some_and(|old| !old.entered()),
     })
 }

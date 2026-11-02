@@ -51,8 +51,9 @@ pub(crate) mod object {
     /// The property guard's range check reads the slot count here: slots are
     /// index-aligned with the shape's props, and the guard reaches this only
     /// after the shape's identity (pointer + uid) already matched.
-    pub(crate) const SHAPE_PROP_COUNT_OFFSET: i32 = (gc_lite::gctype::payload_offset_of::<ShapeImpl>()
-        + std::mem::offset_of!(ShapeImpl, prop_count)) as i32;
+    pub(crate) const SHAPE_PROP_COUNT_OFFSET: i32 =
+        (gc_lite::gctype::payload_offset_of::<ShapeImpl>()
+            + std::mem::offset_of!(ShapeImpl, prop_count)) as i32;
     /// The offset of a shape's payload, from the shape's GC node pointer.
     ///
     /// The inline cache records a shape's *payload* pointer (what
@@ -78,11 +79,9 @@ pub(crate) mod object {
         use super::*;
         use crate::object::ObjectFlags;
 
-        /// The JIT's masks must be **the engine's** masks (the property inline guard): the generated
-        /// code reads the class id and the fast-array flag out of the flags
-        /// word with them. A change on either side without the other would
-        /// make the guard read the wrong bits — silently (a wrong guard, not a
-        /// crash).
+        /// The JIT's masks must be the engine's: the generated code reads the
+        /// class id and the fast-array flag out of the flags word with them.
+        /// Drift would make the guard read the wrong bits — silently.
         #[test]
         fn the_jit_masks_match_the_engine() {
             assert_eq!(CLASS_ID_MASK, i64::from(ObjectFlags::MASK_CLASS_ID));
@@ -90,18 +89,14 @@ pub(crate) mod object {
             assert_eq!(EXTENSIBLE_MASK, i64::from(ObjectFlags::MASK_EXTENSIBLE));
         }
 
-        /// The layout the JIT's inline property guard reads: the
-        /// shape's unique id, and the payload pointer the inline cache
-        /// records.
-        ///
-        /// The guard reads the id from the shape's **GC node** pointer (what
-        /// an object holds) and compares the shape's *payload* pointer with
-        /// the one the cache recorded — so both offsets have to hold at once.
+        /// The shape layout the property guard reads: the id from the shape's
+        /// GC node pointer, the payload pointer the inline cache records, and
+        /// the prototype the typed-array `length` guard walks.
         #[test]
         fn the_shape_layout_is_stable() {
             use hash_link::HashList;
 
-            use crate::object::{Shape, ShapeImpl};
+            use crate::object::Shape;
 
             let mut rt = crate::Runtime::create().unwrap();
             let mut ctx = rt
@@ -145,8 +140,6 @@ pub(crate) mod object {
                         .unwrap_or(0),
                     "the shape's prototype is not where the JIT reads it"
                 );
-                // The shape's own layout is what the offsets are derived from.
-                let _ = std::mem::offset_of!(ShapeImpl, uid);
             });
         }
     }
@@ -167,9 +160,8 @@ pub(crate) mod function {
     mod tests {
         use super::*;
 
-        /// The generated guard reads the bytecode pointer at this offset. Pin
-        /// it against a real function object: the identity read the way the
-        /// guard reads it must be the bytecode node the function runs.
+        /// The bytecode handle sits where the nested inlined-call guard reads
+        /// it: object → payload → bytecode, without a helper.
         #[test]
         fn the_function_payload_layout_is_stable() {
             let mut rt = crate::Runtime::create().unwrap();
@@ -201,9 +193,9 @@ pub(crate) mod function {
     }
 }
 
-/// The global-variable site cache's layout (T10): the owning shape, the
-/// shadowing `global_var_obj` shape, the slot and the flags. The generated
-/// guard reads one entry per access.
+/// The global-variable site cache's layout: the owning shape, the shadowing
+/// `global_var_obj` shape, the slot and the flags. The generated guard reads
+/// one entry per access.
 pub(crate) mod global_var {
     use crate::jit::abi::GlobalVarCache;
 
@@ -232,9 +224,8 @@ pub(crate) mod global_var {
         use super::*;
         use crate::jit::abi::{GLOBAL_CACHE_GLOBAL, GLOBAL_CACHE_LEXICAL};
 
-        /// The generated code reads these fields at fixed widths. The offsets
-        /// must stay inside the entry and must not overlap: the guard loads
-        /// each one independently.
+        /// The guard loads every field independently: all offsets must fall
+        /// inside the entry and must not overlap.
         #[test]
         fn the_global_cache_layout_is_stable() {
             assert_eq!(ENTRY_SIZE, 32);
@@ -275,11 +266,6 @@ pub(crate) mod typed_array {
         std::mem::offset_of!(TypedArrayPayload, array_buffer) as i32;
     /// The offset of the view's start offset, in bytes.
     pub(crate) const OFFSET_OFFSET: i32 = std::mem::offset_of!(TypedArrayPayload, offset) as i32;
-    /// The offset of the view's byte length.
-    // Part of the contract the test below pins, though no guard reads it yet.
-    #[allow(dead_code)]
-    pub(crate) const BYTE_LENGTH_OFFSET: i32 =
-        std::mem::offset_of!(TypedArrayPayload, byte_length) as i32;
     /// The offset of the view's element count.
     pub(crate) const COUNT_OFFSET: i32 = std::mem::offset_of!(TypedArrayPayload, count) as i32;
     /// The offset of the "out of bounds" flag.
@@ -290,24 +276,17 @@ pub(crate) mod typed_array {
     mod tests {
         use super::*;
 
-        /// The layout the JIT's typed-array guard reads must stay what
-        /// the guard assumes. The offsets are computed, so a field that
-        /// *moves* is fine — but two fields sharing an offset, or a field
-        /// that changes its width, would make the generated code read the
-        /// wrong thing.
-        ///
-        /// The *meaning* of each field is pinned by the end-to-end test in
-        /// `jit::tests` (it reads them through these very offsets) and by the
-        /// behavioural tests in `tests/jit/jit_array.rs`.
+        /// The offsets the typed-array guard reads: buffer, start offset,
+        /// element count and out-of-bounds flag. They must stay inside the
+        /// payload and must not overlap — the guard loads each one
+        /// independently. Their meaning is pinned by the behavioural tests in
+        /// `tests/jit/jit_array.rs`.
         #[test]
         fn the_jit_layout_contract_is_stable() {
-            // The offsets the guard loads must be inside the payload, and they
-            // must not overlap: the guard loads them independently.
             let size = std::mem::size_of::<TypedArrayPayload>();
             let mut offsets = [
                 BUFFER_OFFSET,
                 OFFSET_OFFSET,
-                BYTE_LENGTH_OFFSET,
                 COUNT_OFFSET,
                 OUT_OF_BOUNDS_OFFSET,
             ];
@@ -341,10 +320,6 @@ pub(crate) mod array_buffer {
 
     /// The offset of the bytes' data pointer inside the view.
     pub(crate) const VIEW_DATA_OFFSET: i32 = std::mem::offset_of!(BufferView, data) as i32;
-    /// The offset of the bytes' length inside the view.
-    // Part of the contract the test below pins, though no guard reads it yet.
-    #[allow(dead_code)]
-    pub(crate) const VIEW_LEN_OFFSET: i32 = std::mem::offset_of!(BufferView, len) as i32;
     /// The offset of the "directly readable" flag inside the view.
     pub(crate) const VIEW_DIRECT_OFFSET: i32 = std::mem::offset_of!(BufferView, direct) as i32;
     /// The offset of the bytes' view inside the payload.
@@ -357,21 +332,15 @@ pub(crate) mod array_buffer {
     mod tests {
         use super::*;
 
-        /// The layout the JIT's typed-array guard reads: the data
-        /// pointer first, the length second, the "directly readable" flag
-        /// third. The generated code loads them in that order and with those
-        /// widths.
-        ///
-        /// The `detached` flag is read too (a detached buffer's bytes are
-        /// gone), so its offset is part of the contract as well.
+        /// The offsets the array-buffer guard reads: the bytes' data pointer,
+        /// the "directly readable" flag, and the payload's detached flag (a
+        /// detached buffer's bytes are gone).
         #[test]
         fn the_view_layout_is_stable() {
             assert_eq!(VIEW_DATA_OFFSET, 0);
-            assert_eq!(VIEW_LEN_OFFSET, 8);
             assert_eq!(VIEW_DIRECT_OFFSET, 12);
-            // The detached flag is a byte, and it must not share an offset with
-            // the view (the guard loads them independently).
-            assert_eq!(std::mem::size_of::<bool>(), 1);
+            // The detached flag must not share an offset with the view: the
+            // guard loads them independently.
             let mut offsets = [VIEW_OFFSET, DETACHED_OFFSET];
             offsets.sort_unstable();
             assert!(

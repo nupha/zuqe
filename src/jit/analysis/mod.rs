@@ -1,37 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! The function-scoped analysis the lowering consults.
+//! Data-flow facts over the verified bytecode: def/use per block, liveness
+//! across block edges, and the dead-store hint the lowering consumes.
 //!
-//! **Terminology**: in this crate "IR" means the **Cranelift IR** (clif) the
-//! lowering produces; this layer is the *analysis* layer, and it produces
-//! **facts**, not instructions.
-//!
-//! The baseline lowers [`VerifiedFunction`] straight to Cranelift. That is
-//! enough for a faithful translation, but the remaining register-cache work — cross-block
-//! local residency, dead-store elimination, loop-level optimization — needs a
-//! *data-flow* view the bytecode does not hand over directly: which block reads
-//! or writes which frame slot, which block dominates which, which blocks form a
-//! loop, and which slots are live across a block boundary.
-//!
-//! This module builds exactly that from the verified bytecode — no separate
-//! instruction representation, no SSA remapping, no deopt map. The value model
-//! stays the frame: a slot is "live" in the ordinary compiler sense
-//! (read before the next write on some path), and the passes that consume the
-//! IR answer questions the lowering asks at the point it needs them:
-//!
-//! * [`Analysis::block_index`] / [`Analysis::live_out`] — DCE of a local store.
-//! * [`Analysis::blocks`] `uses` — which locals a block reads before writing, so the
-//!   edge machinery can carry them in a register.
-//! * [`Analysis::loops`] — natural loops, for the loop-level passes still to come
-//!   (bounds-check elimination / loop-invariant loads).
-//!
-//! Liveness is exact only when the function neither raises/catches in-frame nor
-//! contains an opcode the baseline would `Resume` at; otherwise a resume can
-//! read *every* frame slot, so [`Analysis::exact`] is false and consumers fall
-//! to conservative behavior. That gate lives in the caller (it is the same
-//! `supported()` / `has_exception_regions()` question the lowering already
-//! asks), so this module never has to guess.
+//! The value model stays the frame: a slot is "live" in the ordinary compiler
+//! sense (read before the next write on some path). Liveness is exact only
+//! when the function neither raises/catches in-frame nor contains an opcode
+//! the baseline would `Resume` at — a resume can read *every* frame slot, so
+//! [`Analysis::exact`] gates every consumer that skips a write. The caller
+//! answers that question; this module never guesses.
 
 use std::{collections::HashMap, ops::Range};
 
@@ -62,40 +40,26 @@ impl LocalRef {
 }
 
 /// One basic block of the analysis: the CFG block's instruction range plus its
-/// def/use summary and predecessor/successor indices.
+/// def/use summary and successor indices.
 #[derive(Clone, Debug)]
 pub(crate) struct BlockInfo {
     pub(crate) start_pc: u32,
     pub(crate) range: Range<usize>,
     pub(crate) succ: Vec<usize>,
-    pub(crate) pred: Vec<usize>,
     /// Slots read before being written anywhere in this block.
     pub(crate) uses: Vec<LocalRef>,
     /// Slots written anywhere in this block.
     pub(crate) defs: Vec<LocalRef>,
 }
 
-/// A natural loop: its header block and the blocks that reach a back edge to
-/// the header.
-#[derive(Clone, Debug)]
-pub(crate) struct LoopInfo {
-    pub(crate) header: usize,
-    pub(crate) members: Vec<usize>,
-}
-
-/// The function-scoped analysis. All block indices are positions in
+/// The function-scoped analysis. Block indices are positions in
 /// [`Analysis::blocks`].
 #[derive(Clone, Debug)]
 pub(crate) struct Analysis {
     blocks: Vec<BlockInfo>,
-    block_of_pc: HashMap<u32, usize>,
-    /// Immediate dominators, indexed like `blocks` (the entry is its own).
-    idom: Vec<Option<usize>>,
-    loops: Vec<LoopInfo>,
-    live_in: Vec<Vec<LocalRef>>,
     live_out: Vec<Vec<LocalRef>>,
-    /// Whether [`Self::live_in`] / [`Self::live_out`] are exact (see module
-    /// docs). Consumers that skip a write must check this.
+    /// Whether [`Self::live_out`] is exact (see module docs). Consumers that
+    /// skip a write must check this.
     exact: bool,
 }
 
@@ -118,7 +82,6 @@ impl Analysis {
                 start_pc: block.start_pc(),
                 range,
                 succ: Vec::new(),
-                pred: Vec::new(),
                 uses,
                 defs,
             });
@@ -129,22 +92,15 @@ impl Analysis {
                     && !blocks[index].succ.contains(&succ)
                 {
                     blocks[index].succ.push(succ);
-                    blocks[succ].pred.push(index);
                 }
             }
         }
 
-        let idom = dominators(&blocks, &block_of_pc);
-        let loops = natural_loops(&blocks, &idom);
         let exact = resume_free && !verified.has_exception_regions();
-        let (live_in, live_out) = liveness(&blocks);
+        let live_out = liveness(&blocks);
 
         Self {
             blocks,
-            block_of_pc,
-            idom,
-            loops,
-            live_in,
             live_out,
             exact,
         }
@@ -154,53 +110,8 @@ impl Analysis {
         &self.blocks
     }
 
-    pub(crate) fn block_index(&self, start_pc: u32) -> Option<usize> {
-        self.block_of_pc.get(&start_pc).copied()
-    }
-
-    /// Whether liveness is exact (see module docs). False when the function can
-    /// raise/catch in-frame or resume to the interpreter, in which case a
-    /// "dead" store can still be read by the interpreter.
-    pub(crate) const fn exact(&self) -> bool {
-        self.exact
-    }
-
-    pub(crate) fn live_out(&self, block: usize) -> &[LocalRef] {
-        &self.live_out[block]
-    }
-
-    pub(crate) fn live_in(&self, block: usize) -> &[LocalRef] {
-        &self.live_in[block]
-    }
-
     pub(crate) fn is_live_out(&self, block: usize, slot: LocalRef) -> bool {
         self.live_out[block].contains(&slot)
-    }
-
-    #[allow(dead_code)] // Consumed by the upcoming loop passes (bounds-check elimination).
-    pub(crate) fn loops(&self) -> &[LoopInfo] {
-        &self.loops
-    }
-
-    #[allow(dead_code)] // Consumed by the upcoming loop passes (bounds-check elimination).
-    pub(crate) fn immediate_dominator(&self, block: usize) -> Option<usize> {
-        self.idom[block]
-    }
-
-    /// Does `a` dominate `b`? Walks the dominator tree; both must be reachable.
-    #[allow(dead_code)]
-    pub(crate) fn dominates(&self, a: usize, b: usize) -> bool {
-        let mut node = Some(b);
-        while let Some(n) = node {
-            if n == a {
-                return true;
-            }
-            if self.idom[n] == Some(n) {
-                return false;
-            }
-            node = self.idom[n];
-        }
-        false
     }
 
     /// Dead-store elimination: the `put_loc`/`set_loc` pcs whose store is dead — the slot
@@ -357,140 +268,10 @@ fn def_use(instructions: &[Instruction], range: Range<usize>) -> (Vec<LocalRef>,
     (uses, defs)
 }
 
-/// Immediate dominators (Cooper–Harvey–Kennedy iteration over reverse post
-/// order). Unreachable blocks keep `None`; the entry block dominates itself.
-fn dominators(blocks: &[BlockInfo], block_of_pc: &HashMap<u32, usize>) -> Vec<Option<usize>> {
-    let n = blocks.len();
-    let mut idom: Vec<Option<usize>> = vec![None; n];
-    let Some(&entry) = block_of_pc.get(&0) else {
-        return idom;
-    };
-    idom[entry] = Some(entry);
-
-    // Reverse post order from the entry.
-    let mut order: Vec<usize> = Vec::with_capacity(n);
-    let mut seen = vec![false; n];
-    let mut stack = vec![(entry, 0usize)];
-    seen[entry] = true;
-    while let Some((node, next)) = stack.pop() {
-        if next < blocks[node].succ.len() {
-            stack.push((node, next + 1));
-            let child = blocks[node].succ[next];
-            if !seen[child] {
-                seen[child] = true;
-                stack.push((child, 0));
-            }
-        } else {
-            order.push(node);
-        }
-    }
-    order.reverse();
-    let mut rpo_index = vec![usize::MAX; n];
-    for (i, &node) in order.iter().enumerate() {
-        rpo_index[node] = i;
-    }
-
-    let intersect = |idom: &[Option<usize>], mut a: usize, mut b: usize| -> usize {
-        while a != b {
-            while rpo_index[a] > rpo_index[b] {
-                a = idom[a].expect("reachable node has an idom");
-            }
-            while rpo_index[b] > rpo_index[a] {
-                b = idom[b].expect("reachable node has an idom");
-            }
-        }
-        a
-    };
-
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for &node in &order {
-            if node == entry {
-                continue;
-            }
-            let mut new: Option<usize> = None;
-            for &pred in &blocks[node].pred {
-                if idom[pred].is_none() {
-                    continue;
-                }
-                new = Some(match new {
-                    None => pred,
-                    Some(current) => intersect(&idom, current, pred),
-                });
-            }
-            if new.is_some() && new != idom[node] {
-                idom[node] = new;
-                changed = true;
-            }
-        }
-    }
-    idom
-}
-
-/// Natural loops: for every edge into a block that dominates the source (a back
-/// edge), the body is `source` plus every predecessor reachable without passing
-/// the header.
-fn natural_loops(blocks: &[BlockInfo], idom: &[Option<usize>]) -> Vec<LoopInfo> {
-    let mut loops: Vec<LoopInfo> = Vec::new();
-    for (source, block) in blocks.iter().enumerate() {
-        if idom[source].is_none() {
-            continue;
-        }
-        for &header in &block.succ {
-            if idom[header].is_none() {
-                continue;
-            }
-            let is_back_edge = header == source || dominates(idom, header, source);
-            if !is_back_edge {
-                continue;
-            }
-            let mut members: Vec<usize> = vec![header];
-            let mut stack = vec![source];
-            while let Some(node) = stack.pop() {
-                if members.contains(&node) {
-                    continue;
-                }
-                members.push(node);
-                for &pred in &blocks[node].pred {
-                    if pred != header {
-                        stack.push(pred);
-                    }
-                }
-            }
-            members.sort_unstable();
-            if let Some(existing) = loops.iter_mut().find(|l| l.header == header) {
-                for &member in &members {
-                    if !existing.members.contains(&member) {
-                        existing.members.push(member);
-                    }
-                }
-                existing.members.sort_unstable();
-            } else {
-                loops.push(LoopInfo { header, members });
-            }
-        }
-    }
-    loops
-}
-
-fn dominates(idom: &[Option<usize>], a: usize, b: usize) -> bool {
-    let mut node = Some(b);
-    while let Some(n) = node {
-        if n == a {
-            return true;
-        }
-        if idom[n] == Some(n) {
-            return false;
-        }
-        node = idom[n];
-    }
-    false
-}
-
 /// Classic live-variable analysis: `live_in[b] = uses[b] ∪ (live_out[b] \ defs[b])`,
-/// `live_out[b] = ∪ live_in[succ]`. Unreachable blocks are ignored.
-fn liveness(blocks: &[BlockInfo]) -> (Vec<Vec<LocalRef>>, Vec<Vec<LocalRef>>) {
+/// `live_out[b] = ∪ live_in[succ]`. Only the live-out sets survive the fixpoint;
+/// unreachable blocks are ignored.
+fn liveness(blocks: &[BlockInfo]) -> Vec<Vec<LocalRef>> {
     let n = blocks.len();
     let mut live_in: Vec<Vec<LocalRef>> = vec![Vec::new(); n];
     let mut live_out: Vec<Vec<LocalRef>> = vec![Vec::new(); n];
@@ -521,7 +302,7 @@ fn liveness(blocks: &[BlockInfo]) -> (Vec<Vec<LocalRef>>, Vec<Vec<LocalRef>>) {
             }
         }
     }
-    (live_in, live_out)
+    live_out
 }
 
 #[cfg(test)]
@@ -565,6 +346,14 @@ mod tests {
         out
     }
 
+    fn block_of(analysis: &Analysis, pc: u32) -> usize {
+        analysis
+            .blocks()
+            .iter()
+            .position(|block| block.start_pc == pc)
+            .expect("block")
+    }
+
     #[test]
     fn def_use_splits_reads_from_writes() {
         // get_loc 0; put_loc 1; push_i32 9; put_loc 0; return_undef
@@ -601,8 +390,8 @@ mod tests {
         .concat();
         let verified = verify_bytes(bytes, 0, 1);
         let analysis = Analysis::build(&verified, true);
-        assert!(analysis.exact());
-        let first = analysis.block_index(0).expect("entry block");
+        assert!(analysis.exact);
+        let first = block_of(&analysis, 0);
         assert!(analysis.is_live_out(first, LocalRef::local(0)));
     }
 
@@ -619,42 +408,9 @@ mod tests {
         .concat();
         let verified = verify_bytes(bytes, 0, 2);
         let analysis = Analysis::build(&verified, true);
-        let entry = analysis.block_index(0).expect("entry block");
+        let entry = block_of(&analysis, 0);
         assert!(!analysis.is_live_out(entry, LocalRef::local(0)));
         assert!(!analysis.is_live_out(entry, LocalRef::local(1)));
-    }
-
-    #[test]
-    fn a_loop_header_dominates_its_body() {
-        // Entry: push_i32 0; put_loc 0; goto header
-        // header: get_loc 0; push_i32 3; lt; if_false end
-        // body: inc_loc 0; goto header
-        // end: return_undef
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&push_i32(0)); // 0..5
-        bytes.extend_from_slice(&loc(op::OP_put_loc, 0)); // 5..8
-        bytes.extend_from_slice(&branch(op::OP_goto, 4)); // 8..13 -> header
-        // header at pc 13
-        let header_pc = bytes.len() as i32;
-        bytes.extend_from_slice(&loc(op::OP_get_loc, 0)); // 13..16
-        bytes.extend_from_slice(&push_i32(3)); // 16..21
-        bytes.extend_from_slice(&[op::OP_lt]); // 21..22
-        // if_false -> end (34): off = 34 - 23 = 11
-        bytes.extend_from_slice(&branch(op::OP_if_false, 11)); // 22..27
-        // body at pc 27
-        bytes.extend_from_slice(&[op::OP_inc_loc, 0]); // 27..29
-        // goto header (13): off = 13 - 30 = -17
-        bytes.extend_from_slice(&branch(op::OP_goto, -17)); // 29..34
-        // end at pc 34
-        bytes.extend_from_slice(&[op::OP_return_undef]);
-        let verified = verify_bytes(bytes, 0, 1);
-        let analysis = Analysis::build(&verified, true);
-        assert_eq!(analysis.loops().len(), 1, "one natural loop");
-        let header = analysis
-            .block_index(header_pc as u32)
-            .expect("header block");
-        assert_eq!(analysis.loops()[0].header, header);
-        assert!(analysis.loops()[0].members.len() >= 2, "header + body");
     }
 
     #[test]
@@ -668,14 +424,11 @@ mod tests {
         .concat();
         let verified = verify_bytes(bytes.clone(), 0, 0);
         let analysis = Analysis::build(&verified, true);
-        assert!(
-            !analysis.exact(),
-            "catch region must disable exact liveness"
-        );
+        assert!(!analysis.exact, "catch region must disable exact liveness");
 
         // The same shape without a handler is exact.
         let plain = verify_bytes(vec![op::OP_return_undef], 0, 0);
-        assert!(Analysis::build(&plain, true).exact());
-        assert!(!Analysis::build(&plain, false).exact());
+        assert!(Analysis::build(&plain, true).exact);
+        assert!(!Analysis::build(&plain, false).exact);
     }
 }

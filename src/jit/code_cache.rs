@@ -143,7 +143,8 @@ struct CachedCode {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Retired {
     pub(crate) ids: Vec<u64>,
-    pub(crate) unused: u64,
+    /// How many of those mappings had never been entered.
+    pub(crate) never_entered: u64,
 }
 
 /// Tracks all published code and enforces `max_bytes`.
@@ -183,7 +184,7 @@ impl CodeCache {
                 break;
             };
             if self.retire(victim) {
-                retired.unused = retired.unused.saturating_add(1);
+                retired.never_entered = retired.never_entered.saturating_add(1);
             }
             retired.ids.push(victim);
         }
@@ -260,12 +261,12 @@ impl CodeCache {
         self.used as u64
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn contains(&self, id: u64) -> bool {
         self.entries.contains_key(&id)
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
         self.entries.len()
     }
@@ -306,7 +307,7 @@ mod tests {
         let evicted = cache.insert(2, &second).expect("live retire");
         assert_eq!(evicted.ids, vec![1]);
         assert_eq!(
-            evicted.unused, 1,
+            evicted.never_entered, 1,
             "the retired mapping never ran a native entry"
         );
         assert!(!cache.contains(1));

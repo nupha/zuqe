@@ -1,37 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
 
-//! Tier-2 type feedback.
+//! Tier-2 type feedback and call-site feedback, recorded while a function is
+//! still interpreted.
 //!
-//! While a function is interpreted, the interpreter records the observed type
-//! classes of operand values at arithmetic, comparison, conversion and branch
-//! sites. The table hangs off `BytecodeImpl` (no per-op hash lookup: the site
-//! key *is* the bytecode pc) and is copied into `CompileSnapshot` at compile
-//! time, where tier-2 specialization (speculative fast paths) turns it into speculative
-//! unboxed code with guards.
-//!
-//! Recording is observation-only — it can never change a result. Per the tier policy
-//! it runs only when the `jit` feature is on and the tier policy can still
-//! reach tier 2 (`Tier2`/`Automatic`); `Interpreter` and `Tier1` record nothing.
-//! Copying the table into a snapshot applies the profitability gate:
-//! under `Automatic` only sites with enough samples reach the compiler, while
+//! Two tables hang off `BytecodeImpl`, keyed by the bytecode pc (no per-op hash
+//! lookup: the key *is* the pc), and are copied into `CompileSnapshot` at
+//! compile time, where tier-2 specialization turns the observed type classes
+//! into speculative unboxed code with guards. Copying applies the profitability
+//! gate: under `Automatic` only sites with enough samples reach the compiler,
 //! forced `Tier2` keeps every recorded site.
 //!
-//! Shape/array feedback stays absent on purpose. The property inline cache made the inline
-//! cache itself polymorphic (up to `IC_WAYS` shapes per site, in the shared
-//! interpreter/JIT helper), and the helper-guard split keeps guards out of generated code — so
-//! the compiler has no consumer for observed shapes, and the runtime cache
-//! already is the shape feedback.
+//! Recording is observation-only — it can never change a result — and runs only
+//! when the `jit` feature is on and the tier policy can still reach tier 2
+//! (`Tier2`/`Automatic`); `Interpreter` and `Tier1` record nothing.
+//!
+//! Shape/array feedback stays absent on purpose: the property inline cache made
+//! the inline cache itself polymorphic, and the helper-guard split keeps guards
+//! out of generated code, so the compiler has no consumer for observed shapes —
+//! the runtime cache already is the shape feedback.
 //!
 //! # Call-site feedback (the direct-call path)
 //!
-//! A second table records, per call site, the callee the interpreter saw
-//! there. A site that only ever calls one bytecode function is *monomorphic*:
-//! the compiler can then emit a guard ("the callee is exactly this one") and
-//! call that function's compiled code directly, instead of going through the
-//! general call path. The callee is held by the table, so its identity stays
-//! unique — a collected bytecode node's address could be reused by another
-//! node, and a stale guard would then match the wrong function.
+//! A second table records, per call site, the callee the interpreter saw there.
+//! A site that only ever calls one bytecode function is *monomorphic*: the
+//! compiler can then emit a guard ("the callee is exactly this one") and call
+//! that function's compiled code directly instead of going through the general
+//! call path. The callee is held by the table, so its identity stays unique — a
+//! collected bytecode node's address could be reused by another node, and a
+//! stale guard would then match the wrong function.
 
 use std::{cell::UnsafeCell, collections::HashMap};
 
@@ -80,9 +77,8 @@ pub(super) const fn type_class(v: JSValue) -> u16 {
 /// `result` is the class of the *computed value* (result classes). It lets
 /// the tier-2 gate tell "this `add_loc`/`inc_loc` site only ever produces
 /// `Int`" from "it overflows to `Float64` every iteration" — the second keeps
-/// speculating and pays its overflow bail on every trip (see
-/// `memo/jit_impl.md` §5.1 / §8.1). Sites with no result (branch conditions)
-/// keep it 0.
+/// speculating and pays its overflow bail on every trip. Sites with no result
+/// (branch conditions) keep it 0.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct SiteFeedback {
     pub(super) lhs: u16,
@@ -92,13 +88,10 @@ pub(super) struct SiteFeedback {
 }
 
 /// How many distinct sites one function may record. Past the cap the table
-/// stops growing but keeps updating existing sites. Shortcut: a fixed per-
-/// function bound instead of tying the cap to `max_metadata_bytes`; raise it
-/// (or key the cap to bytecode size) if large bodies ever miss specialization.
+/// stops growing but keeps updating existing sites.
 const MAX_SITES: usize = 1024;
 
-/// How many call sites one function may record. Same shortcut as
-/// [`MAX_SITES`]: a fixed per-function bound.
+/// How many call sites one function may record; same bound as [`MAX_SITES`].
 const MAX_CALL_SITES: usize = 256;
 
 // ── Call sites (the direct-call path) ──
@@ -119,8 +112,6 @@ struct CallSiteFeedback {
     /// A second, different callee turned up here: the site is polymorphic and
     /// the monomorphic guard would miss from then on.
     polymorphic: bool,
-    /// Calls observed at this site.
-    samples: u32,
 }
 
 /// A call site as the compiler sees it: the callee's identity and whether the
@@ -128,8 +119,8 @@ struct CallSiteFeedback {
 ///
 /// The callee is a plain identity (its bytecode node's address), not a
 /// reference: the snapshot crosses to the compiler thread and must stay
-/// pointer-free. The table keeps the callee alive, so the address stays
-/// unique for as long as the site exists.
+/// pointer-free. The table keeps the callee alive, so the address stays unique
+/// for as long as the site exists.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct CallSite {
     /// The opcode offset of the call site.
@@ -153,15 +144,13 @@ fn callee_id(bc: &Bytecode) -> u64 {
 /// All feedback sites of one function, keyed by bytecode pc (the opcode
 /// offset, matching `Instruction::pc()` the compiler indexes by).
 ///
-/// The map hashes its keys with the JIT's fast mixer: the key is the pc, a
-/// value JavaScript cannot steer, and every recorded site pays one hash — so
-/// SipHash's cost buys nothing here.
+/// Keys are hashed with the JIT's fast mixer: the key is the pc, a value
+/// JavaScript cannot steer, so SipHash's cost buys nothing here.
 #[derive(Debug, Default)]
 struct FeedbackTable {
     sites: HashMap<u32, SiteFeedback, FastHasherBuilder>,
-    /// Observations recorded so far, saturating. The hotness policy reads this
-    /// as "measured work" (one add per recorded opcode, no scan of the sites);
-    /// a function that already executed a lot is worth compiling sooner.
+    /// Observations recorded so far, saturating — the hotness policy's
+    /// "measured work" (one add per recorded opcode, no scan of the sites).
     total_samples: u32,
     /// The call sites (the direct-call path), in the order they were first seen. The
     /// index in this vector is the *site id* the compiled code carries: the
@@ -242,7 +231,6 @@ impl FeedbackTable {
                     callee_id: id,
                     callee,
                     polymorphic: false,
-                    samples: 0,
                 });
                 self.call_ids.insert(pc, site_id);
                 (site_id, true)
@@ -252,7 +240,6 @@ impl FeedbackTable {
         if site.polymorphic {
             return false;
         }
-        site.samples = site.samples.saturating_add(1);
         if site.callee_id != id {
             site.polymorphic = true;
         }
@@ -265,6 +252,10 @@ impl FeedbackTable {
     /// The call sites, in site-id order, for the compile snapshot. The order
     /// is the table's own: the site id is the index, and the compiled code
     /// carries it.
+    ///
+    /// No hotness gate here, unlike [`Self::snapshot`]: a thin site only costs
+    /// one guard miss, and filtering would renumber the sites — the compiled
+    /// code's id indexes this table at run time.
     fn snapshot_calls(&self) -> Vec<CallSite> {
         self.calls
             .iter()

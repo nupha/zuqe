@@ -46,39 +46,7 @@ pub(crate) struct AbstractState {
     pub(crate) catches: Vec<(usize, Option<u32>)>,
 }
 
-/// Where an exception raised while executing an instruction resumes.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ExceptionHandler {
-    catch_index: u16,
-    handler_pc: Option<u32>,
-    resumes_in_frame: bool,
-}
-
-impl ExceptionHandler {
-    pub(crate) const fn catch_index(self) -> u16 {
-        self.catch_index
-    }
-
-    pub(crate) const fn handler_pc(self) -> Option<u32> {
-        self.handler_pc
-    }
-
-    pub(crate) const fn resumes_in_frame(self) -> bool {
-        self.resumes_in_frame
-    }
-}
-
 impl AbstractState {
-    fn innermost_catch(&self) -> Option<ExceptionHandler> {
-        self.catches.last().and_then(|(index, handler_pc)| {
-            Some(ExceptionHandler {
-                catch_index: u16::try_from(*index).ok()?,
-                handler_pc: *handler_pc,
-                resumes_in_frame: self.innermost_handler().is_some(),
-            })
-        })
-    }
-
     fn innermost_handler(&self) -> Option<(usize, u32)> {
         self.catches
             .iter()
@@ -89,24 +57,11 @@ impl AbstractState {
     const fn cell_count(&self) -> usize {
         self.locals.len().saturating_add(self.stack.len())
     }
-
-    /// The frame-buffer slots live at `pc` in interpreter order: arguments,
-    /// then locals, then the operand stack. This is what an OSR entry must
-    /// materialize.
-    pub(crate) fn live_slots(&self, snapshot: &CompileSnapshot) -> Vec<SlotKind> {
-        let mut result =
-            Vec::with_capacity(snapshot.arg_count as usize + self.locals.len() + self.stack.len());
-        result.resize(snapshot.arg_count as usize, SlotKind::Tagged);
-        result.extend_from_slice(&self.locals);
-        result.extend_from_slice(&self.stack);
-        result
-    }
 }
 
 pub(crate) struct StateProof {
     pub(crate) before: BTreeMap<u32, AbstractState>,
     pub(crate) visited: BTreeSet<u32>,
-    pub(crate) handlers: BTreeMap<u32, ExceptionHandler>,
     /// Operand-stack height *before* each instruction, indexed by instruction
     /// index (the stack-slot register cache). Unvisited (unreachable) instructions stay 0 and are
     /// never lowered. Bounded by the u16 `stack_size`, which `check_stack_size`
@@ -507,7 +462,6 @@ pub(crate) fn prove(
         return Ok(StateProof {
             before: BTreeMap::new(),
             visited: BTreeSet::new(),
-            handlers: BTreeMap::new(),
             heights: Vec::new(),
             local_kinds: BTreeMap::new(),
         });
@@ -535,7 +489,6 @@ pub(crate) fn prove(
     let mut queue = VecDeque::from([0_u32]);
     let mut before = BTreeMap::new();
     let mut visited = BTreeSet::new();
-    let mut handlers = BTreeMap::new();
     let mut heights = vec![0u16; instructions.len()];
     let mut local_kinds = BTreeMap::new();
 
@@ -558,9 +511,6 @@ pub(crate) fn prove(
                 before.insert(instruction.pc(), state.clone());
             }
             visited.insert(instruction.pc());
-            if let Some(handler) = state.innermost_catch() {
-                handlers.insert(instruction.pc(), handler);
-            }
             if let Some((_, handler_pc)) = state.innermost_handler() {
                 budget.charge(instruction.pc(), state.locals.len())?;
                 let Some(expected) = block_entries.get_mut(&handler_pc) else {
@@ -682,7 +632,6 @@ pub(crate) fn prove(
     Ok(StateProof {
         before,
         visited,
-        handlers,
         heights,
         local_kinds,
     })

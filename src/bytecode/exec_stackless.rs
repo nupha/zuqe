@@ -557,8 +557,8 @@ impl Bytecode {
         // entry. `cur_sp_offset` is synced first because the prologue reads it.
         #[cfg(feature = "jit")]
         macro_rules! jit_note_backedge {
-            ($target:expr) => {
-                if jit_active && crate::jit::note_backedge(&rt, &cur_bc, $target) {
+            () => {
+                if jit_active && crate::jit::note_backedge(&rt, &cur_bc) {
                     jit_retry_native_now!();
                 }
             };
@@ -3006,7 +3006,7 @@ impl Bytecode {
                         // `if`/`break` for interrupt latency.
                         if n < 0 {
                             #[cfg(feature = "jit")]
-                            jit_note_backedge!(unsafe { pc.offset_from(pc_base) as usize });
+                            jit_note_backedge!();
 
                             if unlikely(realm_scope.poll_interrupts()) {
                                 break ExecAction::Exception;
@@ -3047,11 +3047,10 @@ impl Bytecode {
 
                             pc = unsafe { pc.offset((off - 4) as isize) };
 
-                            // A taken backward branch is a loop back edge: `pc`
-                            // is the target (loop header), not the fall-through.
+                            // A taken backward branch is a loop back edge.
                             if off < 0 {
                                 #[cfg(feature = "jit")]
-                                jit_note_backedge!(unsafe { pc.offset_from(pc_base) as usize });
+                                jit_note_backedge!();
 
                                 if unlikely(realm_scope.poll_interrupts()) {
                                     break ExecAction::Exception;

@@ -94,10 +94,7 @@ impl Dump {
             prepared.dir.join(format!("{}.clif", prepared.stem)),
             format!("{header}{}", prepared.ir),
         );
-        let _ = std::fs::write(
-            prepared.dir.join(format!("{}.bin", prepared.stem)),
-            code,
-        );
+        let _ = std::fs::write(prepared.dir.join(format!("{}.bin", prepared.stem)), code);
     }
 }
 
@@ -181,7 +178,11 @@ mod tests {
         // Every IR dump has its machine code next to it, under the same
         // `<function-id>-<tier>` stem.
         for clif in &clifs {
-            let stem = clif.file_stem().expect("stem").to_string_lossy().into_owned();
+            let stem = clif
+                .file_stem()
+                .expect("stem")
+                .to_string_lossy()
+                .into_owned();
             assert!(
                 stem.contains('-'),
                 "{stem}: the dump is named <function-id>-<tier>"

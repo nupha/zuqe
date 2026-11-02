@@ -3,13 +3,11 @@
 
 //! Observable counters for a running JIT.
 
+use super::runtime::Published;
+
 /// The upper edges of the compile-time histogram, in nanoseconds. Bucket `i`
 /// counts the attempts that took **less** than `COMPILE_BUCKET_EDGES_NS[i]`;
 /// the last bucket counts the rest (the overflow bucket).
-///
-/// The edges straddle the measured compile cost (1.0–1.4 ms per function), so a run
-/// shows whether the cost is dominated by a few slow
-/// functions or is spread out.
 pub const COMPILE_BUCKET_EDGES_NS: [u64; 5] = [
     100_000,    // < 0.1 ms
     300_000,    // < 0.3 ms
@@ -24,7 +22,8 @@ pub const COMPILE_BUCKETS: usize = COMPILE_BUCKET_EDGES_NS.len() + 1;
 /// A point-in-time snapshot of the JIT's counters.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct JitMetrics {
-    /// Native-entry hook invocations (one per call into a JIT-tracked function).
+    /// Interpreter function-entry hook invocations (one per call into a
+    /// JIT-tracked function).
     pub function_entries: u64,
     /// Distinct functions seen at entry.
     pub distinct_functions: u64,
@@ -72,11 +71,6 @@ pub struct JitMetrics {
     /// Functions permanently parked in the interpreter: rejected, or out of
     /// compile attempts.
     pub functions_settled: u64,
-    /// Deoptimizations back to the interpreter. Always `0`: frame authority rejected the
-    /// whole-frame deopt / `DeoptMap` design, so a guard miss falls back to the
-    /// interpreter helper *inside* the native frame instead of unwinding. The
-    /// field stays for API stability but is never written.
-    pub deopts: u64,
     /// Machine code bytes currently published.
     pub code_bytes: u64,
     /// Mappings the code cache retired to stay within its byte budget. Each one
@@ -93,38 +87,32 @@ pub struct JitMetrics {
     /// `Interpreter`/`Tier1` policies, which never record.
     pub feedback_sites: u64,
     /// Binary ops whose feedback was int-monomorphic and that therefore got a
-    /// speculative inline int fast path instead of a helper call.
-    /// Zero under `Interpreter`/`Tier1` policies, and under `Automatic` until a
-    /// site clears the profitability gate,
-    /// `JitConfig::specialization_min_samples`).
+    /// speculative inline int fast path instead of a helper call. Zero under
+    /// `Interpreter`/`Tier1`, and under `Automatic` until a site clears the
+    /// profitability gate (`JitConfig::specialization_min_samples`).
     pub specialized_ops: u64,
-    /// Times an installed speculative int fast path bailed to its
-    /// helper because the runtime value was not the assumed `Int` (tier-down
-    /// instrumentation). Read together with `specialized_ops`: a high ratio
-    /// means the tier-2 specialization is paying more guards than it saves,
-    /// which is the evidence `tier-down` would need.
+    /// Times an installed speculative int fast path bailed to its helper
+    /// because the runtime value was not the assumed `Int`. Read together with
+    /// [`Self::specialized_ops`]: a high ratio means the specialization pays
+    /// more guards than it saves.
     pub specialized_guard_misses: u64,
-    /// Property accesses the inline guard answered on its own: an own
-    /// data property, read or written straight out of the object's slot.
-    ///
-    /// Read together with [`Self::property_guard_misses`]: a hit is the guard
-    /// paying off, a miss is an access the helper had to own (a prototype-chain
-    /// property, an accessor, a non-object target, …). A site that never hits
-    /// is a site the guard cannot serve — the reason to look at *what* it
-    /// touches.
+    /// Property accesses the inline guard answered on its own: an own data
+    /// property, read or written straight out of the object's slot. Read
+    /// together with [`Self::property_guard_misses`] — a miss is an access the
+    /// helper had to own (a prototype-chain property, an accessor, a
+    /// non-object target, …), so a site that never hits is a site the guard
+    /// cannot serve.
     pub property_guard_hits: u64,
-    /// Property accesses the inline guard handed back to the helper.
-    ///
-    /// A miss is expected and common (it is not a defect), so it never feeds
-    /// the tier-down — that is [`Self::specialized_guard_misses`]' job.
+    /// Property accesses the inline guard handed back to the helper. A miss is
+    /// expected and common, so it never feeds the tier-down — that is
+    /// [`Self::specialized_guard_misses`]' job.
     pub property_guard_misses: u64,
-    /// Global-variable accesses the inline guard answered on its own (T10): an
-    /// own data property of `global_obj` (`var`/`function`) or
-    /// `global_var_obj` (`let`/`const`), read or written straight out of its
-    /// slot.
+    /// Global-variable accesses the inline guard answered on its own: an own
+    /// data property of `global_obj` (`var`/`function`) or `global_var_obj`
+    /// (`let`/`const`), read or written straight out of its slot.
     pub global_guard_hits: u64,
-    /// Global-variable accesses handed back to the helper (T10): an unbound
-    /// name, a TDZ slot, a read-only binding, an accessor, or a shape change.
+    /// Global-variable accesses handed back to the helper: an unbound name, a
+    /// TDZ slot, a read-only binding, an accessor, or a shape change.
     pub global_guard_misses: u64,
     /// Calls at a monomorphic site that took the fast path (the direct-call path):
     /// either the callee's compiled code was entered directly or the
@@ -145,10 +133,9 @@ pub struct JitMetrics {
     pub inline_call_misses: u64,
     /// Observability for the scope's LOCAL list: the largest one seen at a JIT
     /// safepoint, sampled right before a deferred collection clears it. It is a
-    /// high-water mark (maximum, not a sum): a scope that is never cleared
-    /// grows without bound and lifts it with the iteration count, so a
-    /// regression of the caller-scope leak (VM-B3) is visible in the bench
-    /// output.
+    /// high-water mark (a scope that is never cleared grows without bound and
+    /// lifts it with the iteration count), so a caller-scope leak shows up in
+    /// the bench output.
     pub scope_local_peak: u64,
     /// Nanoseconds spent compiling (verification + codegen), summed over every
     /// attempt. The publish step (mmap / mprotect) is *not* included: it is
@@ -173,6 +160,24 @@ impl JitMetrics {
             .position(|edge| nanos < *edge)
             .unwrap_or(COMPILE_BUCKETS - 1);
         self.compile_histogram[bucket] = self.compile_histogram[bucket].saturating_add(1);
+    }
+
+    /// Account for what one publish did: the replacement over existing code,
+    /// the mappings the cache retired to fit, and the code nobody ever
+    /// entered (reported separately from the compile itself).
+    pub(crate) fn note_published(&mut self, published: &Published) {
+        if published.replaced {
+            self.code_replaced = self.code_replaced.saturating_add(1);
+        }
+        if published.replaced_never_entered {
+            self.code_never_entered = self.code_never_entered.saturating_add(1);
+        }
+        self.code_retired = self
+            .code_retired
+            .saturating_add(published.evicted.ids.len() as u64);
+        self.code_never_entered = self
+            .code_never_entered
+            .saturating_add(published.evicted.never_entered);
     }
 
     /// The mean compile time per attempt, in nanoseconds. `0` when nothing

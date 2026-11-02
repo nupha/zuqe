@@ -161,7 +161,6 @@ fn record_jit_metrics(m: &zuqe::JitMetrics) {
     t.compile_timeouts += m.compile_timeouts;
     t.functions_retried += m.functions_retried;
     t.functions_settled += m.functions_settled;
-    t.deopts += m.deopts;
     t.compile_nanos += m.compile_nanos;
     t.compile_attempts += m.compile_attempts;
     for (bucket, count) in m.compile_histogram.iter().enumerate() {

@@ -41,7 +41,6 @@ const _: () = debug_assert!(JS_JIT_OPCODE_POLICY.len() == OP_COUNT_FINAL as usiz
 
 /// Strategy for the final opcode `op`. Panics if `op` is out of range, which
 /// can only happen on corrupt bytecode — the verifier rejects that separately.
-#[allow(dead_code)]
 pub(crate) const fn policy_for(op: u8) -> JitPolicy {
     JS_JIT_OPCODE_POLICY[op as usize]
 }

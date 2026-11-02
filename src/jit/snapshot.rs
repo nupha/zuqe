@@ -10,11 +10,8 @@
 //! themselves stay in the runtime and are read through `ResolveConst` at
 //! execution time.
 
-// Several fields describe the frame for codegen and are not read yet.
-#![allow(dead_code)]
-
 use crate::{
-    function::{Bytecode, BytecodeImpl, FunctionKind, GcScopeKind},
+    function::{Bytecode, BytecodeImpl, FunctionKind},
     jit::feedback::{CallSite, SiteFeedback},
     vm_stack::ExecMode,
 };
@@ -31,6 +28,9 @@ pub(crate) struct ConstMeta {
 /// pointer, no atom: safe to move to a worker.
 #[derive(Clone, Debug)]
 pub(crate) struct CompileSnapshot {
+    /// The identity the interpreter's hotness hooks use; the `jit_dump`
+    /// artifact is named after it.
+    #[cfg_attr(not(feature = "jit_dump"), allow(dead_code))]
     pub(crate) function_id: u64,
     pub(crate) bytecode: Box<[u8]>,
     pub(crate) arg_count: u16,
@@ -40,13 +40,11 @@ pub(crate) struct CompileSnapshot {
     pub(crate) global_var_ref_count: u16,
     /// Captured variable references (`get_var_ref` / `put_var_ref` indices).
     pub(crate) closure_var_count: u16,
-    pub(crate) local_buf_size: u16,
     pub(crate) stack_size: u16,
     pub(crate) mode: ExecMode,
-    pub(crate) gc_scope_kind: GcScopeKind,
     pub(crate) const_meta: Box<[ConstMeta]>,
     pub(crate) ic_count: u32,
-    /// The number of global-variable site caches the live bytecode has (T10).
+    /// The number of global-variable site caches the live bytecode has.
     /// Zero for a function with no global references and for a persistent
     /// restore (the cache is not serialized); the compiler then keeps the
     /// helper for every global access.
@@ -86,10 +84,8 @@ pub(crate) struct InlineCallee {
     pub(crate) bytecode: Box<[u8]>,
     pub(crate) arg_count: u16,
     pub(crate) var_count: u16,
-    pub(crate) local_buf_size: u16,
     pub(crate) stack_size: u16,
     pub(crate) mode: ExecMode,
-    pub(crate) gc_scope_kind: GcScopeKind,
     pub(crate) const_meta: Box<[ConstMeta]>,
     /// The callee's own call sites, in site-id order (as `CompileSnapshot`).
     pub(crate) call_sites: Box<[CallSite]>,
@@ -121,38 +117,52 @@ fn inline_candidate(caller: &BytecodeImpl, callee: &Bytecode) -> bool {
         && bc.consts().len() <= 64
 }
 
+/// One snapshot's callee copies: the call-site table with every monomorphic,
+/// in-budget site marked `inline`, plus the bodies those marks index. The
+/// enumerate-then-filter order is the site-id contract — the id the compiled
+/// code bakes into `imm2` is the index in this table.
+fn collect_callees(
+    bc: &BytecodeImpl,
+    child_depth: u8,
+    copy: bool,
+    budget: &mut usize,
+) -> (Vec<CallSite>, Vec<InlineCallee>) {
+    let mut call_sites = bc.feedback.snapshot_calls();
+    let mut inline_callees = Vec::new();
+    if !copy {
+        return (call_sites, inline_callees);
+    }
+    for (id, site) in call_sites.iter_mut().enumerate() {
+        if site.polymorphic || site.callee == 0 {
+            continue;
+        }
+        let Some(callee) = bc.feedback.call_callee(id as u32) else {
+            continue;
+        };
+        if !inline_candidate(bc, &callee) {
+            continue;
+        }
+        let len = callee.opcodes().len();
+        if len > *budget {
+            break;
+        }
+        *budget -= len;
+        site.inline = Some(inline_callees.len() as u32);
+        inline_callees.push(InlineCallee::from_bytecode(&callee, child_depth, budget));
+    }
+    (call_sites, inline_callees)
+}
+
 impl InlineCallee {
     fn from_bytecode(bc: &BytecodeImpl, depth: u8, budget: &mut usize) -> Self {
-        let mut call_sites = bc.feedback.snapshot_calls();
-        let mut inline_callees = Vec::new();
-        if depth < MAX_INLINE_DEPTH {
-            for (id, site) in call_sites.iter_mut().enumerate() {
-                if site.polymorphic || site.callee == 0 {
-                    continue;
-                }
-                let Some(callee) = bc.feedback.call_callee(id as u32) else {
-                    continue;
-                };
-                if !inline_candidate(bc, &callee) {
-                    continue;
-                }
-                let len = callee.opcodes().len();
-                if len > *budget {
-                    break;
-                }
-                *budget -= len;
-                site.inline = Some(inline_callees.len() as u32);
-                inline_callees.push(InlineCallee::from_bytecode(&callee, depth + 1, budget));
-            }
-        }
+        let (call_sites, inline_callees) =
+            collect_callees(bc, depth + 1, depth < MAX_INLINE_DEPTH, budget);
         Self {
             bytecode: bc.opcodes().into(),
             arg_count: bc.arg_count,
             var_count: bc.var_count,
-            local_buf_size: bc.local_buf_size,
             stack_size: bc.stack_size,
             mode: bc.mode(),
-            gc_scope_kind: bc.gc_scope_kind(),
             const_meta: bc
                 .consts()
                 .iter()
@@ -176,10 +186,8 @@ impl InlineCallee {
             var_count: self.var_count,
             global_var_ref_count: 0,
             closure_var_count: 0,
-            local_buf_size: self.local_buf_size,
             stack_size: self.stack_size,
             mode: self.mode,
-            gc_scope_kind: self.gc_scope_kind,
             const_meta: self.const_meta.clone(),
             ic_count: 0,
             global_cache_count: 0,
@@ -214,27 +222,8 @@ impl CompileSnapshot {
         // The direct-call path: keep a copy of each monomorphic callee whose
         // shape the compiler may inline. The call-site table holds the callee
         // alive, so the identity the guard carries stays valid.
-        let mut call_sites = bc.feedback.snapshot_calls();
-        let mut inline_callees = Vec::new();
         let mut budget = MAX_INLINE_BYTES;
-        for (id, site) in call_sites.iter_mut().enumerate() {
-            if site.polymorphic || site.callee == 0 {
-                continue;
-            }
-            let Some(callee) = bc.feedback.call_callee(id as u32) else {
-                continue;
-            };
-            if !inline_candidate(bc, &callee) {
-                continue;
-            }
-            let len = callee.opcodes().len();
-            if len > budget {
-                break;
-            }
-            budget -= len;
-            site.inline = Some(inline_callees.len() as u32);
-            inline_callees.push(InlineCallee::from_bytecode(&callee, 0, &mut budget));
-        }
+        let (call_sites, inline_callees) = collect_callees(bc, 0, true, &mut budget);
 
         Self {
             function_id,
@@ -243,10 +232,8 @@ impl CompileSnapshot {
             var_count: bc.var_count,
             global_var_ref_count: bc.global_var_ref_count,
             closure_var_count: bc.closure_var_count,
-            local_buf_size: bc.local_buf_size,
             stack_size: bc.stack_size,
             mode: bc.mode(),
-            gc_scope_kind: bc.gc_scope_kind(),
             const_meta: bc
                 .consts()
                 .iter()
@@ -288,10 +275,8 @@ impl CompileSnapshot {
             var_count,
             global_var_ref_count: closure_var_count,
             closure_var_count,
-            local_buf_size: var_count.saturating_add(stack_size),
             stack_size,
             mode: ExecMode::empty(),
-            gc_scope_kind: GcScopeKind::Full,
             const_meta: Box::new([]),
             ic_count: 0,
             global_cache_count: 0,
@@ -313,6 +298,5 @@ mod tests {
         assert_eq!(snap.bytecode.len(), 4);
         assert_eq!(snap.arg_count, 1);
         assert_eq!(snap.var_count, 2);
-        assert_eq!(snap.local_buf_size, 10);
     }
 }

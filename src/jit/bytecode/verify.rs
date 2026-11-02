@@ -21,7 +21,7 @@ use crate::{
 use super::{
     cfg::{self, ControlFlowGraph},
     decode::{BoundedDecodeError, DecodeError, Instruction, decode_bounded},
-    stack::{self, ExceptionHandler, SlotKind},
+    stack::{self, SlotKind},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,10 +65,8 @@ impl VerifyError {
         Self { pc, kind }
     }
 
-    pub(crate) const fn pc(&self) -> u32 {
-        self.pc
-    }
-
+    /// Test-only: the production path only checks whether verification passed.
+    #[cfg(test)]
     pub(crate) const fn kind(&self) -> &VerifyErrorKind {
         &self.kind
     }
@@ -138,16 +136,11 @@ pub(crate) enum VerifyErrorKind {
 #[derive(Clone, Debug)]
 pub(crate) struct OsrPoint {
     pc: u32,
-    live_slots: Vec<SlotKind>,
 }
 
 impl OsrPoint {
     pub(crate) const fn pc(&self) -> u32 {
         self.pc
-    }
-
-    pub(crate) fn live_slots(&self) -> &[SlotKind] {
-        &self.live_slots
     }
 }
 
@@ -157,7 +150,6 @@ pub(crate) struct VerifiedFunction {
     instructions: Vec<Instruction>,
     cfg: ControlFlowGraph,
     osr_points: Box<[OsrPoint]>,
-    handlers: BTreeMap<u32, ExceptionHandler>,
     unreachable: BTreeSet<u32>,
     exception_regions: bool,
     /// Operand-stack height *before* each instruction, indexed like
@@ -201,10 +193,6 @@ impl VerifiedFunction {
 
     pub(crate) fn is_reachable(&self, pc: u32) -> bool {
         !self.unreachable.contains(&pc)
-    }
-
-    pub(crate) fn exception_handler(&self, pc: u32) -> Option<ExceptionHandler> {
-        self.handlers.get(&pc).copied()
     }
 
     /// True when the function raises or catches in-frame, so consumers that
@@ -407,28 +395,25 @@ pub(crate) fn verify(
         .map(|block| block.start_pc())
         .filter(|pc| cfg.is_loop_header(*pc) && !unreachable.contains(pc))
         .map(|pc| {
-            let state = proof
+            // Fail closed: an OSR point with no recorded entry state cannot be
+            // entered from the interpreter.
+            proof
                 .before
                 .get(&pc)
                 .ok_or_else(|| VerifyError::new(pc, VerifyErrorKind::IncompleteOsrState))?;
-            Ok(OsrPoint {
-                pc,
-                live_slots: state.live_slots(&snapshot),
-            })
+            Ok(OsrPoint { pc })
         })
         .collect::<Result<Vec<_>, VerifyError>>()?
         .into_boxed_slice();
 
-    let exception_regions = proof
-        .handlers
-        .values()
-        .any(|handler| handler.resumes_in_frame())
-        || instructions.iter().any(|instruction| {
-            matches!(
-                instruction.name(),
-                "catch" | "nip_catch" | "gosub" | "ret" | "throw" | "throw_error"
-            )
-        });
+    // Raises or catches in-frame: any of these opcodes can unwind through the
+    // caller's frame or resume into a handler.
+    let exception_regions = instructions.iter().any(|instruction| {
+        matches!(
+            instruction.name(),
+            "catch" | "nip_catch" | "gosub" | "ret" | "throw" | "throw_error"
+        )
+    });
 
     // The stack-slot register cache: keep the proven entry height of every instruction — the
     // lowering keys its block-local stack cache by them.
@@ -440,7 +425,6 @@ pub(crate) fn verify(
         instructions,
         cfg,
         osr_points,
-        handlers: proof.handlers,
         unreachable,
         exception_regions,
         stack_heights: stack_heights.into_boxed_slice(),

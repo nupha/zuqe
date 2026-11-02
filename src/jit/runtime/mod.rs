@@ -18,7 +18,11 @@ mod install;
 
 pub(crate) use {
     background::{BackgroundCompiler, CompileCompletion, JobResult},
-    coordinator::{CompileOutcome, Coordinator, MIN_RECORDS, Request, Tiering},
+    coordinator::{CompileOutcome, Coordinator, Request, Tiering},
     hotness::Tier,
-    install::publish,
+    install::{Published, publish},
 };
+
+// Only the runtime-thread tests assert against the prune threshold.
+#[cfg(test)]
+pub(crate) use coordinator::MIN_RECORDS;
