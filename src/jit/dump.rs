@@ -108,9 +108,43 @@ const fn tier_label(tier: Tier) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::*;
     use crate::jit::test_harness::settle;
     use crate::{EvalFlags, EvalName, EvalType, Jit, JitConfig, Runtime, ScopedContext};
+
+    /// The dumps in `dir`, as `(stem, clif text)`, or the stems that are still
+    /// missing their `.bin` or the header line. The destination is
+    /// process-global, so the other tests' runtimes dump here too: `finish`
+    /// writes the `.clif` before the `.bin` and each write truncates first, so
+    /// a half-written pair is a transient state, not a failure.
+    fn dumps(dir: &std::path::Path) -> Result<Vec<(String, String)>, Vec<String>> {
+        let mut complete = Vec::new();
+        let mut pending = Vec::new();
+        for entry in std::fs::read_dir(dir).expect("read dump dir") {
+            let path = entry.expect("dir entry").path();
+            if path.extension().is_none_or(|e| e != "clif") {
+                continue;
+            }
+            let stem = path
+                .file_stem()
+                .expect("stem")
+                .to_string_lossy()
+                .into_owned();
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            if text.contains("code-bytes=") && path.with_extension("bin").is_file() {
+                complete.push((stem, text));
+            } else {
+                pending.push(stem);
+            }
+        }
+        if pending.is_empty() {
+            Ok(complete)
+        } else {
+            Err(pending)
+        }
+    }
 
     /// Feature-gate smoke: one hot function through the real pipeline must
     /// leave a `.clif`/`.bin` pair in the dump directory (run with
@@ -148,33 +182,27 @@ mod tests {
             "nothing compiled, nothing to dump"
         );
 
-        let entries: Vec<_> = std::fs::read_dir(&dir)
-            .expect("read dump dir")
-            .filter_map(|entry| entry.ok().map(|e| e.path()))
-            .collect();
-        let clifs: Vec<_> = entries
-            .iter()
-            .filter(|p| p.extension().is_some_and(|e| e == "clif"))
-            .collect();
-        assert!(!clifs.is_empty(), "no .clif written into {dir:?}");
+        // Wait until the directory holds only complete pairs: a foreign
+        // writer may still be between the `.clif` and the `.bin`.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let dumps = loop {
+            match dumps(&dir) {
+                Ok(dumps) if !dumps.is_empty() => break dumps,
+                other => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "{dir:?} never held a complete dump: {other:?}"
+                    );
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+            }
+        };
         // Every IR dump has its machine code next to it, under the same
         // `<function-id>-<tier>` stem.
-        for clif in &clifs {
-            let stem = clif
-                .file_stem()
-                .expect("stem")
-                .to_string_lossy()
-                .into_owned();
+        for (stem, _) in &dumps {
             assert!(
                 stem.contains('-'),
                 "{stem}: the dump is named <function-id>-<tier>"
-            );
-            let bin = clif.with_extension("bin");
-            assert!(bin.is_file(), "{stem}: no .bin next to the .clif");
-            let text = std::fs::read_to_string(clif).expect("readable .clif");
-            assert!(
-                text.contains("code-bytes="),
-                "{stem}: the header with the code size is missing"
             );
         }
         let _ = std::fs::remove_dir_all(&dir);
