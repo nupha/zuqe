@@ -3,7 +3,10 @@
 
 //! Observable counters for a running JIT.
 
-use super::runtime::Published;
+use super::{
+    abi::{JitExecFrame, JitExitKind},
+    runtime::Published,
+};
 
 /// The upper edges of the compile-time histogram, in nanoseconds. Bucket `i`
 /// counts the attempts that took **less** than `COMPILE_BUCKET_EDGES_NS[i]`;
@@ -178,6 +181,46 @@ impl JitMetrics {
         self.code_never_entered = self
             .code_never_entered
             .saturating_add(published.evicted.never_entered);
+    }
+
+    /// Fold one native activation's counters in: the entry (and whether it
+    /// exited through an interrupt) plus the instrumentation the generated code
+    /// kept in the frame.
+    pub(crate) fn note_native_exit(&mut self, kind: JitExitKind, frame: &JitExecFrame) {
+        self.native_entries = self.native_entries.saturating_add(1);
+        self.native_interrupts = self
+            .native_interrupts
+            .saturating_add(u64::from(kind == JitExitKind::Interrupt));
+        // Tier-down: this activation's speculative guard misses.
+        self.specialized_guard_misses = self
+            .specialized_guard_misses
+            .saturating_add(u64::from(frame.guard_misses));
+        self.property_guard_hits = self
+            .property_guard_hits
+            .saturating_add(u64::from(frame.property_guard_hits));
+        self.property_guard_misses = self
+            .property_guard_misses
+            .saturating_add(u64::from(frame.property_guard_misses));
+        self.global_guard_hits = self
+            .global_guard_hits
+            .saturating_add(u64::from(frame.global_guard_hits));
+        self.global_guard_misses = self
+            .global_guard_misses
+            .saturating_add(u64::from(frame.global_guard_misses));
+        self.inline_call_hits = self
+            .inline_call_hits
+            .saturating_add(u64::from(frame.inline_call_hits));
+        self.frame_inline_hits = self
+            .frame_inline_hits
+            .saturating_add(u64::from(frame.frame_inline_hits));
+        self.nested_inline_hits = self
+            .nested_inline_hits
+            .saturating_add(u64::from(frame.nested_inline_hits));
+        self.inline_call_misses = self
+            .inline_call_misses
+            .saturating_add(u64::from(frame.inline_call_misses));
+        // A high-water mark, so the max — not a sum.
+        self.scope_local_peak = self.scope_local_peak.max(u64::from(frame.scope_local_peak));
     }
 
     /// The mean compile time per attempt, in nanoseconds. `0` when nothing

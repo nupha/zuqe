@@ -923,49 +923,9 @@ pub(crate) fn invoke_native(
         .native_depth
         .set(state.native_depth.get().saturating_sub(1));
     let kind = JitExitKind::from_raw(raw);
-    let m = state.metrics.get();
-    state.metrics.set(JitMetrics {
-        native_entries: m.native_entries.saturating_add(1),
-        native_interrupts: m
-            .native_interrupts
-            .saturating_add(u64::from(kind == JitExitKind::Interrupt)),
-        // Tier-down: this activation's speculative guard misses.
-        specialized_guard_misses: m
-            .specialized_guard_misses
-            .saturating_add(u64::from(frame.guard_misses)),
-        // The property inline guard: this activation's property-guard hits and misses. They are
-        // observability only — a property-guard miss never feeds the
-        // tier-down (it is expected, not a defect).
-        property_guard_hits: m
-            .property_guard_hits
-            .saturating_add(u64::from(frame.property_guard_hits)),
-        property_guard_misses: m
-            .property_guard_misses
-            .saturating_add(u64::from(frame.property_guard_misses)),
-        // The global-variable guard's hits and misses (observability only).
-        global_guard_hits: m
-            .global_guard_hits
-            .saturating_add(u64::from(frame.global_guard_hits)),
-        global_guard_misses: m
-            .global_guard_misses
-            .saturating_add(u64::from(frame.global_guard_misses)),
-        // The direct-call path: the monomorphic call sites' fast path.
-        inline_call_hits: m
-            .inline_call_hits
-            .saturating_add(u64::from(frame.inline_call_hits)),
-        frame_inline_hits: m
-            .frame_inline_hits
-            .saturating_add(u64::from(frame.frame_inline_hits)),
-        nested_inline_hits: m
-            .nested_inline_hits
-            .saturating_add(u64::from(frame.nested_inline_hits)),
-        inline_call_misses: m
-            .inline_call_misses
-            .saturating_add(u64::from(frame.inline_call_misses)),
-        // A high-water mark, so the max — not a sum.
-        scope_local_peak: m.scope_local_peak.max(u64::from(frame.scope_local_peak)),
-        ..m
-    });
+    let mut m = state.metrics.get();
+    m.note_native_exit(kind, &frame);
+    state.metrics.set(m);
     // Tier-down: feed the same count to the function's record so a function whose
     // guards miss too often is recompiled without speculation.
     state.note_guard_misses(bc, frame.guard_misses);
