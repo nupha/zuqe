@@ -3,14 +3,15 @@
 
 use std::{
     cell::{Cell, RefCell},
+    ptr::NonNull,
     rc::Rc,
     sync::{Arc, Mutex, Weak},
 };
 
-use gc_lite::{GcRef, GcTrace};
+use gc_lite::{GcHead, GcRef, GcTrace};
 
 use crate::{
-    JS_CLASS_PROMISE, JobState, TryRecvError, WakeReceiver,
+    JS_CLASS_PROMISE, JobState, TryRecvError, WakeReceiver, WriteBarrier,
     atom::Atom,
     builtins::error::js_aggregate_error_constructor,
     context::{ContextImpl, ScopedContext},
@@ -44,8 +45,9 @@ pub struct PromisePayload {
     state: PromiseState,
     /// list of pending reactions: #0 for fulfills, #1 for rejects.
     reactions: [Vec<PromiseReaction>; 2],
-    /// promise result
-    result: JSValue,
+    /// promise result — written at settlement, when the promise may already be
+    /// old, so the store and the barrier live in one `set` call.
+    result: WriteBarrier<JSValue>,
 
     /// Note: only useful to debug
     #[deprecated]
@@ -57,7 +59,7 @@ impl Default for PromisePayload {
         Self {
             state: PromiseState::Pending,
             reactions: [Vec::new(), Vec::new()],
-            result: JSValue::UNDEFINED,
+            result: WriteBarrier::new(JSValue::UNDEFINED),
             is_handled: false,
         }
     }
@@ -75,13 +77,16 @@ impl PromisePayload {
     }
 
     #[inline(always)]
-    pub const fn result(&self) -> JSValue {
-        self.result
+    pub fn result(&self) -> JSValue {
+        self.result.get()
     }
 
-    #[inline(always)]
-    pub(super) const fn set_result(&mut self, val: JSValue) {
-        self.result = val;
+    /// Settlement write: store + barrier in one step, so a promise promoted to
+    /// old before it settles records the result edge. `owner` is the promise
+    /// node itself — pass `self.gc_head_ptr()` from the `Promise` wrapper.
+    #[inline]
+    pub(super) fn set_result(&mut self, ctx: &ScopedContext, owner: NonNull<GcHead>, val: JSValue) {
+        self.result.set_node(ctx, owner, val);
     }
 
     /// add pending reaction callback functions
@@ -296,12 +301,7 @@ impl Promise {
         executor.ensure_callable(ctx)?;
 
         // create Promise instance
-        let isa = PromisePayload {
-            state: PromiseState::Pending,
-            reactions: [Vec::new(), Vec::new()],
-            result: JSValue::UNDEFINED,
-            is_handled: false,
-        };
+        let isa = PromisePayload::default();
         let promise = Self(
             ctx.ordinary_create_from_constructor_payload(
                 ctor,

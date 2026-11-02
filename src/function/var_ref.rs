@@ -5,7 +5,9 @@ use std::{cell::UnsafeCell, ptr::NonNull};
 
 use gc_lite::{GcHeap, GcRef, GcTrace, GcTraceCtx};
 
-use crate::{RuntimeImpl, context::ScopedContext, gc::GcHeapExt, gcref_wrapper, value::JSValue};
+use crate::{
+    RuntimeImpl, WriteBarrier, context::ScopedContext, gc::GcHeapExt, gcref_wrapper, value::JSValue,
+};
 
 #[repr(u8)]
 #[derive(Debug)]
@@ -13,7 +15,7 @@ pub enum VarRefImpl {
     /// A detached copy of a variable value. Used when a closure captures a
     /// local variable and the parent frame is taken (async suspension,
     /// generator yield, exception unwinding).
-    Detached(JSValue),
+    Detached(WriteBarrier<JSValue>),
 
     /// Reference to a local variable slot in an arena stack frame.
     Bind {
@@ -75,17 +77,24 @@ impl VarRefImpl {
     }
 
     #[inline(always)]
-    pub(crate) const fn value(&self) -> JSValue {
+    pub(crate) fn value(&self) -> JSValue {
         match self {
             Self::Bind { pvalue, .. } => unsafe { *pvalue.as_ref() },
-            Self::Detached(value) => *value,
+            Self::Detached(value) => value.get(),
         }
     }
 
-    const fn set_value_internal(&mut self, new_value: JSValue) {
+    /// The Detached arm is the guarded write (store + barrier in one step);
+    /// the Bind arm writes a frame slot, which is a root and needs no barrier.
+    fn set_value_internal(
+        &mut self,
+        rt: &mut RuntimeImpl,
+        owner: NonNull<gc_lite::GcHead>,
+        new_value: JSValue,
+    ) {
         match self {
             Self::Bind { pvalue, .. } => unsafe { *pvalue.as_mut() = new_value },
-            Self::Detached(value) => *value = new_value,
+            Self::Detached(value) => value.set_node_rt(rt, owner, new_value),
         }
     }
 
@@ -97,7 +106,7 @@ impl VarRefImpl {
     /// a direct call cannot compile.
     const fn detach(&mut self) {
         if let Self::Bind { pvalue, .. } = self {
-            *self = Self::Detached(unsafe { *pvalue.as_ref() });
+            *self = Self::Detached(WriteBarrier::new(unsafe { *pvalue.as_ref() }));
         }
     }
 
@@ -139,8 +148,13 @@ impl VarRef {
     }
 
     pub(crate) fn set_value(&mut self, rt: &mut RuntimeImpl, new_value: JSValue) {
-        self.set_value_internal(new_value);
-        rt.bind_node_value(self.gc_node_ptr(), new_value);
+        let owner = self.gc_node_ptr();
+        self.set_value_internal(rt, owner, new_value);
+        // Bind unconditionally, exactly as before this field was guarded: the
+        // Detached arm already bound inside the guard (a second `bind` is
+        // deduped per minor), and the Bind arm keeps recording the
+        // VarRef→value edge so no reachability case is silently dropped.
+        rt.bind_node_value(owner, new_value);
     }
 
     /// Detach the frame binding and remember the captured value on the VarRef
@@ -162,7 +176,7 @@ impl VarRef {
     }
 
     pub(crate) fn create(ctx: &mut ScopedContext, value: JSValue) -> Result<Self, i32> {
-        ctx.alloc_local(VarRefImpl::Detached(value))
+        ctx.alloc_local(VarRefImpl::Detached(WriteBarrier::new(value)))
             .map(Self)
             .map_err(|_| ctx.throw_out_of_memory())
     }
@@ -205,7 +219,18 @@ mod tests {
         vr.update_pvalue_for_heap_buf_offsets_impl(&buf, 0, 0);
         assert_eq!(vr.value(), JSValue::from(20));
 
-        vr.set_value_internal(JSValue::from(30));
+        // `set_value_internal` needs a runtime + an owner node for the
+        // Detached arm; this test only exercises the Bind arm.
+        let mut rt = crate::Runtime::create().unwrap();
+        let owner = rt
+            .gc_alloc_root(VarRefImpl::Bind {
+                is_arg: false,
+                var_idx: 0,
+                pvalue: NonNull::dangling(),
+            })
+            .unwrap()
+            .node_ptr();
+        vr.set_value_internal(&mut rt, owner, JSValue::from(30));
         assert_eq!(unsafe { *buf[1].get() }, JSValue::from(30));
     }
 }

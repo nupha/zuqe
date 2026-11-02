@@ -60,6 +60,17 @@ pub fn set_gc_promote_after(x: u8) {
     GC_PROMOTE_AFTER.store(x, Ordering::Relaxed);
 }
 
+/// Whether `--gc-stress` was requested: applied to every per-test runtime
+/// before any JS runs. Debug + `gc_generations` only — the CLI flag itself is
+/// cfg'd out of any other build, so there is nothing to read here either.
+#[cfg(all(debug_assertions, feature = "gc_generations"))]
+static GC_STRESS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(all(debug_assertions, feature = "gc_generations"))]
+pub fn set_gc_stress(on: bool) {
+    GC_STRESS.store(on, Ordering::Relaxed);
+}
+
 /// Whether `--jit` was requested: set once from `main` before any test runs.
 #[cfg(feature = "jit")]
 static JIT_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -640,6 +651,13 @@ pub async fn run_test_file(
     let gc_promote_after = GC_PROMOTE_AFTER.load(Ordering::Relaxed);
     if gc_promote_after != 0 {
         ctx.rt_mut().gc_set_promote_after(gc_promote_after);
+    }
+
+    // `--gc-stress`: every allocation requests a minor, so the debug barrier
+    // validator runs against nearly every write of this test.
+    #[cfg(all(debug_assertions, feature = "gc_generations"))]
+    if GC_STRESS.load(Ordering::Relaxed) {
+        ctx.rt_mut().gc_set_stress(true);
     }
 
     // `--jit`: one runtime per test, so attach here (exactly once per runtime)

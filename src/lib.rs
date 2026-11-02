@@ -44,6 +44,7 @@ pub use {
     error::{ErrCode, ErrorKind, Exception, ExceptionText, ExitStatus, JSResult},
     eval::{EvalFlags, EvalName, EvalType},
     function::{BoundFunction, Bytecode, CallContext, Callback, FieldDef, IteratorState},
+    gc::{GcBind, WriteBarrier, WriteBarrierVec, audit as gc_audit},
     microtask::*,
     module::{ModuleDef, ModuleNameFilter, path_to_url, url_to_abspath},
     number::IntOrFloat,

@@ -102,6 +102,15 @@ struct Args {
     )]
     thread_stack_limit: Option<String>,
 
+    /// Request a minor collection after every GC-node allocation, so the
+    /// debug write-barrier validator runs against nearly every write.
+    /// Debug + `gc_generations` builds only: in any other build this flag is
+    /// rejected as unknown rather than silently ignored. Slow (allocations ×
+    /// heap size) — use on small scripts, optionally with a targeted file.
+    #[cfg(all(debug_assertions, feature = "gc_generations"))]
+    #[arg(long, default_value_t = false)]
+    gc_stress: bool,
+
     #[arg(help = "file to execute")]
     filename: String,
 
@@ -221,6 +230,16 @@ fn run_zjs_prepare() -> (Runtime, Context<'static>, Args, String, bool) {
         }
 
         rt.set_module_loader(js_module_loader);
+
+        // `--gc-stress`: a minor (plus its debug verification) per allocation
+        // check. Debug + `gc_generations` only — any other build has no such
+        // field, so the flag is rejected as unknown instead of no-op'ing.
+        #[cfg(all(debug_assertions, feature = "gc_generations"))]
+        if args.gc_stress {
+            rt.gc_set_stress(true);
+            // self-documenting: stress needs minors on (debug default is 1)
+            rt.gc_set_promote_after(1);
+        }
 
         rt.gc_set_trace_handler(|tr| {
             mod_os_gc_trace(tr);

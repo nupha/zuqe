@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTrace, GcTraceCtx, GcWeak};
+use std::ptr::NonNull;
+
+use gc_lite::{GcHead, GcTrace, GcTraceCtx, GcWeak};
 
 use crate::{
-    JS_CLASS_FINALIZATION_REGISTRY, JS_CLASS_WEAKREF,
+    GcBind, JS_CLASS_FINALIZATION_REGISTRY, JS_CLASS_WEAKREF, WriteBarrierVec,
     atom::AtomKind,
     context::{ContextPtr, ScopedContext},
     error::JSResult,
@@ -163,11 +165,21 @@ impl std::fmt::Debug for FinRecEntry {
     }
 }
 
+impl GcBind for FinRecEntry {
+    /// Only `held_value` is a strong edge. `target`/`token` are weak
+    /// references (`#[gc(skip)]`): binding them would keep dead targets alive.
+    fn bind_node(&self, ctx: &ScopedContext, owner: NonNull<GcHead>) {
+        ctx.bind_node_value(owner, self.held_value);
+    }
+}
+
 /// Internal data for a FinalizationRegistry instance.
 #[derive(GcTrace)]
 pub struct FinalizationRegistryData {
     pub(crate) callback: JSValue,
-    entries: Vec<FinRecEntry>,
+    /// Appended through the write barrier: the registry may already be old
+    /// while the held value is young.
+    entries: WriteBarrierVec<FinRecEntry>,
     #[gc(skip)]
     pub(crate) realm: ContextPtr,
 }
@@ -229,7 +241,7 @@ fn js_finrec_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     let data = FinalizationRegistryData {
         callback: cb,
-        entries: Vec::new(),
+        entries: WriteBarrierVec::new(),
         realm: ctx_ptr,
     };
 
@@ -302,6 +314,7 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // Validate this is a FinalizationRegistry and push entry
     {
         let mut this_obj = this_obj;
+        let owner = this_obj.gc_node_ptr();
         let frd = match this_obj.payload_finalization_registry_mut() {
             Some(d) => d,
             None => {
@@ -310,10 +323,9 @@ fn js_finrec_register(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
                 ));
             }
         };
-        frd.entries.push(entry);
-        // Write barrier: the registry payload now strongly holds `held_value`.
-        #[cfg(feature = "gc_generations")]
-        ctx.bind_node_value(this_obj.gc_node_ptr(), held_val);
+        // One step: the push stores the entry and records the
+        // registry → `held_value` edge (the registry may already be old).
+        frd.entries.push_node(ctx, owner, entry);
     }
 
     // Add back-reference from target to this FinalizationRegistry (objects only)

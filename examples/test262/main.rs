@@ -195,6 +195,15 @@ pub struct Args {
     #[arg(long = "gc-promote-after", value_name = "N",
           value_parser = clap::value_parser!(u8).range(1..=2))]
     pub gc_promote_after: Option<u8>,
+
+    /// Run every test runtime with gc-stress: a minor (plus its debug
+    /// verification) after every GC-node allocation, so the write-barrier
+    /// validator sees nearly every write. Debug + `gc_generations` builds only.
+    /// Cost is allocations × heap size — pair it with `--tests <glob>` so only
+    /// the matching cases pay for it; a full run under stress is not practical.
+    #[cfg(all(debug_assertions, feature = "gc_generations"))]
+    #[arg(long)]
+    pub gc_stress: bool,
 }
 
 /// Merge CLI flags onto the config loaded from the file. A CLI flag takes
@@ -315,6 +324,13 @@ async fn main_impl() {
     // `--gc-promote-after` overrides the engine default (debug: 1, release: 2).
     if let Some(gc_promote_after) = args.gc_promote_after {
         runner::set_gc_promote_after(gc_promote_after);
+    }
+
+    // `--gc-stress`: a minor (plus its debug verification) per allocation
+    // check, applied to every per-test runtime. Debug + `gc_generations` only.
+    #[cfg(all(debug_assertions, feature = "gc_generations"))]
+    if args.gc_stress {
+        runner::set_gc_stress(true);
     }
 
     // Install a panic hook that prints the script currently being run. This is

@@ -158,9 +158,13 @@ pub(crate) fn js_op_define_class_for_arena(
     // an extension class all arrive at that same call, so they cannot come to
     // disagree about what inheriting means.
     let mut proto = ctx.create_base_object()?;
-    let mut ctor =
-        bc.make_closure_for_arena(ctx, None, captured_vars, arena, parent_frame_idx)?;
-    ctx.link_class_extends(proto, Some(ctor.into()), parent_proto, parent_class.as_object())?;
+    let mut ctor = bc.make_closure_for_arena(ctx, None, captured_vars, arena, parent_frame_idx)?;
+    ctx.link_class_extends(
+        proto,
+        Some(ctor.into()),
+        parent_proto,
+        parent_class.as_object(),
+    )?;
 
     ctor.method_set_home_object(ctx, Some(proto));
     ctor.set_flag_constructor(true);
@@ -389,7 +393,9 @@ pub(crate) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
 
                     // walk up prototype chain.
                     if let Some(mut up) = ob.prototype(ctx)? {
-                        it.obj.replace(up);
+                        // re-install the walked-up prototype with a barrier:
+                        // the iterator may be old while `up` is young.
+                        it.obj.set_node(ctx, enum_obj.gc_node_ptr(), Some(up));
 
                         // must check for timeout to avoid infinite loop
                         if ctx.poll_interrupts() {
@@ -408,7 +414,7 @@ pub(crate) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
                         it.idx = 0;
                     } else {
                         // end of prototype chain.
-                        debug_assert!(it.obj.is_none());
+                        debug_assert!(it.obj.get().is_none());
                         unsafe {
                             *sp = JSValue::UNDEFINED;
                             *sp.offset(1) = JSValue::TRUE;
@@ -460,14 +466,9 @@ pub(crate) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
                     }
                 }
 
-                debug_assert!(it.obj.is_some());
+                debug_assert!(it.obj.get().is_some());
 
-                if unsafe {
-                    it.obj
-                        .unwrap_unchecked()
-                        .get_own_property(ctx, prop)?
-                        .is_some()
-                } {
+                if it.obj.get().unwrap().get_own_property(ctx, prop)?.is_some() {
                     break;
                 }
             }

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::collections::HashMap;
+use std::{collections::HashMap, ptr::NonNull};
 
-use gc_lite::{GcTrace, GcWeak};
+use gc_lite::{GcHead, GcTrace, GcWeak};
 
 use crate::{
-    JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET_ITERATOR,
+    GcBind, JS_CLASS_MAP, JS_CLASS_MAP_ITERATOR, JS_CLASS_SET_ITERATOR,
     builtins::weakref::can_be_held_weakly,
     class::ClassID,
     context::{ContextImpl, ScopedContext},
@@ -24,13 +24,27 @@ pub enum MapPair {
         key: JSValue,
         value: JSValue,
     },
-    /// use weakref for key
     Weak {
         #[gc(skip)]
         key: GcWeak<ObjectImpl>,
         value: JSValue,
     },
     Removed,
+}
+
+impl GcBind for MapPair {
+    fn bind_node(&self, ctx: &ScopedContext, owner: NonNull<GcHead>) {
+        match self {
+            MapPair::Strong { key, value } => {
+                ctx.bind_node_value(owner, *key);
+                ctx.bind_node_value(owner, *value);
+            }
+            MapPair::Weak { value, .. } => {
+                ctx.bind_node_value(owner, *value);
+            }
+            MapPair::Removed => {}
+        }
+    }
 }
 
 impl MapPair {
@@ -369,11 +383,19 @@ impl MapSet {
         match class_id {
             JS_CLASS_MAP_ITERATOR => {
                 let iter_proto = ctx.iterator_proto()?;
-                ctx.init_class_proto_extends(class_id, Some(iter_proto), js_map_iterator_proto_funcs)
+                ctx.init_class_proto_extends(
+                    class_id,
+                    Some(iter_proto),
+                    js_map_iterator_proto_funcs,
+                )
             }
             JS_CLASS_SET_ITERATOR => {
                 let iter_proto = ctx.iterator_proto()?;
-                ctx.init_class_proto_extends(class_id, Some(iter_proto), js_set_iterator_proto_funcs)
+                ctx.init_class_proto_extends(
+                    class_id,
+                    Some(iter_proto),
+                    js_set_iterator_proto_funcs,
+                )
             }
             _ => {
                 unreachable!()

@@ -12,7 +12,7 @@ use std::{
 use gc_lite::{GcHead, GcHeap, GcNode, GcRef, GcScope, GcScopeStackId, GcTrace, GcTraceCtx};
 
 use crate::{
-    JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
+    GcBind, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_ASYNC_ITERABLE_ITERATOR,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
     JS_CLASS_ITERATOR, JS_CLASS_ITERATOR_CONCAT, JS_CLASS_ITERATOR_HELPER, JS_CLASS_ITERATOR_WRAP,
@@ -321,6 +321,19 @@ impl ContextImpl {
             return;
         };
         self.bind_node(owner, child);
+    }
+
+    /// [`ScopedContext::bind_set`] for holders of a `ContextPtr`/`ContextImpl`
+    /// (payload setters take `&ScopedContext` through `Deref` anyway).
+    #[inline]
+    pub fn bind_set<T: GcBind>(&self, owner: JSValue, slot: &mut T, value: T) {
+        self.current_scope().bind_set(owner, slot, value);
+    }
+
+    /// [`ScopedContext::bind_push`] for holders of a `ContextPtr`/`ContextImpl`.
+    #[inline]
+    pub fn bind_push<T: GcBind>(&self, owner: JSValue, values: &mut Vec<T>, value: T) {
+        self.current_scope().bind_push(owner, values, value);
     }
 
     /// get global object

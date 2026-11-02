@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::{cell::Cell, rc::Rc};
+use std::{cell::Cell, ptr::NonNull, rc::Rc};
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 
 use crate::{
-    ErrorKind, Exception, JS_CLASS_PROMISE_REJECT_FUNCTION,
+    ErrorKind, Exception, GcBind, JS_CLASS_PROMISE_REJECT_FUNCTION,
     atom::Atom,
     context::{ContextImpl, ScopedContext},
     error::JSResult,
@@ -100,13 +100,21 @@ impl PromiseResolveFunc {
     }
 
     pub fn payload(&self) -> &PromiseResolvePayload {
-        unsafe { self.0.as_ref() }.payload_promise_resolving_function().unwrap()
+        unsafe {
+            self.0
+                .as_ref()
+                .payload_promise_resolving_function()
+                .unwrap()
+        }
     }
 
     pub fn payload_mut(&mut self) -> &mut PromiseResolvePayload {
-        unsafe { self.0.as_mut() }
-            .payload_promise_resolving_function_mut()
-            .unwrap()
+        unsafe {
+            self.0
+                .as_mut()
+                .payload_promise_resolving_function_mut()
+                .unwrap()
+        }
     }
 }
 
@@ -122,6 +130,17 @@ impl Default for PromiseReaction {
             resolving_funcs: [const { JSValue::UNDEFINED }; 2],
             handler: JSValue::UNDEFINED,
         }
+    }
+}
+
+impl GcBind for PromiseReaction {
+    /// A reaction is not a node: the promise payload traces it. The edges its
+    /// slot records are the two resolvers and the handler.
+    fn bind_node(&self, ctx: &ScopedContext, owner: NonNull<GcHead>) {
+        for f in self.resolving_funcs {
+            ctx.bind_node_value(owner, f);
+        }
+        ctx.bind_node_value(owner, self.handler);
     }
 }
 
@@ -287,8 +306,6 @@ impl Promise {
             rt.gc_pending_promises.swap_remove(idx);
         }
 
-        ctx.bind_node_value(self.gc_node_ptr(), value); // write barrier
-
         let (state, is_handled) = {
             let s = if is_reject {
                 PromiseState::Rejected
@@ -297,7 +314,9 @@ impl Promise {
             };
             let p = self.payload_mut();
             p.set_state(s);
-            p.set_result(value);
+            // store + write barrier in one step: the promise may be old here
+            // and `value` young (the pre-store `bind_node_value` is gone).
+            p.set_result(ctx, self_node, value);
 
             (s, p.is_handled())
         };

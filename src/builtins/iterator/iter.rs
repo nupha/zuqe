@@ -6,7 +6,7 @@ use std::{cell::Cell, marker::PhantomData, ptr::NonNull};
 use gc_lite::{GcHead, GcTrace};
 
 use crate::{
-    Array,
+    Array, WriteBarrier,
     atom::Atom,
     builtins::js_get_this,
     context::{ContextPtr, ScopedContext},
@@ -31,7 +31,9 @@ pub enum JSIteratorKindEnum {
 
 #[derive(Debug, GcTrace)]
 pub struct ForInIterPayload {
-    pub(crate) obj: Option<Object>,
+    /// The object under enumeration: `take`n out while walking the prototype
+    /// chain and re-installed with a barrier (it may be old, the proto young).
+    pub(crate) obj: WriteBarrier<Option<Object>>,
     /// obj is an array?
     pub(crate) is_array: bool,
 
@@ -60,7 +62,7 @@ impl ForInIterPayload {
         };
 
         let mut it = ForInIterPayload {
-            obj,
+            obj: WriteBarrier::new(obj),
             idx: 0,
             prop_count: 0,
             in_prototype_chain: false,
@@ -68,7 +70,7 @@ impl ForInIterPayload {
             prop_enums: Box::new([]),
         };
 
-        if let Some(mut ob) = it.obj {
+        if let Some(mut ob) = it.obj.get() {
             if ob.flags().is_fast_array() {
                 // check that there are no enumerable normal fields
                 if !ob

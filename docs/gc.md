@@ -425,6 +425,117 @@ dependency edge.
 reachable. Missing either one loses the node (see Rule 1) — the barrier cannot rescue an
 unreported edge.
 
+#### Typed slots: `WriteBarrier<T>` / `WriteBarrierVec<T>`
+
+Design and audit record: `memo/gc_bind_guard.md` (three-layer defence, pilot list, allowlist).
+
+Private fields + setters are the convention; the typed slots make a bare write a **compile
+error** instead of a review item (`src/gc/guard.rs`, re-exported as `zuqe::{WriteBarrier,
+WriteBarrierVec, GcBind}`). Both are `#[repr(transparent)]` with no runtime state — layout,
+size and `offset_of` are identical to the bare type, so JIT/host code that reads payload
+fields by offset is unaffected. Never add a field-level flag to them: that would break
+transparency.
+
+```rust
+#[derive(Debug, GcTrace)]
+struct FooPayload {
+    // scalar slot: `p.result = v` does not compile
+    result: WriteBarrier<JSValue>,
+    // container slot: `queue.push(v)` / `queue[i] = v` do not compile
+    queue: WriteBarrierVec<Box<Req>>,
+}
+
+impl FooPayload {
+    // Rule①: the payload exposes setters only, and the owner is `self`
+    fn set_result(&mut self, ctx: &ScopedContext, owner: NonNull<GcHead>, v: JSValue) {
+        self.result.set_node(ctx, owner, v); // store + barrier, one step
+    }
+}
+```
+
+- **`new` vs `set`**: `WriteBarrier::new(v)` / `WriteBarrierVec::from_vec(v)` are for building
+  the payload — the instance does not exist yet, so it is born young and there is no edge to
+  record (V8's initializing-store rule). After the instance exists, every write goes through
+  `set`/`set_node` (scalar) or `push`/`push_node` (container).
+- **owner**: pass the node that *holds the payload* — `self.gc_head_ptr()` inside the payload's
+  own setter, `this_obj.gc_node_ptr()` at the call site. Passing a foreign owner records the
+  edge on the wrong node and is silent corruption: only `GcHeap::bind`'s debug assert and review
+  can catch it. Cross-module `field.set(ctx, foreign_owner, v)` is a review blocker.
+- **container invariant**: between the store and the bind there must be **no GC point** (no
+  call that can allocate a GC node or collect). The *order* is not a correctness condition —
+  bind-then-store is equally safe (`settle.rs` does it) — but `GcHeap::bind` never allocates or
+  collects, and the value is still rooted by the stack/scope across the two statements.
+- **removal is not free**: `remove`/`pop`/`clear`/`retain` need no barrier, but a removed
+  element stops being `trace`d. If it is still used after the next GC point it needs
+  `gc_protect_transient` first (Rule 4). `AGenPayload::dequeue` does exactly this.
+- **no `Clone`, no `Default`** on either guard: copying or resetting fabricates unbarriered
+  edges. Read with `get()` (needs `T: Copy`); the write path does not need `Copy`.
+- **residual hole**: `p.result = WriteBarrier::new(v)` and `mem::replace(&mut p.result, …)`
+  still compile — Rust cannot forbid whole-field replacement. The defence is the setter
+  convention above plus `tests/gc_field_audit.rs`, which fails on any such assignment and on
+  any new unwrapped GC payload field (allowlisted entries are printed as a visible diff).
+
+The scanner is a library API, so an embedding crate audits **its own** `def_native_object!`
+payloads with the same code and its own allowlist (`zuqe::gc_audit`):
+
+```rust
+// EXEMPT = structural exemptions only (root containers, construction-only
+// fields, composite shapes). Everything else must be wrapped.
+const EXEMPT: &[&str] = &["MyPayload.cache — construction only"];
+
+#[test]
+fn gc_payload_fields() {
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let v = zuqe::gc_audit::gc_field_violations(&src, EXEMPT);
+    assert!(v.is_empty(), "{}", v.join("\n"));
+
+    let v = zuqe::gc_audit::guard_construction_violations(&src);
+    assert!(v.is_empty(), "{}", v.join("\n"));
+}
+```
+
+Exemptions are `Type.field — reason`; an entry whose field disappeared, was renamed or got
+wrapped is reported as stale, so the list cannot rot. Keep it to the structural cases — a field
+that simply "isn't migrated yet" belongs in the migration, not here. `payload_root_types(&src)` lets a
+test assert that the scan actually found the payloads it was meant to see.
+
+`GcBind` is the value-level counterpart of `GcTrace`: it enumerates the edges one stored value
+contributes. `JSValue`, `Atom`, `PropertyKey`, `Option`/`Box` and every object wrapper have
+impls; element types (structs pushed into a `WriteBarrierVec`) need a hand-written one:
+
+```rust
+impl GcBind for MyElement {
+    fn bind_node(&self, ctx: &ScopedContext, owner: NonNull<GcHead>) {
+        ctx.bind_node_value(owner, self.strong_value);
+        // weak references MUST be skipped: binding them keeps dead targets alive
+        // (`#[gc(skip)]` fields are already excluded from GcTrace — do the same here)
+    }
+}
+```
+
+One-step primitives for foreign slots (`&mut JSValue` whose type you do not own) and for
+migration: `ScopedContext::bind_set(owner, slot, value)` / `bind_push(owner, vec, value)`
+(`ContextPtr` forwards both). They are ergonomic only — the strong guarantee comes from the
+typed slots.
+
+**Differential debugging recipe** (all switches already exist in zhuque):
+
+1. `gc_set_promote_after(0)` — minors off, major only. Bug disappears ⇒ suspected missing
+   barrier;
+2. build without the `gc_generations` feature — same signal, no generational bookkeeping at
+   all;
+3. debug build + `zjs --gc-stress <script>` (or `test262 --gc-stress --tests '<glob>'`) —
+   every allocation requests a minor, so `dbg_assert_no_stale_old_edges` fires on the first
+   stale edge; its panic text names the child, the owner and the dtype.
+   The flag exists **only** in `debug` + `gc_generations` builds: anywhere else it is rejected
+   as an unknown argument instead of silently doing nothing. Stress costs allocations × heap
+   size (each minor runs a full O(heap) verification), so use it on small scripts and targeted
+   cases — never as a general regression switch. It is a bug-finder, and it does find bugs: on
+   weak-reference-heavy scripts it currently trips a **pre-existing** double-free in
+   `ObjectImpl::finalize` → `JSMapState::remove_weak_obj` (repro and read-out in
+   `memo/gc_bind_guard.md` §4.6), which is not covered by this rule.
+
+
 **Detection:** with debug + `gc_generations`, every minor is followed by
 `GcHeap::dbg_assert_no_stale_old_edges` (gc-lite), called from `RuntimeImpl::gc_minor`. It walks
 **every old node** (reachable or not, all partitions) and traces its current edges; one pointing
@@ -437,7 +548,8 @@ child 0x… (freed dtype …), owner 0x… (dtype …) — missing write barrier
 
 Known limits, so do not treat a green run as proof: it only sees edges `trace` reports, only
 paths that actually trigger a minor, and only debug builds. Release builds have no runtime check;
-there the private fields + setters are the guarantee.
+there the private fields + setters (or the typed slots) are the guarantee. Stress multiplies
+what a single run sees — see the recipe above.
 
 ### Review checklist
 
@@ -513,6 +625,15 @@ referencing a young node** must record the edge:
       value, then requesting a minor (`gc_minor_request()`) and letting execution reach the next
       safepoint. A missing barrier must panic in `dbg_assert_no_stale_old_edges`,
       i.e. `child … (freed dtype …), owner … (dtype …) — missing write barrier`.
+- [ ] New payload GC field is a `WriteBarrier`/`WriteBarrierVec` slot, or a `Type.field` line in
+      `tests/gc_field_audit.rs`'s allowlist (a bare field fails that test at `file:line`)?
+- [ ] New container element type has an `impl GcBind` with its weak/`#[gc(skip)]` fields left out?
+- [ ] New `bind` call site still has a bare store next to it? Merge the pair into `bind_set` /
+      `bind_push` or a guard `set`/`push` — two statements can be split by a later edit.
+- [ ] Any `field = WriteBarrier::new(...)` / `mem::replace(&mut field, …)` whole-field
+      replacement? That bypasses the barrier and is rejected by the same audit test.
+- [ ] Barrier regression reproduced under `--gc-stress` at least once? Stress is what makes the
+      validator see a write that a normal run would never collect between.
 - [ ] Remember the validator's limits: only traced edges, only paths that actually run a minor, only
       debug builds. Release correctness rests on the private fields + setters above, not on the
       validator.

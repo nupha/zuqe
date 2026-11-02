@@ -7,6 +7,7 @@ use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 use url::Url;
 
 use crate::{
+    WriteBarrier,
     atom::Atom,
     context::{ContextImpl, ScopedContext},
     module::{ModuleDef, ModuleNameFilter, path_to_url, url_to_abspath},
@@ -17,7 +18,7 @@ use crate::{
 pub(crate) struct ModuleDependency {
     pub module_name: Atom,
     /// None when module is not resolved.
-    module: Option<ModuleDef>,
+    module: WriteBarrier<Option<ModuleDef>>,
     /// Import attributes from `with { ... }` clause, or JSValue::UNDEFINED if absent.
     /// A JS object mapping string keys to string values (e.g. { type: "json" }).
     attributes: JSValue,
@@ -27,21 +28,14 @@ impl ModuleDependency {
     pub(crate) const fn new(module_name: Atom, attributes: JSValue) -> Self {
         Self {
             module_name,
-            module: None,
+            module: WriteBarrier::new(None),
             attributes,
         }
     }
 
     #[inline(always)]
-    pub(super) const fn module(&self) -> Option<ModuleDef> {
-        self.module
-    }
-
-    /// The resolved module for a reborrow (a write barrier cannot be needed
-    /// until the reference itself is installed).
-    #[inline]
-    pub(super) const fn module_mut(&mut self) -> Option<&mut ModuleDef> {
-        self.module.as_mut()
+    pub(super) fn module(&self) -> Option<ModuleDef> {
+        self.module.get()
     }
 
     #[inline(always)]
@@ -57,17 +51,14 @@ impl ModuleDependency {
         owner: NonNull<GcHead>,
         module: ModuleDef,
     ) {
-        self.module = Some(module);
-        ctx.bind_node(owner, module.gc_node_ptr());
+        self.module.set_node(ctx, owner, Some(module));
     }
 }
 
 impl GcTrace for ModuleDependency {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.module_name.trace(tr);
-        if let Some(x) = self.module {
-            x.trace(tr)
-        }
+        self.module.trace(tr);
         self.attributes.trace(tr);
     }
 }

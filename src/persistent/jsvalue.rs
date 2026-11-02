@@ -473,10 +473,8 @@ impl<'a, 'b> DeserializeCtx<'a, 'b> {
                     _ => None,
                 };
                 let class_home_object = home_object;
-                let mut payload = BFuncPayload::new(bc, captured);
-                if let Some(h) = home_object {
-                    payload.set_home_object(Some(h));
-                }
+                // Construction only: the payload has no owner node yet.
+                let payload = BFuncPayload::new(bc, captured).with_home_object(home_object);
                 // Mirror normal function creation (`closure.rs`): pick the
                 // payload by func_kind (so generators/async restore as the
                 // right class), re-bind the intrinsic proto, and re-define the

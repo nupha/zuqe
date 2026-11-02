@@ -7,7 +7,7 @@ use smallvec::SmallVec;
 use crate::{
     EvalName, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
     JS_CLASS_BOUND_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
-    JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
+    JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, WriteBarrier,
     atom::{Atom, AtomDescKind},
     bytecode::exec_stackless::execute_trampoline,
     class::ClassID,
@@ -109,15 +109,13 @@ pub struct BFuncPayload {
     /// 函数对象关联的宿主对象，主要用于以下场景：
     /// - 私有字段的访问控制：当类方法需要访问私有字段时，需要通过home object定位到对应的私有品牌（private brand）进行权限验证。
     /// - for 'super' access
-    home_object: Option<Object>,
+    home_object: WriteBarrier<Option<Object>>,
 }
 
 impl GcTrace for BFuncPayload {
     fn trace(&self, tr: &mut GcTraceCtx) {
         self.bytecode.trace(tr);
-        if let Some(x) = self.home_object {
-            x.trace(tr)
-        }
+        self.home_object.trace(tr);
         for vr in self.closure_var_refs.iter() {
             vr.trace(tr);
         }
@@ -132,7 +130,16 @@ impl BFuncPayload {
         Self {
             bytecode,
             closure_var_refs: captured_vars.into(),
-            home_object: None,
+            home_object: WriteBarrier::new(None),
+        }
+    }
+
+    /// Construction-only variant: the payload is not attached to a node yet,
+    /// so no barrier is recorded (V8's initializing-store rule).
+    pub(crate) fn with_home_object(self, obj: Option<Object>) -> Self {
+        Self {
+            home_object: WriteBarrier::new(obj),
+            ..self
         }
     }
 
@@ -143,13 +150,20 @@ impl BFuncPayload {
     }
 
     #[inline(always)]
-    pub const fn home_object(&self) -> Option<Object> {
-        self.home_object
+    pub fn home_object(&self) -> Option<Object> {
+        self.home_object.get()
     }
 
-    #[inline(always)]
-    pub(crate) const fn set_home_object(&mut self, obj: Option<Object>) {
-        self.home_object = obj;
+    /// The single write path for the method's home object: store + barrier.
+    /// `owner` is the function object node (`self.0.node_ptr()`).
+    #[inline]
+    pub(crate) fn set_home_object(
+        &mut self,
+        ctx: &ScopedContext,
+        owner: std::ptr::NonNull<gc_lite::GcHead>,
+        obj: Option<Object>,
+    ) {
+        self.home_object.set_node(ctx, owner, obj);
     }
 
     /// Get a closure variable reference by its closure-var index.
@@ -253,10 +267,8 @@ impl BCWrapper {
     pub(crate) fn method_set_home_object(&mut self, ctx: &ScopedContext, home_obj: Option<Object>) {
         let need_home = self.payload().bytecode().need_home_object();
         if need_home {
-            self.payload_mut().set_home_object(home_obj);
-            if let Some(obj) = home_obj {
-                ctx.bind_node(self.0.node_ptr(), obj.gc_node_ptr());
-            }
+            let owner = self.0.node_ptr();
+            self.payload_mut().set_home_object(ctx, owner, home_obj);
         }
     }
 }

@@ -7,7 +7,7 @@ use gc_lite::{GcNode, GcRef, GcTrace, GcTraceCtx};
 use url::Url;
 
 use crate::{
-    JS_CLASS_BYTECODE_FUNCTION,
+    JS_CLASS_BYTECODE_FUNCTION, WriteBarrier, WriteBarrierVec,
     atom::Atom,
     builtins::promise::Promise,
     class::ClassExoticMethods,
@@ -45,7 +45,7 @@ pub struct ModuleDefImpl {
     pub(crate) star_export_entries: Vec<u16>,
 
     /// module namespace.
-    module_ns: Option<Object>,
+    module_ns: WriteBarrier<Option<Object>>,
 
     /// for js module, when func_created is:
     /// - true: bytecode field is a function object value
@@ -56,7 +56,7 @@ pub struct ModuleDefImpl {
     /// * Bytecode, when func_created is false,
     /// * BCWrapper function, when func_created is true.
     /// * undefined for uninitialized.
-    bytecode: JSValue,
+    bytecode: WriteBarrier<JSValue>,
     /// init callback for native module
     pub(super) init_func: Option<Box<dyn ModuleInitFn>>,
 
@@ -69,27 +69,27 @@ pub struct ModuleDefImpl {
     pub(super) dfs_index: i32,
     pub(super) dfs_ancestor_index: i32,
 
-    stack_prev: Option<ModuleDef>,
-    cycle_root: Option<ModuleDef>,
+    stack_prev: WriteBarrier<Option<ModuleDef>>,
+    cycle_root: WriteBarrier<Option<ModuleDef>>,
 
     //
     // temp use during js_module_evaluate()
     //
-    async_parent_modules: Vec<ModuleDef>,
+    async_parent_modules: WriteBarrierVec<ModuleDef>,
     pub(super) async_evaluation: bool,
     pub(super) async_evaluation_timestamp: i64,
     pub(super) pending_async_dependencies: i32,
 
-    promise: Option<Promise>,      // corresponds to spec field: capability
-    resolving_funcs: [JSValue; 2], // corresponds to spec field: capability
+    promise: WriteBarrier<Option<Promise>>, // corresponds to spec field: capability
+    resolving_funcs: [JSValue; 2],          // corresponds to spec field: capability
 
     /// undefined means no exception
-    eval_error: JSValue,
+    eval_error: WriteBarrier<JSValue>,
     /// the `import.meta` object of module
-    meta_obj: Option<Object>,
+    meta_obj: WriteBarrier<Option<Object>>,
 
     /// Import attributes (e.g. `type: "json"`)
-    attributes: JSValue,
+    attributes: WriteBarrier<JSValue>,
 }
 
 impl GcTrace for ModuleDefImpl {
@@ -102,24 +102,14 @@ impl GcTrace for ModuleDefImpl {
         self.bytecode.trace(tr);
         self.async_parent_modules.iter().for_each(|x| x.trace(tr));
 
-        if let Some(x) = self.promise {
-            x.trace(tr)
-        }
+        self.promise.trace(tr);
         self.resolving_funcs[0].trace(tr);
         self.resolving_funcs[1].trace(tr);
 
-        if let Some(x) = self.stack_prev {
-            x.trace(tr)
-        }
-        if let Some(x) = self.module_ns {
-            x.trace(tr)
-        }
-        if let Some(x) = self.cycle_root {
-            x.trace(tr)
-        }
-        if let Some(x) = self.meta_obj {
-            x.trace(tr)
-        }
+        self.stack_prev.trace(tr);
+        self.module_ns.trace(tr);
+        self.cycle_root.trace(tr);
+        self.meta_obj.trace(tr);
         self.eval_error.trace(tr);
         self.attributes.trace(tr);
     }
@@ -135,8 +125,8 @@ impl ModuleDefImpl {
             export_entries: Vec::new(),
             star_export_entries: Vec::new(),
 
-            module_ns: None,
-            bytecode: JSValue::UNDEFINED,
+            module_ns: WriteBarrier::new(None),
+            bytecode: WriteBarrier::new(JSValue::UNDEFINED),
             init_func: None,
 
             has_tla: false,
@@ -147,20 +137,20 @@ impl ModuleDefImpl {
             dfs_index: 0,
             dfs_ancestor_index: 0,
 
-            cycle_root: None,
-            stack_prev: None,
-            async_parent_modules: Vec::new(),
+            cycle_root: WriteBarrier::new(None),
+            stack_prev: WriteBarrier::new(None),
+            async_parent_modules: WriteBarrierVec::new(),
 
             pending_async_dependencies: 0,
             async_evaluation: false,
             async_evaluation_timestamp: 0,
 
-            promise: None,
+            promise: WriteBarrier::new(None),
             resolving_funcs: [const { JSValue::UNDEFINED }; 2],
-            eval_error: JSValue::UNDEFINED,
+            eval_error: WriteBarrier::new(JSValue::UNDEFINED),
 
-            meta_obj: None,
-            attributes: JSValue::UNDEFINED,
+            meta_obj: WriteBarrier::new(None),
+            attributes: WriteBarrier::new(JSValue::UNDEFINED),
         }
     }
 
@@ -202,13 +192,13 @@ impl ModuleDefImpl {
 
     /// get eval error. undefined means no exception.
     #[inline(always)]
-    pub(crate) const fn get_eval_error(&self) -> JSValue {
-        self.eval_error
+    pub(crate) fn get_eval_error(&self) -> JSValue {
+        self.eval_error.get()
     }
 
     #[inline(always)]
-    pub(crate) const fn promise(&self) -> Option<Promise> {
-        self.promise
+    pub(crate) fn promise(&self) -> Option<Promise> {
+        self.promise.get()
     }
 
     #[inline(always)]
@@ -224,35 +214,33 @@ impl ModuleDefImpl {
         promise: Promise,
         funcs: [JSValue; 2],
     ) {
-        self.promise = Some(promise);
-        self.resolving_funcs = funcs;
         let owner = self.gc_head_ptr();
-        ctx.bind_node_value(owner, JSValue::from(promise));
+        self.promise.set_node(ctx, owner, Some(promise));
+        self.resolving_funcs = funcs;
+        // `[JSValue; 2]` is a composite shape (memo §7): bound here by hand.
         ctx.bind_node_value(owner, funcs[0]);
         ctx.bind_node_value(owner, funcs[1]);
     }
 
     #[inline]
-    pub(crate) const fn take_stack_prev(&mut self) -> Option<ModuleDef> {
+    pub(crate) fn take_stack_prev(&mut self) -> Option<ModuleDef> {
         self.stack_prev.take()
     }
 
     pub(crate) fn set_stack_prev(&mut self, ctx: &ScopedContext, prev: Option<ModuleDef>) {
-        self.stack_prev = prev;
-        if let Some(prev) = prev {
-            ctx.bind_node(self.gc_head_ptr(), prev.gc_node_ptr());
-        }
+        let owner = self.gc_head_ptr();
+        self.stack_prev.set_node(ctx, owner, prev);
     }
 
     #[inline(always)]
-    pub(crate) const fn cycle_root(&self) -> Option<ModuleDef> {
-        self.cycle_root
+    pub(crate) fn cycle_root(&self) -> Option<ModuleDef> {
+        self.cycle_root.get()
     }
 
     pub(crate) fn set_cycle_root(&mut self, ctx: &ScopedContext, root: ModuleDef) {
-        debug_assert!(self.cycle_root.is_none());
-        self.cycle_root.replace(root);
-        ctx.bind_node(self.gc_head_ptr(), root.gc_node_ptr());
+        debug_assert!(self.cycle_root.get().is_none());
+        let owner = self.gc_head_ptr();
+        self.cycle_root.set_node(ctx, owner, Some(root));
     }
 
     #[inline(always)]
@@ -268,63 +256,61 @@ impl ModuleDefImpl {
         {
             return false;
         }
-        self.async_parent_modules.push(m);
-        ctx.bind_node(self.gc_head_ptr(), m.gc_node_ptr());
+        let owner = self.gc_head_ptr();
+        self.async_parent_modules.push_node(ctx, owner, m);
         true
     }
 
     #[inline(always)]
-    pub(crate) const fn module_ns(&self) -> Option<Object> {
-        self.module_ns
+    pub(crate) fn module_ns(&self) -> Option<Object> {
+        self.module_ns.get()
     }
 
     pub(crate) fn set_module_ns(&mut self, ctx: &ScopedContext, ns: Option<Object>) {
-        self.module_ns = ns;
-        if let Some(ns) = ns {
-            ctx.bind_node_value(self.gc_head_ptr(), JSValue::from(ns));
-        }
+        let owner = self.gc_head_ptr();
+        self.module_ns.set_node(ctx, owner, ns);
     }
 
     #[inline(always)]
-    pub(crate) const fn has_meta_obj(&self) -> bool {
-        self.meta_obj.is_some()
+    pub(crate) fn has_meta_obj(&self) -> bool {
+        self.meta_obj.get().is_some()
     }
 
     fn set_meta_obj(&mut self, ctx: &ScopedContext, o: Object) {
-        self.meta_obj = Some(o);
-        ctx.bind_node_value(self.gc_head_ptr(), JSValue::from(o));
+        let owner = self.gc_head_ptr();
+        self.meta_obj.set_node(ctx, owner, Some(o));
     }
 
     #[inline(always)]
-    pub(crate) const fn bytecode(&self) -> JSValue {
-        self.bytecode
+    pub(crate) fn bytecode(&self) -> JSValue {
+        self.bytecode.get()
     }
 
     pub(crate) fn set_bytecode(&mut self, ctx: &ScopedContext, val: JSValue) {
-        self.bytecode = val;
-        ctx.bind_node_value(self.gc_head_ptr(), val);
+        let owner = self.gc_head_ptr();
+        self.bytecode.set_node(ctx, owner, val);
     }
 
     #[inline(always)]
-    pub(crate) const fn attributes(&self) -> JSValue {
-        self.attributes
+    pub(crate) fn attributes(&self) -> JSValue {
+        self.attributes.get()
     }
 
     pub(crate) fn set_attributes(&mut self, ctx: &ScopedContext, attrs: JSValue) {
-        self.attributes = attrs;
-        ctx.bind_node_value(self.gc_head_ptr(), attrs);
+        let owner = self.gc_head_ptr();
+        self.attributes.set_node(ctx, owner, attrs);
     }
 
     /// set eval error, can't be undefined or null
     pub(crate) fn set_eval_error(&mut self, ctx: &ScopedContext, err_val: JSValue) {
         debug_assert!(!err_val.is_undefined_or_null());
-        self.eval_error = err_val;
-        ctx.bind_node_value(self.gc_head_ptr(), err_val);
+        let owner = self.gc_head_ptr();
+        self.eval_error.set_node(ctx, owner, err_val);
     }
 
     /// get module `import.meta` object.
     pub fn import_meta(&mut self, ctx: &mut ScopedContext) -> Result<Object, i32> {
-        if let Some(o) = self.meta_obj {
+        if let Some(o) = self.meta_obj.get() {
             Ok(o)
         } else {
             // create meta object
@@ -365,7 +351,7 @@ impl ModuleDefImpl {
     fn create_module_bytecode_function(&mut self, ctx: &mut ScopedContext) -> Result<(), i32> {
         debug_assert!(!self.func_created);
 
-        let Some(bc) = self.bytecode.as_bytecode() else {
+        let Some(bc) = self.bytecode.get().as_bytecode() else {
             unreachable!("module bytecode function already created");
         };
 
@@ -446,7 +432,8 @@ impl ModuleDefImpl {
 
         // make <eval> function for dependency modules
         for dep in self.dependencies.iter_mut() {
-            dep.module_mut().unwrap().create_module_function(ctx)?;
+            let mut dep_module = dep.module().unwrap();
+            dep_module.create_module_function(ctx)?;
         }
 
         Ok(())
@@ -515,8 +502,9 @@ impl ModuleDef {
         if self.resolved {
             // Per ECMAScript spec §16.2.1.7: if module is in "errored" state,
             // re-throw the cached error on subsequent import attempts.
-            if !self.eval_error.is_undefined() {
-                return Err(ctx.throw_value(self.eval_error));
+            let eval_error = self.eval_error.get();
+            if !eval_error.is_undefined() {
+                return Err(ctx.throw_value(eval_error));
             }
             return Ok(());
         }

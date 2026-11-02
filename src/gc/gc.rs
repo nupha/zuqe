@@ -23,6 +23,11 @@ use crate::{
     value::JSValue,
 };
 
+// Only referenced by `gc_set_stress`, which exists in debug + `gc_generations`
+// builds alone.
+#[cfg(all(debug_assertions, feature = "gc_generations"))]
+use crate::config::GC_ALLOC_CHECK_INTERVAL;
+
 // The `gc_type_register!` macro expands every entry into a `GcTypeInfo` table
 // slot plus a `GcNode` impl, and `#[cfg]` attributes are not accepted inside
 // the entry list. To keep the `bigint` module feature-gated (`big_int`), the
@@ -127,6 +132,14 @@ impl RuntimeImpl {
 
         if self.gc_alloc_count >= self.gc_alloc_check_interval {
             self.gc_alloc_count = 0;
+
+            // gc-stress: request a minor on every check (the interval is 1
+            // while stress is on), so the debug barrier validator runs against
+            // almost every write. Debug + `gc_generations` only.
+            #[cfg(all(debug_assertions, feature = "gc_generations"))]
+            if self.gc_stress {
+                self.gc_minor_req = true;
+            }
 
             // Major wins: if both are due, request only the major.
             #[cfg(feature = "gc_generations")]
@@ -635,6 +648,22 @@ impl RuntimeImpl {
         let _ = x;
     }
 
+    /// Turn gc-stress on/off: with stress on, every GC-node allocation
+    /// requests a minor, and every minor runs the O(heap) debug verification,
+    /// so `dbg_assert_no_stale_old_edges` sees nearly every old→young write.
+    ///
+    /// Debug + `gc_generations` builds only — a release or feature-off build
+    /// has no such API and no runtime verification at all. Cost is
+    /// allocations × heap size, so use it on small scripts and targeted cases
+    /// (`zjs --gc-stress tests/test_gc_barriers.mjs`), never as a general
+    /// regression switch. A minor still executes only at an interpreter
+    /// safepoint; native-only tests must call `gc_minor()` themselves.
+    #[cfg(all(debug_assertions, feature = "gc_generations"))]
+    pub fn gc_set_stress(&mut self, on: bool) {
+        self.gc_stress = on;
+        self.gc_alloc_check_interval = if on { 1 } else { GC_ALLOC_CHECK_INTERVAL };
+    }
+
     /// Request a minor collection. A no-op without `gc_generations` or when
     /// minors are disabled (`promote == 0`); the next safepoint runs it, unless
     /// a major is also pending.
@@ -806,5 +835,49 @@ mod young_backoff_tests {
         assert_eq!(adapted_threshold(900, 100, 10, 32, 1000), 1000);
         // empty young budget is a no-op
         assert_eq!(adapted_threshold(64, 0, 0, 32, 1000), 64);
+    }
+}
+
+#[cfg(all(test, debug_assertions, feature = "gc_generations"))]
+mod gc_stress_tests {
+    use crate::{Runtime, context::ScopedContext};
+
+    /// Stress schedules a minor on every allocation check; turning it off
+    /// restores the batched interval, so ordinary allocations stop doing that.
+    #[test]
+    fn stress_schedules_minors_and_off_restores_the_interval() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let mut ctx = rt.create_context(ScopedContext::ECMA_CONTEXT_SETUP)?;
+
+        ctx.with_root_scope(|mut cx| -> Result<(), i32> {
+            cx.rt_mut().gc_set_stress(true);
+            let before = cx.rt().gc_minor_count();
+            for _ in 0..8 {
+                let _obj = cx.create_base_object()?;
+                // a request only collects at an interpreter safepoint
+                cx.rt_mut().gc_collect_dispatch();
+            }
+            assert!(
+                cx.rt().gc_minor_count() > before,
+                "stress must run minors (before={before}, after={})",
+                cx.rt().gc_minor_count()
+            );
+
+            cx.rt_mut().gc_set_stress(false);
+            // drain whatever the last stressed allocation still requested
+            cx.rt_mut().gc_collect_dispatch();
+            let steady = cx.rt().gc_minor_count();
+            for _ in 0..8 {
+                let _obj = cx.create_base_object()?;
+                cx.rt_mut().gc_collect_dispatch();
+            }
+            assert_eq!(
+                cx.rt().gc_minor_count(),
+                steady,
+                "stress off must restore the batched check interval"
+            );
+            Ok(())
+        })?;
+        Ok(())
     }
 }

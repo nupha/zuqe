@@ -157,6 +157,11 @@ pub struct RuntimeImpl {
     pub(crate) gc_alloc_count: u32,
     /// number of allocations between should_gc() checks
     pub(crate) gc_alloc_check_interval: u32,
+    /// gc-stress mode: every allocation check requests a minor so the debug
+    /// barrier validator runs on nearly every write. Debug + `gc_generations`
+    /// builds only; toggled by `RuntimeImpl::gc_set_stress`.
+    #[cfg(all(debug_assertions, feature = "gc_generations"))]
+    pub(crate) gc_stress: bool,
     /// gc request flag
     pub(crate) gc_req: bool,
     /// minor collection request flag (`gc_generations`). A major request wins.
@@ -484,6 +489,8 @@ impl RuntimeImpl {
             gc_time_ns: 0,
             gc_alloc_count: 0,
             gc_alloc_check_interval: GC_ALLOC_CHECK_INTERVAL,
+            #[cfg(all(debug_assertions, feature = "gc_generations"))]
+            gc_stress: false,
             gc_user_trace: Vec::new(),
             gc_trace_fns: Vec::new(),
             gc_pending_promises: Vec::new(),

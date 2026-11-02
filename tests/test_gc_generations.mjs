@@ -148,8 +148,11 @@ function roundTrip(name, read) {
 
 // ── promotion count 0/1/2 ──────────────────────────────────────────────────
 if (std.gcStats().generations) {
-    const before = std.gcStats().minorCount;
     std.gcPromote(0);
+    // Sample AFTER the switch: with `--gc-stress` a minor can land between a
+    // sample and the call that disables minors, which would report a minor the
+    // test never allowed to run in the first place.
+    const before = std.gcStats().minorCount;
 
     for (let i = 0; i < 20000; i++) ({ a: i, b: { c: i }, d: [i, i + 1] });
     spin();

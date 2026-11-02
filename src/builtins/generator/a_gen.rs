@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::cell::RefCell;
+use std::{cell::RefCell, ptr::NonNull};
 
-use gc_lite::{GcTrace, GcWeak};
+use gc_lite::{GcHead, GcTrace, GcWeak};
 
 use crate::{
-    Atom, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
+    Atom, GcBind, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, WriteBarrierVec,
     builtins::{
         iterator::make_iterator_next_result,
         promise::{Promise, js_promise_resolve},
@@ -50,6 +50,18 @@ pub struct JSAsyncGeneratorRequest {
     pub resolving_funcs: [JSValue; 2],
 }
 
+impl GcBind for JSAsyncGeneratorRequest {
+    /// The request is not a GC node itself — it is traced through the payload.
+    /// The edges the queue records are the four GC values it carries.
+    fn bind_node(&self, ctx: &ScopedContext, owner: NonNull<GcHead>) {
+        ctx.bind_node_value(owner, self.result);
+        ctx.bind_node_value(owner, self.promise);
+        for f in self.resolving_funcs {
+            ctx.bind_node_value(owner, f);
+        }
+    }
+}
+
 #[derive(Debug, GcTrace)]
 pub struct AGenPayload {
     /// back ref to the generator object (const)
@@ -64,7 +76,9 @@ pub struct AGenPayload {
 
     /// list of JSAsyncGeneratorRequest.
     /// the queue's element is consumed in resolve() or reject() call.
-    queue: Vec<Box<JSAsyncGeneratorRequest>>,
+    /// A `WriteBarrierVec`: every append records the request's four GC edges
+    /// against the generator node (see `GcBind for JSAsyncGeneratorRequest`).
+    queue: WriteBarrierVec<Box<JSAsyncGeneratorRequest>>,
 }
 
 impl AGenPayload {
@@ -448,7 +462,7 @@ impl AsyncGeneratorFunction {
                 this_obj,
                 args,
             )?,
-            queue: Vec::with_capacity(2),
+            queue: WriteBarrierVec::with_capacity(2),
         });
 
         // execute the function till 'OpCode::INITIAL_YIELD' (no yield nor await are possible)
@@ -573,17 +587,11 @@ fn js_async_generator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
             promise: promise_val,
             resolving_funcs,
         });
-        s.queue.push(req);
-
         // The generator object may already be old while the request and its
-        // resolving functions are young, so record every queue edge.
-        if let Some(owner) = owner {
-            ctx.bind_node_value(owner, result);
-            ctx.bind_node_value(owner, promise_val);
-            for f in resolving_funcs {
-                ctx.bind_node_value(owner, f);
-            }
-        }
+        // resolving functions are young: the push records every queue edge
+        // against the generator node (one step, no separate bind block).
+        s.queue
+            .push_node(ctx, owner.expect("async generator object node"), req);
 
         if s.state() != AGenState::JS_ASYNC_GENERATOR_STATE_EXECUTING {
             s.resume_next(ctx);

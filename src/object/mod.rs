@@ -35,6 +35,19 @@ macro_rules! gcref_wrapper {
             }
         }
 
+        // Write-barrier edge for this node wrapper. Expanded inside the zuqe
+        // crate only: it calls the crate-internal `bind_node` primitive.
+        impl $crate::GcBind for $ty {
+            #[inline]
+            fn bind_node(
+                &self,
+                ctx: &$crate::ScopedContext,
+                owner: std::ptr::NonNull<$crate::gc_lite::GcHead>,
+            ) {
+                ctx.bind_node(owner, self.gc_node_ptr());
+            }
+        }
+
         impl std::ops::Deref for $ty {
             type Target = $in_ty;
 
@@ -103,6 +116,29 @@ macro_rules! object_cast {
             #[inline(always)]
             fn deref(&self) -> &Self::Target {
                 unsafe { &*(self as *const Self as *const Self::Target) }
+            }
+        }
+
+        // A narrow wrapper is a node on its own. The direct impl (not just the
+        // autoderef to `Object`) is what lets `Option<$ty>` / `Vec<$ty>` be
+        // traced — required by `WriteBarrier<Option<$ty>>` and friends.
+        impl gc_lite::GcTrace for $ty {
+            #[inline(always)]
+            fn trace(&self, tr: &mut gc_lite::GcTraceCtx) {
+                tr.add(self.0)
+            }
+        }
+
+        // Write-barrier edge for this narrow wrapper (delegates to `Object`).
+        // Expanded inside the zuqe crate only: `bind_node` is crate-internal.
+        impl $crate::GcBind for $ty {
+            #[inline]
+            fn bind_node(
+                &self,
+                ctx: &$crate::ScopedContext,
+                owner: std::ptr::NonNull<$crate::gc_lite::GcHead>,
+            ) {
+                $crate::GcBind::bind_node(&**self, ctx, owner)
             }
         }
 
