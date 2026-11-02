@@ -427,8 +427,8 @@ pub(super) fn lower_get_array_el_fast(
         .icmp_imm(IntCC::Equal, class_id, i64::from(JS_CLASS_ARGUMENTS));
     let fast_bit = b.ins().band_imm(flags, jit_layout::FAST_ARRAY_MASK);
     let is_fast = b.ins().icmp_imm(IntCC::NotEqual, fast_bit, 0);
-    let is_elemented = b.ins().bor(is_array, is_arguments);
-    let shape_ok = b.ins().band(is_elemented, is_fast);
+    let is_array_or_arguments = b.ins().bor(is_array, is_arguments);
+    let shape_ok = b.ins().band(is_array_or_arguments, is_fast);
     // The typed arrays we inline: every width the interpreter has an arm
     // for. Their elements live in an `ArrayBuffer`, not in the array payload.
     // The class ids are contiguous (`JS_CLASS_UINT8C_ARRAY` ..
@@ -665,7 +665,7 @@ pub(super) fn lower_put_array_el_fast(
     // continuation carries it.
     b.append_block_param(cont, types::I64);
     // The plain array's arm, the typed array's arm, and the blocks they use.
-    let elemented_blk = b.create_block();
+    let plain_array_arm = b.create_block();
     let typed_blk = b.create_block();
     let ta_view = b.create_block();
     let ta_kind = b.create_block();
@@ -694,10 +694,11 @@ pub(super) fn lower_put_array_el_fast(
     let is_arguments = b
         .ins()
         .icmp_imm(IntCC::Equal, class_and_fast, WRITE_ARGUMENTS_FLAGS);
-    let elemented = b.ins().bor(is_array, is_arguments);
+    let array_or_arguments = b.ins().bor(is_array, is_arguments);
     // A target that is neither is a typed array (its own arm below) or
     // something the helper owns.
-    b.ins().brif(elemented, elemented_blk, &[], typed_blk, &[]);
+    b.ins()
+        .brif(array_or_arguments, plain_array_arm, &[], typed_blk, &[]);
 
     b.switch_to_block(typed_blk);
     // The class id decides: a typed array has its own arm (its elements live
@@ -883,7 +884,7 @@ pub(super) fn lower_put_array_el_fast(
     let sp_next = b.ins().iadd_imm(sp, -24);
     b.ins().jump(cont, &[sp_next]);
 
-    b.switch_to_block(elemented_blk);
+    b.switch_to_block(plain_array_arm);
     // The engine's fast write into a plain array only runs on an extensible
     // one (a frozen or sealed array goes through the slow path, which throws
     // in strict mode). The guard asks for an extensible `arguments` object

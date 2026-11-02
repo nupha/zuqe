@@ -955,7 +955,7 @@ impl Bytecode {
                         save_pc!(jf.out_pc as usize);
                         return ExecAction::Return(jf.out_value, false);
                     }
-                    crate::jit::JitExitKind::Interrupt | crate::jit::JitExitKind::Unwind => {
+                    crate::jit::JitExitKind::Interrupt => {
                         return ExecAction::Unwind;
                     }
                     crate::jit::JitExitKind::Exception => {
@@ -969,7 +969,6 @@ impl Bytecode {
                         pc = unsafe { pc_base.add(jf.out_pc as usize) };
                         sp = unsafe { sp_base.add(jf.out_sp as usize) };
                     }
-                    _ => {}
                 }
             }
         }
@@ -1180,8 +1179,7 @@ impl Bytecode {
                                 save_pc!(jf.out_pc as usize);
                                 return ExecAction::Return(jf.out_value, false);
                             }
-                            crate::jit::JitExitKind::Interrupt
-                            | crate::jit::JitExitKind::Unwind => {
+                            crate::jit::JitExitKind::Interrupt => {
                                 return ExecAction::Unwind;
                             }
                             crate::jit::JitExitKind::Exception => {
@@ -1195,7 +1193,6 @@ impl Bytecode {
                                 pc = unsafe { pc_base.add(jf.out_pc as usize) };
                                 sp = unsafe { sp_base.add(jf.out_sp as usize) };
                             }
-                            _ => {}
                         }
                     }
                 }

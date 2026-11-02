@@ -294,7 +294,7 @@ pub(crate) fn run_inline(
     method: bool,
 ) -> Option<u64> {
     let verified = verified_function(body, args, vars, 32);
-    let plan = inline_call::Plan {
+    let plan = inline_call::InlinePlan {
         body: verified,
         callee: 0,
         sites: HashMap::new(),
@@ -477,7 +477,7 @@ pub(crate) fn compile_caller_with_nested_inline(
         feedback: Box::new([]),
         call_sites: call_sites.into_boxed_slice(),
         inline_callees: callees.into_boxed_slice(),
-        speculate: false,
+        allow_speculation: false,
     };
     let verified = verify(snapshot, VerifyLimits::default()).expect("verify caller");
     let isa = host_isa();

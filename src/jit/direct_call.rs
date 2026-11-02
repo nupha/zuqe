@@ -184,7 +184,6 @@ pub(crate) fn call_native_direct(
             }
         }
         crate::jit::JitExitKind::Interrupt => DirectCall::Interrupt,
-        crate::jit::JitExitKind::Unwind => DirectCall::Exception,
         crate::jit::JitExitKind::Exception => {
             // The callee's frame is still alive: build the backtrace now, so
             // the error names the callee (the interpreter's frame runner does
@@ -237,12 +236,6 @@ pub(crate) fn call_native_direct(
                     None => DirectCall::Done(value),
                 }
             }
-        }
-        // The baseline never emits these two (the bytecode ABI's protocol is unused),
-        // so this arm is unreachable; if it ever fires, the call fails rather
-        // than re-running the callee (a fallback would call it twice).
-        crate::jit::JitExitKind::CallBytecode | crate::jit::JitExitKind::TailCall => {
-            DirectCall::Exception
         }
     };
 

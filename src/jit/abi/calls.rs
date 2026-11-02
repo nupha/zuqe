@@ -395,7 +395,7 @@ pub(super) unsafe extern "C" fn h_apply(f: *mut JitExecFrame) -> u32 {
 /// other shape (another native, a replaced `apply`, a sparse array-like, a
 /// receiver the direct path cannot serve) takes the general path below, which
 /// owns the full apply semantics.
-pub(super) unsafe extern "C" fn h_call_apply(f: *mut JitExecFrame) -> u32 {
+pub(super) unsafe extern "C" fn h_call_method_apply(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
         let argc = f.imm as usize;

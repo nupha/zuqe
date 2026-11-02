@@ -131,7 +131,7 @@ pub(super) fn to_int32_from_float64(b: &mut FunctionBuilder, d: Value) -> Value 
 /// (which turns `-0.0`/`±Inf` into their tagged form unchanged). Internal
 /// helper of [`box_float64_from_f64`] — box through that one for engine
 /// semantics.
-fn box_float64(b: &mut FunctionBuilder, d: Value) -> Value {
+fn encode_float64_bits(b: &mut FunctionBuilder, d: Value) -> Value {
     let bits = b.ins().bitcast(types::I64, MemFlags::new(), d);
     let abs = b.ins().band_imm(bits, 0x7FFF_FFFF_FFFF_FFFF);
     let nan = b
@@ -154,7 +154,7 @@ fn box_float64(b: &mut FunctionBuilder, d: Value) -> Value {
 /// NaN, ±Inf, fractions and out-of-range magnitudes on its own; only the
 /// zero's sign bit needs a separate test.
 pub(super) fn box_float64_from_f64(b: &mut FunctionBuilder, d: Value) -> Value {
-    let boxed = box_float64(b, d);
+    let boxed = encode_float64_bits(b, d);
     let iv = b.ins().fcvt_to_sint_sat(types::I32, d);
     let back = b.ins().fcvt_from_sint(types::F64, iv);
     let exact = b.ins().fcmp(FloatCC::Equal, back, d);

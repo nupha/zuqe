@@ -1243,7 +1243,7 @@ fn every_supported_opcode_lowers() {
 }
 
 /// TDZ-checked locals: policy promises `Native` must mean "the baseline lowers it".
-/// Every opcode the generated table calls `Native` must pass [`supported`];
+/// Every opcode the generated table calls `Native` must pass [`lowers`];
 /// otherwise it silently degrades to an instruction-level `Resume` (the
 /// function compiles, but re-enters the interpreter at that op). This is
 /// the guard that stops a new `Native` opcode from being added without a
@@ -1254,7 +1254,7 @@ fn every_native_policy_opcode_is_lowered() {
     let missing: Vec<&str> = opcode_names()
         .iter()
         .zip(opcode_policies())
-        .filter(|(name, policy)| **policy == JitPolicy::Native && !supported(name))
+        .filter(|(name, policy)| **policy == JitPolicy::Native && !lowers(name))
         .map(|(name, _)| *name)
         .collect();
     assert!(
@@ -1275,7 +1275,7 @@ fn every_helper_policy_opcode_is_lowered_or_pinned() {
     let mut missing: Vec<&str> = opcode_names()
         .iter()
         .zip(opcode_policies())
-        .filter(|(name, policy)| **policy == JitPolicy::Helper && !supported(name))
+        .filter(|(name, policy)| **policy == JitPolicy::Helper && !lowers(name))
         .map(|(name, _)| *name)
         .collect();
     missing.sort_unstable();
@@ -1290,14 +1290,14 @@ fn every_helper_policy_opcode_is_lowered_or_pinned() {
 /// `lower_insn` is unreachable for verified bytecode. The only unsupported
 /// names are policy `Reject`, which `verify` refuses before lowering (this
 /// test pins that equality so a new `Reject` that verifies — or a new
-/// supported-but-unlowered opcode — is caught).
+/// opcode that verifies but has no lowering — is caught).
 #[test]
 fn every_opcode_the_verifier_accepts_is_lowered() {
     use crate::jit::{JitPolicy, opcode_names, opcode_policies};
     let unsupported: Vec<&str> = opcode_names()
         .iter()
         .zip(opcode_policies())
-        .filter(|(name, _)| !supported(name))
+        .filter(|(name, _)| !lowers(name))
         .map(|(name, _)| *name)
         .collect();
     let rejected: Vec<&str> = opcode_names()
@@ -1833,7 +1833,7 @@ fn carried_of(
         .unwrap_or_else(|e| panic!("verify rejected: {e:?}"));
     let osr_pcs = collect_osr_pcs(&verified);
     let strict = verified.snapshot().mode.contains(ExecMode::STRICT);
-    carried_sets(&verified, &osr_pcs, strict)
+    block_carry_facts(&verified, &osr_pcs, strict)
 }
 
 /// A join block whose first instruction reads the merged slot in a register

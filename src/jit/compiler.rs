@@ -11,7 +11,7 @@
 //! stack slot may live only in a register, written back before anything can
 //! observe the frame (helper calls, exits, branch terminators, end of block).
 //! Across a block edge the successor's carried slots travel as block
-//! parameters instead of a store/load pair ([`carried_sets`]). Every
+//! parameters instead of a store/load pair ([`block_carry_facts`]). Every
 //! observation point flushes first, so the frame stays authoritative and an
 //! exit needs no pc-keyed deopt map — materializing *is* the flush, keyed by
 //! the verifier's proven stack heights. The operand-stack pointer is an SSA
@@ -106,7 +106,7 @@ mod opcode_tables;
 
 pub(crate) use opcode_tables::is_cse_expression;
 pub use opcode_tables::shuffle_opcodes;
-use opcode_tables::{FastOp, fast_op, helper_for, shuffle_outputs, supported};
+use opcode_tables::{FastOp, fast_binary, helper_id, lowers, shuffle_outputs};
 mod state;
 use state::*;
 
@@ -197,7 +197,7 @@ const O_GLOBAL_CACHE: i32 = offset_of!(JitExecFrame, global_var_cache) as i32;
 /// [`compile`] refuses deterministically, so callers should settle the function
 /// fail-closed rather than retry.
 ///
-/// Every opcode a *verified* function can contain is supported today — the
+/// Every opcode a *verified* function can contain is lowered today — the
 /// only unsupported names are policy `Reject`, which `verify` refuses before
 /// compilation. The check stays as the fail-closed net for a future `Helper`
 /// with no lowering.
@@ -205,7 +205,7 @@ pub(crate) fn entry_is_translatable(verified: &VerifiedFunction) -> bool {
     verified
         .instructions()
         .first()
-        .is_some_and(|instruction| supported(instruction.name()))
+        .is_some_and(|instruction| lowers(instruction.name()))
 }
 
 /// Compile one verified function. Returns code bytes for the caller to publish.
@@ -227,7 +227,7 @@ pub(crate) fn compile(
     };
     // A function whose very first op is unsupported would resume on every
     // entry; don't install it.
-    if !supported(first.name()) {
+    if !lowers(first.name()) {
         return Err(JitError::Cranelift(format!(
             "entry opcode unsupported: {}",
             first.name()
@@ -388,11 +388,11 @@ fn lower(
 ) {
     let instructions = verified.instructions();
     let cfg = verified.control_flow_graph();
-    let (carried, entry_heights) = carried_sets(verified, osr_pcs, strict);
+    let (carried, entry_heights) = block_carry_facts(verified, osr_pcs, strict);
     let (locals_cacheable, args_cacheable) = cacheable_slots(verified);
     // Carried locals: the function-scoped analysis supplies which locals each
     // block reads before writing, so they can cross the edges as parameters.
-    let resume_free = instructions.iter().all(|i| supported(i.name()));
+    let resume_free = instructions.iter().all(|i| lowers(i.name()));
     let analysis = Analysis::build(verified, resume_free);
     let carried_locals = carried_local_sets(&analysis, verified, locals_cacheable, args_cacheable);
     let dead_stores = dead_local_stores(
@@ -406,8 +406,8 @@ fn lower(
         feedback: &verified.snapshot().feedback,
         ic_count: verified.snapshot().ic_count,
         global_cache_count: verified.snapshot().global_cache_count,
-        specialized: specialized_ops,
-        speculate: verified.snapshot().speculate,
+        specialized_ops: specialized_ops,
+        allow_speculation: verified.snapshot().allow_speculation,
         stack: StackCache::default(),
         carried,
         carried_locals,
@@ -421,9 +421,9 @@ fn lower(
         locals: LocalCache::new(locals_cacheable, args_cacheable),
         const_meta: &verified.snapshot().const_meta,
         barrier_sig: barrier_sig(b, helper_sig),
-        call_sites: monomorphic_call_sites(verified),
+        direct_call_sites: monomorphic_call_sites(verified),
         inline_sites: inline_call_sites(verified),
-        native_sites: native_call_sites(verified),
+        builtin_apply_sites: native_call_sites(verified),
         inline_tag: 0,
         lit_windows: literal_windows(verified, osr_pcs),
         skip_until_pc: 0,
@@ -738,7 +738,7 @@ fn lower_insn(
                 None
             };
             if let Some(callee) = inline_plan.as_ref()
-                && let Some(&site_id) = state.call_sites.get(&pc)
+                && let Some(&site_id) = state.direct_call_sites.get(&pc)
             {
                 let encoded = if method {
                     site_id | INLINE_METHOD_BIT
@@ -833,7 +833,7 @@ fn lower_insn(
                 "call_constructor" => HELPER_CALL_CONSTRUCTOR,
                 _ => HELPER_APPLY,
             };
-            let id = match state.call_sites.get(&pc) {
+            let id = match state.direct_call_sites.get(&pc) {
                 Some(&site_id) => {
                     let site = b.ins().iconst(types::I32, i64::from(site_id));
                     b.ins().store(MemFlags::new(), site, fv.frame, O_IMM2);
@@ -846,7 +846,7 @@ fn lower_insn(
                 // A native-callee site: `f.apply(thisArg, args)` lands here,
                 // and the helper serves the builtin without the interpreter's
                 // two call layers.
-                None if name == "call_method" && state.native_sites.contains(&pc) => {
+                None if name == "call_method" && state.builtin_apply_sites.contains(&pc) => {
                     HELPER_CALL_APPLY
                 }
                 None => id,
@@ -864,7 +864,7 @@ fn lower_insn(
             b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
             let is_with = b.ins().iconst(types::I32, i64::from(insn.operand_u8(9)));
             b.ins().store(MemFlags::new(), is_with, fv.frame, O_IMM2);
-            let id = helper_for(name).expect("with_* helper");
+            let id = helper_id(name).expect("with_* helper");
             lower_with(state, b, fv, sp_var, helper_sig, sp, id, insn, pc + size);
             return Step::Stop;
         }
@@ -1065,11 +1065,11 @@ fn lower_insn(
 
     // Float fast path: `div` always yields a `Float64` (Int/Int divides as `f64`), so
     // it gets a dedicated numeric arm instead of a `FastOp`. It is not a CSE
-    // candidate (`is_cse_expression` stays exactly the `fast_op` set).
+    // candidate (`is_cse_expression` stays exactly the `fast_binary` set).
     if name == "div" {
         return lower_fast_div(state, b, fv, sp_var, helper_sig, sp, insn);
     }
-    if let Some((op, helper_id)) = fast_op(name) {
+    if let Some((op, helper_id)) = fast_binary(name) {
         // The CSE pass: a repeat of an expression the same block already
         // computed over the same proven-numeric values. The result is still in
         // a register, and the copy *is* the instruction — no tag checks, no
@@ -1079,7 +1079,7 @@ fn lower_insn(
         }
         return lower_fast_binary(state, b, fv, sp_var, helper_sig, sp, insn, op, helper_id);
     }
-    if let Some(id) = helper_for(name) {
+    if let Some(id) = helper_id(name) {
         let sp = call_stack_helper(state, b, fv, helper_sig, sp, id, pc + size);
         return Step::Continue(sp);
     }
@@ -1173,7 +1173,7 @@ fn lower_insn(
             state.stack.flush(b, sp);
             b.ins().brif(uninitialized, slow, &[], ok, &[]);
             b.switch_to_block(slow);
-            exit(state, b, fv, EXIT_RESUME, pc, sp);
+            exit_const(state, b, fv, EXIT_RESUME, pc, sp);
             b.switch_to_block(ok);
             Step::Continue(state.stack.push(b, sp, v))
         }
@@ -1187,7 +1187,7 @@ fn lower_insn(
                 .locals
                 .read(b, fv.var_base, false, idx, loc_offset_u16(insn));
             let uninitialized = b.ins().icmp_imm(IntCC::Equal, cur, UNINITIALIZED_BITS);
-            let bad = if name == "put_loc_check_init" {
+            let bail = if name == "put_loc_check_init" {
                 b.ins().icmp_imm(IntCC::NotEqual, cur, UNINITIALIZED_BITS)
             } else {
                 uninitialized
@@ -1201,9 +1201,9 @@ fn lower_insn(
             let slow = b.create_block();
             let ok = b.create_block();
             state.stack.flush(b, sp);
-            b.ins().brif(bad, slow, &[], ok, &[]);
+            b.ins().brif(bail, slow, &[], ok, &[]);
             b.switch_to_block(slow);
-            exit(state, b, fv, EXIT_RESUME, pc, sp);
+            exit_const(state, b, fv, EXIT_RESUME, pc, sp);
             b.switch_to_block(ok);
             b.ins()
                 .store(MemFlags::new(), v, fv.var_base, loc_offset_u16(insn));
@@ -1608,7 +1608,7 @@ fn lower_insn(
                 b.ins().jump(dest, &all_args[index]);
                 b.switch_to_block(miss);
             }
-            exit(state, b, fv, EXIT_RESUME, pc, sp);
+            exit_const(state, b, fv, EXIT_RESUME, pc, sp);
             Step::Stop
         }
         "if_true" | "if_false" => {
@@ -1647,7 +1647,7 @@ fn lower_insn(
         }
         // Unsupported: hand this instruction to the interpreter.
         _ => {
-            exit(state, b, fv, EXIT_RESUME, pc, sp);
+            exit_const(state, b, fv, EXIT_RESUME, pc, sp);
             Step::Stop
         }
     }

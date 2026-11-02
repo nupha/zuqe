@@ -128,7 +128,7 @@ pub(super) unsafe extern "C" fn h_delete_var(f: *mut JitExecFrame) -> u32 {
 /// `with_get_ref`: resolve `imm` (atom) on the environment object on top of the
 /// stack, with `imm2` as the `is_with` flag (`@@unscopables` applies). Shared
 /// with the interpreter (`bytecode::with_ops`).
-unsafe fn with_var(f: *mut JitExecFrame, op: WithOp) -> u32 {
+unsafe fn with_access(f: *mut JitExecFrame, op: WithOp) -> u32 {
     unsafe {
         let f = &mut *f;
         let sp = f.sp;
@@ -197,30 +197,30 @@ unsafe fn with_var(f: *mut JitExecFrame, op: WithOp) -> u32 {
 
 /// `with_get_var`: `[env_obj, ^] -> [value, ^]` on a hit.
 pub(super) unsafe extern "C" fn h_with_get_var(f: *mut JitExecFrame) -> u32 {
-    unsafe { with_var(f, WithOp::GetVar) }
+    unsafe { with_access(f, WithOp::GetVar) }
 }
 
 /// `with_put_var`: `[value, env_obj, ^] -> [^]` on a hit.
 pub(super) unsafe extern "C" fn h_with_put_var(f: *mut JitExecFrame) -> u32 {
-    unsafe { with_var(f, WithOp::PutVar) }
+    unsafe { with_access(f, WithOp::PutVar) }
 }
 
 /// `with_delete_var`: `[env_obj, ^] -> [bool, ^]` on a hit.
 pub(super) unsafe extern "C" fn h_with_delete_var(f: *mut JitExecFrame) -> u32 {
-    unsafe { with_var(f, WithOp::DeleteVar) }
+    unsafe { with_access(f, WithOp::DeleteVar) }
 }
 
 /// `with_make_ref`: `[env_obj, ^] -> [env_obj, prop, ^]` on a hit.
 pub(super) unsafe extern "C" fn h_with_make_ref(f: *mut JitExecFrame) -> u32 {
-    unsafe { with_var(f, WithOp::MakeRef) }
+    unsafe { with_access(f, WithOp::MakeRef) }
 }
 
 /// `with_get_ref`: `[env_obj, ^] -> [env_obj, value, ^]` on a hit.
 pub(super) unsafe extern "C" fn h_with_get_ref(f: *mut JitExecFrame) -> u32 {
-    unsafe { with_var(f, WithOp::GetRef) }
+    unsafe { with_access(f, WithOp::GetRef) }
 }
 
-/// Which `with_*` access [`with_var`] performs.
+/// Which `with_*` access [`with_access`] performs.
 #[derive(Clone, Copy)]
 enum WithOp {
     GetVar,

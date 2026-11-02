@@ -5,8 +5,8 @@ use super::*;
 
 /// Whether the baseline can translate this opcode. Everything else is a
 /// `Resume` exit: the interpreter runs that instruction and continues.
-pub(super) fn supported(name: &str) -> bool {
-    helper_for(name).is_some()
+pub(super) fn lowers(name: &str) -> bool {
+    helper_id(name).is_some()
         || shuffle_outputs(name).is_some()
         || matches!(
             name,
@@ -76,7 +76,7 @@ pub(super) fn supported(name: &str) -> bool {
         )
 }
 
-pub(super) fn helper_for(name: &str) -> Option<usize> {
+pub(super) fn helper_id(name: &str) -> Option<usize> {
     Some(match name {
         "add" => HELPER_ADD,
         "sub" => HELPER_SUB,
@@ -114,7 +114,7 @@ pub(super) fn helper_for(name: &str) -> Option<usize> {
         "delete_var" => HELPER_DELETE_VAR,
         // The engine-generated opcodes. `throw_error` and
         // `push_bigint_i32` carry an immediate, so they have explicit arms in
-        // `lower_insn` and are only listed here for `supported()`.
+        // `lower_insn` and are only listed here for `lowers()`.
         "throw" => HELPER_THROW,
         "throw_error" => HELPER_THROW_ERROR,
         "regexp" => HELPER_REGEXP,
@@ -123,7 +123,7 @@ pub(super) fn helper_for(name: &str) -> Option<usize> {
         // Sync iteration. `for_of_next`/`iterator_close`/`iterator_call` need
         // more than a name→id map (an operand or a stack adjustment), so they
         // have explicit arms in `lower_insn` and are only listed here for
-        // `supported()`.
+        // `lowers()`.
         "for_in_start" => HELPER_FOR_IN_START,
         "for_in_next" => HELPER_FOR_IN_NEXT,
         "for_of_start" => HELPER_FOR_OF_START,
@@ -178,7 +178,7 @@ pub(super) fn helper_for(name: &str) -> Option<usize> {
         "get_ref_value" => HELPER_GET_REF_VALUE,
         "put_ref_value" => HELPER_PUT_REF_VALUE,
         // `with_*` takes the instruction's branch on a hit, so it has an
-        // explicit arm in `lower_insn`; listed here for `supported()`.
+        // explicit arm in `lower_insn`; listed here for `lowers()`.
         "with_get_var" => HELPER_WITH_GET_VAR,
         "with_put_var" => HELPER_WITH_PUT_VAR,
         "with_delete_var" => HELPER_WITH_DELETE_VAR,
@@ -213,7 +213,7 @@ pub(super) enum FastOp {
 }
 
 /// Maps an opcode name to its fast-path form and the fallback helper id.
-pub(super) fn fast_op(name: &str) -> Option<(FastOp, usize)> {
+pub(super) fn fast_binary(name: &str) -> Option<(FastOp, usize)> {
     use FastOp::*;
     Some(match name {
         "add" => (Add, HELPER_ADD),
@@ -238,10 +238,10 @@ pub(super) fn fast_op(name: &str) -> Option<(FastOp, usize)> {
 }
 
 /// Whether an opcode is one of the pure binaries the CSE pass numbers. It is
-/// exactly the set [`fast_op`] lowers, so the pass can neither plan
+/// exactly the set [`fast_binary`] lowers, so the pass can neither plan
 /// a reuse the lowering would not honor nor miss a site it does.
 pub(crate) fn is_cse_expression(name: &str) -> bool {
-    fast_op(name).is_some()
+    fast_binary(name).is_some()
 }
 
 /// Output arrangement for the stack shuffles: each output copies the popped

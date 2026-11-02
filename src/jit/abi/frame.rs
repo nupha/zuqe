@@ -17,18 +17,12 @@ pub(crate) const HELPER_WITH_MISS: u32 = 3;
 
 /// What the native entry returns. Stored as a `u32` so the ABI is a single
 /// register (a big `#[repr(C)]` struct return would need an sret pointer).
-/// `CallBytecode`/`TailCall` are emitted by the bytecode ABI; the baseline never uses
-/// them yet.
-#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u32)]
 pub(crate) enum JitExitKind {
     Done = 0,
     Exception = 1,
     Interrupt = 2,
-    Unwind = 3,
-    CallBytecode = 4,
-    TailCall = 5,
     Resume = 6,
     Retry = 7,
 }
@@ -39,7 +33,6 @@ impl JitExitKind {
             0 => Self::Done,
             1 => Self::Exception,
             2 => Self::Interrupt,
-            3 => Self::Unwind,
             6 => Self::Resume,
             _ => Self::Retry,
         }
@@ -277,11 +270,10 @@ pub(crate) type NativeEntry = unsafe extern "C" fn(*mut JitExecFrame) -> u32;
 pub(crate) const SPEC_MISS_IMM2: u32 = u32::MAX;
 
 /// Per-function storage for the installed native entry, living on
-/// `BytecodeImpl`. `None` until a compile installs one. It holds a strong `Rc`
-/// to its [`CodeSlot`], so the mapping lives exactly as long as a function that
-/// can call it exists and is freed when the last `BytecodeImpl` is collected
-/// when the last `BytecodeImpl` is collected. Written through `&Bytecode` (interior mutability); all access happens
-/// on the single runtime thread.
+/// `BytecodeImpl`: `None` until a compile installs one. It holds a strong `Rc`
+/// to its [`CodeSlot`], so the mapping lives exactly as long as a function
+/// that can call it. Written through `&Bytecode` (interior mutability); all
+/// access happens on the single runtime thread.
 ///
 /// [`CodeSlot`]: crate::jit::code_cache::CodeSlot
 pub(crate) struct FunctionSlot {

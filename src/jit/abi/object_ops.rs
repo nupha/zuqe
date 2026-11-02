@@ -656,7 +656,7 @@ pub(super) unsafe extern "C" fn h_alloc_object(f: *mut JitExecFrame) -> u32 {
 }
 
 /// `array_from 0` inside an inlined body: an empty array in `scratch`.
-pub(super) unsafe extern "C" fn h_alloc_array0(f: *mut JitExecFrame) -> u32 {
+pub(super) unsafe extern "C" fn h_alloc_empty_array(f: *mut JitExecFrame) -> u32 {
     unsafe {
         let f = &mut *f;
         let scope = scope_of(f);

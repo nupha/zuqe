@@ -66,7 +66,7 @@ pub(crate) struct CompileSnapshot {
     /// after a tier-down observed too many guard misses at
     /// its sites: the recompile keeps the int fast paths but not the
     /// speculation, so the guards stop being paid.
-    pub(crate) speculate: bool,
+    pub(crate) allow_speculation: bool,
 }
 
 /// A callee the compiler may inline into its caller.
@@ -194,7 +194,7 @@ impl InlineCallee {
             feedback: Box::new([]),
             call_sites: self.call_sites.clone(),
             inline_callees: self.inline_callees.clone(),
-            speculate: false,
+            allow_speculation: false,
         }
     }
 }
@@ -246,7 +246,7 @@ impl CompileSnapshot {
             feedback: bc.feedback.snapshot(min_samples).into_boxed_slice(),
             call_sites: call_sites.into_boxed_slice(),
             inline_callees: inline_callees.into_boxed_slice(),
-            speculate: true,
+            allow_speculation: true,
         }
     }
 }
@@ -283,7 +283,7 @@ impl CompileSnapshot {
             feedback: Box::new([]),
             call_sites: Box::new([]),
             inline_callees: Box::new([]),
-            speculate: true,
+            allow_speculation: true,
         }
     }
 }

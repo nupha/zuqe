@@ -31,7 +31,9 @@ pub(crate) const HELPER_DEC: usize = 22;
 pub(crate) const HELPER_LNOT: usize = 23;
 pub(crate) const HELPER_NOT: usize = 24;
 pub(crate) const HELPER_TYPEOF: usize = 25;
-/// Index of [`h_to_bool`], called with [`TruthyFn`]'s signature.
+/// Index of [`h_to_bool`], which takes the operand as a second argument and
+/// returns an `i64` (`-1` on failure) — it is called through `truthy_sig`, not
+/// the shared helper signature.
 pub(crate) const HELPER_TO_BOOL: usize = 26;
 /// Index of [`h_safepoint`], called at loop back edges.
 pub(crate) const HELPER_SAFEPOINT: usize = 27;
@@ -231,9 +233,9 @@ pub(crate) const HELPER_INLINE_GUARD: usize = 122;
 /// Index of [`h_alloc_object`], an empty object literal inside an inlined
 /// body. The value is read back from `JitExecFrame::scratch`.
 pub(crate) const HELPER_ALLOC_OBJECT: usize = 123;
-/// Index of [`h_alloc_array0`], an empty array literal inside an inlined body.
+/// Index of [`h_alloc_empty_array`], an empty array literal inside an inlined body.
 pub(crate) const HELPER_ALLOC_ARRAY0: usize = 124;
-/// Index of [`h_call_apply`], a native-callee method site's fast path for
+/// Index of [`h_call_method_apply`], a native-callee method site's fast path for
 /// `Function.prototype.apply`.
 pub(crate) const HELPER_CALL_APPLY: usize = 125;
 /// Index of [`h_object_literal`], T25's merged object-literal builder.
@@ -370,7 +372,7 @@ pub(crate) static HELPERS: HelperTable = HelperTable([
     h_call_method_inline as *const (),
     h_inline_guard as *const (),
     h_alloc_object as *const (),
-    h_alloc_array0 as *const (),
-    h_call_apply as *const (),
+    h_alloc_empty_array as *const (),
+    h_call_method_apply as *const (),
     h_object_literal as *const (),
 ]);

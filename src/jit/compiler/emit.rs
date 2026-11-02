@@ -80,7 +80,7 @@ pub(super) fn emit_write_barrier(
 
 /// Write `out_pc`/`out_sp` and return `kind`. Register-resident stack slots
 /// are materialized first: the interpreter resumes by reading them.
-pub(super) fn exit(
+pub(super) fn exit_const(
     state: &mut State,
     b: &mut FunctionBuilder,
     fv: &FrameVals,
@@ -99,7 +99,7 @@ pub(super) fn exit(
 ///
 /// Only called after the cache was flushed and dropped, so the frame already
 /// holds every slot this exit exposes to the interpreter.
-pub(super) fn exit_status(
+pub(super) fn exit_with_status(
     b: &mut FunctionBuilder,
     fv: &FrameVals,
     status: Value,
@@ -136,7 +136,7 @@ pub(super) fn call_stack_helper(
     let ok = b.create_block();
     b.ins().brif(failed, fail, &[], ok, &[]);
     b.switch_to_block(fail);
-    exit_status(b, fv, status, pc_after, sp);
+    exit_with_status(b, fv, status, pc_after, sp);
     b.switch_to_block(ok);
     b.ins().load(types::I64, MemFlags::new(), fv.frame, O_SP)
 }
@@ -217,7 +217,7 @@ pub(super) fn call_raising_helper(
         .load(types::I64, MemFlags::new(), fv.helpers, (id * 8) as i32);
     let call = b.ins().call_indirect(helper_sig, callee, &[fv.frame]);
     let status = b.inst_results(call)[0];
-    exit_status(b, fv, status, pc_after, sp);
+    exit_with_status(b, fv, status, pc_after, sp);
 }
 
 /// Emit a loop back edge safepoint. Returns the continuation block (not yet
@@ -246,6 +246,6 @@ pub(super) fn safepoint(
     let cont = b.create_block();
     b.ins().brif(failed, fail, &[], cont, &[]);
     b.switch_to_block(fail);
-    exit_status(b, fv, status, pc_after, sp);
+    exit_with_status(b, fv, status, pc_after, sp);
     cont
 }

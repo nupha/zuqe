@@ -35,11 +35,11 @@ pub(super) struct State<'a> {
     /// when its index is inside this count: a persistent restore has no cache,
     /// and its global accesses keep the helper.
     pub(super) global_cache_count: u32,
-    pub(super) specialized: &'a Cell<u64>,
+    pub(super) specialized_ops: &'a Cell<u64>,
     /// Whether tier-2 specialization is allowed (tier-down). False
     /// after a function's speculative sites missed too often: the recompile
     /// keeps the int fast paths but drops the speculation.
-    pub(super) speculate: bool,
+    pub(super) allow_speculation: bool,
     /// Block-local write-back cache for operand-stack slots (the stack-slot register cache).
     pub(super) stack: StackCache,
     /// Cross-block carry: per block start pc, the slots its code reads in
@@ -76,16 +76,16 @@ pub(super) struct State<'a> {
     /// The monomorphic call sites (the direct-call path): the opcode offset -> the site
     /// id the compiled code carries. A site that saw more than one callee is
     /// not here: its guard would miss every time.
-    pub(super) call_sites: HashMap<u32, u32>,
+    pub(super) direct_call_sites: HashMap<u32, u32>,
     /// Monomorphic sites whose callee body is copied into this function
     /// (the inlined call path). The value is the verified plan (the body plus
     /// its own nested sites); a site not in here keeps the direct-call helper.
-    pub(super) inline_sites: HashMap<u32, crate::jit::inline_call::Plan>,
+    pub(super) inline_sites: HashMap<u32, crate::jit::inline_call::InlinePlan>,
     /// Call sites the interpreter only ever saw a non-bytecode callee at. The
     /// one such callee the compiler can serve directly is the builtin
     /// `Function.prototype.apply`: its helper recognizes it at run time, so no
     /// callee identity is baked in.
-    pub(super) native_sites: HashSet<u32>,
+    pub(super) builtin_apply_sites: HashSet<u32>,
     /// Counter for the variable-id block an inlined body owns. Every emission
     /// gets a fresh block: Cranelift forbids declaring a variable twice.
     pub(super) inline_tag: u32,
@@ -577,15 +577,15 @@ impl<'a> State<'a> {
     }
 
     /// Speculative fast path: did type feedback observe *only* `Int` at this site? Feedback is
-    /// sorted by pc, so a binary search answers it. `both` is false for
+    /// sorted by pc, so a binary search answers it. `check_rhs` is false for
     /// single-value sites (`inc_loc`/`dec_loc`), whose `rhs` slot stays 0.
     /// Always false once tier-down disabled specialization for this function.
-    pub(super) fn int_only(&self, pc: u32, both: bool) -> bool {
-        self.speculate && int_only(self.feedback, pc, both)
+    pub(super) fn int_only(&self, pc: u32, check_rhs: bool) -> bool {
+        self.allow_speculation && int_only(self.feedback, pc, check_rhs)
     }
 
     pub(super) fn note_specialized(&self) {
-        self.specialized.set(self.specialized.get() + 1);
+        self.specialized_ops.set(self.specialized_ops.get() + 1);
     }
 
     /// The CSE pass: the register holding the value this instruction is a

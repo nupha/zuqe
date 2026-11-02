@@ -62,7 +62,7 @@ pub(super) fn lower_if(
     let ok = b.create_block();
     b.ins().brif(failed, fail, &[], ok, &[]);
     b.switch_to_block(fail);
-    exit(state, b, fv, 1, pc_after, sp);
+    exit_const(state, b, fv, 1, pc_after, sp);
     b.switch_to_block(ok);
     let result = b.ins().ireduce(types::I32, result);
     let test_slow = b.ins().icmp_imm(IntCC::NotEqual, result, 0);
@@ -103,7 +103,7 @@ pub(super) fn lower_with(
     let cont = b.create_block();
     b.ins().brif(resolved, cont, &[], fail, &[]);
     b.switch_to_block(fail);
-    exit_status(b, fv, status, pc_after, sp);
+    exit_with_status(b, fv, status, pc_after, sp);
     b.switch_to_block(cont);
     let sp = b.ins().load(types::I64, MemFlags::new(), fv.frame, O_SP);
     if insn

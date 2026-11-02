@@ -59,7 +59,7 @@ pub(super) fn collect_osr_pcs(verified: &VerifiedFunction) -> Vec<u32> {
 const OSR_TAIL_BUDGET: usize = 256;
 
 /// Speculative fast path: did type feedback observe *only* `Int` at this site? Feedback is
-/// sorted by pc, so a binary search answers it. `both` is false for
+/// sorted by pc, so a binary search answers it. `check_rhs` is false for
 /// single-value sites (`inc_loc`/`dec_loc`), whose `rhs` slot stays 0.
 ///
 /// Result classes: the *result* class must be `Int` too. The inline int
@@ -67,12 +67,14 @@ const OSR_TAIL_BUDGET: usize = 256;
 /// a `Float64` (an accumulator that overflows every trip) would pay that bail
 /// every iteration — speculation would lose to the plain helper. The result
 /// class lets the gate refuse exactly those sites.
-pub(super) fn int_only(feedback: &[(u32, SiteFeedback)], pc: u32, both: bool) -> bool {
+pub(super) fn int_only(feedback: &[(u32, SiteFeedback)], pc: u32, check_rhs: bool) -> bool {
     feedback
         .binary_search_by_key(&pc, |&(site, _)| site)
         .is_ok_and(|i| {
             let site = feedback[i].1;
-            site.lhs == CLASS_INT && (!both || site.rhs == CLASS_INT) && site.result == CLASS_INT
+            site.lhs == CLASS_INT
+                && (!check_rhs || site.rhs == CLASS_INT)
+                && site.result == CLASS_INT
         })
 }
 
@@ -80,7 +82,7 @@ pub(super) fn int_only(feedback: &[(u32, SiteFeedback)], pc: u32, both: bool) ->
 /// observe the frame (the stack-slot register cache). Mirrors `lower_insn`'s dispatch order; a
 /// misclassification only costs the carry, never correctness — every edge
 /// materializes what it does not pass (see [`State::edge_args`]).
-enum Touch {
+enum StackEffect {
     /// Nothing the cache holds: pushes, `get_loc`, `drop`, `nop`, `goto`, …
     Pass,
     /// Reads slot `k` in a register; the block keeps being scanned.
@@ -96,13 +98,19 @@ enum Touch {
 /// [`lower_insn`] in miniature: which stack slots does `name` read from
 /// registers, and does it flush before reading any? `h` is the proven height
 /// before the instruction.
-fn touch(name: &str, h: u32, strict: bool, feedback: &[(u32, SiteFeedback)], pc: u32) -> Touch {
-    if fast_op(name).is_some() {
+fn stack_effect(
+    name: &str,
+    h: u32,
+    strict: bool,
+    feedback: &[(u32, SiteFeedback)],
+    pc: u32,
+) -> StackEffect {
+    if fast_binary(name).is_some() {
         // The operands are read first; `flush_except` then spares them.
-        return Touch::ReadFlush(vec![h - 1, h]);
+        return StackEffect::ReadFlush(vec![h - 1, h]);
     }
-    if helper_for(name).is_some() || shuffle_outputs(name).is_some() {
-        return Touch::Flush;
+    if helper_id(name).is_some() || shuffle_outputs(name).is_some() {
+        return StackEffect::Flush;
     }
     match name {
         "nop"
@@ -118,22 +126,22 @@ fn touch(name: &str, h: u32, strict: bool, feedback: &[(u32, SiteFeedback)], pc:
         | "drop"
         | "goto"
         | "gosub"
-        | "set_loc_uninitialized" => Touch::Pass,
-        "push_this" if strict => Touch::Pass,
+        | "set_loc_uninitialized" => StackEffect::Pass,
+        "push_this" if strict => StackEffect::Pass,
         // Reads the operand in a register and rewrites the slot from it.
-        "is_undefined_or_null" => Touch::Read(h),
-        "put_loc" | "put_arg" | "set_loc" | "set_arg" => Touch::Read(h),
+        "is_undefined_or_null" => StackEffect::Read(h),
+        "put_loc" | "put_arg" | "set_loc" | "set_arg" => StackEffect::Read(h),
         // Specialized `add_loc` reads the operand before `flush_except([top])`.
-        "add_loc" if int_only(feedback, pc, true) => Touch::ReadFlush(vec![h]),
+        "add_loc" if int_only(feedback, pc, true) => StackEffect::ReadFlush(vec![h]),
         // Both variants flush before anything reads the stack (`inc_loc`
         // reads the local out of the frame, not out of a cache entry).
-        "add_loc" | "inc_loc" | "dec_loc" => Touch::Flush,
-        "if_true" | "if_false" | "return" | "ret" => Touch::ReadFlush(vec![h]),
+        "add_loc" | "inc_loc" | "dec_loc" => StackEffect::Flush,
+        "if_true" | "if_false" | "return" | "ret" => StackEffect::ReadFlush(vec![h]),
         // `rest`/`special_object`/`fclosure` call helpers; `get_loc_check`
         // flushes before its TDZ split. Everything else is a `Resume` exit
         // (nothing survives it either).
-        "rest" | "special_object" | "fclosure" | "get_loc_check" => Touch::Flush,
-        _ => Touch::Flush,
+        "rest" | "special_object" | "fclosure" | "get_loc_check" => StackEffect::Flush,
+        _ => StackEffect::Flush,
     }
 }
 
@@ -149,7 +157,7 @@ fn touch(name: &str, h: u32, strict: bool, feedback: &[(u32, SiteFeedback)], pc:
 ///
 /// Returns `(carried, entry_heights)` keyed by block start pc: every CFG block
 /// and every OSR resume point, the pcs [`lower`] can create a block for.
-pub(super) fn carried_sets(
+pub(super) fn block_carry_facts(
     verified: &VerifiedFunction,
     osr_pcs: &[u32],
     strict: bool,
@@ -179,16 +187,16 @@ pub(super) fn carried_sets(
         for index in range {
             let h = heights[index] as u32;
             let instruction = &instructions[index];
-            match touch(instruction.name(), h, strict, feedback, instruction.pc()) {
-                Touch::Pass => {}
-                Touch::Read(k) => mark(&mut marked, entry_h, k),
-                Touch::ReadFlush(slots) => {
+            match stack_effect(instruction.name(), h, strict, feedback, instruction.pc()) {
+                StackEffect::Pass => {}
+                StackEffect::Read(k) => mark(&mut marked, entry_h, k),
+                StackEffect::ReadFlush(slots) => {
                     for k in slots {
                         mark(&mut marked, entry_h, k);
                     }
                     break;
                 }
-                Touch::Flush => break,
+                StackEffect::Flush => break,
             }
         }
         let slots: Vec<u32> = marked
@@ -297,7 +305,7 @@ pub(super) fn native_call_sites(verified: &VerifiedFunction) -> HashSet<u32> {
 /// other function, and keep only bodies inside the inline subset.
 pub(super) fn inline_call_sites(
     verified: &VerifiedFunction,
-) -> HashMap<u32, crate::jit::inline_call::Plan> {
+) -> HashMap<u32, crate::jit::inline_call::InlinePlan> {
     let snapshot = verified.snapshot();
     let mut sites = HashMap::new();
     for site in snapshot.call_sites.iter() {
@@ -320,7 +328,7 @@ pub(super) fn inline_call_sites(
 fn build_inline_plan(
     callee: &InlineCallee,
     identity: u64,
-) -> Option<crate::jit::inline_call::Plan> {
+) -> Option<crate::jit::inline_call::InlinePlan> {
     let body = verify(callee.snapshot(identity), VerifyLimits::default()).ok()?;
     let snapshot = body.snapshot();
     let mut sites = HashMap::new();
@@ -335,11 +343,13 @@ fn build_inline_plan(
             sites.insert(site.pc, plan);
         }
     }
-    crate::jit::inline_call::eligible(&body, &sites).then_some(crate::jit::inline_call::Plan {
-        body,
-        callee: identity,
-        sites,
-    })
+    crate::jit::inline_call::eligible(&body, &sites).then_some(
+        crate::jit::inline_call::InlinePlan {
+            body,
+            callee: identity,
+            sites,
+        },
+    )
 }
 
 /// The merged object literal: the `object` seed plus the run of

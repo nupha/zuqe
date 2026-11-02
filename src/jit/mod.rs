@@ -551,7 +551,7 @@ impl JitState {
             CompileSnapshot::from_bytecode(request.function_id, &request.bytecode, min_samples);
         // Only the optimizing tier specializes; a pending tier-down forbids it
         // even if the request asked for the optimizing tier.
-        snapshot.speculate = request.tier == Tier::Tier2
+        snapshot.allow_speculation = request.tier == Tier::Tier2
             && !self
                 .coordinator
                 .borrow()

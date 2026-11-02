@@ -67,18 +67,18 @@ const MAX_BLOCKS: usize = 16;
 
 /// One verified body plus its nested monomorphic call sites. The plan is
 /// built once per top-level inline site and consumed by [`lower`].
-pub(super) struct Plan {
+pub(super) struct InlinePlan {
     pub(super) body: VerifiedFunction,
     /// The callee's bytecode identity, compared by the nested guard.
     pub(super) callee: u64,
     /// Nested call site pc -> the body it may copy.
-    pub(super) sites: HashMap<u32, Plan>,
+    pub(super) sites: HashMap<u32, InlinePlan>,
 }
 
 /// May this callee's body be copied? This is the whole structural contract:
-/// the lowering below only knows the opcodes [`supported`] accepts, plus a
-/// `call`/`call_method` at a pc [`Plan::sites`] has a body for.
-pub(super) fn eligible(body: &VerifiedFunction, sites: &HashMap<u32, Plan>) -> bool {
+/// the lowering below only knows the opcodes [`in_subset`] accepts, plus a
+/// `call`/`call_method` at a pc [`InlinePlan::sites`] has a body for.
+pub(super) fn eligible(body: &VerifiedFunction, sites: &HashMap<u32, InlinePlan>) -> bool {
     let snapshot = body.snapshot();
     if snapshot.arg_count > 16
         || snapshot.var_count > 16
@@ -101,7 +101,7 @@ pub(super) fn eligible(body: &VerifiedFunction, sites: &HashMap<u32, Plan>) -> b
             // non-empty literal would need its elements in memory.
             return false;
         }
-        if !supported(name) {
+        if !in_subset(name) {
             return false;
         }
     }
@@ -113,7 +113,7 @@ pub(super) fn eligible(body: &VerifiedFunction, sites: &HashMap<u32, Plan>) -> b
 }
 
 /// `(allocates, has a back edge)` for a copied subtree.
-fn hazards(body: &VerifiedFunction, sites: &HashMap<u32, Plan>) -> (bool, bool) {
+fn hazards(body: &VerifiedFunction, sites: &HashMap<u32, InlinePlan>) -> (bool, bool) {
     let mut allocates = false;
     let mut safepoint = false;
     for instruction in body.instructions() {
@@ -141,7 +141,7 @@ fn hazards(body: &VerifiedFunction, sites: &HashMap<u32, Plan>) -> (bool, bool) 
 /// The opcodes the inline lowering implements. Everything the ordinary
 /// lowering would send to a helper is either lowered here for `Int` operands
 /// or left out of the subset entirely.
-fn supported(name: &str) -> bool {
+fn in_subset(name: &str) -> bool {
     matches!(
         name,
         "nop"
@@ -208,7 +208,7 @@ fn supported(name: &str) -> bool {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn lower(
     b: &mut FunctionBuilder,
-    plan: &Plan,
+    plan: &InlinePlan,
     args: &[Value],
     store: Option<(Value, Value)>,
     next_tag: &mut u32,
@@ -256,10 +256,10 @@ pub(super) fn lower(
 
     // One flag collects every "this operand is outside the subset" answer, so
     // a straight-line body stays a single block and the branch happens once.
-    let bad = Variable::from_u32(tag * 0x100 + 0x04);
-    b.declare_var(bad, types::I8);
+    let poison = Variable::from_u32(tag * 0x100 + 0x04);
+    b.declare_var(poison, types::I8);
     let zero_flag = b.ins().iconst(types::I8, 0);
-    b.def_var(bad, zero_flag);
+    b.def_var(poison, zero_flag);
 
     let mut blocks: HashMap<u32, Block> = HashMap::new();
     let mut pending: Vec<u32> = Vec::new();
@@ -365,7 +365,7 @@ pub(super) fn lower(
                     push(b, &stack, &mut height, value);
                 }
                 "add" | "sub" | "mul" => {
-                    let (a, c) = pop_binary(b, &stack, &mut height, bad);
+                    let (a, c) = pop_binary(b, &stack, &mut height, poison);
                     let ai = b.ins().ireduce(types::I32, a);
                     let ci = b.ins().ireduce(types::I32, c);
                     let (result, overflow) = match name {
@@ -388,7 +388,7 @@ pub(super) fn lower(
                     } else {
                         overflow
                     };
-                    note_bad(b, bad, overflow);
+                    note_poison(b, poison, overflow);
                     let boxed = b.ins().uextend(types::I64, result);
                     push(b, &stack, &mut height, boxed);
                 }
@@ -399,11 +399,11 @@ pub(super) fn lower(
                     let rhs_int = is_int(b, rhs);
                     let both = b.ins().band(lhs_int, rhs_int);
                     let failed = not(b, both);
-                    note_bad(b, bad, failed);
+                    note_poison(b, poison, failed);
                     let ai = b.ins().ireduce(types::I32, lhs);
                     let ci = b.ins().ireduce(types::I32, rhs);
                     let (result, overflow) = b.ins().sadd_overflow(ai, ci);
-                    note_bad(b, bad, overflow);
+                    note_poison(b, poison, overflow);
                     let boxed = b.ins().uextend(types::I64, result);
                     b.def_var(locals[usize::from(instruction.operand_u8(1))], boxed);
                 }
@@ -412,7 +412,7 @@ pub(super) fn lower(
                     let value = b.use_var(locals[idx]);
                     let is_num = is_int(b, value);
                     let failed = not(b, is_num);
-                    note_bad(b, bad, failed);
+                    note_poison(b, poison, failed);
                     let value = b.ins().ireduce(types::I32, value);
                     let one = b.ins().iconst(types::I32, 1);
                     let (result, overflow) = if name == "inc_loc" {
@@ -420,12 +420,12 @@ pub(super) fn lower(
                     } else {
                         b.ins().ssub_overflow(value, one)
                     };
-                    note_bad(b, bad, overflow);
+                    note_poison(b, poison, overflow);
                     let boxed = b.ins().uextend(types::I64, result);
                     b.def_var(locals[idx], boxed);
                 }
                 "lt" | "lte" | "gt" | "gte" | "eq" | "neq" | "strict_eq" | "strict_neq" => {
-                    let (a, c) = pop_binary(b, &stack, &mut height, bad);
+                    let (a, c) = pop_binary(b, &stack, &mut height, poison);
                     let ai = b.ins().ireduce(types::I32, a);
                     let ci = b.ins().ireduce(types::I32, c);
                     let condition = match name {
@@ -441,7 +441,7 @@ pub(super) fn lower(
                     push(b, &stack, &mut height, boxed);
                 }
                 "and" | "or" | "xor" | "shl" | "sar" | "shr" => {
-                    let (a, c) = pop_binary(b, &stack, &mut height, bad);
+                    let (a, c) = pop_binary(b, &stack, &mut height, poison);
                     let ai = b.ins().ireduce(types::I32, a);
                     let ci = b.ins().ireduce(types::I32, c);
                     let count = b.ins().band_imm(ci, 31);
@@ -465,21 +465,21 @@ pub(super) fn lower(
                     let value = pop(b, &stack, &mut height);
                     let is_num = is_int(b, value);
                     let failed = not(b, is_num);
-                    note_bad(b, bad, failed);
+                    note_poison(b, poison, failed);
                     push(b, &stack, &mut height, value);
                 }
                 "neg" => {
                     let value = pop(b, &stack, &mut height);
                     let is_num = is_int(b, value);
                     let failed = not(b, is_num);
-                    note_bad(b, bad, failed);
+                    note_poison(b, poison, failed);
                     let value = b.ins().ireduce(types::I32, value);
                     // `-0` is a Float64; an Int 0 cannot carry its sign.
                     let zero = b.ins().icmp_imm(IntCC::Equal, value, 0);
-                    note_bad(b, bad, zero);
+                    note_poison(b, poison, zero);
                     let zero = b.ins().iconst(types::I32, 0);
                     let (result, overflow) = b.ins().ssub_overflow(zero, value);
-                    note_bad(b, bad, overflow);
+                    note_poison(b, poison, overflow);
                     let boxed = b.ins().uextend(types::I64, result);
                     push(b, &stack, &mut height, boxed);
                 }
@@ -487,7 +487,7 @@ pub(super) fn lower(
                     let value = pop(b, &stack, &mut height);
                     let is_num = is_int(b, value);
                     let failed = not(b, is_num);
-                    note_bad(b, bad, failed);
+                    note_poison(b, poison, failed);
                     let value = b.ins().ireduce(types::I32, value);
                     let one = b.ins().iconst(types::I32, 1);
                     let (result, overflow) = if name == "inc" {
@@ -495,13 +495,13 @@ pub(super) fn lower(
                     } else {
                         b.ins().ssub_overflow(value, one)
                     };
-                    note_bad(b, bad, overflow);
+                    note_poison(b, poison, overflow);
                     let boxed = b.ins().uextend(types::I64, result);
                     push(b, &stack, &mut height, boxed);
                 }
                 "lnot" => {
                     let value = pop(b, &stack, &mut height);
-                    let truthy = truthy(b, value, bad);
+                    let truthy = truthy(b, value, poison);
                     let inverted = b.ins().icmp_imm(IntCC::Equal, truthy, 0);
                     let widened = b.ins().uextend(types::I64, inverted);
                     let boxed = b.ins().bor_imm(widened, BOOL_TAG);
@@ -511,7 +511,7 @@ pub(super) fn lower(
                     let value = pop(b, &stack, &mut height);
                     let is_num = is_int(b, value);
                     let failed = not(b, is_num);
-                    note_bad(b, bad, failed);
+                    note_poison(b, poison, failed);
                     let value = b.ins().ireduce(types::I32, value);
                     let result = b.ins().bnot(value);
                     // Unary `~` boxes as `From<i32>` (an `Int`, sign kept),
@@ -600,14 +600,14 @@ pub(super) fn lower(
                     let target_pc = instruction.branch_target().expect("goto target") as u32;
                     let target = block_for(b, &mut blocks, &mut pending, target_pc);
                     if target_pc <= instruction.pc() {
-                        backedge_safepoint(b, bad, frame, helpers, helper_sig, bail);
+                        backedge_safepoint(b, poison, frame, helpers, helper_sig, bail);
                     }
                     b.ins().jump(target, &[]);
                     terminated = true;
                 }
                 "if_true" | "if_false" => {
                     let value = pop(b, &stack, &mut height);
-                    let cond = truthy(b, value, bad);
+                    let cond = truthy(b, value, poison);
                     let target_pc = instruction.branch_target().expect("if target") as u32;
                     let target = block_for(b, &mut blocks, &mut pending, target_pc);
                     let fallthrough_pc = instruction.pc() + instruction.size() as u32;
@@ -622,7 +622,7 @@ pub(super) fn lower(
                             b.ins().brif(cond, fallthrough, &[], back, &[]);
                         }
                         b.switch_to_block(back);
-                        backedge_safepoint(b, bad, frame, helpers, helper_sig, bail);
+                        backedge_safepoint(b, poison, frame, helpers, helper_sig, bail);
                         b.ins().jump(target, &[]);
                     } else if name == "if_true" {
                         b.ins().brif(cond, target, &[], fallthrough, &[]);
@@ -640,7 +640,7 @@ pub(super) fn lower(
                     // One bailout check for the whole body: a poisoned value
                     // may have travelled through branches, but every path ends
                     // here, and nothing was stored.
-                    let failed = b.use_var(bad);
+                    let failed = b.use_var(poison);
                     let failed = b.ins().icmp_imm(IntCC::NotEqual, failed, 0);
                     let good = b.create_block();
                     b.ins().brif(failed, bail, &[], good, &[]);
@@ -736,7 +736,7 @@ fn callee_guard(
 /// integer-domain or copies of values in that window.
 fn backedge_safepoint(
     b: &mut FunctionBuilder,
-    bad: Variable,
+    poison: Variable,
     frame: Value,
     helpers: Value,
     helper_sig: SigRef,
@@ -744,7 +744,7 @@ fn backedge_safepoint(
 ) {
     // A poisoned condition could otherwise loop where the interpreter would
     // not; bail before the first poisoned iteration sees a second one.
-    let poison = b.use_var(bad);
+    let poison = b.use_var(poison);
     let failed = b.ins().icmp_imm(IntCC::NotEqual, poison, 0);
     let clean = b.create_block();
     b.ins().brif(failed, bail, &[], clean, &[]);
@@ -799,10 +799,10 @@ fn not(b: &mut FunctionBuilder, value: Value) -> Value {
 }
 
 /// OR a failure condition into the body's poison flag.
-fn note_bad(b: &mut FunctionBuilder, bad: Variable, condition: Value) {
-    let previous = b.use_var(bad);
+fn note_poison(b: &mut FunctionBuilder, poison: Variable, condition: Value) {
+    let previous = b.use_var(poison);
     let merged = b.ins().bor(previous, condition);
-    b.def_var(bad, merged);
+    b.def_var(poison, merged);
 }
 
 /// Pop two operands; a non-`Int` poisons the body instead of splitting it.
@@ -810,7 +810,7 @@ fn pop_binary(
     b: &mut FunctionBuilder,
     stack: &[Variable],
     height: &mut usize,
-    bad: Variable,
+    poison: Variable,
 ) -> (Value, Value) {
     let c = pop(b, stack, height);
     let a = pop(b, stack, height);
@@ -818,17 +818,17 @@ fn pop_binary(
     let c_int = is_int(b, c);
     let both = b.ins().band(a_int, c_int);
     let failed = not(b, both);
-    note_bad(b, bad, failed);
+    note_poison(b, poison, failed);
     (a, c)
 }
 
 /// `ToBoolean` for the tags this subset carries. Other tags poison the body,
 /// so the general path evaluates them (strings, objects, BigInt, …).
-fn truthy(b: &mut FunctionBuilder, value: Value, bad: Variable) -> Value {
+fn truthy(b: &mut FunctionBuilder, value: Value, poison: Variable) -> Value {
     let tag = b.ins().ushr_imm(value, 48);
     let simple = b.ins().icmp_imm(IntCC::UnsignedLessThanOrEqual, tag, 3);
     let failed = not(b, simple);
-    note_bad(b, bad, failed);
+    note_poison(b, poison, failed);
     let low = b.ins().ireduce(types::I32, value);
     let int_true = b.ins().icmp_imm(IntCC::NotEqual, low, 0);
     let low_bit = b.ins().band_imm(value, 1);
