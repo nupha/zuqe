@@ -1037,7 +1037,7 @@ fn lower_insn(
                     fv.frame,
                     O_LIT_ATOMS + (i as i32) * 4,
                 );
-                sp = lower_literal_push(state, b, fv, &instructions[index], sp);
+                sp = push_value(state, b, fv, &instructions[index], sp);
             }
             let count = b
                 .ins()
@@ -1106,24 +1106,8 @@ fn lower_insn(
 
     match name {
         "nop" => Step::Continue(sp),
-        "push_i32" => {
-            // The literal is an `Int` by construction: no tag check needed
-            // wherever it is consumed (the stack-slot register cache's guard elimination).
-            let v = b.ins().iconst(types::I64, i64::from(insn.operand_u32(1)));
-            Step::Continue(state.stack.push_int(b, sp, v))
-        }
-        "push_const" => {
-            let idx = insn.operand_u32(1) as usize;
-            let v = b
-                .ins()
-                .load(types::I64, MemFlags::new(), fv.cpools, (idx * 8) as i32);
-            let is_int = state.const_meta.get(idx).is_some_and(|meta| meta.tag == 0);
-            Step::Continue(if is_int {
-                state.stack.push_int(b, sp, v)
-            } else {
-                state.stack.push(b, sp, v)
-            })
-        }
+        // The pure pushes share one lowering with the merged-literal window.
+        "push_i32" | "push_const" => Step::Continue(push_value(state, b, fv, insn, sp)),
         "push_atom_value" => {
             let atom = b.ins().iconst(types::I32, i64::from(insn.operand_u32(1)));
             b.ins().store(MemFlags::new(), atom, fv.frame, O_IMM);
@@ -1138,14 +1122,7 @@ fn lower_insn(
             );
             Step::Continue(sp)
         }
-        "undefined" => {
-            let v = b.ins().iconst(types::I64, UNDEFINED_BITS);
-            Step::Continue(state.stack.push(b, sp, v))
-        }
-        "null" => {
-            let v = b.ins().iconst(types::I64, 2i64 << 48);
-            Step::Continue(state.stack.push(b, sp, v))
-        }
+        "undefined" | "null" => Step::Continue(push_value(state, b, fv, insn, sp)),
         // Frame-entry TDZ prologue: the slot starts as the `Uninitialized`
         // sentinel so a later `get_loc_check` sees it.
         "set_loc_uninitialized" => {
@@ -1450,13 +1427,7 @@ fn lower_insn(
                 state.stack.push(b, sp, v)
             })
         }
-        "get_arg" => {
-            let idx = u32::from(insn.operand_u16(1));
-            let v = state
-                .locals
-                .read(b, fv.arg_base, true, idx, loc_offset_u16(insn));
-            Step::Continue(state.stack.push(b, sp, v))
-        }
+        "get_arg" => Step::Continue(push_value(state, b, fv, insn, sp)),
         "put_loc" => {
             let idx = u32::from(insn.operand_u16(1));
             let (sp, v) = state.stack.pop(b, sp);

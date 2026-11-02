@@ -101,14 +101,12 @@ pub(super) unsafe extern "C" fn h_call(f: *mut JitExecFrame) -> u32 {
         let base = f.sp.offset(-(argc as isize) - 1);
         let func = *base;
         let args = std::slice::from_raw_parts(base.add(1), argc);
-        match func.call_internal(scope, JSValue::UNDEFINED, JSValue::UNDEFINED, args, 0) {
-            Ok(value) => {
-                *base = value;
-                f.sp = base.add(1);
-                HELPER_OK
-            }
-            Err(_) => HELPER_EXCEPTION,
-        }
+        finish_call(
+            f,
+            base,
+            func.call_internal(scope, JSValue::UNDEFINED, JSValue::UNDEFINED, args, 0)
+                .map_err(|_| HELPER_EXCEPTION),
+        )
     }
 }
 
@@ -124,14 +122,12 @@ pub(super) unsafe extern "C" fn h_call_method(f: *mut JitExecFrame) -> u32 {
         let method_this = *base;
         let func = *base.add(1);
         let args = std::slice::from_raw_parts(base.add(2), argc);
-        match func.call_internal(scope, method_this, JSValue::UNDEFINED, args, 0) {
-            Ok(value) => {
-                *base = value;
-                f.sp = base.add(1);
-                HELPER_OK
-            }
-            Err(_) => HELPER_EXCEPTION,
-        }
+        finish_call(
+            f,
+            base,
+            func.call_internal(scope, method_this, JSValue::UNDEFINED, args, 0)
+                .map_err(|_| HELPER_EXCEPTION),
+        )
     }
 }
 
@@ -151,24 +147,15 @@ pub(super) unsafe extern "C" fn h_call_inline(f: *mut JitExecFrame) -> u32 {
         let func = *base;
         let args = std::slice::from_raw_parts(base.add(1), argc);
         if let Some(result) = try_direct_call(f, func, JSValue::UNDEFINED, args) {
-            return match result {
-                Ok(value) => {
-                    *base = value;
-                    f.sp = base.add(1);
-                    HELPER_OK
-                }
-                Err(status) => status,
-            };
+            return finish_call(f, base, result);
         }
         // The general path.
-        match func.call_internal(scope_of(f), JSValue::UNDEFINED, JSValue::UNDEFINED, args, 0) {
-            Ok(value) => {
-                *base = value;
-                f.sp = base.add(1);
-                HELPER_OK
-            }
-            Err(_) => HELPER_EXCEPTION,
-        }
+        finish_call(
+            f,
+            base,
+            func.call_internal(scope_of(f), JSValue::UNDEFINED, JSValue::UNDEFINED, args, 0)
+                .map_err(|_| HELPER_EXCEPTION),
+        )
     }
 }
 
@@ -184,24 +171,15 @@ pub(super) unsafe extern "C" fn h_call_method_inline(f: *mut JitExecFrame) -> u3
         let func = *base.add(1);
         let args = std::slice::from_raw_parts(base.add(2), argc);
         if let Some(result) = try_direct_call(f, func, method_this, args) {
-            return match result {
-                Ok(value) => {
-                    *base = value;
-                    f.sp = base.add(1);
-                    HELPER_OK
-                }
-                Err(status) => status,
-            };
+            return finish_call(f, base, result);
         }
         // The general path.
-        match func.call_internal(scope_of(f), method_this, JSValue::UNDEFINED, args, 0) {
-            Ok(value) => {
-                *base = value;
-                f.sp = base.add(1);
-                HELPER_OK
-            }
-            Err(_) => HELPER_EXCEPTION,
-        }
+        finish_call(
+            f,
+            base,
+            func.call_internal(scope_of(f), method_this, JSValue::UNDEFINED, args, 0)
+                .map_err(|_| HELPER_EXCEPTION),
+        )
     }
 }
 
@@ -231,6 +209,24 @@ fn note_direct(
             f.inline_call_misses = f.inline_call_misses.saturating_add(1);
             None
         }
+    }
+}
+
+/// Finish a call: the result replaces the call window's first slot and the
+/// operand stack shrinks to it. `Err` is the helper status to exit with
+/// (`HELPER_EXCEPTION` for a throw the caller's frame must scan for).
+fn finish_call(f: &mut JitExecFrame, base: *mut JSValue, result: Result<JSValue, u32>) -> u32 {
+    match result {
+        Ok(value) => {
+            // SAFETY: `base` points into the frame's operand stack — the call
+            // window the helper just read its operands from.
+            unsafe {
+                *base = value;
+                f.sp = base.add(1);
+            }
+            HELPER_OK
+        }
+        Err(status) => status,
     }
 }
 
@@ -337,20 +333,18 @@ pub(super) unsafe extern "C" fn h_call_constructor(f: *mut JitExecFrame) -> u32 
         let func = *base;
         let new_target = *base.add(1);
         let args = std::slice::from_raw_parts(base.add(2), argc);
-        match func.call_internal(
-            scope,
-            JSValue::UNDEFINED,
-            new_target,
-            args,
-            JS_CALL_FLAG_CONSTRUCTOR,
-        ) {
-            Ok(value) => {
-                *base = value;
-                f.sp = base.add(1);
-                HELPER_OK
-            }
-            Err(_) => HELPER_EXCEPTION,
-        }
+        finish_call(
+            f,
+            base,
+            func.call_internal(
+                scope,
+                JSValue::UNDEFINED,
+                new_target,
+                args,
+                JS_CALL_FLAG_CONSTRUCTOR,
+            )
+            .map_err(|_| HELPER_EXCEPTION),
+        )
     }
 }
 
@@ -407,25 +401,16 @@ pub(super) unsafe extern "C" fn h_call_method_apply(f: *mut JitExecFrame) -> u32
         let array_arg = window.get(1).copied().unwrap_or(JSValue::UNDEFINED);
 
         if let Some(result) = try_builtin_apply(f, method_this, func, this_arg, array_arg) {
-            return match result {
-                Ok(value) => {
-                    *base = value;
-                    f.sp = base.add(1);
-                    HELPER_OK
-                }
-                Err(status) => status,
-            };
+            return finish_call(f, base, result);
         }
 
         // The general path (the call_method helper's body).
-        match func.call_internal(scope_of(f), method_this, JSValue::UNDEFINED, window, 0) {
-            Ok(value) => {
-                *base = value;
-                f.sp = base.add(1);
-                HELPER_OK
-            }
-            Err(_) => HELPER_EXCEPTION,
-        }
+        finish_call(
+            f,
+            base,
+            func.call_internal(scope_of(f), method_this, JSValue::UNDEFINED, window, 0)
+                .map_err(|_| HELPER_EXCEPTION),
+        )
     }
 }
 

@@ -141,11 +141,12 @@ pub(super) fn call_stack_helper(
     b.ins().load(types::I64, MemFlags::new(), fv.frame, O_SP)
 }
 
-/// Emit one of the pure value pushes a merged literal window accepts as
-/// a field value. Each pushes exactly one slot; the register cache tracks them
-/// like any other push, and the merged helper's flush roots them before the
-/// one call that builds the literal.
-pub(super) fn lower_literal_push(
+/// One of the pure value pushes: `push_i32`, `push_const`, `get_loc`,
+/// `get_arg`, `undefined`, `null`. Each pushes exactly one slot and cannot
+/// exit, so both the normal dispatch and the merged-literal window emit them
+/// through here. `lower_insn` handles `get_loc` itself: it also carries the
+/// proven-`Int` fact.
+pub(super) fn push_value(
     state: &mut State,
     b: &mut FunctionBuilder,
     fv: &FrameVals,
