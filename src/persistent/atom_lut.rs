@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
 use crate::{Atom, ScopedContext, atom::AtomKind, persistent::SerializeCtx};
 
 use super::{BytecodeSerializeError, DeserializeCtx};
