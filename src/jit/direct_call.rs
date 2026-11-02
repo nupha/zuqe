@@ -249,10 +249,12 @@ pub(crate) fn call_native_direct(
     // The frame is ours: detach its var refs and free it (the trampoline
     // leaves the outermost frame to its owner). The frame may be gone already
     // — a tail call in the interpreted continuation replaces it — so check
-    // before freeing it (the same pattern as `BytecodeFunction::call`).
+    // before freeing it (the same pattern as `BytecodeFunction::call`). The
+    // detach carries the write barrier for the same reason as there: the
+    // frame slot was the root, the (possibly old) VarRef node is the edge.
     if let Some(var_refs) = arena.try_var_refs_mut(frame_idx) {
         for vr in var_refs.iter_mut() {
-            vr.detach();
+            vr.detach_with_barrier(rt.gc_heap_mut());
         }
     }
     if arena

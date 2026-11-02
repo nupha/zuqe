@@ -16,6 +16,7 @@ use std::{
 };
 
 use clap::Parser;
+use futures_util::FutureExt;
 use serde::Deserialize;
 
 use crate::{
@@ -23,9 +24,20 @@ use crate::{
         Decisions, PresetDef, available_presets, build_feature_edition, enabled_features,
         is_known_preset, parse_preset_arg, resolve_decisions,
     },
-    report::{NO_FEATURE_KEY, make_last_jsonl_path, write_report},
+    report::{NO_FEATURE_KEY, make_last_jsonl_path, write_jsonl_raw, write_report},
     runner::{TestStatus, run_test_file},
 };
+
+/// Extract the human-readable message from a `catch_unwind` payload.
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "(non-string panic payload)".to_string()
+    }
+}
 
 /// Relative path of the script currently being run. Set right before each
 /// `run_test_file` call so the panic hook below can print it if the runner
@@ -596,6 +608,11 @@ async fn main_impl() {
     }
     let mut done: usize = 0;
     let mut failed_count: usize = 0;
+    // Scripts whose run panicked (debug-only engine assertions, e.g. a missing
+    // GC write barrier). Each test gets a fresh runtime, so unwinding out of one
+    // test leaves the next unaffected; recording instead of aborting lets a
+    // single run report every failing script.
+    let mut panicked: Vec<(String, String)> = Vec::new();
     // Failed scripts, each paired with its error message and the `@features`
     // it declares (empty when the test has no `@features`), for grouped reporting.
     let mut failed_scripts: Vec<(String, String, Vec<String>)> = Vec::new();
@@ -616,8 +633,25 @@ async fn main_impl() {
             let _ = f.flush();
         }
 
-        let (status, feats, err_msg) =
-            run_test_file(&file_name, &harness_path, &dec, &rel, &mut errjson).await;
+        let outcome = std::panic::AssertUnwindSafe(run_test_file(
+            &file_name,
+            &harness_path,
+            &dec,
+            &rel,
+            &mut errjson,
+        ))
+        .catch_unwind()
+        .await;
+        let (status, feats, err_msg) = match outcome {
+            Ok(r) => r,
+            Err(payload) => {
+                let msg = panic_message(payload);
+                eprintln!("\n!!! test262 PANIC in {rel}: {msg}");
+                write_jsonl_raw(&mut errjson, &rel, "panic", &format!("PANIC: {msg}"), "");
+                panicked.push((rel.clone(), msg.clone()));
+                (TestStatus::Fail, Vec::new(), Some(format!("PANIC: {msg}")))
+            }
+        };
         match status {
             TestStatus::Fail => {
                 failed_count += 1;
@@ -680,6 +714,12 @@ async fn main_impl() {
 
     eprintln!();
     eprintln!("Done: {} tests, {} failed", total, failed_count);
+    if !panicked.is_empty() {
+        eprintln!("Panicked ({}):", panicked.len());
+        for (script, msg) in &panicked {
+            eprintln!("  {script}\t{msg}");
+        }
+    }
 
     // End-of-run JIT metrics (summed over every per-test runtime).
     #[cfg(feature = "jit")]

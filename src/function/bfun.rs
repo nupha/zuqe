@@ -547,11 +547,15 @@ impl BytecodeFunction {
         // it may be Suspended if a nested BytecodeFunction::call's free_frame
         // took the non-LIFO path, or already popped entirely if a TailCall
         // recycled it and the replacement allocation then failed (Oom).
+        //
+        // The detach must carry the write barrier: the frame slot it copies
+        // from was a GC root, and once the frame is freed this (possibly old)
+        // VarRef node is the only edge to the value.
         unsafe {
             let arena = &mut *arena_ptr;
             if let Some(var_refs) = arena.try_var_refs_mut(frame_idx) {
                 for vr in var_refs.iter_mut() {
-                    vr.detach();
+                    vr.detach_with_barrier(rt.gc_heap_mut());
                 }
             }
 

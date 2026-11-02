@@ -89,7 +89,13 @@ impl VarRefImpl {
         }
     }
 
-    pub(crate) const fn detach(&mut self) {
+    /// Copy the bound frame slot into `self`, dropping the frame edge.
+    ///
+    /// Private on purpose: the copy installs an edge from this (possibly old)
+    /// node to the value, so it MUST be accompanied by a write barrier. Every
+    /// detach goes through [`detach_with_barrier`](VarRef::detach_with_barrier);
+    /// a direct call cannot compile.
+    const fn detach(&mut self) {
         if let Self::Bind { pvalue, .. } = self {
             *self = Self::Detached(unsafe { *pvalue.as_ref() });
         }

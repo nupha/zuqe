@@ -183,4 +183,60 @@ function minor() {
     check(seen === 5, "for-in lost prototype-chain keys");
 }
 
+// ── closure variable: frame teardown into an old VarRef ────────────────────
+// The captured `VarRef` node lives in the closure, the value only in the
+// frame slot. Detaching at frame teardown copies the slot into the node, an
+// old→young write when the node was already promoted.
+{
+    let closure = null;
+    // `Array.prototype.map` is native, so the callback runs through
+    // `BytecodeFunction::call`, whose teardown detaches the frame's VarRefs.
+    [0].map(function () {
+        let x;
+        closure = () => x; // the closure allocates the VarRef for `x`
+        minor(); // promote the closure object and its VarRef
+        x = { v: 1 }; // young value, only in the frame slot
+    });
+    minor(); // old VarRef -> the detached value must survive
+    check(closure().v === 1, "closure lost the value captured at frame teardown");
+}
+
+// ── generator suspension: frame snapshot into an old state node ────────────
+// A suspended frame leaves the arena (it is no longer a root), so the values
+// it carries are only reachable through the AsyncState payload from then on.
+{
+    function* gen() {
+        const a = { v: 1 }; // young value in the frame
+        yield a;
+        yield a.v;
+    }
+    const g = gen();
+    minor();
+    minor(); // promote the generator's AsyncState node
+    const r1 = g.next(); // suspends: young frame values -> old state node
+    minor(); // the state is old; its snapshot values must survive
+    const r2 = g.next();
+    check(r1.value && r1.value.v === 1, "generator lost the yielded value");
+    check(r2.value === 1, "generator lost its local after a minor");
+}
+
+// ── async function: the same frame snapshot on `await` ─────────────────────
+{
+    let release;
+    const gate = new Promise((r) => {
+        release = r;
+    });
+    async function work() {
+        const a = { v: 2 };
+        await gate;
+        return a.v;
+    }
+    const p = work();
+    minor();
+    minor(); // promote the async state node while it is suspended on `gate`
+    release();
+    const v = await p;
+    check(v === 2, "async function lost its local across the suspension");
+}
+
 std.puts("gc barriers: ok\n");
