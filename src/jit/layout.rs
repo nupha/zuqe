@@ -32,8 +32,7 @@ pub(crate) mod object {
     pub(crate) const PAYLOAD_OFFSET: i32 =
         (NODE_TO_OBJECT + std::mem::offset_of!(ObjectImpl, payload)) as i32;
     /// The offset of the object's shape pointer (`None` is a null pointer).
-    pub(crate) const SHAPE_OFFSET: i32 =
-        (NODE_TO_OBJECT + std::mem::offset_of!(ObjectImpl, shape)) as i32;
+    pub(crate) const SHAPE_OFFSET: i32 = (NODE_TO_OBJECT + ObjectImpl::SHAPE_FIELD_OFFSET) as i32;
     /// The class id lives in the low 16 bits of the flags word.
     pub(crate) const CLASS_ID_MASK: i64 = 0x0000_FFFF;
     /// The fast-array flag (bit 28 of the flags word).

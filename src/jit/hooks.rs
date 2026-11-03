@@ -109,19 +109,18 @@ pub(crate) fn note_local_update(
 pub(crate) fn note_call(rt: &mut RuntimeImpl, bc: &Bytecode, site: u32, callee: JSValue) {
     // `FeedbackTable.calls[].callee` is a strong edge from the caller bytecode
     // node to the callee bytecode node (BytecodeImpl::trace relies on it). The
-    // caller may be old and the callee young, so this edge needs the
-    // generational barrier.
-    #[cfg(feature = "gc_generations")]
-    {
-        let callee_bc = crate::function::BCWrapper::try_from(callee)
-            .ok()
-            .map(|bfun| bfun.payload().bytecode());
-        if let Some(cb) = callee_bc {
-            rt.bind_node(bc.gc_node_ptr(), cb.gc_node_ptr());
-        }
-    }
+    // caller may be old and the callee young, so the edge needs the
+    // generational barrier — but only when this call actually stored a callee
+    // (`record_call` returns it), not on every CALL through the site.
+    let stored = match rt.jit.as_deref() {
+        Some(state) => state.note_call(bc, site, callee),
+        None => None,
+    };
 
-    if let Some(state) = rt.jit.as_deref() {
-        state.note_call(bc, site, callee);
+    #[cfg(feature = "gc_generations")]
+    if let Some(cb) = stored {
+        rt.bind_node(bc.gc_node_ptr(), cb.gc_node_ptr());
     }
+    #[cfg(not(feature = "gc_generations"))]
+    let _ = stored;
 }

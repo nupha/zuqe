@@ -70,7 +70,6 @@ const EXEMPT: &[&str] = &[
     "TypedArrayPayload.array_buffer — construction only",
     "PromiseResolvePayload.promise — construction only",
     "IteratorZipData.keys — construction only, no late write of the Atoms",
-    "ForInIterPayload.prop_enums — Box<[PropertyKey]> composite shape",
     "NFuncPayload.data — private to nfun.rs; `replace_data` stores and binds at the write site",
     "ContextImpl.error_protos — root container",
     "StackFrame.func_obj — VM stack frame, a traced root",
@@ -82,7 +81,15 @@ const EXEMPT: &[&str] = &[
     "IteratorHelperData.inner — Cell slot; `set_inner` stores and binds (iter_helper.rs)",
     "IteratorHelperData.inner_next — Cell slot; `set_inner_next` stores and binds (iter_helper.rs)",
     "WeakRefTarget.Symbol.0 — weak target; WeakRefData is not traced at all",
-    "ArrayPayload.values — array single-point path (memo §7 non-goal): every mutator binds at the call site; `reverse`/`sort` are in-place permutations a guard cannot express",
+    // `ArrayPayload.values` is a plain `Vec<JSValue>`: rule 2 accepts it because
+    // `JSValue` has `GcBind`. Every mutator binds at its call site; `reverse`/
+    // `sort` are in-place permutations a guard cannot express (array single-point
+    // path — `docs/gc.md` Rule 5).
+    "ArrayIterPayload.val — Cell slot, only late write is `UNDEFINED` (removal, no edge)",
+    "ObjectImpl.shape — `Shape` is private and `set_shape` is the only write path (store+bind)",
+    "ObjectImpl.prop_values — `bind_prop_slot` / `replace_prop_slot` are the only write paths",
+    "ContextImpl.array_shape — root container; the shape registry is a traced root",
+    "ContextImpl.func_shapes — root container; the shape registry is a traced root",
     "ModuleDefImpl.module_name — mdef setters bind",
     "ModuleDependency.module_name — `ModuleDef::add_dependency` binds (reqres.rs)",
     "ModuleDependency.attributes — `ModuleDef::add_dependency` binds (reqres.rs)",

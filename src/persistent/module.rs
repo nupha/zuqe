@@ -22,7 +22,7 @@ pub(crate) fn serialize_module(
 
     let md = &**m;
 
-    ctx.write_atom(sc, md.module_name)?;
+    ctx.write_atom(sc, md.module_name())?;
     ctx.write_u8(md.func_created as u8);
 
     ctx.write_u32(md.dependencies.len() as u32);
@@ -39,7 +39,7 @@ pub(crate) fn serialize_module(
 
     ctx.write_u32(md.export_entries.len() as u32);
     for e in md.export_entries.iter() {
-        let (kind, var_idx, req_idx) = match e.export_type {
+        let (kind, var_idx, req_idx) = match e.export_type() {
             ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, .. } => (0u8, var_idx, -1i32),
             ExportType::JS_EXPORT_TYPE_INDIRECT(idx) => (1u8, 0u16, idx),
         };

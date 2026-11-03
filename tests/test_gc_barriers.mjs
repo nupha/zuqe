@@ -239,4 +239,27 @@ function minor() {
     check(v === 2, "async function lost its local across the suspension");
 }
 
+// ── D9a: class prototype slots (root container, barrier kept for STW) ──────
+// The context root is re-traced every minor, so the bind in `set_class_proto`
+// is redundant today; this pins the behaviour if that decision is ever revisited.
+{
+    minor();
+    minor(); // promote the context and built-in class protos
+    class Sub extends Array {}
+    minor();
+    const arr = new Sub(3);
+    check(arr.length === 3 && arr instanceof Array, "class proto lost after a minor");
+}
+
+// ── D9b/D6: shape add/replace after the object was promoted ────────────────
+// `add_props` / `set_shape` keep their bind for the unregister/OOM window.
+{
+    const o = { a: 1 };
+    minor();
+    minor(); // promote the object and its shape
+    o.youngKey = { v: 2 }; // replace the shape, add a fresh property
+    minor();
+    check(o.a === 1 && o.youngKey.v === 2, "object lost a property after a shape change");
+}
+
 std.puts("gc barriers: ok\n");

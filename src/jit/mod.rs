@@ -249,9 +249,13 @@ impl JitState {
     /// more would only cost. The recording is what makes a call site
     /// *monomorphic* — one callee, always — which is the premise of the
     /// direct call the compiler emits for such a site.
-    fn note_call(&self, bc: &Bytecode, site: u32, callee: JSValue) {
+    ///
+    /// Returns the callee handle this call actually stored (the site's
+    /// `None`→`Some` transition), so the caller binds exactly one edge per
+    /// stored callee instead of one per CALL instruction.
+    fn note_call(&self, bc: &Bytecode, site: u32, callee: JSValue) -> Option<Bytecode> {
         if self.disabled() || bc.jit.has_code() {
-            return;
+            return None;
         }
         // The callee's identity is its bytecode node: two closures over one
         // bytecode share it (and share its compiled code), so it is the right
@@ -260,7 +264,7 @@ impl JitState {
         let callee = crate::function::BCWrapper::try_from(callee)
             .ok()
             .map(|bfun| bfun.payload().bytecode());
-        bc.feedback.record_call(site, callee);
+        bc.feedback.record_call(site, callee)
     }
 
     fn note_enter(&self, bc: &Bytecode) {

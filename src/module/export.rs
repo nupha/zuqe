@@ -62,7 +62,7 @@ impl GcTrace for ExportType {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ExportEntry {
-    pub(crate) export_type: ExportType,
+    pub(super) export_type: ExportType,
     /// '*' if export ns from. not used for local export after compilation.
     /// Written only through `add_export_internal` / `set_export_local_name`.
     pub(super) local_name: Atom,
@@ -71,6 +71,11 @@ pub struct ExportEntry {
 }
 
 impl ExportEntry {
+    /// Read-only view of the export kind (outside `crate::module`).
+    #[inline(always)]
+    pub(crate) const fn export_type(&self) -> ExportType {
+        self.export_type
+    }
     /// Construction-time entry (deserialization): the owning module does not
     /// exist yet, so no edge is bound here.
     pub(crate) const fn new(export_type: ExportType, local_name: Atom, export_name: Atom) -> Self {
@@ -144,17 +149,17 @@ impl ResolveExport {
             Self::NotFound => ctx.throw_syntax_error(&format!(
                 "Could not find export '{}' in module '{}'",
                 export_name.to_utf8(ctx.rt()),
-                m.module_name.to_utf8(ctx.rt()),
+                m.module_name().to_utf8(ctx.rt()),
             )),
             Self::Circular => ctx.throw_syntax_error(&format!(
                 "circular reference when looking for export '{}' in module '{}'",
                 export_name.to_utf8(ctx.rt()),
-                m.module_name.to_utf8(ctx.rt()),
+                m.module_name().to_utf8(ctx.rt()),
             )),
             Self::Ambiguous => ctx.throw_syntax_error(&format!(
                 "export '{}' in module '{}' is ambiguous",
                 export_name.to_utf8(ctx.rt()),
-                m.module_name.to_utf8(ctx.rt()),
+                m.module_name().to_utf8(ctx.rt()),
             )),
         }
     }
@@ -240,6 +245,21 @@ impl ModuleDefImpl {
             }
         }
         ctx.bind_node(owner, node);
+    }
+
+    /// Replace an export entry's kind. The single write path for
+    /// `ExportEntry::export_type`; a LOCAL entry with a bound `var_ref` gets
+    /// that edge recorded (the module may already be old).
+    pub(crate) fn set_export_type(&mut self, ctx: &ScopedContext, idx: usize, ty: ExportType) {
+        let owner = self.gc_head_ptr();
+        self.export_entries[idx].export_type = ty;
+        if let ExportType::JS_EXPORT_TYPE_LOCAL {
+            var_ref: Some(vref),
+            ..
+        } = ty
+        {
+            ctx.bind_node(owner, vref.gc_node_ptr());
+        }
     }
 
     /// Declare a module export name

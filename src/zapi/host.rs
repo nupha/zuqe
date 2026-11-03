@@ -544,7 +544,7 @@ fn set_module_export(
     let crate::module::ExportType::JS_EXPORT_TYPE_LOCAL {
         var_ref: Some(mut vr),
         ..
-    } = me.export_type
+    } = me.export_type()
     else {
         return Err(ctx.throw_internal_error(&format!(
             "zapi module: export '{name}' has no local binding"

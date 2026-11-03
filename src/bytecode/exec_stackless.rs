@@ -571,7 +571,7 @@ impl Bytecode {
             if let Ok(mut bfun) = BCWrapper::try_from(JSValue::from(func_obj)) {
                 // SAFETY: `bfun` is a Copy handle, so the payload outlives this
                 // call; no GC runs during the lookup.
-                let cv: *mut [VarRef] = bfun.payload_mut().captured_vars_mut();
+                let cv: *mut [VarRef] = bfun.payload_mut().captured_vars_ptr();
                 cv
             } else {
                 // Non-bytecode functions have no captures; the trampoline must
@@ -1591,7 +1591,7 @@ impl Bytecode {
                             let bc = bfun.payload().bytecode();
                             let func_kind = bc.func_kind();
                             let callee_captured: *mut [VarRef] =
-                                bfun.payload_mut().captured_vars_mut();
+                                bfun.payload_mut().captured_vars_ptr();
 
                             // Generators/async need `class_call` (AGenPayload or
                             // AsyncState + INITIAL_YIELD); only Normal functions
@@ -1752,7 +1752,7 @@ impl Bytecode {
                         {
                             let bc = bfun.payload().bytecode();
                             let callee_captured: *mut [VarRef] =
-                                bfun.payload_mut().captured_vars_mut();
+                                bfun.payload_mut().captured_vars_ptr();
 
                             // Cross-realm constructors fall through to
                             // `call_internal`; creating the instance here would
@@ -1912,7 +1912,7 @@ impl Bytecode {
                         if let Ok(mut bfun) = BCWrapper::try_from(func) {
                             let bc = bfun.payload().bytecode();
                             let callee_captured: *mut [VarRef] =
-                                bfun.payload_mut().captured_vars_mut();
+                                bfun.payload_mut().captured_vars_ptr();
 
                             if bc.func_kind() == FunctionKind::Normal {
                                 let args_slice = unsafe {
@@ -2596,7 +2596,7 @@ impl Bytecode {
                                 let func_kind = bc.func_kind();
                                 if func_kind == FunctionKind::Normal {
                                     let callee_captured: *mut [VarRef] =
-                                        bfun.payload_mut().captured_vars_mut();
+                                        bfun.payload_mut().captured_vars_ptr();
                                     let args_slice = unsafe {
                                         std::slice::from_raw_parts(call_argv, call_argc as usize)
                                     };

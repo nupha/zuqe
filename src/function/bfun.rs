@@ -5,9 +5,10 @@ use gc_lite::{GcRef, GcTrace, GcTraceCtx};
 use smallvec::SmallVec;
 
 use crate::{
-    EvalName, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION,
-    JS_CLASS_BOUND_FUNCTION, JS_CLASS_BYTECODE_FUNCTION, JS_CLASS_C_FUNCTION,
-    JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION, WriteBarrier,
+    EvalName, GcBind, JS_CLASS_ASYNC_FUNCTION, JS_CLASS_ASYNC_GENERATOR,
+    JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_BOUND_FUNCTION, JS_CLASS_BYTECODE_FUNCTION,
+    JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
+    WriteBarrier,
     atom::{Atom, AtomDescKind},
     bytecode::exec_stackless::execute_trampoline,
     class::ClassID,
@@ -172,10 +173,24 @@ impl BFuncPayload {
         self.closure_var_refs[nth]
     }
 
-    /// Set a closure variable reference by its closure-var index (0-based).
-    #[inline(always)]
-    pub(crate) fn set_closure(&mut self, nth: usize, vref: VarRef) {
+    /// Set a closure variable reference by its closure-var index (0-based):
+    /// store and record the function→VarRef edge in one step.
+    ///
+    /// Linking installs imports into a module function that was created
+    /// earlier, so the function may already be old while the `VarRef` is young.
+    /// `closure_var_refs` is a `SmallVec`, which `WriteBarrierVec` cannot wrap,
+    /// so this method is the single write path (the audit sees the element
+    /// type's `GcBind` and needs no allowlist entry).
+    #[inline]
+    pub(crate) fn set_closure(
+        &mut self,
+        ctx: &ScopedContext,
+        owner: std::ptr::NonNull<gc_lite::GcHead>,
+        nth: usize,
+        vref: VarRef,
+    ) {
         self.closure_var_refs[nth] = vref;
+        self.closure_var_refs[nth].bind_node(ctx, owner);
     }
 
     /// Set value of closure by its closure-var index (0-based).
@@ -194,9 +209,13 @@ impl BFuncPayload {
         &self.closure_var_refs
     }
 
+    /// Controlled bypass for the JIT/interpreter: they hold the captures as a
+    /// raw pointer because the calls in between may run GC and a long-lived
+    /// `&mut [VarRef]` would alias the payload. Never write through this and a
+    /// safe `&mut` at the same time.
     #[inline(always)]
-    pub(crate) fn captured_vars_mut(&mut self) -> &mut [VarRef] {
-        &mut self.closure_var_refs
+    pub(crate) fn captured_vars_ptr(&mut self) -> *mut [VarRef] {
+        std::ptr::from_mut(self.closure_var_refs.as_mut_slice())
     }
 }
 
@@ -252,15 +271,12 @@ impl BCWrapper {
             .unwrap()
     }
 
-    /// Set a closure variable ref and record the function→VarRef edge.
-    ///
-    /// Linking installs imports into a module function that was created
-    /// earlier, so the function may already be old while the `VarRef` is
-    /// young.
+    /// Set a closure variable ref and record the function→VarRef edge: the
+    /// payload setter owns both the store and the barrier.
     #[inline]
     pub(crate) fn set_closure(&mut self, ctx: &ScopedContext, nth: usize, vref: VarRef) {
-        self.payload_mut().set_closure(nth, vref);
-        ctx.bind_node(self.0.node_ptr(), vref.gc_node_ptr());
+        let owner = self.0.node_ptr();
+        self.payload_mut().set_closure(ctx, owner, nth, vref);
     }
 
     /// Set the method's home object and record the function→object edge.

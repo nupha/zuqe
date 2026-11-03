@@ -540,10 +540,10 @@ impl GcBind for MyElement {
 }
 ```
 
-One-step primitives for foreign slots (`&mut JSValue` whose type you do not own) and for
-migration: `ScopedContext::bind_set(owner, slot, value)` / `bind_push(owner, vec, value)`
-(`ContextPtr` forwards both). They are ergonomic only — the strong guarantee comes from the
-typed slots.
+One-step primitives for foreign slots (`&mut JSValue` whose type you do not own) used to be
+`ScopedContext::bind_set` / `bind_push`; D11 made them test-only (`#[cfg(test)]`) because
+production code now holds a typed slot or calls the owner's foreign-slot API. The strong
+guarantee comes from the typed slots, not from an ergonomic helper.
 
 **Differential debugging recipe** (all switches already exist in zhuque):
 
@@ -662,8 +662,8 @@ referencing a young node** must record the edge:
 - [ ] New payload GC field is a `WriteBarrier`/`WriteBarrierVec` slot, or a `Type.field` line in
       `tests/gc_field_audit.rs`'s allowlist (a bare field fails that test at `file:line`)?
 - [ ] New container element type has an `impl GcBind` with its weak/`#[gc(skip)]` fields left out?
-- [ ] New `bind` call site still has a bare store next to it? Merge the pair into `bind_set` /
-      `bind_push` or a guard `set`/`push` — two statements can be split by a later edit.
+- [ ] New `bind` call site still has a bare store next to it? Merge the pair into a guard
+      `set`/`push` (the payload's single setter) — two statements can be split by a later edit.
 - [ ] Any `field = WriteBarrier::new(...)` / `mem::replace(&mut field, …)` whole-field
       replacement? That bypasses the barrier and is rejected by the same audit test.
 - [ ] Barrier regression reproduced under `--gc-stress` at least once? Stress is what makes the

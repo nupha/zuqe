@@ -43,7 +43,7 @@ pub struct ForInIterPayload {
     pub(crate) idx: u32,
 
     /// enumerable props list
-    pub(crate) prop_enums: Box<[PropertyKey]>,
+    prop_enums: Box<[PropertyKey]>,
     /// for fast array, this equals length of array.
     /// for non fast array, this equals to prop_enums.len()
     pub(crate) prop_count: u32,
@@ -104,6 +104,7 @@ impl ForInIterPayload {
     pub(crate) fn prepare_prototype_chain_enum(
         &mut self,
         ctx: &mut ScopedContext,
+        owner: NonNull<GcHead>,
         mut obj: Object,
     ) -> Result<bool, i32> {
         // fast path: check if there are enumerable properties in shape proto chain
@@ -138,13 +139,34 @@ impl ForInIterPayload {
                     obj.get_own_property_names(ctx, JS_GPN_STR_OR_INT_MASK | JS_GPN_SET_ENUM)?;
                 self.is_array = false;
                 self.prop_count = names.len() as _;
-                self.prop_enums = names;
+                self.set_prop_enums(ctx, owner, names);
             }
             Ok(false)
         } else {
             // searched till top of prototype chain, enumeration is done
             Ok(true)
         }
+    }
+
+    /// The single post-construction write path for `prop_enums`: store, then
+    /// bind every atom to the (possibly old) iterator node. `Box<[T]>` keeps
+    /// the 16-byte layout; a guard would force a 24-byte `Vec`.
+    pub(crate) fn set_prop_enums(
+        &mut self,
+        ctx: &ScopedContext,
+        owner: NonNull<GcHead>,
+        names: Box<[PropertyKey]>,
+    ) {
+        self.prop_enums = names;
+        for name in self.prop_enums.iter() {
+            ctx.bind_atom(owner, name.atom);
+        }
+    }
+
+    /// Read-only view of the enumerable property list.
+    #[inline(always)]
+    pub(crate) fn prop_enums(&self) -> &[PropertyKey] {
+        &self.prop_enums
     }
 }
 

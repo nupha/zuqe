@@ -136,7 +136,7 @@ pub(super) unsafe extern "C" fn h_fclosure(f: *mut JitExecFrame) -> u32 {
         let func_obj = (*f.arena).frame(frame_idx).func_obj;
         let mut bfun = BCWrapper::try_from(JSValue::from(func_obj)).ok();
         let captured: &mut [VarRef] = match bfun.as_mut() {
-            Some(bfun) => &mut *bfun.payload_mut().captured_vars_mut(),
+            Some(bfun) => &mut *bfun.payload_mut().captured_vars_ptr(),
             None => &mut [],
         };
         let value = nested
@@ -159,7 +159,7 @@ pub(super) unsafe fn captured_vars_of<'a>(f: *const JitExecFrame) -> &'a mut [Va
             // `bfun` is a Copy `GcRef`, so the payload borrows GC memory that
             // outlives this call; launder it to reuse the caller's lifetime.
             Ok(mut bfun) => {
-                let cv: *mut [VarRef] = bfun.payload_mut().captured_vars_mut();
+                let cv: *mut [VarRef] = bfun.payload_mut().captured_vars_ptr();
                 &mut *cv
             }
             Err(_) => &mut [],

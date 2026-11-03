@@ -15,9 +15,9 @@
 //! (`StringImpl` vs `RopeImpl`). This keeps `JSValue` size unchanged on both
 //! the non-nan-boxing and nan-boxing representations.
 
-use std::{cell::Cell, cmp::Ordering};
+use std::{cell::Cell, cmp::Ordering, ptr::NonNull};
 
-use gc_lite::{GcRef, GcTrace, GcTraceCtx};
+use gc_lite::{GcHead, GcRef, GcTrace, GcTraceCtx};
 
 use crate::{
     context::ScopedContext,
@@ -82,6 +82,27 @@ pub struct RopeImpl {
     /// Memoised flat node. Set on first flatten; later `to_string` returns
     /// this in O(1) and the rope can keep acting as a flat-string proxy.
     pub(crate) flat: Cell<Option<GcRef<StringImpl>>>,
+}
+
+impl RopeImpl {
+    /// Single write path for the memoised flat node: store, then record the
+    /// rope→flat edge (the rope may already be old while the new flat node is
+    /// young). `owner` is the rope node itself.
+    pub(crate) fn set_flat(
+        &self,
+        ctx: &ScopedContext,
+        owner: NonNull<GcHead>,
+        s: GcRef<StringImpl>,
+    ) {
+        self.flat.set(Some(s));
+        ctx.bind_node(owner, s.node_ptr());
+    }
+
+    /// Same store for a flat node allocated with `gc_alloc_root`: a ROOT node
+    /// is permanent, so it needs no generational barrier.
+    pub(crate) fn set_flat_root(&self, s: GcRef<StringImpl>) {
+        self.flat.set(Some(s));
+    }
 }
 
 impl GcTrace for RopeImpl {

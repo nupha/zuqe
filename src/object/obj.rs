@@ -205,8 +205,9 @@ pub struct ObjectImpl {
     /// and a standalone field would not be.
     pub(super) deleted_slot_count: u16,
 
-    /// Shape of object, to denote prototype and property names + flag
-    pub(crate) shape: Option<Shape>,
+    /// Shape of object, to denote prototype and property names + flag.
+    /// Private: `shape()` reads and `set_shape` is the single write path.
+    shape: Option<Shape>,
 
     /// property value slots
     pub(super) prop_values: PropValues,
@@ -288,6 +289,9 @@ impl std::fmt::Display for ObjectImpl {
 }
 
 impl ObjectImpl {
+    /// Offset of the private `shape` field, for the JIT's inline guard.
+    pub(crate) const SHAPE_FIELD_OFFSET: usize = std::mem::offset_of!(Self, shape);
+
     /// Create an instance object with `shape` and `payload`.
     ///
     /// The object's class is taken from `payload` — the handle is the single
@@ -610,6 +614,10 @@ impl ObjectImpl {
 
         let obj_node = Object::from(self.gc_ref()).gc_node_ptr();
 
+        // STW GC re-traces the shape registry every minor, so this barrier is
+        // redundant today — kept as the only defence for the unregister/OOM
+        // window (`add_props` can leave a shape unregistered but installed).
+        // Do not remove it before an incremental/concurrent major exists.
         self.rt_ptr().bind_node(obj_node, shape.gc_ref().node_ptr());
 
         self.shape.replace(shape);

@@ -365,14 +365,8 @@ impl Array {
 
         let len = values.len();
 
-        // bind reference relation for all gc values
-        let self_node = self.gc_node_ptr();
-        let mut rt = self.rt_ptr();
-        for v in values.iter() {
-            rt.bind_node_value(self_node, *v);
-        }
-
-        self.payload_mut().replace_values(values);
+        // Single write path: binds every fresh element to this array node.
+        self.replace_array_values(ctx, values);
         self.set_flag_fast_array(true);
 
         // set array length, can't fail
@@ -688,6 +682,38 @@ impl ObjectImpl {
         Ok(())
     }
 
+    /// The single write path for one existing fast-array element: store, then
+    /// bind to this array node. Callers must not mutate `payload_array_mut()`
+    /// directly (the array single-point path).
+    #[inline]
+    pub(crate) fn set_array_element(&mut self, ctx: &ScopedContext, index: usize, value: JSValue) {
+        self.payload_array_mut().unwrap().set_nth(index, value);
+        ctx.bind_node_value(self.gc_head_ptr(), value);
+    }
+
+    /// The single append path for a fast-array element (OOM-safe), store then
+    /// bind. The caller maps `TryReserveError` to its own OOM error.
+    #[inline]
+    pub(crate) fn push_array_element(
+        &mut self,
+        ctx: &ScopedContext,
+        value: JSValue,
+    ) -> Result<(), TryReserveError> {
+        self.payload_array_mut().unwrap().push(value)?;
+        ctx.bind_node_value(self.gc_head_ptr(), value);
+        Ok(())
+    }
+
+    /// The single bulk-replacement path: bind every new element, then store.
+    #[inline]
+    pub(crate) fn replace_array_values(&mut self, ctx: &ScopedContext, values: Vec<JSValue>) {
+        let owner = self.gc_head_ptr();
+        for v in values.iter() {
+            ctx.bind_node_value(owner, *v);
+        }
+        self.payload_array_mut().unwrap().replace_values(values);
+    }
+
     /// Preconditions: 'self' is JS_CLASS_ARRAY, is fast_array and is extensible.
     /// returns Err if fail, true if append successfully, false if can't append due to read-only but flags indicates don't throw exception.
     pub(crate) fn add_fast_array_element(
@@ -744,14 +770,8 @@ impl ObjectImpl {
         }
 
         // add new element to list
-        self.payload_array_mut()
-            .unwrap()
-            .push(value)
+        self.push_array_element(ctx, value)
             .map_err(|_| ctx.throw_out_of_memory())?;
-
-        // bind reference relation
-        let self_node = self.gc_head_ptr();
-        ctx.bind_node_value(self_node, value);
 
         Ok(true)
     }

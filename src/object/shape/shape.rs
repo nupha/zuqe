@@ -149,6 +149,10 @@ impl ShapeImpl {
             self.has_small_array_index |= is_small_int;
 
             if !prop.is_null() && !prop.is_const() && !prop.is_small_int() {
+                // STW GC re-traces the shape registry every minor, so this is
+                // redundant today. Kept for the unregister/OOM window: a shape
+                // can stay installed while unregistered. Do not remove before
+                // an incremental/concurrent major exists.
                 ctx.rt_ptr().bind_node(
                     shape_node,
                     ctx.rt().atom_desc_string(prop.id()).unwrap().gc_node_ptr(),

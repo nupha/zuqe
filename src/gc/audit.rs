@@ -67,6 +67,11 @@ const HAND_WRITTEN_WRAPPERS: &[&str] = &[
     "Bytecode",
     "BCWrapper",
     "List",
+    // Hand-written tuple structs that hold a GC handle but are not macro
+    // wrappers. They are leaves for the audit, so a payload field of one of
+    // these types is reported (and must be wrapped or allowlisted).
+    "Shape",
+    "PropValues",
 ];
 
 struct Field {
@@ -546,11 +551,31 @@ fn peel(mut ty: &str) -> (&str, bool, bool) {
         }
         let mut moved = false;
         for layer in [
-            "Option", "RefCell", "Cell", "Box", "Vec", "HashMap", "BTreeMap", "IndexMap",
+            "Option",
+            "RefCell",
+            "Cell",
+            "UnsafeCell",
+            "Box",
+            "Vec",
+            "VecDeque",
+            "SmallVec",
+            "HashList",
+            "HashMap",
+            "BTreeMap",
+            "IndexMap",
         ] {
             if let Some(inner) = strip_layer(t, &[layer]) {
-                in_container |=
-                    matches!(layer, "Box" | "Vec" | "HashMap" | "BTreeMap" | "IndexMap");
+                in_container |= matches!(
+                    layer,
+                    "Box"
+                        | "Vec"
+                        | "VecDeque"
+                        | "SmallVec"
+                        | "HashList"
+                        | "HashMap"
+                        | "BTreeMap"
+                        | "IndexMap"
+                );
                 ty = inner;
                 moved = true;
                 break;
@@ -655,7 +680,7 @@ fn walk(
                 allow_used.insert(key);
                 continue;
             }
-            if through_container && gc_bind.contains(type_name) {
+            if through_container && gc_bind.contains(&base) {
                 continue;
             }
             violations.push(format!(
@@ -740,7 +765,11 @@ pub fn gc_field_violations(dir: &Path, allowlist: &[&str]) -> Vec<String> {
     let defs = parse_defs(&files);
     let roots = root_set(&files, &defs);
     let leaves = leaf_types(&files);
-    let gc_bind = gc_bind_impls(&files);
+    let mut gc_bind = gc_bind_impls(&files);
+    // `gcref_wrapper!` / `object_cast!` expand a `GcBind` impl at every call
+    // site, so the source text only has the macro invocation, not the impl.
+    // Without this, `Vec<VarRef>` and friends are false positives.
+    gc_bind.extend(macro_wrapper_types(&files));
 
     let allow: BTreeMap<&str, &str> = allowlist.iter().map(|e| (allowlist_key(e), *e)).collect();
     let mut allow_used = BTreeSet::new();
@@ -834,5 +863,19 @@ mod tests {
             missing.is_empty(),
             "add these wrapper types to HAND_WRITTEN_WRAPPERS: {missing:?}"
         );
+    }
+
+    /// D.5.1/D.5.2: containers and tuple structs the first audit version
+    /// silently skipped. `UnsafeCell` is a cell, not a container: its element
+    /// must still be reported as a bare field.
+    #[test]
+    fn peel_understands_the_container_table() {
+        assert_eq!(peel("SmallVec<[JSValue; 2]>"), ("JSValue", false, true));
+        assert_eq!(peel("VecDeque<JSValue>"), ("JSValue", false, true));
+        assert_eq!(
+            peel("HashList<ShapeProperty>"),
+            ("ShapeProperty", false, true)
+        );
+        assert_eq!(peel("UnsafeCell<JSValue>"), ("JSValue", false, false));
     }
 }

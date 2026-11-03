@@ -249,7 +249,7 @@ impl ModuleDef {
                             .module()
                             .unwrap();
 
-                        if cur_module.import_entries[i].import_name == Atom::CONST__star_ {
+                        if cur_module.import_entries[i].import_name() == Atom::CONST__star_ {
                             // name space import
                             let ns = reqm.ns_object(ctx)?;
                             md_func.payload_mut().store_closure_value(
@@ -260,7 +260,7 @@ impl ModuleDef {
                         } else {
                             match reqm.resolve_export(
                                 ctx,
-                                cur_module.import_entries[i].import_name,
+                                cur_module.import_entries[i].import_name(),
                                 None,
                             )? {
                                 ResolveExport::Found {
@@ -308,7 +308,7 @@ impl ModuleDef {
                                     r.throw_syntax_error_export(
                                         ctx,
                                         &reqm,
-                                        &cur_module.import_entries[i].import_name,
+                                        &cur_module.import_entries[i].import_name(),
                                     );
                                     result = Err(-1);
                                     break;

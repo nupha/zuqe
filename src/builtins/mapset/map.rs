@@ -214,15 +214,17 @@ impl JSMapState {
                 // (e.g. distinct Symbols sharing a description hash).
                 .or_insert_with(|| vec![idx]);
 
+            // The stored pair may be a Weak one: `MapPair::bind_node` binds
+            // the strong part only, so a weak key is never made strongly held.
+            self.slots[idx].bind(ctx, owner);
+
             true
         } else {
+            // Update arm: only the value is new. The key is unchanged, and a
+            // Weak key must not be strongly bound again.
+            ctx.bind_value(owner, value);
             false
         };
-
-        // Store-then-barrier: the collection may already be old while the
-        // freshly produced key/value are young. No GC point in between.
-        ctx.bind_value(owner, key);
-        ctx.bind_value(owner, value);
 
         Ok(inserted)
     }

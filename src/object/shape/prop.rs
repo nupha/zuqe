@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 use hash_link::Hashable;
 
 use crate::{
+    GcBind,
     atom::Atom,
+    context::ScopedContext,
     object::{JS_PROP_LENGTH, JS_PROP_WRITABLE},
 };
 
@@ -14,6 +16,12 @@ use crate::{
 pub(crate) struct ShapeProperty {
     pub(crate) atom: Atom,
     pub(super) flags: u32,
+}
+
+impl GcBind for ShapeProperty {
+    fn bind_node(&self, ctx: &ScopedContext, owner: std::ptr::NonNull<GcHead>) {
+        ctx.bind_atom(owner, self.atom);
+    }
 }
 
 impl GcTrace for ShapeProperty {

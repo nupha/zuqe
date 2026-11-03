@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::GcNode;
-
 use crate::{
     JS_CLASS_ARGUMENTS, JS_CLASS_ARRAY, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_UINT8C_ARRAY,
     atom::{Atom, JS_ATOM_TAG_INT},
@@ -135,13 +133,8 @@ impl ObjectImpl {
                                     continue; // redo_prop_update
                                 }
                                 if flags & JS_PROP_HAS_VALUE != 0 {
-                                    self.payload_array_mut().unwrap().set_nth(idx, val);
-                                    // Even though array list is auto-traced by GC:
-                                    // in case the array has already been marked Black and a new White
-                                    // value is set_nth(), calling bind() ensures the value is grayed
-                                    // before GC proceeds, preventing it from being swept.
-                                    let self_node = self.gc_head_ptr();
-                                    ctx.bind_node_value(self_node, val);
+                                    // Single write path: store + bind.
+                                    self.set_array_element(ctx, idx, val);
                                 }
                                 return Ok(true);
                             }

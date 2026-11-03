@@ -12,7 +12,7 @@ use std::{
 use gc_lite::{GcHead, GcHeap, GcNode, GcRef, GcScope, GcScopeStackId, GcTrace, GcTraceCtx};
 
 use crate::{
-    GcBind, JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
+    JS_CLASS_ARRAY_BUFFER, JS_CLASS_ASYNC_FROM_SYNC_ITERATOR, JS_CLASS_ASYNC_FUNCTION,
     JS_CLASS_ASYNC_GENERATOR, JS_CLASS_ASYNC_GENERATOR_FUNCTION, JS_CLASS_ASYNC_ITERABLE_ITERATOR,
     JS_CLASS_DATAVIEW, JS_CLASS_FLOAT64_ARRAY, JS_CLASS_GENERATOR, JS_CLASS_GENERATOR_FUNCTION,
     JS_CLASS_ITERATOR, JS_CLASS_ITERATOR_CONCAT, JS_CLASS_ITERATOR_HELPER, JS_CLASS_ITERATOR_WRAP,
@@ -240,6 +240,11 @@ impl ContextImpl {
     /// `ContextImpl` is a GC node, and `proto` is a GC reference (Object).
     /// Without the barrier, if `self` is BLACK and `proto` is WHITE,
     /// the proto could be prematurely collected.
+    ///
+    /// STW GC re-traces the context root every minor, so this barrier is
+    /// redundant today (measured: only ~44 calls per process, all during
+    /// setup). Kept as the defence the day an incremental/concurrent major
+    /// appears — do not remove without re-running that decision.
     pub(crate) fn set_class_proto(&mut self, class_id: ClassID, proto: Object) {
         let self_node = self.gc_head_ptr();
         self.bind_node(self_node, proto.gc_node_ptr());
@@ -321,19 +326,6 @@ impl ContextImpl {
             return;
         };
         self.bind_node(owner, child);
-    }
-
-    /// [`ScopedContext::bind_set`] for holders of a `ContextPtr`/`ContextImpl`
-    /// (payload setters take `&ScopedContext` through `Deref` anyway).
-    #[inline]
-    pub fn bind_set<T: GcBind>(&self, owner: JSValue, slot: &mut T, value: T) {
-        self.current_scope().bind_set(owner, slot, value);
-    }
-
-    /// [`ScopedContext::bind_push`] for holders of a `ContextPtr`/`ContextImpl`.
-    #[inline]
-    pub fn bind_push<T: GcBind>(&self, owner: JSValue, values: &mut Vec<T>, value: T) {
-        self.current_scope().bind_push(owner, values, value);
     }
 
     /// get global object

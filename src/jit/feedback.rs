@@ -207,12 +207,26 @@ impl FeedbackTable {
 
     /// Record the callee seen at the call site `pc` (the direct-call path).
     ///
-    /// Returns true when the site is new. A site that saw two different
-    /// callees is polymorphic from then on — the monomorphic guard would miss
-    /// every time — so it stops being updated.
-    fn record_call(&mut self, pc: u32, callee: Option<Bytecode>) -> bool {
+    /// Returns the callee that this call actually installed (the `None`→`Some`
+    /// transition of a site) — and only then does the caller owe a GC barrier.
+    /// A site that saw two different callees is polymorphic from then on — the
+    /// monomorphic guard would miss every time — so it stops being updated.
+    fn record_call(&mut self, pc: u32, callee: Option<Bytecode>) -> Option<Bytecode> {
+        let had_callee = self
+            .call_ids
+            .get(&pc)
+            .is_some_and(|&id| self.calls[id as usize].callee.is_some());
         let id = callee.as_ref().map_or(0, callee_id);
-        self.record_call_id(pc, id, callee)
+        self.record_call_id(pc, id, callee);
+        // Only a site that had no callee before can have stored one now. This
+        // includes a site that first saw a native callee (`None`) and then a
+        // bytecode one; `record_call_id` writes that transition.
+        if had_callee {
+            return None;
+        }
+        self.call_ids
+            .get(&pc)
+            .and_then(|&id| self.calls[id as usize].callee)
     }
 
     /// The recording path, split from [`Self::record_call`] so the identity
@@ -345,8 +359,9 @@ impl FeedbackSlot {
 
     /// Record the callee seen at the call site `site` (bytecode pc).
     ///
-    /// Returns true when the site is new.
-    pub(super) fn record_call(&self, site: u32, callee: Option<Bytecode>) -> bool {
+    /// Returns the callee this call installed, if any — the caller binds only
+    /// that edge (see `jit::note_call`).
+    pub(super) fn record_call(&self, site: u32, callee: Option<Bytecode>) -> Option<Bytecode> {
         // SAFETY: single-threaded; same discipline as `record` above.
         let cell = unsafe { &mut *self.0.get() };
         cell.get_or_insert_with(|| Box::new(FeedbackTable::default()))
@@ -495,6 +510,41 @@ mod tests {
             table.record(0, CLASS_INT, CLASS_INT, CLASS_INT);
         }
         assert_eq!(table.snapshot(1)[0].1.samples, u16::MAX);
+    }
+
+    /// The call site's callee edge must be bound once: `record_call` returns
+    /// the handle only when it actually stored it. A site that first saw a
+    /// native callee (`None`) and then a bytecode one is the transition that
+    /// matters — a new site is not the only case.
+    #[test]
+    fn record_call_reports_only_the_none_to_some_transition() {
+        use crate::{EvalFlags, EvalName, EvalType, Runtime, ScopedContext};
+
+        let mut rt = Runtime::create().expect("runtime");
+        let mut ctx = rt
+            .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
+            .expect("context");
+        let name = EvalName::Name("call-feedback.js".into());
+        let v = ctx
+            .eval(
+                b"function probe_fn() {} probe_fn",
+                &name,
+                EvalType::Global,
+                EvalFlags::empty(),
+            )
+            .expect("eval");
+        let bc = crate::function::BCWrapper::try_from(v)
+            .expect("bytecode function")
+            .payload()
+            .bytecode();
+
+        let mut table = FeedbackTable::default();
+        // Native callee first: nothing to bind.
+        assert_eq!(table.record_call(7, None), None);
+        // Same site, now a bytecode callee: this is the stored edge.
+        assert_eq!(table.record_call(7, Some(bc)), Some(bc));
+        // Already stored: no second bind.
+        assert_eq!(table.record_call(7, Some(bc)), None);
     }
 
     /// The direct-call path: a site that keeps seeing the same callee stays

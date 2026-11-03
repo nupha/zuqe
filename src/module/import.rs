@@ -20,7 +20,8 @@ pub struct ImportEntry {
     /// closure variable index
     pub var_idx: u16,
     /// Written only through `ModuleDefImpl::add_import_entry`, which binds it.
-    pub(super) import_name: Atom,
+    /// Private: read through [`ImportEntry::import_name`].
+    import_name: Atom,
     /// in dependencies
     pub req_module_idx: i32,
 }

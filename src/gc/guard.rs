@@ -19,8 +19,8 @@ use crate::{atom::Atom, context::ScopedContext, object::PropertyKey, value::JSVa
 ///
 /// `GcTrace` reports the edges for a full mark; `GcBind` records them for a
 /// minor. A value stored into a container that may already be old must be
-/// bound — that is what [`ScopedContext::bind_set`] /
-/// [`ScopedContext::bind_push`] and the guard types do.
+/// bound — that is what `ScopedContext::bind_set` /
+/// `ScopedContext::bind_push` (test-only L1 primitives) and the guard types do.
 pub trait GcBind {
     /// Node-owner primitive: internal call sites hold `NonNull<GcHead>`
     /// (mdef setters, the async-generator queue), not a `JSValue`.

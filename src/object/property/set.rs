@@ -446,9 +446,7 @@ impl ObjectImpl {
                     {
                         match index.cmp(&arr_data.len()) {
                             std::cmp::Ordering::Less => {
-                                arr_data.set_nth(index, val);
-                                let self_node = self.gc_head_ptr();
-                                self.rt_ptr().bind_node_value(self_node, val);
+                                self.set_array_element(ctx, index, val);
                                 Some(Ok(true))
                             }
                             std::cmp::Ordering::Equal => {
@@ -500,9 +498,7 @@ impl ObjectImpl {
                     && let Some(arr_data) = self.payload_array_mut()
                 {
                     if index < arr_data.len() {
-                        arr_data.set_nth(index, val);
-                        let self_node = self.gc_head_ptr();
-                        self.rt_ptr().bind_node_value(self_node, val);
+                        self.set_array_element(ctx, index, val);
                         Some(Ok(true))
                     } else {
                         None

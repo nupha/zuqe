@@ -144,7 +144,7 @@ impl ContextImpl {
     /// find the loaded module_def by name.
     pub(super) fn find_module_def(&self, name: Atom) -> Option<ModuleDef> {
         self.loaded_modules.iter().find_map(|m| {
-            if m.module_name == name {
+            if m.module_name() == name {
                 Some(*m)
             } else {
                 None

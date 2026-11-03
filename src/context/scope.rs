@@ -5,7 +5,9 @@ use std::{ops::Deref, ptr::NonNull};
 
 use gc_lite::{GcError, GcHead, GcNode, GcRef, GcScope, GcScopeStackId, GcScopeState};
 
-use crate::{ExceptionText, GcBind, JSValue, context::ContextPtr};
+#[cfg(test)]
+use crate::GcBind;
+use crate::{ExceptionText, JSValue, context::ContextPtr};
 
 use super::ContextImpl;
 
@@ -196,39 +198,30 @@ impl<'a> ScopedContext<'a> {
         self.ctx_ptr.bind_node_value(owner, child);
     }
 
-    /// One-step write primitive: `*slot = value`, then record the edge
-    /// `owner → value`.
+    /// Test-only L1 one-step primitive: `*slot = value`, then record the edge
+    /// `owner → value`. Production code holds a typed slot
+    /// (`WriteBarrier`/`WriteBarrierVec`) or the foreign-slot API of its owner,
+    /// so D11 removed the last production caller.
     ///
     /// Store-then-barrier is the recommended order (JSC does the same), but the
     /// order itself is not a correctness condition — only **no GC point between
     /// the two statements** matters: `GcHeap::bind` never allocates a GC node
     /// nor runs a collection, and the value is still rooted by the stack/scope
     /// in between. Binding first (`settle.rs`) is equally safe.
-    ///
-    /// The strong guarantee comes from the typed slot (`WriteBarrier` /
-    /// `WriteBarrierVec`); this primitive is the shared base for their `set`/
-    /// `push`, a migration aid, and the tool for foreign slots (`&mut JSValue`
-    /// whose type you do not own).
+    #[cfg(test)]
     #[inline]
-    pub fn bind_set<T: GcBind>(&self, owner: JSValue, slot: &mut T, value: T) {
+    pub(crate) fn bind_set<T: GcBind>(&self, owner: JSValue, slot: &mut T, value: T) {
         *slot = value;
         slot.bind(self, owner);
     }
 
-    /// Node-owner form of [`bind_set`](Self::bind_set) for call sites that
-    /// hold `NonNull<GcHead>` instead of a `JSValue`.
-    #[inline]
-    pub(crate) fn bind_set_node<T: GcBind>(&self, owner: NonNull<GcHead>, slot: &mut T, value: T) {
-        *slot = value;
-        slot.bind_node(self, owner);
-    }
-
-    /// One-step append primitive: push, then record `owner → value`.
+    /// Test-only one-step append primitive: push, then record `owner → value`.
     ///
     /// `T` is re-fetched from the vector after the move (`T` is not `Copy`).
     /// Same no-GC-point invariant as [`bind_set`](Self::bind_set).
+    #[cfg(test)]
     #[inline]
-    pub fn bind_push<T: GcBind>(&self, owner: JSValue, values: &mut Vec<T>, value: T) {
+    pub(crate) fn bind_push<T: GcBind>(&self, owner: JSValue, values: &mut Vec<T>, value: T) {
         let idx = values.len();
         values.push(value);
         values[idx].bind(self, owner);

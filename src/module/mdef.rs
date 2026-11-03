@@ -36,7 +36,7 @@ pub(crate) trait ModuleInitFn:
 impl<F> ModuleInitFn for F where F: Fn(&mut ScopedContext, &ModuleDef) -> Result<(), i32> {}
 
 pub struct ModuleDefImpl {
-    pub(crate) module_name: Atom,
+    module_name: Atom,
     pub(crate) dependencies: Vec<ModuleDependency>,
 
     pub(crate) import_entries: Vec<ImportEntry>,

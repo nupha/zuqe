@@ -370,11 +370,11 @@ pub(crate) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
                 // a GC.
                 if let Some(ob) = it.obj.get() {
                     if !it.in_prototype_chain {
-                        let done = it.prepare_prototype_chain_enum(ctx, ob)?;
-                        for name in it.prop_enums.iter() {
-                            // The for-in iterator may already be old while the
-                            // property-name atoms are young.
-                            ctx.bind_atom(enum_obj.gc_node_ptr(), name.atom);
+                        let done =
+                            it.prepare_prototype_chain_enum(ctx, enum_obj.gc_node_ptr(), ob)?;
+                        for name in it.prop_enums().iter() {
+                            // The property-name atoms were bound by
+                            // `set_prop_enums` when the list was installed.
                             enum_obj.define_property_value(
                                 ctx,
                                 name.atom,
@@ -409,10 +409,7 @@ pub(crate) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
                             JS_GPN_STR_OR_INT_MASK | JS_GPN_SET_ENUM,
                         )?;
                         it.prop_count = names.len() as _;
-                        for name in names.iter() {
-                            ctx.bind_atom(enum_obj.gc_node_ptr(), name.atom);
-                        }
-                        it.prop_enums = names;
+                        it.set_prop_enums(ctx, enum_obj.gc_node_ptr(), names);
                         it.idx = 0;
                     } else {
                         // end of prototype chain: the object leaves the traced
@@ -438,9 +435,9 @@ pub(crate) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
                     it.idx += 1;
                 } else {
                     #[cfg(debug_assertions)]
-                    let p = it.prop_enums.get(it.idx as usize).unwrap();
+                    let p = it.prop_enums().get(it.idx as usize).unwrap();
                     #[cfg(not(debug_assertions))]
-                    let p = unsafe { it.prop_enums.get_unchecked(it.idx as usize) };
+                    let p = unsafe { it.prop_enums().get_unchecked(it.idx as usize) };
 
                     prop = p.atom;
                     let is_enumerable = p.is_enumerable;

@@ -354,8 +354,11 @@ impl<'s> JSParseState<'s> {
                             import_name
                         };
                         let last = md.export_entries.len() - 1;
-                        md.export_entries[last].export_type =
-                            ExportType::JS_EXPORT_TYPE_INDIRECT(req_idx);
+                        md.set_export_type(
+                            self.ctx(),
+                            last,
+                            ExportType::JS_EXPORT_TYPE_INDIRECT(req_idx),
+                        );
                         md.set_export_local_name(self.ctx(), last, new_local_name);
                     }
 
@@ -372,8 +375,12 @@ impl<'s> JSParseState<'s> {
                 if self.token_is_pseudo_keyword(Atom::CONST_from) {
                     let (module_name, attrs) = self.parse_from_clause()?;
                     let idx = md.add_dependency(self.ctx(), module_name, attrs)?;
-                    for me in &mut md.export_entries[first_export..] {
-                        me.export_type = ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _);
+                    for i in first_export..md.export_entries.len() {
+                        md.set_export_type(
+                            self.ctx(),
+                            i,
+                            ExportType::JS_EXPORT_TYPE_INDIRECT(idx as _),
+                        );
                     }
                 }
             }
