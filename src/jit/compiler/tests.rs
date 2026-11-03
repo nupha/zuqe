@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
 use super::*;
 use crate::{
     bytecode::opcodes as op,
@@ -1943,4 +1946,35 @@ fn join_of_tagged_and_int32_operands_widens_to_tagged() {
         "a kind-only widening must not change the proven heights"
     );
     compile_bytes(bytes, 0, 1).expect("the widened join lowers");
+}
+
+#[test]
+fn a_call_in_dead_code_gets_no_osr_entry() {
+    // The `call` after `return_undef` is unreachable: the interpreter can never
+    // resume at its post-call pc and the stack proof records no height there.
+    // `ret` is present only so the verifier tolerates dead instructions.
+    // Asking for an OSR entry at that pc used to trip the `edge_args` assert
+    // ("edge target pc .. was never walked"); a function with a finally
+    // subroutine is enough to hit it in the real corpus.
+    let bytes = seq(&[
+        &push_i32(0), // func
+        &push_i32(0), // this
+        &[op::OP_call_method],
+        &u16b(0),
+        &[op::OP_return_undef],
+        // dead from here on
+        &push_i32(0),
+        &push_i32(0),
+        &[op::OP_call_method],
+        &u16b(0),
+        &[op::OP_ret],
+    ]);
+    let verified = verify(snapshot(bytes.clone(), 0, 0), VerifyLimits::default())
+        .expect("dead code verifies when the function has a subroutine");
+    let pcs = collect_osr_pcs(&verified);
+    assert!(
+        !pcs.contains(&27),
+        "the dead call's resume pc must not earn an OSR entry: {pcs:?}"
+    );
+    compile_bytes(bytes, 0, 0).expect("dead calls must not break the OSR prologue");
 }

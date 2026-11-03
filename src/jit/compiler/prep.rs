@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
 //! Pre-lowering scans over the verified bytecode: OSR points, carried
 //! slots, dead stores, call sites and literal windows.
 
@@ -15,9 +18,10 @@ pub(super) fn collect_osr_pcs(verified: &VerifiedFunction) -> Vec<u32> {
         .map(|point| point.pc())
         .collect();
     let instructions = verified.instructions();
+    let cfg = verified.control_flow_graph();
     let mut budget = OSR_TAIL_BUDGET;
     let mut seen_call = false;
-    for block in verified.control_flow_graph().blocks() {
+    for block in cfg.blocks() {
         let range = block.instruction_range();
         for index in range.start..range.end {
             let instruction = &instructions[index];
@@ -25,6 +29,19 @@ pub(super) fn collect_osr_pcs(verified: &VerifiedFunction) -> Vec<u32> {
                 instruction.name(),
                 "call" | "call_method" | "call_constructor"
             ) {
+                continue;
+            }
+            // A call can sit in dead code (after a `throw`, in a finally chain).
+            // Its resume pc has no proven stack height and no lowering range, so
+            // `carried_sets` gives it no entry height — an OSR entry for it would
+            // reach `edge_args` without one. The interpreter can never resume
+            // there, so drop it. (Same two predicates `carried_sets` uses; keep
+            // them in sync or the prologue asserts in debug and mis-sizes the
+            // edge in release.)
+            let resume_pc = instruction.pc() + instruction.size() as u32;
+            if !verified.is_reachable(resume_pc)
+                || block_range(instructions, cfg, resume_pc).is_none()
+            {
                 continue;
             }
             // A mid-block entry is not free: `block_range` hands it the whole
@@ -43,7 +60,7 @@ pub(super) fn collect_osr_pcs(verified: &VerifiedFunction) -> Vec<u32> {
             }
             seen_call = true;
             budget = budget.saturating_sub(tail);
-            pcs.push(instruction.pc() + instruction.size() as u32);
+            pcs.push(resume_pc);
         }
     }
     pcs.sort_unstable();
