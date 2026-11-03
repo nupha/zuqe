@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
 //! The inline guards: array elements, object properties and global
 //! variables. Each guard answers on its own or hands the access back
 //! to the helper.

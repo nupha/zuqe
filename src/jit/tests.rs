@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
 use super::test_harness::settle;
 use super::*;
 

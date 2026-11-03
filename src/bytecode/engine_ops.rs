@@ -3,7 +3,7 @@
 
 //! Semantics of the opcodes the *engine* emits rather than user JavaScript,
 //! shared by the bytecode interpreter (`exec_stackless`) and the JIT helpers
-//! (`jit/abi.rs`).
+//! (`jit/abi`).
 //!
 //! Same split as `class_ops`/`ref_ops`/`with_ops`: one implementation, two
 //! engines, so the error messages and the allocation paths cannot drift. The

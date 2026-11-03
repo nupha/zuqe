@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright © 2025-2026 John Ray <996351336@qq.com>
 
 //! `with` / variable-object opcode semantics, shared by the bytecode interpreter
-//! (`exec_stackless`) and the JIT helpers (`jit/abi.rs`).
+//! (`exec_stackless`) and the JIT helpers (`jit/abi`).
 //!
 //! The five `with_*` opcodes ask the environment object on top of the operand
 //! stack whether it has the name (`HasProperty`, plus the `@@unscopables`

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
 use super::*;
 
 /// A coordinator with the two gates: the first at `calls`/`loops`, the

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
 //! Frame operations: catch offsets, rest parameters, special objects,
 //! captured variables and the safepoint.
 

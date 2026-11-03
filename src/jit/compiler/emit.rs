@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
 //! Emission primitives: exits, helper calls, safepoints and the
 //! frame-write helpers every lowering path shares.
 

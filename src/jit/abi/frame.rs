@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
 //! The frame layout, the exit protocol, the per-function slot and the
 //! status codes every helper returns.
 

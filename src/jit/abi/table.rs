@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
 //! The helper index constants and the dispatch table, both generated from one
 //! ordered list so an id and its table entry cannot drift apart.
 

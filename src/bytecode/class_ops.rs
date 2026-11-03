@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 //! Class / object-literal / private-field opcode semantics, shared by the
-//! bytecode interpreter (`exec_stackless`) and the JIT helpers (`jit/abi.rs`).
+//! bytecode interpreter (`exec_stackless`) and the JIT helpers (`jit/abi`).
 //!
 //! Each function is the interpreter arm's object work verbatim; the
 //! operand-stack movement stays in the caller (the interpreter updates

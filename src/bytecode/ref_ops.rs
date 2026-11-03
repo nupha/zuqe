@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 //! Ref-cell opcode semantics, shared by the bytecode interpreter
-//! (`exec_stackless`) and the JIT helpers (`jit/abi.rs`).
+//! (`exec_stackless`) and the JIT helpers (`jit/abi`).
 //!
 //! A "ref cell" is a plain object carrying one `JS_PROP_VARREF` property whose
 //! value is a [`VarRef`] onto a local/argument/closure slot (or a global var

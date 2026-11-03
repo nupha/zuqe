@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright (c) 2026 John Ray <996351336@qq.com>
+
 //! Which opcodes the baseline lowers, which helper serves each of them,
 //! and the operand-shuffle permutation table.
 
