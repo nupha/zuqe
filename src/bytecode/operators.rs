@@ -22,23 +22,20 @@ use crate::{
     vm_stack::{FrameIndex, VmStack},
 };
 
-// SAFETY NOTE for all `ptr::replace(sp.offset(N), JSValue::UNDEFINED)` below:
-// Values on the bytecode stack are LOCALs allocated in `realm_scope`. The LOCAL
-// flag persists after ptr::replace removes them from the stack — the scope is
-// not cleared during normal execution (`clear_locals()` is only called under
-// `#[cfg(all(debug_assertions, feature = "debug_gc"))]`). When arena GC fires
-// during the subsequent allocating calls (to_atom, delete_property, etc.),
-// mark_prepare sets all LOCAL nodes to gray, so these values survive.
-// Therefore no GC bug can occur at these sites.
+// SAFETY NOTE for the `ptr::replace(sp.offset(N), ...)` sites below:
+// Popping a value off the bytecode stack drops its only traced owner. The LOCAL
+// flag it may carry does not help — a GC safepoint clears the executing
+// trampoline's scopes (`clear_locals_from_depth`), so the value can be freed
+// while a Rust local still points at it. Clear a slot only when nothing that
+// follows can run user code; when a getter, a proxy trap or ToPrimitive may run
+// (delete, instanceof, private-in, for-in start, class definition), read the
+// slot with `ptr::read` and let the push/pop discipline retire it.
 
 #[inline(always)]
 pub(crate) fn js_operator_delete(ctx: &mut ScopedContext, sp: *mut JSValue) -> i32 {
-    let (mut op1, op2) = unsafe {
-        (
-            std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED),
-            std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED),
-        )
-    };
+    // Both slots stay populated while `to_atom` / `delete_property` run user
+    // code (toString, proxy traps): the stack is their only traced owner.
+    let (mut op1, op2) = unsafe { (std::ptr::read(sp.offset(-2)), std::ptr::read(sp.offset(-1))) };
 
     let Ok(atom) = op2.to_atom(ctx) else {
         return -1;
@@ -56,12 +53,9 @@ pub(crate) fn js_operator_delete(ctx: &mut ScopedContext, sp: *mut JSValue) -> i
 }
 
 pub(crate) fn js_operator_instanceof(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
-    let (val, ctor) = unsafe {
-        (
-            std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED),
-            std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED),
-        )
-    };
+    // Slots stay populated: `instance_of` may read `prototype` (getter) or run
+    // `Symbol.hasInstance`.
+    let (val, ctor) = unsafe { (std::ptr::read(sp.offset(-2)), std::ptr::read(sp.offset(-1))) };
 
     let b = val.instance_of(ctx, ctor)?;
     unsafe {
@@ -85,8 +79,10 @@ pub(crate) fn js_operator_in(
 }
 
 pub(crate) fn js_operator_private_in(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
-    let obj = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) }; // object
-    let item = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) }; // field name or method function
+    // Slots stay populated: `to_atom` may run user code, and `check_brand`
+    // walks the object.
+    let obj = unsafe { std::ptr::read(sp.offset(-2)) }; // object
+    let item = unsafe { std::ptr::read(sp.offset(-1)) }; // field name or method function
 
     if let Some(o) = obj.as_object() {
         let ret = if item.is_object() {
@@ -119,8 +115,9 @@ pub(crate) fn js_op_define_class_for_arena(
     parent_frame_idx: FrameIndex,
     is_computed_name: bool,
 ) -> Result<(), i32> {
-    // SP[-1] is bytecode
-    let bc_val = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
+    // SP[-1] is bytecode. Keep it in its slot: `parent_class.get_property`
+    // below may run a getter.
+    let bc_val = unsafe { std::ptr::read(sp.offset(-1)) };
     let Some(bc) = bc_val.as_bytecode() else {
         unreachable!()
     };
@@ -336,7 +333,9 @@ pub(crate) unsafe fn js_append_enumerate(
 /// obj -> enum_obj
 pub(crate) fn js_for_in_start(ctx: &mut ScopedContext, sp: *mut JSValue) -> Result<(), i32> {
     unsafe {
-        let obj = std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED);
+        // Keep the source in its slot: creating the iterator may run proxy
+        // traps (`ownKeys` / `getOwnPropertyDescriptor`).
+        let obj = std::ptr::read(sp.offset(-1));
         let it = ForInIterPayload::create(ctx, obj).map_or(JSValue::EXCEPTION, JSValue::from);
 
         std::ptr::replace(sp.offset(-1), it);
@@ -366,7 +365,10 @@ pub(crate) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
         loop {
             if it.idx >= it.prop_count {
                 // prepare enumrable names for parent proto.
-                if let Some(ob) = it.obj.take() {
+                // Keep the current object in its traced slot: the calls below
+                // may run proxy traps (`ownKeys`, `getPrototypeOf`) and trigger
+                // a GC.
+                if let Some(ob) = it.obj.get() {
                     if !it.in_prototype_chain {
                         let done = it.prepare_prototype_chain_enum(ctx, ob)?;
                         for name in it.prop_enums.iter() {
@@ -413,8 +415,9 @@ pub(crate) fn js_for_in_next(ctx: &mut ScopedContext, sp: *mut JSValue) -> Resul
                         it.prop_enums = names;
                         it.idx = 0;
                     } else {
-                        // end of prototype chain.
-                        debug_assert!(it.obj.get().is_none());
+                        // end of prototype chain: the object leaves the traced
+                        // slot (Rule 4), nothing keeps it alive from here on.
+                        it.obj.set_node(ctx, enum_obj.gc_node_ptr(), None);
                         unsafe {
                             *sp = JSValue::UNDEFINED;
                             *sp.offset(1) = JSValue::TRUE;

@@ -51,4 +51,57 @@ import * as std from "std";
     }
 }
 
+// Same family as finding 4: every site that pops operands off the bytecode
+// stack before running user code must keep the slots populated. These cover
+// the audited sites (delete, instanceof, private-in, for-in start and its
+// prototype walk, class definition, iterator close while unwinding).
+{
+    // delete: the key's toString runs user code between pop and use
+    const key = () => ({ toString: function () { let z = {}; for (let i = 0; i < 32; i++) z = { i, z }; return "a"; } });
+    const mk = () => ({ a: 1 });
+    if (!delete mk()[key()]) throw new Error("delete");
+
+    // instanceof: Symbol.hasInstance runs user code
+    function Ctor() {}
+    Object.defineProperty(Ctor, Symbol.hasInstance, { value: function () {
+        let z = {}; for (let i = 0; i < 32; i++) z = { i, z }; return true; } });
+    if (!({} instanceof Ctor)) throw new Error("instanceof");
+
+    // private-in
+    class Has { #x = 1; static test(o) { return #x in o; } }
+    if (!Has.test(new Has())) throw new Error("private in");
+
+    // for-in over a proxy: ownKeys / getOwnPropertyDescriptor / getPrototypeOf
+    const proxy = new Proxy({ a: 1 }, {
+        ownKeys() { let z = {}; for (let i = 0; i < 32; i++) z = { i, z }; return ["a"]; },
+        getOwnPropertyDescriptor() { let z = {}; for (let i = 0; i < 32; i++) z = { i, z };
+            return { value: 1, enumerable: true, configurable: true }; },
+        getPrototypeOf() { let z = {}; return null; },
+    });
+    const names = [];
+    for (const n in proxy) names.push(n);
+    if (names.join() !== "a") throw new Error("for-in: " + names);
+
+    // class definition: superclass `prototype` read through a proxy trap
+    const proto = { m() {} };
+    const parent = new Proxy(function () {}, {
+        get(t, p, r) { let z = {}; for (let i = 0; i < 32; i++) z = { i, z };
+            return p === "prototype" ? proto : Reflect.get(t, p, r); },
+    });
+    class Sub extends parent {}
+    if (typeof Sub.prototype.m !== "function") throw new Error("class extends");
+
+    // iterator close while unwinding: the iterator's return() runs user code
+    let closed = 0;
+    const iterable = { [Symbol.iterator]() { let i = 0; return {
+        next() { return { value: i++, done: i > 5 }; },
+        return() { let z = {}; for (let j = 0; j < 32; j++) z = { j, z }; closed++; return { done: true }; } }; } };
+    try {
+        for (const v of iterable) { if (v === 1) throw new Error("stop"); }
+    } catch (e) {
+        if (e.message !== "stop") throw e;
+    }
+    if (closed !== 1) throw new Error("iterator close: " + closed);
+}
+
 print("ok");

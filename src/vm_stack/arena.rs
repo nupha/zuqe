@@ -543,12 +543,14 @@ impl VmStack {
                     unsafe { std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED) };
                     sp -= 1;
 
+                    // Keep the iterator in its slot while it is closed: the
+                    // iterator's `return` method is user code and may trigger a
+                    // GC. Clear the slot only after the close returns.
                     unsafe {
-                        if let Some(o) =
-                            std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED).as_object()
-                        {
+                        if let Some(o) = std::ptr::read(sp_base.add(sp - 1)).as_object() {
                             let _ =
                                 crate::builtins::iterator::ObjectIter::close_iter_internal(ctx, o);
+                            std::ptr::replace(sp_base.add(sp - 1), JSValue::UNDEFINED);
                         }
                     }
                 } else {
