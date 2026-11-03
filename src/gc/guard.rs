@@ -176,12 +176,12 @@ pub struct WriteBarrierVec<T> {
 }
 
 impl<T> WriteBarrierVec<T> {
-    #[inline]
+    #[inline(always)]
     pub const fn new() -> Self {
         Self { inner: Vec::new() }
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn with_capacity(n: usize) -> Self {
         Self {
             inner: Vec::with_capacity(n),
@@ -189,9 +189,17 @@ impl<T> WriteBarrierVec<T> {
     }
 
     /// Construction only: the owner does not exist yet, so no edges are bound.
-    #[inline]
+    #[inline(always)]
     pub fn from_vec(v: Vec<T>) -> Self {
         Self { inner: v }
+    }
+
+    /// Hand the elements back in one step. They leave the traced slot, so they
+    /// lose `trace` coverage: the caller must put them into a rooted Job before
+    /// the next GC point (`docs/gc.md` Rule 4) — same family as [`remove`](Self::remove).
+    #[inline(always)]
+    pub fn into_vec(self) -> Vec<T> {
+        self.inner
     }
 
     #[inline(always)]
@@ -200,7 +208,7 @@ impl<T> WriteBarrierVec<T> {
     }
 
     #[inline(always)]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.inner.is_empty()
     }
 

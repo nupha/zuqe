@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::cell::Cell;
+use std::{cell::Cell, ptr::NonNull};
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 
 use crate::{
+    GcBind,
     class::ClassID,
     context::ScopedContext,
     error::JSResult,
@@ -53,6 +54,23 @@ impl GcTrace for IteratorHelperData {
             self.inner.get().trace(tr);
             self.inner_next.get().trace(tr);
         }
+    }
+}
+
+impl IteratorHelperData {
+    /// Store + barrier for the flatMap inner iterator. `Cell` keeps the
+    /// shared-reference call graph working, so the write path is these two
+    /// methods rather than a `&mut`. Clearing (`set(UNDEFINED)`) needs no
+    /// barrier — the value simply leaves the traced slot.
+    pub(crate) fn set_inner(&self, ctx: &ScopedContext, owner: NonNull<GcHead>, v: JSValue) {
+        self.inner.set(v);
+        v.bind_node(ctx, owner);
+    }
+
+    /// See [`set_inner`](Self::set_inner).
+    pub(crate) fn set_inner_next(&self, ctx: &ScopedContext, owner: NonNull<GcHead>, v: JSValue) {
+        self.inner_next.set(v);
+        v.bind_node(ctx, owner);
     }
 }
 
@@ -233,13 +251,12 @@ fn flatmap_next(
                 (inner_iter.into(), inner_next)
             };
 
-            ip.inner.set(inner_iter_val);
-            ip.inner_next.set(inner_next);
-            ip.has_inner.set(true);
             // The helper may already be old; the inner iterator and its next
-            // method are young, so bind both edges.
-            ctx.bind_node_value(owner.gc_node_ptr(), inner_iter_val);
-            ctx.bind_node_value(owner.gc_node_ptr(), inner_next);
+            // method are young, so the setters record both edges.
+            let owner = owner.gc_node_ptr();
+            ip.set_inner(ctx, owner, inner_iter_val);
+            ip.set_inner_next(ctx, owner, inner_next);
+            ip.has_inner.set(true);
         }
 
         let inner_val = ip.inner.get();

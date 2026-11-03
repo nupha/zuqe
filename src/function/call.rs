@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
+use std::ptr::NonNull;
+
+use gc_lite::GcHead;
+
 use crate::{
     JS_CLASS_OBJECT,
     atom::Atom,
@@ -17,10 +21,15 @@ pub struct CallContext<'cc> {
     this_value: JSValue,
     args: &'cc [JSValue],
     data: Option<&'cc mut [JSValue]>,
+    /// GC node owning `data`; `None` when `data` is a stack temporary.
+    owner: Option<NonNull<GcHead>>,
     magic: i32,
 }
 
 impl<'cc> CallContext<'cc> {
+    /// `data` that does NOT live in a payload (a stack temporary): there is
+    /// nothing for [`replace_data`](Self::replace_data) to bind. Payload-backed
+    /// data must use [`new_owned`](Self::new_owned) instead.
     pub(crate) const fn new(
         this_value: JSValue,
         args: &'cc [JSValue],
@@ -32,6 +41,25 @@ impl<'cc> CallContext<'cc> {
             args,
             magic,
             data,
+            owner: None,
+        }
+    }
+
+    /// `data` borrowed out of a native function's payload: `owner` is that
+    /// function's node, so `replace_data` can record the write barrier.
+    pub(crate) const fn new_owned(
+        owner: NonNull<GcHead>,
+        this_value: JSValue,
+        args: &'cc [JSValue],
+        magic: i32,
+        data: Option<&'cc mut [JSValue]>,
+    ) -> Self {
+        Self {
+            this_value,
+            args,
+            magic,
+            data,
+            owner: Some(owner),
         }
     }
 
@@ -90,15 +118,27 @@ impl<'cc> CallContext<'cc> {
     }
 
     /// Replace nth binding data with new `val`, returns the old value.
-    /// returns `None` if `nth` is out of range.
-    pub fn replace_data(&mut self, nth: usize, val: JSValue) -> Option<JSValue> {
-        if let Some(lst) = self.data.as_deref_mut()
-            && nth < lst.len()
-        {
-            return Some(std::mem::replace(&mut lst[nth], val));
+    /// Returns `None` if `nth` is out of range.
+    ///
+    /// Store-then-barrier in one step: the owning function node may already be
+    /// old while `val` is young, so the edge is recorded at the write site
+    /// rather than by a full rebind after the native body returns. No GC point
+    /// may appear between the two statements.
+    pub fn replace_data(
+        &mut self,
+        ctx: &ScopedContext,
+        nth: usize,
+        val: JSValue,
+    ) -> Option<JSValue> {
+        let lst = self.data.as_deref_mut()?;
+        if nth >= lst.len() {
+            return None;
         }
-
-        None
+        let old = std::mem::replace(&mut lst[nth], val);
+        if let Some(owner) = self.owner {
+            ctx.bind_node_value(owner, val);
+        }
+        Some(old)
     }
 }
 

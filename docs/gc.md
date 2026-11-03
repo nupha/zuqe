@@ -376,11 +376,10 @@ pub(crate) fn set_capability(
     promise: Promise,
     funcs: [JSValue; 2],
 ) {
-    self.promise = Some(promise);
-    self.resolving_funcs = funcs;
-    self.bind_value(ctx, &JSValue::from(promise));
-    self.bind_value(ctx, &funcs[0]);
-    self.bind_value(ctx, &funcs[1]);
+    let owner = self.gc_head_ptr();
+    self.promise.set_node(ctx, owner, Some(promise));
+    self.resolving_funcs[0].set_node(ctx, owner, funcs[0]);
+    self.resolving_funcs[1].set_node(ctx, owner, funcs[1]);
 }
 ```
 
@@ -400,8 +399,10 @@ Already covered by the engine (do not hand-roll these):
 - property slots, array elements, Map/Set entries, closure variables (`VarRef`) — the public
   mutators (`set_prop_slot`, `bind_value`, `VarRef::set_value`/`detach`) call `bind`; do not write
   those payloads directly;
-- `CallContext::replace_data` — the binding-data values are rebound to the function node after
-  the callback returns;
+- `CallContext::replace_data` — the store and the barrier to the owning function node happen in
+  the one call (`CallContext::new_owned` carries the owner); there is no post-callback rebind.
+  `NFuncPayload.data` itself is **private to `src/function/nfun.rs`**, so outside that file the
+  field cannot be written at all — only `NFuncPayload::data(nth)` (a copy) is reachable;
 - JIT-generated property/array stores — generated code calls `h_gc_bind` → `bind`;
 - JIT call feedback — `note_call` binds the caller bytecode to the callee bytecode;
 - root containers (contexts, shape registry, jobs, user state) — a minor force-descends them.
@@ -420,6 +421,25 @@ assignment from another module then fails to compile instead of silently danglin
 (`src/module/mdef.rs`) is the reference implementation: `bind_value` / `bind_node` /
 `bind_child` are the only write paths, and `ModuleDependency::set_module` does the same for the
 dependency edge.
+
+**Module entries** (`memo/gc_bind_guard.md` 附录 C / U6, route B) follow the same shape without a
+guard type: the entry `Vec`s stay plain (they are written element-wise only at construction), and
+every post-construction write of a GC leaf goes through one `ModuleDefImpl` method that stores and
+binds in the same function —
+
+| leaf | single write path |
+|---|---|
+| `ModuleDependency.module_name` / `attributes` | `ModuleDef::add_dependency` |
+| `ImportEntry.import_name` | `ModuleDefImpl::add_import_entry` |
+| `ExportEntry.local_name` | `add_export_internal` / `set_export_local_name` |
+| `ExportEntry.export_name` | `add_export_internal` |
+| `ExportType.var_ref` | `add_export_internal` / `set_export_var_ref` |
+
+The leaf fields are private or `pub(super)` — visible only inside `crate::module` — with
+read-only getters for the rest of the crate, so code outside `crate::module` cannot assign them
+at all. `persistent/module.rs` builds the three entry
+Vecs and assigns them in one shot — that is legal **only** because it is construction of a young,
+unreachable module (see the comment there); any late write must use a setter.
 
 `trace` must still report the field. A barrier keeps the child alive; `trace` is what makes it
 reachable. Missing either one loses the node (see Rule 1) — the barrier cannot rescue an
@@ -498,6 +518,13 @@ Exemptions are `Type.field — reason`; an entry whose field disappeared, was re
 wrapped is reported as stale, so the list cannot rot. Keep it to the structural cases — a field
 that simply "isn't migrated yet" belongs in the migration, not here. `payload_root_types(&src)` lets a
 test assert that the scan actually found the payloads it was meant to see.
+
+`memo/gc_bind_guard.md` 附录 C (U1–U6) changed the list like this: **removed**
+`ModuleDefImpl.resolving_funcs` (now `[WriteBarrier<JSValue>; 2]`), **reworded** the seven module
+entry lines to name the single write path (U6 route B), `NFuncPayload.data` (U1 binds at the write
+site) and the four `Iterator{Helper,Concat}Data` `Cell` slots (U5 `set_*` methods). An entry is
+never deleted just because the code moved — only because the field is now guarded or the write is
+provably inside one method.
 
 `GcBind` is the value-level counterpart of `GcTrace`: it enumerates the edges one stored value
 contributes. `JSValue`, `Atom`, `PropertyKey`, `Option`/`Box` and every object wrapper have
@@ -597,8 +624,10 @@ referencing a young node** must record the edge:
 
 - [ ] Property slots / array elements / Map/Set entries / closure variables: already routed through
       `bind` (`set_prop_slot`, `bind_value`, `VarRef::set_value`/`detach`).
-- [ ] Native payload (`cc.replace_data`): `NativeFunction::class_call*` binds every binding-data value
-      back to the function node after the callback returns.
+- [ ] Native payload (`cc.replace_data`): the store and the barrier to the owning function node
+      happen inside `replace_data` — `CallContext::new_owned` carries the owner, and the old
+      post-callback full rebind (`bind_data_to_self`) is gone. `NFuncPayload.data` is private to
+      `src/function/nfun.rs`: a write from any other module must not compile (E0616).
 - [ ] JIT-generated property/array stores: `h_gc_bind` → `bind`; no action needed.
 - [ ] JIT call feedback (`note_call`) binds the caller bytecode to the recorded callee bytecode.
 - [ ] `def_native_object!` payload fields (`RefCell<Option<Object>>`, `Vec<JSValue>`, caches) have
@@ -611,6 +640,11 @@ referencing a young node** must record the edge:
       bypass does not compile. Follow `ModuleDef` (`src/module/mdef.rs`): `set_capability`,
       `set_module_ns`, `set_meta_obj`, `set_attributes`, `set_bytecode`, `set_stack_prev`,
       `set_cycle_root`, `try_push_async_parent`; `ModuleDependency::set_module` for dependency edges.
+- [ ] Module entry leaves (`import_name`, `local_name`/`export_name`, `ExportType.var_ref`,
+      `ModuleDependency.module_name`/`attributes`): written only by `add_import_entry` /
+      `add_export_internal` / `set_export_local_name` / `set_export_var_ref` / `add_dependency`,
+      each of which binds in the same function. From outside `crate::module` a direct assignment
+      does not compile (private fields + read-only getters).
 - [ ] The owner's `GcTrace` reports every GC field. A bound but untraced field is still lost; an
       edge the validator cannot see is an edge nobody can save.
 - [ ] Root containers (contexts, shape registry, jobs, user state) are force-descended by a minor,

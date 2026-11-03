@@ -11,7 +11,7 @@ use std::{
 use gc_lite::{GcHead, GcRef, GcTrace};
 
 use crate::{
-    JS_CLASS_PROMISE, JobState, TryRecvError, WakeReceiver, WriteBarrier,
+    JS_CLASS_PROMISE, JobState, TryRecvError, WakeReceiver, WriteBarrier, WriteBarrierVec,
     atom::Atom,
     builtins::error::js_aggregate_error_constructor,
     context::{ContextImpl, ScopedContext},
@@ -44,7 +44,7 @@ pub struct PromisePayload {
     #[gc(skip)]
     state: PromiseState,
     /// list of pending reactions: #0 for fulfills, #1 for rejects.
-    reactions: [Vec<PromiseReaction>; 2],
+    reactions: [WriteBarrierVec<PromiseReaction>; 2],
     /// promise result — written at settlement, when the promise may already be
     /// old, so the store and the barrier live in one `set` call.
     result: WriteBarrier<JSValue>,
@@ -58,7 +58,7 @@ impl Default for PromisePayload {
     fn default() -> Self {
         Self {
             state: PromiseState::Pending,
-            reactions: [Vec::new(), Vec::new()],
+            reactions: [WriteBarrierVec::new(), WriteBarrierVec::new()],
             result: WriteBarrier::new(JSValue::UNDEFINED),
             is_handled: false,
         }
@@ -89,17 +89,28 @@ impl PromisePayload {
         self.result.set_node(ctx, owner, val);
     }
 
-    /// add pending reaction callback functions
+    /// add pending reaction callback functions — store + barrier in one step
+    /// (the promise may already be old while the handlers are young).
     #[inline]
-    pub(super) fn add_reaction(&mut self, success: PromiseReaction, fail: PromiseReaction) {
-        self.reactions[0].push(success);
-        self.reactions[1].push(fail);
+    pub(super) fn add_reaction(
+        &mut self,
+        ctx: &ScopedContext,
+        owner: NonNull<GcHead>,
+        success: PromiseReaction,
+        fail: PromiseReaction,
+    ) {
+        self.reactions[0].push_node(ctx, owner, success);
+        self.reactions[1].push_node(ctx, owner, fail);
     }
 
     /// take pending reactions out, reset reactions list to empty.
     #[inline(always)]
     pub(super) fn take_reactions(&mut self) -> [Vec<PromiseReaction>; 2] {
-        std::mem::take(&mut self.reactions)
+        std::mem::replace(
+            &mut self.reactions,
+            [WriteBarrierVec::new(), WriteBarrierVec::new()],
+        )
+        .map(WriteBarrierVec::into_vec)
     }
 
     /// Whether any reaction (then/catch/await) is attached. A promise with no
@@ -695,7 +706,7 @@ impl Promise {
             if !cc.data(i).is_undefined() {
                 return Err(ctx.throw_type_error("resolving function already set"));
             } else {
-                let _ = cc.replace_data(i, cc.arg(i));
+                let _ = cc.replace_data(ctx, i, cc.arg(i));
             }
         }
         Ok(JSValue::UNDEFINED)
@@ -772,7 +783,7 @@ pub fn js_promise_all_resolve_element(ctx: &mut ScopedContext, mut cc: CallConte
         return Ok(JSValue::UNDEFINED);
     }
 
-    let _ = cc.replace_data(0, JSValue::TRUE);
+    let _ = cc.replace_data(ctx, 0, JSValue::TRUE);
 
     let obj: JSValue = if resolve_type == PROMISE_MAGIC_allSettled {
         let mut ob = ctx.create_base_object()?;

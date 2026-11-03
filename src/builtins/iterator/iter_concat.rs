@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::cell::Cell;
+use std::{cell::Cell, ptr::NonNull};
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 
 use crate::{
+    GcBind,
     class::ClassID,
     context::ScopedContext,
     error::JSResult,
@@ -36,6 +37,23 @@ impl GcTrace for IteratorConcatData {
             o.trace(tr);
             self.next.get().trace(tr);
         }
+    }
+}
+
+impl IteratorConcatData {
+    /// Store + barrier for the active iterator. `Cell` keeps the
+    /// shared-reference call graph working, so the write path is these two
+    /// methods rather than a `&mut`. Clearing (`set(None)` / `set(UNDEFINED)`)
+    /// needs no barrier — the value simply leaves the traced slot.
+    pub(crate) fn set_iter(&self, ctx: &ScopedContext, owner: NonNull<GcHead>, v: Option<Object>) {
+        self.iter.set(v);
+        v.bind_node(ctx, owner);
+    }
+
+    /// See [`set_iter`](Self::set_iter).
+    pub(crate) fn set_next(&self, ctx: &ScopedContext, owner: NonNull<GcHead>, v: JSValue) {
+        self.next.set(v);
+        v.bind_node(ctx, owner);
     }
 }
 
@@ -81,12 +99,10 @@ pub(crate) fn js_iterator_concat_next(ctx: &mut ScopedContext, cc: CallContext) 
             let iter_val = method.call(ctx, *obj, &[])?;
             let iter_obj = iter_val.ensure_object(ctx)?;
             let next_method = iter_obj.get_property(ctx, crate::atom::Atom::CONST_next)?;
-            cd.iter.set(Some(iter_obj));
-            cd.next.set(next_method);
             // The concat helper may already be old while the iterator and its
-            // next method it just created are young.
-            ctx.bind_node_value(owner, iter_val);
-            ctx.bind_node_value(owner, next_method);
+            // next method it just created are young: the setters record both.
+            cd.set_iter(ctx, owner, Some(iter_obj));
+            cd.set_next(ctx, owner, next_method);
         }
 
         let cur_iter_obj = cd.iter.get().unwrap();

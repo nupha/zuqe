@@ -16,7 +16,7 @@ use crate::{
 
 #[derive(Debug)]
 pub(crate) struct ModuleDependency {
-    pub module_name: Atom,
+    module_name: Atom,
     /// None when module is not resolved.
     module: WriteBarrier<Option<ModuleDef>>,
     /// Import attributes from `with { ... }` clause, or JSValue::UNDEFINED if absent.
@@ -31,6 +31,12 @@ impl ModuleDependency {
             module: WriteBarrier::new(None),
             attributes,
         }
+    }
+
+    /// Read-only view for code outside `crate::module` (serialization).
+    #[inline(always)]
+    pub(crate) const fn module_name(&self) -> Atom {
+        self.module_name
     }
 
     #[inline(always)]

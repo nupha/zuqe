@@ -357,7 +357,7 @@ fn js_segment_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
             )?);
         }
         cache = Array::from_values(ctx, records)?.into();
-        cc.replace_data(D_CACHE, cache);
+        cc.replace_data(ctx, D_CACHE, cache);
     }
 
     let cur = cc.data(D_POS).to_number(ctx)?.to_f64().trunc() as i64;
@@ -368,7 +368,7 @@ fn js_segment_iterator_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResul
     if record.is_undefined() {
         return make_iterator_next_result(ctx, JSValue::UNDEFINED, true);
     }
-    cc.replace_data(D_POS, JSValue::from(cur as i32 + 1));
+    cc.replace_data(ctx, D_POS, JSValue::from(cur as i32 + 1));
     make_iterator_next_result(ctx, record, false)
 }
 

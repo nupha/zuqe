@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::GcNode;
-
 use crate::{
     atom::Atom,
     context::ScopedContext,
@@ -324,15 +322,13 @@ impl ModuleDef {
                     }
 
                     // keep the exported variables in the module export entries (they are used when the eval function is deleted and cannot be initialized before in case imports are exported)
-                    let owner = cur_module.gc_head_ptr();
                     for i in 0..cur_module.export_entries.len() {
-                        if let ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, var_ref } =
-                            &mut cur_module.export_entries[i].export_type
+                        if let ExportType::JS_EXPORT_TYPE_LOCAL { var_idx, .. } =
+                            cur_module.export_entries[i].export_type
                         {
-                            debug_assert_ne!(*var_idx, u16::MAX);
-                            let vr = md_func.payload().get_closure(*var_idx as usize);
-                            var_ref.replace(vr);
-                            ctx.bind_node(owner, vr.gc_node_ptr());
+                            debug_assert_ne!(var_idx, u16::MAX);
+                            let vr = md_func.payload().get_closure(var_idx as usize);
+                            cur_module.set_export_var_ref(ctx, i, vr);
                         }
                     }
                     debug_assert!(cur_module.func_created);

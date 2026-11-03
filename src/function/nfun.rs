@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use std::ops::DerefMut;
+use std::{ops::DerefMut, ptr::NonNull};
 
-use gc_lite::{GcNode, GcTrace, GcTraceCtx};
+use gc_lite::{GcHead, GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     JS_CLASS_C_FUNCTION, JS_CLASS_C_FUNCTION_DATA,
@@ -12,7 +12,7 @@ use crate::{
     context::{ContextPtr, ScopedContext},
     error::JSResult,
     object::{NativeFunction, Object, ObjectImpl, PayloadPtr},
-    runtime::{RuntimeImpl, js_check_thread_stack_overflow},
+    runtime::js_check_thread_stack_overflow,
     value::JSValue,
     vm_stack::{ExecMode, FrameAllocError, FrameState, VmStack},
 };
@@ -77,8 +77,16 @@ pub struct NFuncPayload {
     pub(crate) magic: i16,
     pub(crate) realm: ContextPtr,
 
-    /// binding values attached to native func
-    pub(crate) data: Option<Box<[JSValue]>>,
+    /// Binding values attached to native func.
+    ///
+    /// Deliberately **private**, not `pub(crate)`: this is the only GC field
+    /// that gets written after the instance exists, and the only write path
+    /// that binds is `CallContext::replace_data`. Hiding the field confines
+    /// every access to this file, so a bare `payload_mut().data[i] = v`
+    /// elsewhere in the crate stops compiling instead of silently dropping the
+    /// barrier. Reads go through [`NFuncPayload::data`]; writes go through
+    /// `CallContext::replace_data` (see `replace_data` for the owner plumbing).
+    data: Option<Box<[JSValue]>>,
 }
 
 impl GcTrace for NFuncPayload {
@@ -96,9 +104,22 @@ impl NFuncPayload {
         self.data.as_ref().and_then(|x| x.get(nth).copied())
     }
 
-    /// Call native callback
-    fn call(&mut self, this_value: JSValue, args: &[JSValue], flags: i32) -> JSResult {
-        let mut cc = CallContext::new(this_value, args, self.magic as _, self.data.as_deref_mut());
+    /// Call native callback. `owner` is this function's GC node, carried into
+    /// the [`CallContext`] so [`CallContext::replace_data`] can bind each write.
+    fn call(
+        &mut self,
+        owner: NonNull<GcHead>,
+        this_value: JSValue,
+        args: &[JSValue],
+        flags: i32,
+    ) -> JSResult {
+        let mut cc = CallContext::new_owned(
+            owner,
+            this_value,
+            args,
+            self.magic as _,
+            self.data.as_deref_mut(),
+        );
 
         self.realm.with_new_scope(|cx| {
             let ret_val: JSResult = match self.callback {
@@ -173,28 +194,6 @@ impl NFuncPayload {
 }
 
 impl NativeFunction {
-    /// Bind every binding-data value to this function's GC node.
-    ///
-    /// `CallContext::replace_data` writes a new value into the payload; the
-    /// function node may be old while the value is young, so the edge needs a
-    /// generational barrier. The caller runs it after the native body returns,
-    /// because `CallContext` holds no heap reference. A no-op without
-    /// `gc_generations`.
-    fn bind_data_to_self(&self, rt: &mut RuntimeImpl) {
-        #[cfg(feature = "gc_generations")]
-        {
-            let Some(data) = self.payload().data.as_deref() else {
-                return;
-            };
-            let owner = self.gc_node_ptr();
-            for value in data {
-                rt.bind_node_value(owner, *value);
-            }
-        }
-        #[cfg(not(feature = "gc_generations"))]
-        let _ = rt;
-    }
-
     /// Call native function
     pub fn class_call(
         ctx: &mut ScopedContext,
@@ -269,8 +268,8 @@ impl NativeFunction {
             }
         };
 
-        let result = nfunc.payload_mut().call(this_obj, nargs, flags);
-        nfunc.bind_data_to_self(&mut rt);
+        let owner = nfunc.gc_node_ptr();
+        let result = nfunc.payload_mut().call(owner, this_obj, nargs, flags);
 
         // Cleanup: restore active_trampoline_frame and free frame (on both success and error paths).
         rt.active_frame_index = prev_frame;
@@ -347,8 +346,8 @@ impl NativeFunction {
             }
         };
 
-        let result = nfunc.payload_mut().call(this_val, nargs, 0);
-        nfunc.bind_data_to_self(&mut rt);
+        let owner = nfunc.gc_node_ptr();
+        let result = nfunc.payload_mut().call(owner, this_val, nargs, 0);
 
         rt.active_frame_index = saved_active;
 

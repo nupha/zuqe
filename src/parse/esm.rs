@@ -6,7 +6,7 @@ use crate::{
     bytecode::OpCodeTemp,
     error::{ErrorKind, JS_BACKTRACE_FLAG_SINGLE_LEVEL},
     function::{FunctionKind, JSVarDefEnum, JSVarKindEnum},
-    module::{ExportType, ImportEntry, ModuleDef},
+    module::{ExportType, ModuleDef},
     object::JS_PROP_C_W_E,
     string::{StringRef, Utf8Stream},
     value::JSValue,
@@ -343,7 +343,7 @@ impl<'s> JSParseState<'s> {
                         md.import_entries.iter().find_map(|ie| {
                             cvars.get(ie.var_idx as usize).and_then(|cv| {
                                 (cv.var_name == local_name)
-                                    .then_some((ie.import_name, ie.req_module_idx))
+                                    .then_some((ie.import_name(), ie.req_module_idx))
                             })
                         })
                     });
@@ -353,13 +353,10 @@ impl<'s> JSParseState<'s> {
                         } else {
                             import_name
                         };
-                        let owner = md.gc_node_ptr();
-                        {
-                            let last = md.export_entries.last_mut().unwrap();
-                            last.export_type = ExportType::JS_EXPORT_TYPE_INDIRECT(req_idx);
-                            last.local_name = new_local_name;
-                        }
-                        self.ctx().bind_atom(owner, new_local_name);
+                        let last = md.export_entries.len() - 1;
+                        md.export_entries[last].export_type =
+                            ExportType::JS_EXPORT_TYPE_INDIRECT(req_idx);
+                        md.set_export_local_name(self.ctx(), last, new_local_name);
                     }
 
                     if self.token.kind != TokenKind::Char(',') {
@@ -535,18 +532,7 @@ impl<'s> JSParseState<'s> {
             )?
         };
 
-        if md.import_entries.len() == md.import_entries.capacity() {
-            md.import_entries
-                .try_reserve(2)
-                .map_err(|_| self.ctx().throw_out_of_memory())?;
-        }
-        let owner = md.gc_node_ptr();
-        md.import_entries.push(ImportEntry {
-            var_idx,
-            import_name,
-            req_module_idx: 0,
-        });
-        self.ctx().bind_atom(owner, import_name);
+        md.add_import_entry(self.ctx(), var_idx, import_name, 0)?;
 
         Ok(())
     }

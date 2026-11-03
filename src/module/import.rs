@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-use gc_lite::{GcTrace, GcTraceCtx};
+use gc_lite::{GcNode, GcTrace, GcTraceCtx};
 
 use crate::{
     Callback,
@@ -10,7 +10,7 @@ use crate::{
     context::ScopedContext,
     error::JSResult,
     function::{CallContext, NativeFunction},
-    module::{get_script_or_module_name, js_host_resolve_imported_module},
+    module::{ModuleDefImpl, get_script_or_module_name, js_host_resolve_imported_module},
     object::{JS_GPN_ENUM_ONLY, JS_GPN_STR_OR_INT_MASK, JS_PROP_C_W_E, Object, PropertyKeyKind},
     value::JSValue,
 };
@@ -19,15 +19,59 @@ use crate::{
 pub struct ImportEntry {
     /// closure variable index
     pub var_idx: u16,
-    pub import_name: Atom,
+    /// Written only through `ModuleDefImpl::add_import_entry`, which binds it.
+    pub(super) import_name: Atom,
     /// in dependencies
     pub req_module_idx: i32,
+}
+
+impl ImportEntry {
+    /// Construction-time entry (deserialization): the owning module does not
+    /// exist yet, so no edge is bound here.
+    pub(crate) const fn new(var_idx: u16, import_name: Atom, req_module_idx: i32) -> Self {
+        Self {
+            var_idx,
+            import_name,
+            req_module_idx,
+        }
+    }
+
+    /// Read-only view for code outside `crate::module`.
+    #[inline(always)]
+    pub(crate) const fn import_name(&self) -> Atom {
+        self.import_name
+    }
 }
 
 impl GcTrace for ImportEntry {
     #[inline(always)]
     fn trace(&self, gcx: &mut GcTraceCtx) {
         self.import_name.trace(gcx);
+    }
+}
+
+impl ModuleDefImpl {
+    /// Append an import entry, storing `import_name` and recording the edge in
+    /// one step — the module may already be old while the fresh atom is young.
+    /// The single write path for `ImportEntry::import_name`.
+    pub(crate) fn add_import_entry(
+        &mut self,
+        ctx: &mut ScopedContext,
+        var_idx: u16,
+        import_name: Atom,
+        req_module_idx: i32,
+    ) -> Result<(), i32> {
+        if self.import_entries.len() == self.import_entries.capacity() {
+            self.import_entries
+                .try_reserve(2)
+                .map_err(|_| ctx.throw_out_of_memory())?;
+        }
+
+        let owner = self.gc_head_ptr();
+        self.import_entries
+            .push(ImportEntry::new(var_idx, import_name, req_module_idx));
+        ctx.bind_atom(owner, import_name);
+        Ok(())
     }
 }
 

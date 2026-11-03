@@ -68,21 +68,6 @@ fn strong_keys(state: &JSMapState) -> impl Iterator<Item = JSValue> + '_ {
     })
 }
 
-/// Insert into a container that is being built in a loop: the owner can be
-/// promoted (or a major can run) between iterations, so record every edge.
-fn upsert_bound(
-    ctx: &mut ScopedContext,
-    state: &mut JSMapState,
-    owner: JSValue,
-    key: JSValue,
-    value: JSValue,
-) -> Result<(), i32> {
-    state.upsert(ctx, key, value)?;
-    ctx.bind_value(owner, key);
-    ctx.bind_value(owner, value);
-    Ok(())
-}
-
 pub(crate) fn js_map_constructor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let magic = cc.magic();
     let is_set = magic & 1 == 1;
@@ -177,23 +162,17 @@ pub(crate) fn js_map_getOrInsert(ctx: &mut ScopedContext, cc: CallContext) -> JS
         val
     };
 
-    // Insert the key-value pair
+    // Insert the key-value pair (store + write barrier in one step)
     let mut this_mut = cc.this();
     let s = get_jsmap_state_mut(&mut this_mut, class_id, ctx)?;
 
-    if s.upsert(ctx, key, value)?
+    if s.upsert(ctx, cc.this(), key, value)?
         && s.is_weak()
         && let Some(mut key_obj) = key.as_object()
     {
         key_obj.add_back_ref(cc.this().as_object().unwrap().downgrade());
     }
     let _ = s;
-
-    // Bind GC reference relations
-    let this_obj = cc.this().as_object().unwrap();
-    let self_node = this_obj.gc_node_ptr();
-    ctx.bind_node_value(self_node, key);
-    ctx.bind_node_value(self_node, value);
 
     Ok(value)
 }
@@ -217,7 +196,8 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         val // map or weakmap
     };
 
-    if s.upsert(ctx, key, map_val)? {
+    // store + write barrier in one step
+    if s.upsert(ctx, cc.this(), key, map_val)? {
         // inserted pair: make back ref for key object if is weak (symbol
         // keys are never collected, so they need no back ref)
         if s.is_weak()
@@ -226,12 +206,6 @@ pub(crate) fn js_map_set(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
             key_obj.add_back_ref(cc.this().as_object().unwrap().downgrade());
         }
     }
-
-    // bind reference relation for gc values
-    let this_obj = cc.this().as_object().unwrap();
-    let self_node = this_obj.gc_node_ptr();
-    ctx.bind_node_value(self_node, key);
-    ctx.bind_node_value(self_node, map_val);
 
     Ok(this)
 }
@@ -677,7 +651,7 @@ fn js_set_intersection(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         };
         for key in strong_keys(iter_set) {
             if check_set.find(ctx, key).is_some() {
-                upsert_bound(ctx, result_state, result_node, key, JSValue::UNDEFINED)?;
+                result_state.upsert(ctx, result_node, key, JSValue::UNDEFINED)?;
             }
         }
         return Ok(result);
@@ -695,7 +669,7 @@ fn js_set_intersection(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
         while let Some(value) = iterator_step(ctx, iterator, next_obj)? {
             if this_state.find(ctx, value).is_some() {
-                upsert_bound(ctx, result_state, result_node, value, JSValue::UNDEFINED)?;
+                result_state.upsert(ctx, result_node, value, JSValue::UNDEFINED)?;
             }
         }
 
@@ -706,7 +680,7 @@ fn js_set_intersection(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     for key in strong_keys(this_state) {
         let found = rec.has.call(ctx, other, &[key])?;
         if found.to_bool()? {
-            upsert_bound(ctx, result_state, result_node, key, JSValue::UNDEFINED)?;
+            result_state.upsert(ctx, result_node, key, JSValue::UNDEFINED)?;
         }
     }
 
@@ -728,7 +702,7 @@ fn js_set_difference(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if let Some(other_state) = try_get_jsmap_state(&other, JS_CLASS_SET) {
         for key in strong_keys(this_state) {
             if other_state.find(ctx, key).is_none() {
-                upsert_bound(ctx, result_state, result_node, key, JSValue::UNDEFINED)?;
+                result_state.upsert(ctx, result_node, key, JSValue::UNDEFINED)?;
             }
         }
         return Ok(result);
@@ -741,7 +715,7 @@ fn js_set_difference(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     if this_len > rec.size {
         // Strategy: copy this to result, iterate other's keys, remove matching
         for key in strong_keys(this_state) {
-            upsert_bound(ctx, result_state, result_node, key, JSValue::UNDEFINED)?;
+            result_state.upsert(ctx, result_node, key, JSValue::UNDEFINED)?;
         }
 
         let iterator = rec.keys.call(ctx, other, &[])?;
@@ -760,7 +734,7 @@ fn js_set_difference(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     for key in strong_keys(this_state) {
         let found = rec.has.call(ctx, other, &[key])?;
         if !found.to_bool()? {
-            upsert_bound(ctx, result_state, result_node, key, JSValue::UNDEFINED)?;
+            result_state.upsert(ctx, result_node, key, JSValue::UNDEFINED)?;
         }
     }
 
@@ -782,12 +756,12 @@ fn js_set_symmetricDifference(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
     if let Some(other_state) = try_get_jsmap_state(&other, JS_CLASS_SET) {
         for key in strong_keys(this_state) {
             if other_state.find(ctx, key).is_none() {
-                upsert_bound(ctx, result_state, result_node, key, JSValue::UNDEFINED)?;
+                result_state.upsert(ctx, result_node, key, JSValue::UNDEFINED)?;
             }
         }
         for key in strong_keys(other_state) {
             if this_state.find(ctx, key).is_none() {
-                upsert_bound(ctx, result_state, result_node, key, JSValue::UNDEFINED)?;
+                result_state.upsert(ctx, result_node, key, JSValue::UNDEFINED)?;
             }
         }
         return Ok(result);
@@ -798,7 +772,7 @@ fn js_set_symmetricDifference(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
 
     // Copy this to result (preserves insertion order)
     for key in strong_keys(this_state) {
-        upsert_bound(ctx, result_state, result_node, key, JSValue::UNDEFINED)?;
+        result_state.upsert(ctx, result_node, key, JSValue::UNDEFINED)?;
     }
 
     // Iterate other's keys, remove from/add to result
@@ -810,7 +784,7 @@ fn js_set_symmetricDifference(ctx: &mut ScopedContext, cc: CallContext) -> JSRes
         if this_state.find(ctx, value).is_some() {
             result_state.remove(ctx, value);
         } else {
-            upsert_bound(ctx, result_state, result_node, value, JSValue::UNDEFINED)?;
+            result_state.upsert(ctx, result_node, value, JSValue::UNDEFINED)?;
         }
     }
 
@@ -831,10 +805,10 @@ fn js_set_union(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     // Fast path: other is an internal Set
     if let Some(other_state) = try_get_jsmap_state(&other, JS_CLASS_SET) {
         for key in strong_keys(this_state) {
-            upsert_bound(ctx, result_state, result_node, key, JSValue::UNDEFINED)?;
+            result_state.upsert(ctx, result_node, key, JSValue::UNDEFINED)?;
         }
         for key in strong_keys(other_state) {
-            upsert_bound(ctx, result_state, result_node, key, JSValue::UNDEFINED)?;
+            result_state.upsert(ctx, result_node, key, JSValue::UNDEFINED)?;
         }
         return Ok(result);
     }
@@ -845,7 +819,7 @@ fn js_set_union(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
 
     // 2. Copy all elements from this Set (after any mutations from step 1)
     for key in strong_keys(this_state) {
-        upsert_bound(ctx, result_state, result_node, key, JSValue::UNDEFINED)?;
+        result_state.upsert(ctx, result_node, key, JSValue::UNDEFINED)?;
     }
 
     // 3. Iterate other's keys and add directly
@@ -854,7 +828,7 @@ fn js_set_union(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
     let next_obj = next_method.ensure_callable(ctx)?;
 
     while let Some(value) = iterator_step(ctx, iterator, next_obj)? {
-        upsert_bound(ctx, result_state, result_node, value, JSValue::UNDEFINED)?;
+        result_state.upsert(ctx, result_node, value, JSValue::UNDEFINED)?;
     }
 
     Ok(result)
@@ -895,14 +869,20 @@ fn js_map_groupBy(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     }
 
-    let mut ms = JSMapState::new(false, groups.len());
+    // Create the instance before filling it: every insert then has an owner
+    // node to bind against (the result may be promoted mid-loop), and the
+    // object is rooted in the current scope while the arrays are built.
+    let mut result: JSValue =
+        MapSet::from_entries(ctx, JSMapState::new(false, groups.len()))?.into();
     for (key, mut lst) in groups {
         lst.shrink_to_fit();
         let arr = Array::from_values(ctx, lst)?;
-        ms.upsert(ctx, key, arr.into())?;
+        let owner = result;
+        let state = get_jsmap_state_mut(&mut result, JS_CLASS_MAP, ctx)?;
+        state.upsert(ctx, owner, key, arr.into())?;
     }
 
-    MapSet::from_entries(ctx, ms).map(JSValue::from)
+    Ok(result)
 }
 
 pub const js_map_funcs: &[FieldDef] = &[
@@ -920,7 +900,7 @@ mod tests {
     /// A Set result built by the set-methods can become old while later keys
     /// are still young; every insert must bind the key to the result node.
     #[test]
-    fn upsert_bound_keeps_a_young_key_on_an_old_result_set() {
+    fn upsert_keeps_a_young_key_on_an_old_result_set() {
         let mut rt = Runtime::create().unwrap();
         let mut ctx = rt
             .create_context(ScopedContext::ECMA_CONTEXT_SETUP)
@@ -947,7 +927,7 @@ mod tests {
 
             let mut owner_obj = owner.as_object().unwrap();
             let state = owner_obj.payload_mapset_mut().unwrap();
-            upsert_bound(&mut cx, state, owner, key.into(), JSValue::UNDEFINED)?;
+            state.upsert(&mut cx, owner, key.into(), JSValue::UNDEFINED)?;
 
             cx.rt_mut().gc_minor();
             assert!(

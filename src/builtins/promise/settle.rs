@@ -8,7 +8,7 @@ use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 use crate::{
     ErrorKind, Exception, GcBind, JS_CLASS_PROMISE_REJECT_FUNCTION,
     atom::Atom,
-    context::{ContextImpl, ScopedContext},
+    context::ScopedContext,
     error::JSResult,
     object::{JS_SpeciesConstructor, Object, PromiseResolveFunc},
     utils::unlikely,
@@ -153,7 +153,7 @@ impl Promise {
     ///   which activates the `reaction_funcs` execution.
     pub(crate) fn reaction(
         &mut self,
-        ctx: &mut ContextImpl,
+        ctx: &mut ScopedContext,
         reaction_funcs: [JSValue; 2],
         cap_resolving_funcs: [JSValue; 2],
     ) -> Result<(), i32> {
@@ -187,33 +187,19 @@ impl Promise {
 
         match state {
             PromiseState::Pending => {
-                // bind write barrier
+                // store + write barrier in one step: the promise may already
+                // be old while the reaction handlers are young.
                 let self_node = self.gc_node_ptr();
-                for v in [
-                    success.resolving_funcs[0],
-                    success.resolving_funcs[1],
-                    success.handler,
-                    fail.resolving_funcs[0],
-                    fail.resolving_funcs[1],
-                    fail.handler,
-                ] {
-                    ctx.bind_node_value(self_node, v);
-                }
-
-                self.payload_mut().add_reaction(success, fail);
+                self.payload_mut()
+                    .add_reaction(ctx, self_node, success, fail);
             }
             _ => {
                 if state == PromiseState::Rejected
                     && !is_handled
                     && let Some(cb) = ctx.rt().host_promise_rejection_tracker
                 {
-                    cb(
-                        ctx,
-                        *self,
-                        result,
-                        true as i32,
-                        ctx.rt().host_promise_rejection_tracker_opaque,
-                    );
+                    let opaque = ctx.rt().host_promise_rejection_tracker_opaque;
+                    cb(ctx, *self, result, true as i32, opaque);
                 }
 
                 let act = if state == PromiseState::Fulfilled {

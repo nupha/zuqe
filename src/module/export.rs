@@ -63,10 +63,34 @@ impl GcTrace for ExportType {
 #[derive(Debug, Clone, Copy)]
 pub struct ExportEntry {
     pub(crate) export_type: ExportType,
-    /// '*' if export ns from. not used for local export after compilation
-    pub local_name: Atom,
-    /// exported variable name
-    pub export_name: Atom,
+    /// '*' if export ns from. not used for local export after compilation.
+    /// Written only through `add_export_internal` / `set_export_local_name`.
+    pub(super) local_name: Atom,
+    /// exported variable name. Written only through `add_export_internal`.
+    pub(super) export_name: Atom,
+}
+
+impl ExportEntry {
+    /// Construction-time entry (deserialization): the owning module does not
+    /// exist yet, so no edge is bound here.
+    pub(crate) const fn new(export_type: ExportType, local_name: Atom, export_name: Atom) -> Self {
+        Self {
+            export_type,
+            local_name,
+            export_name,
+        }
+    }
+
+    /// Read-only views for code outside `crate::module`.
+    #[inline(always)]
+    pub(crate) const fn local_name(&self) -> Atom {
+        self.local_name
+    }
+
+    #[inline(always)]
+    pub(crate) const fn export_name(&self) -> Atom {
+        self.export_name
+    }
 }
 
 impl GcTrace for ExportEntry {
@@ -191,6 +215,31 @@ impl ModuleDefImpl {
 
             Ok(())
         }
+    }
+
+    /// Rename a local export binding (parse-time rewrite of
+    /// `import {x} from "A"; export {x}`) and bind the new atom — the module
+    /// may already be old. The single post-construction write path for
+    /// `ExportEntry::local_name`.
+    pub(crate) fn set_export_local_name(&mut self, ctx: &ScopedContext, idx: usize, name: Atom) {
+        let owner = self.gc_head_ptr();
+        self.export_entries[idx].local_name = name;
+        ctx.bind_atom(owner, name);
+    }
+
+    /// Link a local export entry to its closure variable and record the edge
+    /// in one step. The single write path for `ExportType::var_ref`.
+    pub(crate) fn set_export_var_ref(&mut self, ctx: &ScopedContext, idx: usize, vr: VarRef) {
+        let owner = self.gc_head_ptr();
+        let node = vr.gc_node_ptr();
+        match &mut self.export_entries[idx].export_type {
+            ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } => *var_ref = Some(vr),
+            _ => {
+                debug_assert!(false, "set_export_var_ref on a non-local export entry");
+                return;
+            }
+        }
+        ctx.bind_node(owner, node);
     }
 
     /// Declare a module export name

@@ -27,13 +27,13 @@ pub(crate) fn serialize_module(
 
     ctx.write_u32(md.dependencies.len() as u32);
     for d in md.dependencies.iter() {
-        ctx.write_atom(sc, d.module_name)?;
+        ctx.write_atom(sc, d.module_name())?;
     }
 
     ctx.write_u32(md.import_entries.len() as u32);
     for e in md.import_entries.iter() {
         ctx.write_u16(e.var_idx);
-        ctx.write_atom(sc, e.import_name)?;
+        ctx.write_atom(sc, e.import_name())?;
         ctx.write_i32(e.req_module_idx);
     }
 
@@ -46,8 +46,8 @@ pub(crate) fn serialize_module(
         ctx.write_u8(kind);
         ctx.write_u16(var_idx);
         ctx.write_i32(req_idx);
-        ctx.write_atom(sc, e.local_name)?;
-        ctx.write_atom(sc, e.export_name)?;
+        ctx.write_atom(sc, e.local_name())?;
+        ctx.write_atom(sc, e.export_name())?;
     }
 
     ctx.write_u32(md.star_export_entries.len() as u32);
@@ -87,11 +87,7 @@ pub(crate) fn deserialize_module(
         let var_idx = ctx.read_u16()?;
         let import_name: Atom = ctx.read_atom()?;
         let req_module_idx = ctx.read_i32()?;
-        import_entries.push(ImportEntry {
-            var_idx,
-            import_name,
-            req_module_idx,
-        });
+        import_entries.push(ImportEntry::new(var_idx, import_name, req_module_idx));
     }
 
     let n = ctx.read_u32()? as usize;
@@ -109,11 +105,7 @@ pub(crate) fn deserialize_module(
             },
             _ => ExportType::JS_EXPORT_TYPE_INDIRECT(req_module_idx),
         };
-        export_entries.push(ExportEntry {
-            export_type,
-            local_name,
-            export_name,
-        });
+        export_entries.push(ExportEntry::new(export_type, local_name, export_name));
     }
 
     let n = ctx.read_u32()? as usize;
@@ -136,6 +128,10 @@ pub(crate) fn deserialize_module(
 
     let mut md = ModuleDef::new(ctx.ctx, module_name)
         .map_err(|_| BytecodeSerializeError::InvalidValue("oom in module rebuild".into()))?;
+    // Whole-Vec assignment stays as-is: this is construction — `md` is fresh
+    // (young) and unreachable, so every edge installed here is covered by the
+    // full trace of a young owner. Any late write must go through a
+    // `ModuleDefImpl` setter, which binds.
     md.dependencies = dependencies;
     md.import_entries = import_entries;
     md.export_entries = export_entries;

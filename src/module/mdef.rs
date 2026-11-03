@@ -81,7 +81,7 @@ pub struct ModuleDefImpl {
     pub(super) pending_async_dependencies: i32,
 
     promise: WriteBarrier<Option<Promise>>, // corresponds to spec field: capability
-    resolving_funcs: [JSValue; 2],          // corresponds to spec field: capability
+    resolving_funcs: [WriteBarrier<JSValue>; 2], // corresponds to spec field: capability
 
     /// undefined means no exception
     eval_error: WriteBarrier<JSValue>,
@@ -146,7 +146,7 @@ impl ModuleDefImpl {
             async_evaluation_timestamp: 0,
 
             promise: WriteBarrier::new(None),
-            resolving_funcs: [const { JSValue::UNDEFINED }; 2],
+            resolving_funcs: [const { WriteBarrier::new(JSValue::UNDEFINED) }; 2],
             eval_error: WriteBarrier::new(JSValue::UNDEFINED),
 
             meta_obj: WriteBarrier::new(None),
@@ -202,12 +202,12 @@ impl ModuleDefImpl {
     }
 
     #[inline(always)]
-    pub(crate) const fn resolving_func(&self, i: usize) -> JSValue {
-        self.resolving_funcs[i]
+    pub(crate) fn resolving_func(&self, i: usize) -> JSValue {
+        self.resolving_funcs[i].get()
     }
 
     /// Install the module evaluation capability. Both values are young and the
-    /// module may already be old, so both edges are bound here.
+    /// module may already be old, so the guard records both edges here.
     pub(crate) fn set_capability(
         &mut self,
         ctx: &ScopedContext,
@@ -216,10 +216,8 @@ impl ModuleDefImpl {
     ) {
         let owner = self.gc_head_ptr();
         self.promise.set_node(ctx, owner, Some(promise));
-        self.resolving_funcs = funcs;
-        // `[JSValue; 2]` is a composite shape (memo §7): bound here by hand.
-        ctx.bind_node_value(owner, funcs[0]);
-        ctx.bind_node_value(owner, funcs[1]);
+        self.resolving_funcs[0].set_node(ctx, owner, funcs[0]);
+        self.resolving_funcs[1].set_node(ctx, owner, funcs[1]);
     }
 
     #[inline]
@@ -411,17 +409,12 @@ impl ModuleDefImpl {
 
         if self.init_func.is_some() {
             // is native module: initialize exported variables
-            let mut bound = Vec::with_capacity(self.export_entries.len());
-            for me in self.export_entries.iter_mut() {
-                if let ExportType::JS_EXPORT_TYPE_LOCAL { var_ref, .. } = &mut me.export_type {
+            for i in 0..self.export_entries.len() {
+                if let ExportType::JS_EXPORT_TYPE_LOCAL { .. } = self.export_entries[i].export_type
+                {
                     let vr = js_create_module_var(ctx, false)?;
-                    bound.push(vr.gc_node_ptr());
-                    var_ref.replace(vr);
+                    self.set_export_var_ref(ctx, i, vr);
                 }
-            }
-            let owner = self.gc_head_ptr();
-            for child in bound {
-                ctx.bind_node(owner, child);
             }
         } else {
             // is bytecode module
@@ -518,7 +511,7 @@ impl ModuleDef {
         // resolve dependency modules
         let result = (|| -> Result<(), i32> {
             for dep in self.dependencies.iter_mut() {
-                let dep_utf8 = dep.module_name.to_utf8(ctx.rt());
+                let dep_utf8 = dep.module_name().to_utf8(ctx.rt());
                 let mut m1 = super::js_host_resolve_imported_module(
                     ctx,
                     &base_utf8,

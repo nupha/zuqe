@@ -135,11 +135,19 @@ impl JSMapState {
         // }
     }
 
-    /// update or insert key-value pair.
-    /// returns false if the value is updated, true if the key-value pair is inserted
+    /// Update or insert a key-value pair and record the write barrier for it.
+    /// Returns true if the pair was inserted, false if an existing value was
+    /// replaced.
+    ///
+    /// `owner` is the collection node (a `JSValue` so callers can pass
+    /// `cc.this()` directly). Binding lives here — the only write path — so no
+    /// caller can store without recording the edge; both edges are recorded
+    /// unconditionally, an already-bound edge is deduplicated by the
+    /// remembered set.
     pub fn upsert(
         &mut self,
         ctx: &mut ScopedContext,
+        owner: JSValue,
         key: JSValue,
         value: JSValue,
     ) -> Result<bool, i32> {
@@ -183,7 +191,7 @@ impl JSMapState {
             None
         };
 
-        if idx.is_none() {
+        let inserted = if idx.is_none() {
             // key not found, insert
             let kv = match key.as_object() {
                 // object key in a weak collection: held weakly
@@ -206,10 +214,17 @@ impl JSMapState {
                 // (e.g. distinct Symbols sharing a description hash).
                 .or_insert_with(|| vec![idx]);
 
-            Ok(true)
+            true
         } else {
-            Ok(false)
-        }
+            false
+        };
+
+        // Store-then-barrier: the collection may already be old while the
+        // freshly produced key/value are young. No GC point in between.
+        ctx.bind_value(owner, key);
+        ctx.bind_value(owner, value);
+
+        Ok(inserted)
     }
 
     /// find value by key.
