@@ -777,8 +777,9 @@ impl ScopedContext<'_> {
         self.gc_protect_transient_force(val)
     }
 
-    /// Force-version gc_protect_transient that always protects, regardless of
-    /// feature flag. Use this for C-stack-local values that were previously
+    /// Force protects a value in current scope.
+    ///
+    /// Use this for C-stack-local values that were previously
     /// traced by StackFrame::trace (legacy model) but, in the arena/trampoline
     /// execution model, lack GC root coverage between the point they leave a
     /// traced location and the point they are stored in a new traced location.

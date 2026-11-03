@@ -402,8 +402,11 @@ pub(crate) fn op_binary_logic(
     opcode: OpCode,
     sp: *mut JSValue,
 ) -> Result<*mut JSValue, i32> {
-    let op1 = unsafe { std::ptr::replace(sp.offset(-2), JSValue::UNDEFINED) };
-    let op2 = unsafe { std::ptr::replace(sp.offset(-1), JSValue::UNDEFINED) };
+    // Read (do NOT clear) the operand slots: the conversions below may run user
+    // code (valueOf / Symbol.toPrimitive) and trigger a GC, and the stack is
+    // the only traced owner of these values once they are popped into locals.
+    let op1 = unsafe { std::ptr::read(sp.offset(-2)) };
+    let op2 = unsafe { std::ptr::read(sp.offset(-1)) };
 
     #[cfg(feature = "big_int")]
     {

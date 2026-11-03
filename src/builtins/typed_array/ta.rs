@@ -437,7 +437,13 @@ impl TypedArray {
                     // must collect values from iterator first, then do number convert.
                     let mut vals = Vec::<JSValue>::with_capacity(64);
                     for v in it {
-                        vals.push(v?);
+                        let v = v?;
+                        // `vals` lives on the C stack, so the GC never sees it:
+                        // without this the next minor frees a value we still
+                        // hold (the iterator's results are rooted nowhere else
+                        // once its result object dies).
+                        ctx.gc_protect_transient_force(&v);
+                        vals.push(v);
                     }
 
                     let count = vals.len();

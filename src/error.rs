@@ -211,15 +211,13 @@ impl<'c> ScopedContext<'c> {
         if let Exception::Error(val) = &exc
             && let Some(mut n) = val.as_gc_node()
         {
-            // If the node is LOCAL, remove it from the current scope cache
-            // and clear the LOCAL flag so the exception slot keeps it alive.
+            // If the error value is LOCAL, drop protection: the exception slot
+            // (`cur_exception`) keeps it alive from here on.
             //
-            // Search from current scope upward through ancestors.
-            // For cross-realm errors (e.g. `throw new otherRealm.TypeError()`),
-            // the node is LOCAL on a *different* scope stack and won't be
-            // found here — clear the LOCAL flag via GcHead::clear_local_flag().
-            // The node stays protected by the other scope's cache; it will be
-            // cleaned up when that scope is eventually dropped.
+            // Search from the current scope upward through ancestors first;
+            // a cross-realm error (e.g. `throw new otherRealm.TypeError()`) is
+            // cached on a *different* scope stack, so fall back to the heap,
+            // which can search every stack.
             if unsafe { n.as_ref().is_local() } {
                 let mut found = false;
                 let mut scope = Some(self.gc_state()); // start from self.gc() - the most-inner scope.
@@ -232,10 +230,24 @@ impl<'c> ScopedContext<'c> {
                 }
 
                 if !found {
-                    // Cross-realm: node lives on another scope stack.
-                    // Clear LOCAL flag so set_exception won't assert.
-                    unsafe {
-                        n.as_mut().clear_local_flag();
+                    // Cross-realm: remove the node from whichever scope cache
+                    // holds it. Clearing only the flag would leave it in that
+                    // cache — the GC would then free it (no longer a root) and
+                    // the cache's later clear() would write to freed memory.
+                    if !self.rt().gc_heap().release_local(n) {
+                        // Reaching here means the LOCAL flag is set while no
+                        // scope cache holds the node: a flag/cache mismatch
+                        // (a cache entry was dropped without clearing the
+                        // flag). Trip on it in debug builds; release builds
+                        // still clear the flag as a recovery.
+                        debug_assert!(
+                            !unsafe { n.as_ref().is_local() },
+                            "LOCAL node is in no scope cache: its cache entry was \
+                             dropped without clearing the LOCAL flag",
+                        );
+                        unsafe {
+                            n.as_mut().clear_local_flag();
+                        }
                     }
                 }
             }
