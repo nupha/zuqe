@@ -492,7 +492,7 @@ impl FooPayload {
   edges. Read with `get()` (needs `T: Copy`); the write path does not need `Copy`.
 - **residual hole**: `p.result = WriteBarrier::new(v)` and `mem::replace(&mut p.result, …)`
   still compile — Rust cannot forbid whole-field replacement. The defence is the setter
-  convention above plus `tests/gc_field_audit.rs`, which fails on any such assignment and on
+  convention above plus `tests/gc_audit.rs`, which fails on any such assignment and on
   any new unwrapped GC payload field (allowlisted entries are printed as a visible diff).
 
 The scanner is a library API, so an embedding crate audits **its own** `def_native_object!`
@@ -660,7 +660,7 @@ referencing a young node** must record the edge:
       safepoint. A missing barrier must panic in `dbg_assert_no_stale_old_edges`,
       i.e. `child … (freed dtype …), owner … (dtype …) — missing write barrier`.
 - [ ] New payload GC field is a `WriteBarrier`/`WriteBarrierVec` slot, or a `Type.field` line in
-      `tests/gc_field_audit.rs`'s allowlist (a bare field fails that test at `file:line`)?
+      `tests/gc_audit.rs`'s allowlist (a bare field fails that test at `file:line`)?
 - [ ] New container element type has an `impl GcBind` with its weak/`#[gc(skip)]` fields left out?
 - [ ] New `bind` call site still has a bare store next to it? Merge the pair into a guard
       `set`/`push` (the payload's single setter) — two statements can be split by a later edit.
@@ -675,6 +675,100 @@ referencing a young node** must record the edge:
       It keeps the young chain and remembered-set bookkeeping, so it is **not** the same as building
       without `gc_generations`; use the feature-off build when a host needs the zero-bookkeeping
       path.
+
+## Auditing GC payload fields from your own crate
+
+`zuqe::gc_audit` is the static half of the rules above: it scans a **source directory you pass
+in** — not zuqe's checkout — and reports every GC-leaf payload field that is neither a
+`WriteBarrier`/`WriteBarrierVec` slot nor allowlisted, every container element type without an
+`impl GcBind`, and every whole-field guard replacement, each with `file:line`. It ships inside
+the library, so any crate that depends on `zuqe` runs it against its own tree, whether `zuqe`
+comes from crates.io, git, or a path. No cargo feature, no extra dependency, no
+`debug_assertions` gate — it is ordinary library code, compiled like the rest (it is never called
+at runtime).
+
+### Boilerplate
+
+Add `tests/gc_audit.rs` to your crate — one macro call and your allowlist, nothing else.
+**Pick one of the two forms, never both** (both expand to the same test function name):
+
+```rust
+// form 1 — no exemptions yet (red until every reported line is fixed or allowlisted):
+zuqe::gc_audit_test!(30);
+
+// form 2 — with exemptions, used INSTEAD of form 1:
+// `Type.field — reason` entries, reviewed like code, living in this same file.
+const EXEMPT: &[&str] = &["MyPayload.cache — construction only"];
+zuqe::gc_audit_test!(EXEMPT, 30);
+```
+
+Run it with `cargo test --test gc_audit`. The macro expands to the standard
+`gc_audit_payload_fields` test, which runs `zuqe::gc_audit::test_failures(src, allowlist,
+min_roots)` — rules 1–3 (bare/unbound GC fields with `file:line`, container element types
+without `impl GcBind`, whole-field guard replacement, stale allowlist entries) plus the
+anti-vacuous root-set floor. The generated test name is fixed and neutral so every crate's
+report reads the same.
+
+`min_roots` is a floor on how many payload root types your `src` tree must yield — it stops a
+scan of a wrong or empty directory from passing. Start with a rough guess: if it is too high,
+the failure prints your actual count (`root set suspiciously small: N entries`) — set the floor
+somewhat below N.
+
+Requires a zuqe version that ships `gc_audit`: if `zuqe::gc_audit_test!` does not resolve, your
+zuqe predates the audit — upgrade. The macro scans `<your crate>/src` (the test file's manifest
+dir); a crate with a different layout calls `zuqe::gc_audit::test_failures` directly — see
+Discovery helpers.
+
+### Workflow: red → green
+
+1. Run with `zuqe::gc_audit_test!(30)` — every reported line is a field to either fix in code
+   (wrap it, or add an `impl GcBind` for the element type) or justify with an allowlist entry
+   `Type.field — reason`, passed as the first macro argument;
+2. keep the allowlist short and honest — each entry is a visible diff a reviewer accepts, and
+   the test also fails on **stale** entries (field renamed, wrapped or gone), so the list cannot
+   rot;
+3. green means shape only: an entry is a claim you verified against the write-point checklist of
+   Rule 5, not proof that no late write exists.
+
+### Command-line tool
+
+`zuqe-gc-audit` (`src/bin/zuqe-gc-audit.rs`) prints the same inventory and audit for any source
+tree as a report instead of a test — a type list with `file:line` and each field's
+`bare`/`wrapped`/`container` status, then the violation list. Build the distributable binary with:
+
+```text
+cargo build --release --bin zuqe-gc-audit
+# → target/release/zuqe-gc-audit — standalone; point it at any crate:
+./target/release/zuqe-gc-audit path/to/crate/src
+./target/release/zuqe-gc-audit --allowlist ex.txt path/to/crate/src
+```
+
+`SRC_DIR` defaults to `./src`. The allowlist file holds one `Type.field — reason` per line
+(`#` comments and blank lines are skipped) — the same lines as `EXEMPT` in your test. Exit
+status: `0` clean, `1` violations (so it can gate scripts), `2` usage error. In-tree,
+`cargo run --bin zuqe-gc-audit -- [SRC_DIR]` runs the same tool with the dev profile.
+
+### Discovery helpers
+
+- `gc_leaf_types(dir)` — every struct/enum that *directly* declares a GC-leaf field, with
+  `file:line` and the field's `wrapped`/`container` status: the inventory to work from before an
+  allowlist exists. It returns plain data, so a test or any binary of yours can print it;
+- `payload_root_types(dir)` — the audit's root set; `test_failures` already applies the floor,
+  or assert on it directly;
+- `test_failures(dir, allowlist, min_roots)` — exactly what the macro runs, if you want the
+  failure lines instead of a panicking test;
+- `all_violations(dir, allowlist)`, `gc_field_violations(dir, allowlist)` and
+  `guard_construction_violations(dir)` — the pieces, if you prefer your own shape.
+
+### Limits
+
+The scanner is a deliberate text heuristic (no `syn`): unknown field types are skipped rather
+than guessed, only *direct* GC-leaf fields are listed by `gc_leaf_types` (nested local types are
+covered by the root-set walk of `gc_field_violations`), and a payload type unreachable from the
+root set is invisible. It reports shape, never write timing.
+
+Reference implementations: zuqe's own `tests/gc_audit.rs` (its allowlist plus a payload-set
+check) and aike's `tests/gc_audit.rs` (the one-liner) — both run the same standard test.
 
 ## Customized GC tracer
 

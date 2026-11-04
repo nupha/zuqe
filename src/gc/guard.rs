@@ -84,7 +84,7 @@ impl GcBind for PropertyKey {
 /// Deliberately not `Clone`/`Default`: copying or resetting would fabricate an
 /// unbarriered edge. Whole-field replacement (`field = WriteBarrier::new(v)`)
 /// still compiles — that residual hole is closed by the payload-setter
-/// convention plus the `tests/gc_field_audit.rs` assignment rule.
+/// convention plus the `tests/gc_audit.rs` assignment rule.
 #[repr(transparent)]
 #[derive(Debug)] // payloads are `#[derive(Debug, GcTrace)]`; a missing Debug fails the pilot at compile time
 pub struct WriteBarrier<T> {

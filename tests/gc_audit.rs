@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
-//! zuqe's own run of the `gc_audit` library (L2b of `memo/gc_bind_guard.md`).
-//!
-//! The scanner lives in `src/gc/audit.rs` so an embedding crate can audit its
-//! own `def_native_object!` payloads with the same code — see the module docs.
-//! This file only carries zuqe's allowlist and its sanity checks.
+//! zuqe's own run of the standard GC payload field audit (L2b of
+//! `memo/gc_bind_guard.md`). The checks live in `src/gc/audit.rs` and reach
+//! this file through `zuqe::gc_audit_test!` — the same one-liner any
+//! embedding crate writes. This file only carries zuqe's allowlist and its
+//! payload-set check; see `docs/gc.md`, "Auditing GC payload fields from your
+//! own crate".
 
 use std::path::{Path, PathBuf};
 
@@ -112,33 +113,14 @@ const EXEMPT: &[&str] = &[
     "VarRefImpl.pvalue — points into a frame slot (a GC root); `set_value` binds the Detached arm",
 ];
 
-/// Rule 1 + rule 2: every GC payload field is wrapped or allowlisted.
-#[test]
-fn gc_payload_fields_are_wrapped_or_allowlisted() {
-    let v = zuqe::gc_audit::gc_field_violations(&src_dir(), EXEMPT);
-    assert!(
-        v.is_empty(),
-        "unwrapped GC payload fields (wrap in WriteBarrier/WriteBarrierVec or allowlist):\n{}",
-        v.join("\n")
-    );
-}
+// The standard test: rules 1–3 plus the root-set floor (zuqe has 47 payloads).
+zuqe::gc_audit_test!(EXEMPT, 40);
 
-/// Rule 3: a guard is only ever constructed, never assigned over a live field.
+/// The audit must be wired to zuqe's real payload set — it cannot pass by
+/// scanning nothing. The floor itself is enforced above; these three assert
+/// that each root-set detection path still works.
 #[test]
-fn guards_are_only_ever_constructed() {
-    let v = zuqe::gc_audit::guard_construction_violations(&src_dir());
-    assert!(
-        v.is_empty(),
-        "whole-field replacement bypasses the write barrier \
-         (use the payload setter / `set` / `push`):\n{}",
-        v.join("\n")
-    );
-}
-
-/// The audit must be wired to the real payload set — it cannot pass by
-/// scanning nothing.
-#[test]
-fn the_audit_sees_the_pilot_payloads() {
+fn the_audit_sees_the_payload_set() {
     let roots = zuqe::gc_audit::payload_root_types(&src_dir());
     for pilot in ["PromisePayload", "AGenPayload", "FinalizationRegistryData"] {
         assert!(
@@ -146,9 +128,4 @@ fn the_audit_sees_the_pilot_payloads() {
             "root set lost the pilot payload {pilot}: {roots:?}"
         );
     }
-    assert!(
-        roots.len() >= 40,
-        "root set suspiciously small: {} entries: {roots:?}",
-        roots.len()
-    );
 }

@@ -44,7 +44,7 @@ pub use {
     error::{ErrCode, ErrorKind, Exception, ExceptionText, ExitStatus, JSResult},
     eval::{EvalFlags, EvalName, EvalType},
     function::{BoundFunction, Bytecode, CallContext, Callback, FieldDef, IteratorState},
-    gc::{GcBind, WriteBarrier, WriteBarrierVec, audit as gc_audit},
+    gc::{GcBind, WriteBarrier, WriteBarrierVec},
     microtask::*,
     module::{ModuleDef, ModuleNameFilter, path_to_url, url_to_abspath},
     number::IntOrFloat,
@@ -56,6 +56,9 @@ pub use {
     runtime::{DeadlineWaker, Runtime, RuntimeImpl, RuntimeUserState, TickStatus, WakeHandle},
     value::JSValue,
 };
+
+/// The L2b static GC field audit (see `src/gc/audit.rs`).
+pub use gc::audit as gc_audit;
 
 #[cfg(feature = "jit")]
 pub use jit::{Jit, JitConfig, JitConfigBuilder, JitError, JitMetrics, JitTierPolicy};

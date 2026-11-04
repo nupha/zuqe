@@ -3,6 +3,8 @@
 
 //! Static audit of GC payload fields — the L2b layer of `memo/gc_bind_guard.md`.
 //!
+//! The module is a source-scanning test/tool utility, never called at runtime.
+//!
 //! The type system cannot stop someone from declaring `foo: JSValue` instead of
 //! `WriteBarrier<JSValue>`. This module walks a source tree's GC payload root
 //! set (`gc_type_register!` entries, every `def_native_object!` payload type and
@@ -24,23 +26,31 @@
 //!
 //! # Using it from an embedding crate
 //!
-//! Add one test to your own crate (allowlist entries are `Type.field — reason`):
+//! Everything ships in the library: your crate's `tests/gc_audit.rs` is one
+//! macro call — no `Path`, no assert, no cfg — pointed at *your* source tree.
+//! Nothing runs from zuqe's checkout, so it works with zuqe as a
+//! registry/git/path dependency; the generated test carries its own
+//! `debug_assertions` gate, so release test builds compile it away.
 //!
 //! ```ignore
-//! use std::path::Path;
+//! // no exemptions yet (red until every line is fixed or allowlisted):
+//! zuqe::gc_audit_test!(30);
 //!
-//! const ALLOWLIST: &[&str] = &["MyPayload.cache — construction only"];
-//!
-//! #[test]
-//! fn gc_payload_fields() {
-//!     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-//!     let v = zuqe::gc_audit::gc_field_violations(&src, ALLOWLIST);
-//!     assert!(v.is_empty(), "{}", v.join("\n"));
-//!
-//!     let v = zuqe::gc_audit::guard_construction_violations(&src);
-//!     assert!(v.is_empty(), "{}", v.join("\n"));
-//! }
+//! // with exemptions — `Type.field — reason` entries:
+//! const EXEMPT: &[&str] = &["MyPayload.cache — construction only"];
+//! zuqe::gc_audit_test!(EXEMPT, 30);
 //! ```
+//!
+//! The standard `gc_audit_test!` macro expands to a `gc_audit_payload_fields`
+//! test around [`test_failures`] (rules 1–3 plus the root-set floor); call the
+//! individual functions directly if you need a different shape.
+//!
+//! To *discover* what needs auditing (before writing an allowlist, or from a
+//! tool outside any crate), [`gc_leaf_types`] lists every struct/enum that
+//! directly declares a GC-leaf field, with `file:line` and the field's
+//! wrap/container status; [`payload_root_types`] is the audit's root set —
+//! assert it is non-empty so a scan that matched nothing cannot pass
+//! vacuously.
 //!
 //! Unknown field types are skipped rather than guessed, and a payload type
 //! unreachable from the root set is invisible here — this is a review-speed
@@ -798,6 +808,76 @@ pub fn payload_root_types(dir: &Path) -> Vec<String> {
     root_set(&files, &defs).into_iter().collect()
 }
 
+/// A struct/enum definition in the scanned tree that directly declares at
+/// least one GC-leaf field — the candidate set an audit has to cover.
+pub struct GcLeafType {
+    pub name: String,
+    pub file: String,
+    pub line: usize,
+    /// Only the GC-leaf fields; plain fields of the same definition are not
+    /// listed.
+    pub fields: Vec<GcLeafField>,
+}
+
+/// One GC-leaf field of a [`GcLeafType`].
+pub struct GcLeafField {
+    /// Field name; enum tuple variants use the ordinal (`0`, `1`, …).
+    pub name: String,
+    /// The declared type, as written in the source.
+    pub ty: String,
+    /// The field sits behind `WriteBarrier`/`WriteBarrierVec` (rule 1 holds).
+    pub wrapped: bool,
+    /// The leaf was reached through a container (`Vec`/`Box`/…): rule 2
+    /// applies instead — the element type needs an `impl GcBind`.
+    pub container: bool,
+}
+
+/// Scan `dir` for struct/enum definitions that directly declare a GC-leaf
+/// field, sorted by type name. The leaf set is the same one
+/// [`gc_field_violations`] uses, so a candidate found here and reported clean
+/// there refers to the same field.
+///
+/// Only *direct* fields are matched: a definition whose GC-ness comes only
+/// through a nested local type is not listed — that is what the root-set walk
+/// in [`gc_field_violations`] covers. This is the discovery half: an external
+/// tool uses it to list the types it then audits.
+pub fn gc_leaf_types(dir: &Path) -> Vec<GcLeafType> {
+    let files = source_files(dir);
+    let defs = parse_defs(&files);
+    let leaves = leaf_types(&files);
+
+    let mut out = Vec::new();
+    for (name, def) in &defs {
+        let mut fields = Vec::new();
+        for f in &def.fields {
+            if f.skip {
+                continue;
+            }
+            let (inner, wrapped, container) = peel(&f.ty);
+            let hit = expand_tuple(inner)
+                .iter()
+                .any(|ty| base_name(ty).is_some_and(|b| leaves.contains(&b)));
+            if hit {
+                fields.push(GcLeafField {
+                    name: f.name.clone(),
+                    ty: f.ty.clone(),
+                    wrapped,
+                    container,
+                });
+            }
+        }
+        if !fields.is_empty() {
+            out.push(GcLeafType {
+                name: name.clone(),
+                file: def.file.clone(),
+                line: def.line,
+                fields,
+            });
+        }
+    }
+    out
+}
+
 /// Rule 1 + rule 2 violations, plus stale allowlist entries (an entry whose
 /// field disappeared, was renamed or got wrapped — keeps the list honest).
 ///
@@ -882,6 +962,35 @@ pub fn guard_construction_violations(dir: &Path) -> Vec<String> {
     out
 }
 
+/// Run the whole L2b audit over `dir` — rules 1–3: field violations (with
+/// stale allowlist entries) plus guard-construction violations. Empty result
+/// means clean. This is the one call an embedding crate's test needs; the
+/// allowlist is that crate's own (entries are `Type.field — reason`).
+pub fn all_violations(dir: &Path, allowlist: &[&str]) -> Vec<String> {
+    let mut out = gc_field_violations(dir, allowlist);
+    out.extend(guard_construction_violations(dir));
+    out
+}
+
+/// The whole standard `tests/gc_audit.rs` body: rules 1–3 (via
+/// [`all_violations`]) plus the anti-vacuous root-set check — a scan that
+/// found fewer than `min_roots` payload types cannot pass. Returns the
+/// failure lines (empty = clean).
+///
+/// The checks live here so every crate's test file is the same thin wrapper:
+/// it only supplies its own source directory, allowlist and root-count floor.
+pub fn test_failures(dir: &Path, allowlist: &[&str], min_roots: usize) -> Vec<String> {
+    let mut out = all_violations(dir, allowlist);
+    let roots = payload_root_types(dir);
+    if roots.len() < min_roots {
+        out.push(format!(
+            "  root set suspiciously small: {} entries (< {min_roots}): {roots:?}",
+            roots.len()
+        ));
+    }
+    out
+}
+
 /// `Type.field — reason` → `Type.field`.
 fn allowlist_key(entry: &str) -> &str {
     entry.split(" — ").next().unwrap_or(entry).trim()
@@ -931,6 +1040,85 @@ mod tests {
         assert_eq!(expand_tuple("JSValue"), ["JSValue"]);
         assert_eq!(expand_tuple("fn(&mut C) -> bool"), ["fn(&mut C) -> bool"]);
         assert_eq!(expand_tuple("()"), [] as [&str; 0]);
+    }
+
+    /// The discovery scanner lists every definition with a direct GC-leaf
+    /// field, only its GC fields, in name order with the wrap/container status
+    /// the audit rules key on.
+    #[test]
+    fn gc_leaf_types_lists_definitions_with_gc_fields() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let types = gc_leaf_types(&dir);
+        assert!(
+            types.windows(2).all(|w| w[0].name < w[1].name),
+            "not sorted by type name"
+        );
+
+        // bare handle field, and plain fields of the same struct excluded
+        let rope = types
+            .iter()
+            .find(|t| t.name == "RopeImpl")
+            .expect("RopeImpl");
+        let left = rope.fields.iter().find(|f| f.name == "left").expect("left");
+        assert_eq!(left.ty, "StringRef");
+        assert!(!left.wrapped && !left.container);
+        assert!(
+            !rope.fields.iter().any(|f| f.name == "depth"),
+            "non-GC field listed"
+        );
+
+        // guarded field
+        let promise = types
+            .iter()
+            .find(|t| t.name == "PromisePayload")
+            .expect("PromisePayload");
+        let result = promise
+            .fields
+            .iter()
+            .find(|f| f.name == "result")
+            .expect("result");
+        assert!(result.wrapped);
+
+        // container element field
+        let abuf = types
+            .iter()
+            .find(|t| t.name == "ArrayBufferPayload")
+            .expect("ArrayBufferPayload");
+        let list = abuf
+            .fields
+            .iter()
+            .find(|f| f.name == "typed_array_list")
+            .expect("typed_array_list");
+        assert!(list.container && !list.wrapped);
+    }
+
+    /// The one-call entry point must run both halves of the audit — an
+    /// embedding crate relying on it must not silently get half a check.
+    #[test]
+    fn all_violations_runs_field_and_guard_checks() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        // sanity: with no allowlist the field half must report something,
+        // otherwise the equality below could pass vacuously.
+        assert!(!gc_field_violations(&dir, &[]).is_empty());
+
+        let mut expected = gc_field_violations(&dir, &[]);
+        expected.extend(guard_construction_violations(&dir));
+        assert_eq!(all_violations(&dir, &[]), expected);
+    }
+
+    /// `test_failures` is `all_violations` plus the root-set floor: floor 0
+    /// must be exactly the violations, an impossible floor must trip the
+    /// sanity line.
+    #[test]
+    fn test_failures_adds_the_root_set_floor() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        assert_eq!(test_failures(&dir, &[], 0), all_violations(&dir, &[]));
+        assert!(
+            test_failures(&dir, &[], usize::MAX)
+                .iter()
+                .any(|l| l.contains("root set suspiciously small")),
+            "impossible floor must report the root set"
+        );
     }
 
     /// Hand-written tuple structs that hold a GC handle but are not macro

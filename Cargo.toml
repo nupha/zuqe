@@ -191,6 +191,10 @@ windows-sys = { version = "0.61.0", features = [
 [lib]
 path = "src/lib.rs"
 
+[[bin]]
+name = "zuqe-gc-audit"
+path = "src/bin/zuqe-gc-audit.rs"
+
 [[example]]
 name = "zjs"
 path = "examples/zjs/main.rs"
@@ -215,7 +219,3 @@ name = "jit-bench"
 path = "examples/jit-bench.rs"
 required-features = ["jit"]
 
-# Development-time override: edits in the sibling gc-lite checkout must be
-# visible here. Remove (or bump the dependency) before publishing.
-[patch.crates-io]
-gc-lite = { path = "../gc-lite-v2" }
