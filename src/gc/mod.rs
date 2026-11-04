@@ -15,13 +15,17 @@ pub use guard::{GcBind, WriteBarrier, WriteBarrierVec};
 /// (`min_roots`) over the *caller's* `src` tree, so a crate's
 /// `tests/gc_audit.rs` carries nothing but its own allowlist.
 ///
+/// The one-argument form reads `gc_audit_exemption.txt` next to `Cargo.toml` —
+/// the standard exemption file, the single source of truth shared with
+/// `zuqe-gc-audit`; a missing file means "no exemptions". The two-argument
+/// form takes an inline slice for one-off use.
+///
 /// ```ignore
-/// // no exemptions yet (red until every line is fixed or allowlisted):
+/// // standard: exemptions live in gc_audit_exemption.txt (`Type.field — reason`)
 /// zuqe::gc_audit_test!(30);
 ///
-/// // with exemptions — `Type.field — reason` entries:
-/// const EXEMPT: &[&str] = &["MyPayload.cache — construction only"];
-/// zuqe::gc_audit_test!(EXEMPT, 30);
+/// // escape hatch: inline slice, no file
+/// zuqe::gc_audit_test!(&["MyPayload.cache — construction only"], 30);
 /// ```
 ///
 /// See `docs/gc.md`, section "Auditing GC payload fields from your own crate".
@@ -36,6 +40,20 @@ macro_rules! gc_audit_test {
         }
     };
     ($min_roots:expr) => {
-        $crate::gc_audit_test!(&[], $min_roots);
+        #[test]
+        fn gc_audit_payload_fields() {
+            let manifest = ::std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+            // The standard exemption file is the single source of truth; a
+            // missing file means "no exemptions" (the test runs red until the
+            // fields are fixed or the file is created).
+            let exemptions =
+                $crate::gc_audit::read_exemptions(&manifest.join($crate::gc_audit::EXEMPTION_FILE));
+            let allow: ::std::vec::Vec<&str> = exemptions
+                .iter()
+                .map(::std::string::String::as_str)
+                .collect();
+            let v = $crate::gc_audit::test_failures(&manifest.join("src"), &allow, $min_roots);
+            ::std::assert!(v.is_empty(), "GC payload audit failed:\n{}", v.join("\n"));
+        }
     };
 }

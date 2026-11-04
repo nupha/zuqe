@@ -4,9 +4,10 @@
 //! zuqe's own run of the standard GC payload field audit (L2b of
 //! `memo/gc_bind_guard.md`). The checks live in `src/gc/audit.rs` and reach
 //! this file through `zuqe::gc_audit_test!` — the same one-liner any
-//! embedding crate writes. This file only carries zuqe's allowlist and its
-//! payload-set check; see `docs/gc.md`, "Auditing GC payload fields from your
-//! own crate".
+//! embedding crate writes. Exemptions live only in `gc_audit_exemption.txt`
+//! at the crate root (the standard's single source of truth, shared with
+//! `zuqe-gc-audit`); see `docs/gc.md`, "Auditing GC payload fields from your
+//! own crate". This test also pins zuqe's payload set.
 
 use std::path::{Path, PathBuf};
 
@@ -14,107 +15,9 @@ fn src_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("src")
 }
 
-/// Permanent exemptions — these are **not** violations, and an entry here is
-/// still a visible diff a reviewer must accept. Three kinds:
-///
-/// 1. *root containers* — a minor force-descends them, a barrier is pointless;
-/// 2. *construction-only* — the P0 write-point scan found no late write, so the
-///    instance is born young and never receives a value afterwards;
-/// 3. *structural / design non-goals* — raw-pointer mirrors, `Cell` slots (the
-///    guard is deliberately not `Copy`, so `Cell::get` cannot work through it),
-///    untraced weak targets, and composite shapes (`Box<[T]>`,
-///    `Option<Box<[T]>>`) that `memo/gc_bind_guard.md` §7 leaves to private
-///    fields + setters.
-///
-/// Anything **not** listed here and not wrapped in `WriteBarrier`/
-/// `WriteBarrierVec` (or, for container element types, covered by an
-/// `impl GcBind`) fails the test with `file:line`.
-const EXEMPT: &[&str] = &[
-    "ContextImpl.iterator_proto — root container (context_list, force-descended)",
-    "ContextImpl.async_iterator_proto — root container",
-    "ContextImpl.throw_type_error — root container",
-    "ContextImpl.array_proto_values — root container",
-    "ContextImpl.eval_func — root container",
-    "ContextImpl.global_obj — root container",
-    "ContextImpl.global_var_obj — root container",
-    "ContextImpl.loaded_modules — root container",
-    "ProtoCtorPair.proto — class_slots, part of the ContextImpl root",
-    "ProtoCtorPair.ctor — class_slots, part of the ContextImpl root",
-    "ShapeImpl.proto — shape registry is a root, force-descended",
-    "AsyncStateImpl.this_val — rooted via gc_pending_async_states",
-    "AsyncStateImpl.resolving_funcs — rooted via gc_pending_async_states",
-    "AsyncStateImpl.bytecode_func — rooted via gc_pending_async_states",
-    "AGenPayload.async_state — construction only",
-    "BFuncPayload.bytecode — construction only",
-    "BoundFunctionPayload.func_obj — construction only",
-    "BoundFunctionPayload.this_val — construction only",
-    "BoundFunctionPayload.bind_args — construction only",
-    "BytecodeImpl.realm — construction only",
-    "BytecodeImpl.func_name — construction only",
-    "BytecodeDebugInfo.filename — construction only",
-    "GeneratorPayload.async_state — construction only",
-    "IteratorHelperData.obj — construction only",
-    "IteratorHelperData.next — construction only",
-    "IteratorHelperData.func — construction only",
-    "IteratorWrapData.obj — construction only",
-    "IteratorWrapData.next — construction only",
-    "IteratorZipData.padding — construction only",
-    "JSAsyncFromSyncIteratorData.obj — construction only",
-    "JSAsyncFromSyncIteratorData.next_method — construction only",
-    "JSMapIteratorData.obj — construction only",
-    "NFuncPayload.realm — construction only",
-    "ProxyPayload.target — construction only",
-    "ProxyPayload.handler — construction only",
-    "RegExpStringIterPayload.iterating_regexp — construction only",
-    "FinalizationRegistryData.callback — construction only",
-    "DataViewPayload.buffer — construction only",
-    "TypedArrayPayload.array_buffer — construction only",
-    "PromiseResolvePayload.promise — construction only",
-    "IteratorZipData.keys — construction only, no late write of the Atoms",
-    "NFuncPayload.data — private to nfun.rs; `replace_data` stores and binds at the write site",
-    "ContextImpl.error_protos — root container",
-    "StackFrame.func_obj — VM stack frame, a traced root",
-    "StackFrame.this_obj — VM stack frame, a traced root",
-    "AsyncStackFrame.var_refs — VM stack frame, a traced root",
-    "ElementsView.data — raw-pointer mirror of `ArrayPayload.values`, not a slot",
-    "IteratorConcatData.iter — Cell slot; `set_iter` stores and binds (iter_concat.rs)",
-    "IteratorConcatData.next — Cell slot; `set_next` stores and binds (iter_concat.rs)",
-    "IteratorHelperData.inner — Cell slot; `set_inner` stores and binds (iter_helper.rs)",
-    "IteratorHelperData.inner_next — Cell slot; `set_inner_next` stores and binds (iter_helper.rs)",
-    "WeakRefTarget.Symbol.0 — weak target; WeakRefData is not traced at all",
-    // `ArrayPayload.values` is a plain `Vec<JSValue>`: rule 2 accepts it because
-    // `JSValue` has `GcBind`. Every mutator binds at its call site; `reverse`/
-    // `sort` are in-place permutations a guard cannot express (array single-point
-    // path — `docs/gc.md` Rule 5).
-    "ArrayIterPayload.val — Cell slot, only late write is `UNDEFINED` (removal, no edge)",
-    "ObjectImpl.shape — `Shape` is private and `set_shape` is the only write path (store+bind)",
-    "ObjectImpl.prop_values — `bind_prop_slot` / `replace_prop_slot` are the only write paths",
-    "ContextImpl.array_shape — root container; the shape registry is a traced root",
-    "ContextImpl.func_shapes — root container; the shape registry is a traced root",
-    "ModuleDefImpl.module_name — mdef setters bind",
-    "ModuleDependency.module_name — `ModuleDef::add_dependency` binds (reqres.rs)",
-    "ModuleDependency.attributes — `ModuleDef::add_dependency` binds (reqres.rs)",
-    "ImportEntry.import_name — `ModuleDefImpl::add_import_entry` binds (esm.rs)",
-    "ExportEntry.local_name — `ModuleDefImpl::add_export_internal` / `set_export_local_name` bind",
-    "ExportEntry.export_name — `ModuleDefImpl::add_export_internal` binds (export.rs)",
-    "ExportType.var_ref — `ModuleDefImpl::add_export_internal` / `set_export_var_ref` bind",
-    // Weak edges: a `GcWeak` is never a strong edge, so no barrier applies.
-    "ArrayBufferPayload.typed_array_list — weak list (`Vec<GcWeak>`), no strong edge",
-    "ObjectImpl.weak_refs — weak list (`Vec<GcWeak>`), no strong edge",
-    "TypedArrayPayload.obj — weak target (`GcWeak`), no strong edge",
-    "WeakRefTarget.Object.0 — weak target; WeakRefData is not traced at all",
-    "ShapeImpl.next — shape registry is a root, force-descended",
-    "ShapeImpl.parent — transition-dedup hint: never dereferenced, deliberately untraced (shape.rs)",
-    "BytecodeImpl.feedback — `FeedbackSlot::record_call` stores, `jit::note_call` binds",
-    "RegExpStringIterPayload.iterated_string — construction only",
-    "RopeImpl.left — construction only (set in `RopeImpl::create`)",
-    "RopeImpl.right — construction only (set in `RopeImpl::create`)",
-    "RopeImpl.flat — Cell slot; `set_flat` stores and binds (rope.rs)",
-    "VarRefImpl.pvalue — points into a frame slot (a GC root); `set_value` binds the Detached arm",
-];
-
-// The standard test: rules 1–3 plus the root-set floor (zuqe has 47 payloads).
-zuqe::gc_audit_test!(EXEMPT, 40);
+// The standard test: reads `gc_audit_exemption.txt`, runs rules 1–3 plus the
+// root-set floor (zuqe has 47 payloads).
+zuqe::gc_audit_test!(40);
 
 /// The audit must be wired to zuqe's real payload set — it cannot pass by
 /// scanning nothing. The floor itself is enforced above; these three assert

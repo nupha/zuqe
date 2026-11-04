@@ -29,28 +29,27 @@
 //! Everything ships in the library: your crate's `tests/gc_audit.rs` is one
 //! macro call — no `Path`, no assert, no cfg — pointed at *your* source tree.
 //! Nothing runs from zuqe's checkout, so it works with zuqe as a
-//! registry/git/path dependency; the generated test carries its own
-//! `debug_assertions` gate, so release test builds compile it away.
+//! registry/git/path dependency.
 //!
 //! ```ignore
-//! // no exemptions yet (red until every line is fixed or allowlisted):
+//! // tests/gc_audit.rs — the whole file
 //! zuqe::gc_audit_test!(30);
-//!
-//! // with exemptions — `Type.field — reason` entries:
-//! const EXEMPT: &[&str] = &["MyPayload.cache — construction only"];
-//! zuqe::gc_audit_test!(EXEMPT, 30);
 //! ```
+//!
+//! Exemptions live in `gc_audit_exemption.txt` next to your `Cargo.toml` — the
+//! standard's single source of truth, read by both the macro and
+//! `zuqe-gc-audit` ([`EXEMPTION_FILE`], [`read_exemptions`]). The two-argument
+//! form `zuqe::gc_audit_test!(LIST, 30)` takes an inline slice as an escape
+//! hatch, not as the standard layout.
 //!
 //! The standard `gc_audit_test!` macro expands to a `gc_audit_payload_fields`
 //! test around [`test_failures`] (rules 1–3 plus the root-set floor); call the
 //! individual functions directly if you need a different shape.
 //!
-//! To *discover* what needs auditing (before writing an allowlist, or from a
-//! tool outside any crate), [`gc_leaf_types`] lists every struct/enum that
-//! directly declares a GC-leaf field, with `file:line` and the field's
-//! wrap/container status; [`payload_root_types`] is the audit's root set —
-//! assert it is non-empty so a scan that matched nothing cannot pass
-//! vacuously.
+//! To *discover* what needs auditing (from a tool or a test), [`gc_leaf_types`]
+//! lists every struct/enum that directly declares a GC-leaf field with
+//! `file:line` and its wrap/container status; [`field_verdicts`] adds the
+//! per-field audit verdict; [`payload_root_types`] is the audit's root set.
 //!
 //! Unknown field types are skipped rather than guessed, and a payload type
 //! unreachable from the root set is invisible here — this is a review-speed
@@ -66,6 +65,12 @@ use std::path::Path;
 /// `object_cast!`/`gcref_wrapper!`/`def_native_object!` sites exist in the
 /// audited directory.
 const GC_LEAF_BASES: &[&str] = &["JSValue", "Atom", "PropertyKey", "GcRef", "GcWeak"];
+
+/// Violation messages shared by the root-set walk and the type report, so the
+/// test output and the tool output always say the same thing.
+const BARE_VIOLATION: &str = "bare GC field, not wrapped and not allowlisted";
+const CONTAINER_VIOLATION: &str =
+    "container element type has no `impl GcBind` and is not allowlisted";
 
 /// Wrapper targets that no generated file lists: the hand-written
 /// `gcref_wrapper!`/`object_cast!` sites of zuqe itself. A host payload may
@@ -689,6 +694,7 @@ fn walk(
     allow_used: &mut BTreeSet<String>,
     violations: &mut Vec<String>,
     seen: &mut BTreeSet<String>,
+    verdicts: &mut BTreeMap<String, FieldVerdict>,
 ) {
     if !seen.insert(type_name.to_string()) {
         return;
@@ -709,28 +715,29 @@ fn walk(
             let is_leaf = leaves.contains(&base);
 
             if is_leaf {
+                let key = format!("{type_name}.{}", f.name);
                 if wrapped {
+                    verdicts.entry(key).or_insert(FieldVerdict::Pass);
                     continue;
                 }
-                let key = format!("{type_name}.{}", f.name);
                 if allow.contains_key(key.as_str()) {
-                    allow_used.insert(key);
+                    allow_used.insert(key.clone());
+                    verdicts.entry(key).or_insert(FieldVerdict::Allowlisted);
                     continue;
                 }
                 if through_container && gc_bind.contains(&base) {
+                    verdicts.entry(key).or_insert(FieldVerdict::Pass);
                     continue;
                 }
+                let reason = if through_container {
+                    CONTAINER_VIOLATION
+                } else {
+                    BARE_VIOLATION
+                };
+                verdicts.insert(key, FieldVerdict::Violation(reason));
                 violations.push(format!(
-                    "  {}:{}: {type_name}.{}: `{}` — {}",
-                    def.file,
-                    def.line,
-                    f.name,
-                    f.ty,
-                    if through_container {
-                        "container element type has no `impl GcBind` and is not allowlisted"
-                    } else {
-                        "bare GC field, not wrapped and not allowlisted"
-                    }
+                    "  {}:{}: {type_name}.{}: `{}` — {reason}",
+                    def.file, def.line, f.name, f.ty,
                 ));
                 continue;
             }
@@ -748,6 +755,7 @@ fn walk(
                     allow_used,
                     violations,
                     seen,
+                    verdicts,
                 );
             }
         }
@@ -808,6 +816,24 @@ pub fn payload_root_types(dir: &Path) -> Vec<String> {
     root_set(&files, &defs).into_iter().collect()
 }
 
+/// The standard exemption file name: kept next to `Cargo.toml` (a sibling of
+/// `src/`), read by both `zuqe::gc_audit_test!` and `zuqe-gc-audit`.
+pub const EXEMPTION_FILE: &str = "gc_audit_exemption.txt";
+
+/// Read an exemption file: one `Type.field — reason` entry per line, with
+/// blank lines and `#` comments skipped. A missing file yields an empty list
+/// (a crate with no exemptions needs no file).
+pub fn read_exemptions(path: &Path) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(str::to_string)
+        .collect()
+}
+
 /// A struct/enum definition in the scanned tree that directly declares at
 /// least one GC-leaf field — the candidate set an audit has to cover.
 pub struct GcLeafType {
@@ -839,8 +865,8 @@ pub struct GcLeafField {
 ///
 /// Only *direct* fields are matched: a definition whose GC-ness comes only
 /// through a nested local type is not listed — that is what the root-set walk
-/// in [`gc_field_violations`] covers. This is the discovery half: an external
-/// tool uses it to list the types it then audits.
+/// in [`gc_field_violations`] covers. This is the discovery half; use
+/// [`field_verdicts`] for the audit verdict per field.
 pub fn gc_leaf_types(dir: &Path) -> Vec<GcLeafType> {
     let files = source_files(dir);
     let defs = parse_defs(&files);
@@ -873,6 +899,51 @@ pub fn gc_leaf_types(dir: &Path) -> Vec<GcLeafType> {
                 line: def.line,
                 fields,
             });
+        }
+    }
+    out
+}
+
+/// Audit verdict for one GC-leaf field, as the root-set walk decides it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FieldVerdict {
+    /// Wrapped, or a container element type covered by `impl GcBind`.
+    Pass,
+    /// Bare, but its `Type.field` key is in the allowlist.
+    Allowlisted,
+    /// Fails the audit; the payload is the rule that failed.
+    Violation(&'static str),
+}
+
+/// Per-field verdicts for the whole payload root set, keyed by `Type.field`
+/// (fields of definitions the audit does not reach are absent). This is the
+/// report form of [`gc_field_violations`] — same walk, same rules — so a
+/// field reported clean there is `Pass`/`Allowlisted` here.
+pub fn field_verdicts(dir: &Path, allowlist: &[&str]) -> BTreeMap<String, FieldVerdict> {
+    let files = source_files(dir);
+    let defs = parse_defs(&files);
+    let roots = root_set(&files, &defs);
+    let leaves = leaf_types(&files);
+    let mut gc_bind = gc_bind_impls(&files);
+    gc_bind.extend(macro_wrapper_types(&files));
+    let allow: BTreeMap<&str, &str> = allowlist.iter().map(|e| (allowlist_key(e), *e)).collect();
+
+    let mut out = BTreeMap::new();
+    for root in &roots {
+        if let Some(def) = defs.get(root) {
+            walk(
+                root,
+                def,
+                false,
+                &defs,
+                &leaves,
+                &gc_bind,
+                &allow,
+                &mut BTreeSet::new(),
+                &mut Vec::new(),
+                &mut BTreeSet::new(),
+                &mut out,
+            );
         }
     }
     out
@@ -913,6 +984,7 @@ pub fn gc_field_violations(dir: &Path, allowlist: &[&str]) -> Vec<String> {
             &mut allow_used,
             &mut out,
             &mut BTreeSet::new(),
+            &mut BTreeMap::new(),
         );
     }
 
@@ -1043,8 +1115,8 @@ mod tests {
     }
 
     /// The discovery scanner lists every definition with a direct GC-leaf
-    /// field, only its GC fields, in name order with the wrap/container status
-    /// the audit rules key on.
+    /// The discovery inventory lists every definition with a direct GC-leaf
+    /// field, only its GC fields, in name order.
     #[test]
     fn gc_leaf_types_lists_definitions_with_gc_fields() {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -1072,24 +1144,86 @@ mod tests {
             .iter()
             .find(|t| t.name == "PromisePayload")
             .expect("PromisePayload");
-        let result = promise
-            .fields
-            .iter()
-            .find(|f| f.name == "result")
-            .expect("result");
-        assert!(result.wrapped);
+        assert!(
+            promise
+                .fields
+                .iter()
+                .any(|f| f.name == "result" && f.wrapped)
+        );
 
         // container element field
         let abuf = types
             .iter()
             .find(|t| t.name == "ArrayBufferPayload")
             .expect("ArrayBufferPayload");
-        let list = abuf
-            .fields
-            .iter()
-            .find(|f| f.name == "typed_array_list")
-            .expect("typed_array_list");
-        assert!(list.container && !list.wrapped);
+        assert!(
+            abuf.fields
+                .iter()
+                .any(|f| f.name == "typed_array_list" && f.container)
+        );
+    }
+
+    /// Verdicts come from the same walk as `gc_field_violations`: the three
+    /// states must agree with the violation output.
+    #[test]
+    fn field_verdicts_match_the_violation_walk() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+
+        let verdicts = field_verdicts(&dir, &[]);
+        assert_eq!(
+            verdicts.get("PromisePayload.result"),
+            Some(&FieldVerdict::Pass),
+            "wrapped field must pass"
+        );
+        assert!(
+            matches!(
+                verdicts.get("AGenPayload.async_state"),
+                Some(FieldVerdict::Violation(_))
+            ),
+            "bare root field must violate"
+        );
+
+        // every violating verdict must appear in the textual walk output
+        let lines = gc_field_violations(&dir, &[]);
+        for (key, verdict) in &verdicts {
+            if matches!(verdict, FieldVerdict::Violation(_)) {
+                assert!(
+                    lines.iter().any(|l| l.contains(&format!("{key}: "))),
+                    "verdict for {key} missing from the violations: {lines:?}"
+                );
+            }
+        }
+
+        // allowlisted field switches to the allowlisted state
+        let verdicts = field_verdicts(&dir, &["AGenPayload.async_state — test exemption"]);
+        assert_eq!(
+            verdicts.get("AGenPayload.async_state"),
+            Some(&FieldVerdict::Allowlisted)
+        );
+    }
+
+    /// Exemption files are line-oriented: blank lines and `#` comments are
+    /// skipped, every other line is one `Type.field — reason` entry.
+    #[test]
+    fn read_exemptions_skips_comments_and_blank_lines() {
+        let dir = std::env::temp_dir().join(format!("zuqe-gc-audit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let path = dir.join("exempt.txt");
+        std::fs::write(
+            &path,
+            "# header comment\n\nA.b — construction only\n   # indented comment\n\nC.d — weak\n",
+        )
+        .expect("write temp file");
+
+        assert_eq!(
+            read_exemptions(&path),
+            ["A.b — construction only", "C.d — weak"]
+        );
+        assert!(
+            read_exemptions(&dir.join("missing.txt")).is_empty(),
+            "a missing file means no exemptions"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// The one-call entry point must run both halves of the audit — an

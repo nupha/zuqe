@@ -9,7 +9,7 @@
 //! Build the distributable binary with `cargo build --release --bin
 //! zuqe-gc-audit` (or run it in-tree with `cargo run --bin zuqe-gc-audit`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const USAGE: &str = "\
 zuqe-gc-audit — scan a source tree for GC-leaf payload fields and audit them.
@@ -17,8 +17,8 @@ zuqe-gc-audit — scan a source tree for GC-leaf payload fields and audit them.
 usage: zuqe-gc-audit [--allowlist FILE] [SRC_DIR]
 
   SRC_DIR         crate source directory to scan (default: ./src)
-  --allowlist F   file with one `Type.field — reason` exemption per line
-                  (# comments and blank lines are skipped)
+  --allowlist F   exemption file (default: gc_audit_exemption.txt in the
+                  nearest directory at or above SRC_DIR with a Cargo.toml)
   -h, --help      this text
 
 exit status: 0 = no violations, 1 = violations found, 2 = usage error.
@@ -53,30 +53,63 @@ fn main() {
         fail(&format!("not a directory: {}", src.display()));
     }
 
-    let allow: Vec<String> = match &allow_path {
+    // The standard exemption file lives next to `Cargo.toml` (a sibling of
+    // `src/`) — the same file the crate's `tests/gc_audit.rs` reads. An
+    // explicit `--allowlist` overrides it.
+    let allow_path = match allow_path {
         Some(p) => {
-            let text = std::fs::read_to_string(p)
-                .unwrap_or_else(|e| fail(&format!("cannot read allowlist {}: {e}", p.display())));
-            text.lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                .map(str::to_string)
-                .collect()
+            if !p.is_file() {
+                fail(&format!("cannot read allowlist {}", p.display()));
+            }
+            Some(p)
         }
-        None => Vec::new(),
+        None => default_exemption_path(&src),
     };
+    let allow: Vec<String> = allow_path
+        .as_ref()
+        .map(|p| zuqe::gc_audit::read_exemptions(p))
+        .unwrap_or_default();
     let allow_refs: Vec<&str> = allow.iter().map(String::as_str).collect();
 
-    // Inventory: every struct/enum directly declaring a GC-leaf field.
-    let types = zuqe::gc_audit::gc_leaf_types(&src);
+    // Inventory of the payload root set (what the audit checks), with each
+    // field's verdict from the same walk: ✅ pass, ⭕ allowlisted, ❌ violation.
+    let all_types = zuqe::gc_audit::gc_leaf_types(&src);
+    let verdicts = zuqe::gc_audit::field_verdicts(&src, &allow_refs);
+    let mut rows = Vec::new();
+    for t in &all_types {
+        let fields: Vec<_> = t
+            .fields
+            .iter()
+            .filter_map(|f| {
+                verdicts
+                    .get(&format!("{}.{}", t.name, f.name))
+                    .map(|v| (f, *v))
+            })
+            .collect();
+        if !fields.is_empty() {
+            rows.push((t, fields));
+        }
+    }
     println!(
-        "=== GC-leaf types: {} (source: {}) ===",
-        types.len(),
+        "=== GC-leaf types: {} of {} (source: {}; payload root set) ===",
+        rows.len(),
+        all_types.len(),
         src.display()
     );
-    for t in &types {
+    println!("    ✅ pass   ⭕ allowlisted   ❌ violation");
+    let (mut total, mut failed) = (0usize, 0usize);
+    for (t, fields) in &rows {
         println!("{} ({}:{})", t.name, t.file, t.line);
-        for f in &t.fields {
+        for (f, verdict) in fields {
+            total += 1;
+            let mark = match verdict {
+                zuqe::gc_audit::FieldVerdict::Violation(_) => {
+                    failed += 1;
+                    "❌"
+                }
+                zuqe::gc_audit::FieldVerdict::Allowlisted => "⭕",
+                zuqe::gc_audit::FieldVerdict::Pass => "✅",
+            };
             let tag = if f.wrapped {
                 "wrapped"
             } else if f.container {
@@ -84,7 +117,7 @@ fn main() {
             } else {
                 "bare"
             };
-            println!("  {}: {} [{tag}]", f.name, f.ty);
+            println!("  {mark} {}: {} [{tag}]", f.name, f.ty);
         }
     }
 
@@ -93,7 +126,7 @@ fn main() {
     let allow_desc = allow_path
         .as_ref()
         .map(|p| format!("{} ({} entries)", p.display(), allow.len()))
-        .unwrap_or_else(|| "empty".to_string());
+        .unwrap_or_else(|| "none (no gc_audit_exemption.txt)".to_string());
     let violations = zuqe::gc_audit::all_violations(&src, &allow_refs);
     println!(
         "\n=== Audit — allowlist: {allow_desc}; root set: {} payload types ===",
@@ -101,13 +134,36 @@ fn main() {
     );
     if violations.is_empty() {
         println!("clean: no violations");
-        return;
+    } else {
+        println!("{} violation(s):", violations.len());
+        for line in &violations {
+            println!("{line}");
+        }
     }
-    println!("{} violation(s):", violations.len());
-    for line in &violations {
-        println!("{line}");
+
+    println!(
+        "\n{} {} of {total} GC-leaf field(s) fail audit",
+        if failed == 0 { "✅" } else { "❌" },
+        failed
+    );
+    if !violations.is_empty() {
+        std::process::exit(1);
     }
-    std::process::exit(1);
+}
+
+/// The standard exemption file for a crate: `gc_audit_exemption.txt` in the
+/// nearest directory at or above `src` that contains a `Cargo.toml`.
+fn default_exemption_path(src: &Path) -> Option<PathBuf> {
+    let mut dir = src.canonicalize().ok()?;
+    loop {
+        if dir.join("Cargo.toml").is_file() {
+            let file = dir.join(zuqe::gc_audit::EXEMPTION_FILE);
+            return file.is_file().then_some(file);
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
 }
 
 fn fail(msg: &str) -> ! {

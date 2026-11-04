@@ -687,27 +687,49 @@ comes from crates.io, git, or a path. No cargo feature, no extra dependency, no
 `debug_assertions` gate — it is ordinary library code, compiled like the rest (it is never called
 at runtime).
 
-### Boilerplate
+### Standard layout (required)
 
-Add `tests/gc_audit.rs` to your crate — one macro call and your allowlist, nothing else.
-**Pick one of the two forms, never both** (both expand to the same test function name):
+Adopting the audit means adopting its three fixed pieces — the test, the exemption file and the
+CLI agree on them:
 
-```rust
-// form 1 — no exemptions yet (red until every reported line is fixed or allowlisted):
-zuqe::gc_audit_test!(30);
+| Path (in your crate) | Purpose |
+|---|---|
+| `tests/gc_audit.rs` | the audit test: one `zuqe::gc_audit_test!(<root floor>);` call |
+| `gc_audit_exemption.txt` | **the only place exemptions live**; read by the test and by `zuqe-gc-audit` |
+| `<crate>/src` | the scanned tree |
 
-// form 2 — with exemptions, used INSTEAD of form 1:
-// `Type.field — reason` entries, reviewed like code, living in this same file.
-const EXEMPT: &[&str] = &["MyPayload.cache — construction only"];
-zuqe::gc_audit_test!(EXEMPT, 30);
+`gc_audit_exemption.txt` sits next to `Cargo.toml` (a sibling of `src/`) and is the single
+source of truth: never repeat exemptions inline in the test, and never keep a second list for
+the CLI. A crate with no exemptions may omit the file (the test then runs with an empty list);
+once the first entry exists it must go in this file.
+
+Format: one entry per line, `#` comments and blank lines skipped:
+
+```text
+# Type.field — reason
+MyPayload.cache — construction only
+MyPayload.handler — weak target; not traced
 ```
 
-Run it with `cargo test --test gc_audit`. The macro expands to the standard
-`gc_audit_payload_fields` test, which runs `zuqe::gc_audit::test_failures(src, allowlist,
-min_roots)` — rules 1–3 (bare/unbound GC fields with `file:line`, container element types
-without `impl GcBind`, whole-field guard replacement, stale allowlist entries) plus the
+Every entry is a reviewed claim that the field needs no write barrier — one of the three
+legitimate kinds under Rule 5's checklist. The test fails on **stale** entries (field renamed,
+wrapped or gone), so the file cannot rot.
+
+### Boilerplate
+
+`tests/gc_audit.rs` is one macro call — no `Path`, no assert, no cfg:
+
+```rust
+zuqe::gc_audit_test!(30);
+```
+
+Run it with `cargo test --test gc_audit`. The macro reads `gc_audit_exemption.txt`, expands to
+the standard `gc_audit_payload_fields` test, and runs `zuqe::gc_audit::test_failures(src,
+allowlist, min_roots)` — rules 1–3 (bare/unbound GC fields with `file:line`, container element
+types without `impl GcBind`, whole-field guard replacement, stale allowlist entries) plus the
 anti-vacuous root-set floor. The generated test name is fixed and neutral so every crate's
-report reads the same.
+report reads the same. (The two-argument form `zuqe::gc_audit_test!(LIST, 30)` takes an inline
+slice; that is an escape hatch for one-off tests, not the standard layout.)
 
 `min_roots` is a floor on how many payload root types your `src` tree must yield — it stops a
 scan of a wrong or empty directory from passing. Start with a rough guess: if it is too high,
@@ -721,40 +743,48 @@ Discovery helpers.
 
 ### Workflow: red → green
 
-1. Run with `zuqe::gc_audit_test!(30)` — every reported line is a field to either fix in code
-   (wrap it, or add an `impl GcBind` for the element type) or justify with an allowlist entry
-   `Type.field — reason`, passed as the first macro argument;
-2. keep the allowlist short and honest — each entry is a visible diff a reviewer accepts, and
-   the test also fails on **stale** entries (field renamed, wrapped or gone), so the list cannot
-   rot;
+1. Run `cargo test --test gc_audit` — every reported line is a field to either fix in code (wrap
+   it, or add an `impl GcBind` for the element type) or justify with an entry added to
+   `gc_audit_exemption.txt`;
+2. keep that file short and honest — each entry is a visible diff a reviewer accepts, and the
+   test also fails on **stale** entries, so the list cannot rot;
 3. green means shape only: an entry is a claim you verified against the write-point checklist of
    Rule 5, not proof that no late write exists.
 
 ### Command-line tool
 
 `zuqe-gc-audit` (`src/bin/zuqe-gc-audit.rs`) prints the same inventory and audit for any source
-tree as a report instead of a test — a type list with `file:line` and each field's
-`bare`/`wrapped`/`container` status, then the violation list. Build the distributable binary with:
+tree as a report instead of a test — the payload root set as a type list with `file:line` and,
+per field, its verdict and `bare`/`wrapped`/`container` status: `✅` passes, `⭕` allowlisted,
+`❌` violation. The last line counts the fields that fail the audit. It reads the **same**
+`gc_audit_exemption.txt` as the test (default: in the nearest directory at or above `SRC_DIR`
+that contains a `Cargo.toml`), so the report and `cargo test` always agree. Build the
+distributable binary with:
 
 ```text
 cargo build --release --bin zuqe-gc-audit
 # → target/release/zuqe-gc-audit — standalone; point it at any crate:
 ./target/release/zuqe-gc-audit path/to/crate/src
-./target/release/zuqe-gc-audit --allowlist ex.txt path/to/crate/src
+./target/release/zuqe-gc-audit --allowlist other.txt path/to/crate/src   # override
 ```
 
-`SRC_DIR` defaults to `./src`. The allowlist file holds one `Type.field — reason` per line
-(`#` comments and blank lines are skipped) — the same lines as `EXEMPT` in your test. Exit
-status: `0` clean, `1` violations (so it can gate scripts), `2` usage error. In-tree,
+`SRC_DIR` defaults to `./src`. Exit status: `0` clean (with the crate's exemption file applied),
+`1` violations (so it can gate scripts), `2` usage error. In-tree,
 `cargo run --bin zuqe-gc-audit -- [SRC_DIR]` runs the same tool with the dev profile.
 
 ### Discovery helpers
 
 - `gc_leaf_types(dir)` — every struct/enum that *directly* declares a GC-leaf field, with
-  `file:line` and the field's `wrapped`/`container` status: the inventory to work from before an
-  allowlist exists. It returns plain data, so a test or any binary of yours can print it;
+  `file:line` and the field's `wrapped`/`container` status: the discovery inventory (it covers
+  every definition, including ones the audit does not reach). It returns plain data, so a test
+  or any binary of yours can print it;
+- `field_verdicts(dir, allowlist)` — the audit verdict per field, keyed by `Type.field`:
+  `Pass` / `Allowlisted` / `Violation(reason)`. Same root-set walk as `gc_field_violations`,
+  which is what `zuqe-gc-audit` prints as `✅` / `⭕` / `❌`;
 - `payload_root_types(dir)` — the audit's root set; `test_failures` already applies the floor,
   or assert on it directly;
+- `read_exemptions(path)` — read and parse an exemption file (one entry per line, `#` comments
+  skipped); the parser behind both the macro and `zuqe-gc-audit`;
 - `test_failures(dir, allowlist, min_roots)` — exactly what the macro runs, if you want the
   failure lines instead of a panicking test;
 - `all_violations(dir, allowlist)`, `gc_field_violations(dir, allowlist)` and
