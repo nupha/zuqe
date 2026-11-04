@@ -72,7 +72,7 @@ fn main() {
     let allow_refs: Vec<&str> = allow.iter().map(String::as_str).collect();
 
     // Inventory of the payload root set (what the audit checks), with each
-    // field's verdict from the same walk: ✅ pass, ⭕ allowlisted, ❌ violation.
+    // field's verdict from the same walk: ✔️ pass, 🔵 allowlisted, ❌ violation.
     let all_types = zuqe::gc_audit::gc_leaf_types(&src);
     let verdicts = zuqe::gc_audit::field_verdicts(&src, &allow_refs);
     let mut rows = Vec::new();
@@ -96,7 +96,7 @@ fn main() {
         all_types.len(),
         src.display()
     );
-    println!("    ✅ pass   ⭕ allowlisted   ❌ violation");
+    println!("    ✔️ pass   🔵 allowlisted   ❌ violation");
     let (mut total, mut failed) = (0usize, 0usize);
     for (t, fields) in &rows {
         println!("{} ({}:{})", t.name, t.file, t.line);
@@ -107,8 +107,8 @@ fn main() {
                     failed += 1;
                     "❌"
                 }
-                zuqe::gc_audit::FieldVerdict::Allowlisted => "⭕",
-                zuqe::gc_audit::FieldVerdict::Pass => "✅",
+                zuqe::gc_audit::FieldVerdict::Allowlisted => "🔵",
+                zuqe::gc_audit::FieldVerdict::Pass => "✔️",
             };
             let tag = if f.wrapped {
                 "wrapped"
@@ -143,7 +143,7 @@ fn main() {
 
     println!(
         "\n{} {} of {total} GC-leaf field(s) fail audit",
-        if failed == 0 { "✅" } else { "❌" },
+        if failed == 0 { "✔️" } else { "❌" },
         failed
     );
     if !violations.is_empty() {

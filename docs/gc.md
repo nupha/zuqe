@@ -755,7 +755,7 @@ Discovery helpers.
 
 `zuqe-gc-audit` (`src/bin/zuqe-gc-audit.rs`) prints the same inventory and audit for any source
 tree as a report instead of a test — the payload root set as a type list with `file:line` and,
-per field, its verdict and `bare`/`wrapped`/`container` status: `✅` passes, `⭕` allowlisted,
+per field, its verdict and `bare`/`wrapped`/`container` status: `✔️` passes, `🔵` allowlisted,
 `❌` violation. The last line counts the fields that fail the audit. It reads the **same**
 `gc_audit_exemption.txt` as the test (default: in the nearest directory at or above `SRC_DIR`
 that contains a `Cargo.toml`), so the report and `cargo test` always agree. Build the
@@ -780,7 +780,7 @@ cargo build --release --bin zuqe-gc-audit
   or any binary of yours can print it;
 - `field_verdicts(dir, allowlist)` — the audit verdict per field, keyed by `Type.field`:
   `Pass` / `Allowlisted` / `Violation(reason)`. Same root-set walk as `gc_field_violations`,
-  which is what `zuqe-gc-audit` prints as `✅` / `⭕` / `❌`;
+  which is what `zuqe-gc-audit` prints as `✔️` / `🔵` / `❌`;
 - `payload_root_types(dir)` — the audit's root set; `test_failures` already applies the floor,
   or assert on it directly;
 - `read_exemptions(path)` — read and parse an exemption file (one entry per line, `#` comments
