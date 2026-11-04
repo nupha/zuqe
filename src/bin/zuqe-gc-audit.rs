@@ -69,6 +69,13 @@ fn main() {
         .as_ref()
         .map(|p| zuqe::gc_audit::read_exemptions(p))
         .unwrap_or_default();
+    if allow_path.is_none() {
+        eprintln!(
+            "zuqe-gc-audit: no {} found above {}; running with no exemptions",
+            zuqe::gc_audit::EXEMPTION_FILE,
+            src.display()
+        );
+    }
     let allow_refs: Vec<&str> = allow.iter().map(String::as_str).collect();
 
     // Inventory of the payload root set (what the audit checks), with each
@@ -121,22 +128,24 @@ fn main() {
         }
     }
 
-    // Audit: what still needs a wrap, a GcBind, or an allowlist entry.
-    let roots = zuqe::gc_audit::payload_root_types(&src);
-    let allow_desc = allow_path
-        .as_ref()
-        .map(|p| format!("{} ({} entries)", p.display(), allow.len()))
-        .unwrap_or_else(|| "none (no gc_audit_exemption.txt)".to_string());
-    let violations = zuqe::gc_audit::all_violations(&src, &allow_refs);
-    println!(
-        "\n=== Audit — allowlist: {allow_desc}; root set: {} payload types ===",
-        roots.len()
-    );
-    if violations.is_empty() {
-        println!("clean: no violations");
-    } else {
-        println!("{} violation(s):", violations.len());
-        for line in &violations {
+    // The field icons carry the per-field verdict; only diagnostics that are
+    // NOT field lines are printed here — a stale exemption (it no longer
+    // matches a field, so it cannot be seen by reading the exemption file) and
+    // whole-field guard replacement (rule 3).
+    let stale = zuqe::gc_audit::stale_exemptions(&src, &allow_refs);
+    let guards = zuqe::gc_audit::guard_construction_violations(&src);
+    if !stale.is_empty() || !guards.is_empty() {
+        println!();
+    }
+    if !stale.is_empty() {
+        println!("stale exemption entries (field gone, renamed or now wrapped):");
+        for entry in &stale {
+            println!("  {entry}");
+        }
+    }
+    if !guards.is_empty() {
+        println!("whole-field guard replacement (use the payload setter / `set` / `push`):");
+        for line in &guards {
             println!("{line}");
         }
     }
@@ -146,7 +155,7 @@ fn main() {
         if failed == 0 { "✔️" } else { "❌" },
         failed
     );
-    if !violations.is_empty() {
+    if failed > 0 || !stale.is_empty() || !guards.is_empty() {
         std::process::exit(1);
     }
 }

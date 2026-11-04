@@ -1002,6 +1002,23 @@ pub fn gc_field_violations(dir: &Path, allowlist: &[&str]) -> Vec<String> {
     out
 }
 
+/// Exemption entries that no longer match anything: the field was renamed,
+/// wrapped, or removed from the payload set. Same check the audit applies
+/// (derived from [`field_verdicts`], so it cannot disagree with the report).
+pub fn stale_exemptions(dir: &Path, allowlist: &[&str]) -> Vec<String> {
+    let verdicts = field_verdicts(dir, allowlist);
+    allowlist
+        .iter()
+        .filter(|e| {
+            !matches!(
+                verdicts.get(allowlist_key(e)),
+                Some(FieldVerdict::Allowlisted)
+            )
+        })
+        .map(|e| e.to_string())
+        .collect()
+}
+
 /// Rule 3: a guard may only be constructed, never assigned over a live field.
 pub fn guard_construction_violations(dir: &Path) -> Vec<String> {
     let mut out = Vec::new();
@@ -1224,6 +1241,31 @@ mod tests {
             "a missing file means no exemptions"
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Stale detection equals "the allowlist key did not resolve to an
+    /// allowlisted verdict": a bogus key, or a wrapped field (which passes
+    /// without the entry), must be reported.
+    #[test]
+    fn stale_exemptions_detect_unmatched_entries() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        assert!(stale_exemptions(&dir, &[]).is_empty());
+
+        let stale = stale_exemptions(
+            &dir,
+            &[
+                "NoSuchType.field — test",
+                "AGenPayload.async_state — live entry",
+                "PromisePayload.result — wrapped, entry is stale",
+            ],
+        );
+        assert_eq!(
+            stale,
+            [
+                "NoSuchType.field — test",
+                "PromisePayload.result — wrapped, entry is stale"
+            ]
+        );
     }
 
     /// The one-call entry point must run both halves of the audit — an

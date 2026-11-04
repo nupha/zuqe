@@ -756,9 +756,12 @@ Discovery helpers.
 `zuqe-gc-audit` (`src/bin/zuqe-gc-audit.rs`) prints the same inventory and audit for any source
 tree as a report instead of a test — the payload root set as a type list with `file:line` and,
 per field, its verdict and `bare`/`wrapped`/`container` status: `✔️` passes, `🔵` allowlisted,
-`❌` violation. The last line counts the fields that fail the audit. It reads the **same**
-`gc_audit_exemption.txt` as the test (default: in the nearest directory at or above `SRC_DIR`
-that contains a `Cargo.toml`), so the report and `cargo test` always agree. Build the
+`❌` violation. The icons are the whole field report: the tool does not echo the exemption file
+or repeat the violation lines. Only diagnostics that cannot be seen in that list are printed
+below it — stale exemption entries (no longer matching a field) and whole-field guard
+replacement (rule 3). The last line counts the fields that fail the audit. It reads the
+**same** `gc_audit_exemption.txt` as the test (default: in the nearest directory at or above
+`SRC_DIR` that contains a `Cargo.toml`), so the report and `cargo test` always agree. Build the
 distributable binary with:
 
 ```text
@@ -781,6 +784,8 @@ cargo build --release --bin zuqe-gc-audit
 - `field_verdicts(dir, allowlist)` — the audit verdict per field, keyed by `Type.field`:
   `Pass` / `Allowlisted` / `Violation(reason)`. Same root-set walk as `gc_field_violations`,
   which is what `zuqe-gc-audit` prints as `✔️` / `🔵` / `❌`;
+- `stale_exemptions(dir, allowlist)` — allowlist entries that no longer match an allowlisted
+  field (renamed, wrapped or gone); the audit fails on these;
 - `payload_root_types(dir)` — the audit's root set; `test_failures` already applies the floor,
   or assert on it directly;
 - `read_exemptions(path)` — read and parse an exemption file (one entry per line, `#` comments
