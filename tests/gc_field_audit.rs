@@ -97,6 +97,19 @@ const EXEMPT: &[&str] = &[
     "ExportEntry.local_name — `ModuleDefImpl::add_export_internal` / `set_export_local_name` bind",
     "ExportEntry.export_name — `ModuleDefImpl::add_export_internal` binds (export.rs)",
     "ExportType.var_ref — `ModuleDefImpl::add_export_internal` / `set_export_var_ref` bind",
+    // Weak edges: a `GcWeak` is never a strong edge, so no barrier applies.
+    "ArrayBufferPayload.typed_array_list — weak list (`Vec<GcWeak>`), no strong edge",
+    "ObjectImpl.weak_refs — weak list (`Vec<GcWeak>`), no strong edge",
+    "TypedArrayPayload.obj — weak target (`GcWeak`), no strong edge",
+    "WeakRefTarget.Object.0 — weak target; WeakRefData is not traced at all",
+    "ShapeImpl.next — shape registry is a root, force-descended",
+    "ShapeImpl.parent — transition-dedup hint: never dereferenced, deliberately untraced (shape.rs)",
+    "BytecodeImpl.feedback — `FeedbackSlot::record_call` stores, `jit::note_call` binds",
+    "RegExpStringIterPayload.iterated_string — construction only",
+    "RopeImpl.left — construction only (set in `RopeImpl::create`)",
+    "RopeImpl.right — construction only (set in `RopeImpl::create`)",
+    "RopeImpl.flat — Cell slot; `set_flat` stores and binds (rope.rs)",
+    "VarRefImpl.pvalue — points into a frame slot (a GC root); `set_value` binds the Detached arm",
 ];
 
 /// Rule 1 + rule 2: every GC payload field is wrapped or allowlisted.

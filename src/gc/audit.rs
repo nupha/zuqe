@@ -7,8 +7,9 @@
 //! `WriteBarrier<JSValue>`. This module walks a source tree's GC payload root
 //! set (`gc_type_register!` entries, every `def_native_object!` payload type and
 //! every `PayloadPtr::new` payload type), expands local struct/enum field types
-//! recursively, and reports every GC-typed field that is neither wrapped in
-//! `WriteBarrier`/`WriteBarrierVec` nor allowlisted — with `file:line`.
+//! (and tuple field types, element-wise) recursively, and reports every GC-typed
+//! field that is neither wrapped in `WriteBarrier`/`WriteBarrierVec` nor
+//! allowlisted — with `file:line`.
 //!
 //! Three rules, all heuristic (deliberately no `syn`/`regex` dependency):
 //!
@@ -48,10 +49,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-/// GC leaf bases. The object wrappers come from [`leaf_table`] (zuqe's own
-/// wrapper list) plus whatever `object_cast!`/`gcref_wrapper!`/`def_native_object!`
-/// sites exist in the audited directory.
-const GC_LEAF_BASES: &[&str] = &["JSValue", "Atom", "PropertyKey"];
+/// GC leaf bases: the value types plus gc-lite's strong/weak handles. A bare
+/// `GcRef<T>`/`GcWeak<T>` payload field is a real (strong / weak) edge and must
+/// be wrapped or allowlisted, never silently skipped. The object wrappers come
+/// from [`leaf_table`] (zuqe's own wrapper list) plus whatever
+/// `object_cast!`/`gcref_wrapper!`/`def_native_object!` sites exist in the
+/// audited directory.
+const GC_LEAF_BASES: &[&str] = &["JSValue", "Atom", "PropertyKey", "GcRef", "GcWeak"];
 
 /// Wrapper targets that no generated file lists: the hand-written
 /// `gcref_wrapper!`/`object_cast!` sites of zuqe itself. A host payload may
@@ -72,6 +76,12 @@ const HAND_WRITTEN_WRAPPERS: &[&str] = &[
     // these types is reported (and must be wrapped or allowlisted).
     "Shape",
     "PropValues",
+    "StringRef",
+    "BigIntRef",
+    // Holds `Option<Bytecode>` callees through `FeedbackTable`; the single
+    // write path (`record_call` → `note_call` bind) is allowlisted on the
+    // `BytecodeImpl.feedback` field.
+    "FeedbackSlot",
 ];
 
 struct Field {
@@ -121,14 +131,24 @@ fn split_top(s: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut depth = 0i32;
     let mut cur = String::new();
+    let mut prev = '\0';
     for ch in s.chars() {
         match ch {
             '(' | '[' | '{' | '<' => {
                 depth += 1;
                 cur.push(ch);
             }
-            ')' | ']' | '}' | '>' => {
+            ')' | ']' | '}' => {
                 depth -= 1;
+                cur.push(ch);
+            }
+            '>' => {
+                // `->` is a fn-return arrow, not a generic close: without this,
+                // `Vec<fn() -> bool>` desyncs the depth and swallows every
+                // field that follows it.
+                if prev != '-' {
+                    depth -= 1;
+                }
                 cur.push(ch);
             }
             ',' if depth == 0 => {
@@ -137,6 +157,7 @@ fn split_top(s: &str) -> Vec<String> {
             }
             _ => cur.push(ch),
         }
+        prev = ch;
     }
     if !cur.trim().is_empty() {
         out.push(cur.trim().to_string());
@@ -555,6 +576,9 @@ fn peel(mut ty: &str) -> (&str, bool, bool) {
             "RefCell",
             "Cell",
             "UnsafeCell",
+            // A raw pointer to a GC value (e.g. `VarRefImpl::Bind::pvalue`)
+            // still names an edge: peel it so the pointee type is audited.
+            "NonNull",
             "Box",
             "Vec",
             "VecDeque",
@@ -665,54 +689,73 @@ fn walk(
         }
         let (inner, wrapped, container) = peel(&f.ty);
         let through_container = through_container || container;
+        // A tuple field type is checked element-wise — `(JSValue, u32)` must
+        // not hide its GC elements. The allowlist key stays `Type.field`, so
+        // one exemption covers the whole tuple.
+        for ty in expand_tuple(inner) {
+            let Some(base) = base_name(&ty) else {
+                continue;
+            };
+            let is_leaf = leaves.contains(&base);
 
-        let Some(base) = base_name(inner) else {
-            continue;
-        };
-        let is_leaf = leaves.contains(&base);
-
-        if is_leaf {
-            if wrapped {
-                continue;
-            }
-            let key = format!("{type_name}.{}", f.name);
-            if allow.contains_key(key.as_str()) {
-                allow_used.insert(key);
-                continue;
-            }
-            if through_container && gc_bind.contains(&base) {
-                continue;
-            }
-            violations.push(format!(
-                "  {}:{}: {type_name}.{}: `{}` — {}",
-                def.file,
-                def.line,
-                f.name,
-                f.ty,
-                if through_container {
-                    "container element type has no `impl GcBind` and is not allowlisted"
-                } else {
-                    "bare GC field, not wrapped and not allowlisted"
+            if is_leaf {
+                if wrapped {
+                    continue;
                 }
-            ));
-            continue;
-        }
+                let key = format!("{type_name}.{}", f.name);
+                if allow.contains_key(key.as_str()) {
+                    allow_used.insert(key);
+                    continue;
+                }
+                if through_container && gc_bind.contains(&base) {
+                    continue;
+                }
+                violations.push(format!(
+                    "  {}:{}: {type_name}.{}: `{}` — {}",
+                    def.file,
+                    def.line,
+                    f.name,
+                    f.ty,
+                    if through_container {
+                        "container element type has no `impl GcBind` and is not allowlisted"
+                    } else {
+                        "bare GC field, not wrapped and not allowlisted"
+                    }
+                ));
+                continue;
+            }
 
-        // Not a leaf: a local struct/enum expands, anything else is skipped.
-        if is_camel(&base) && defs.contains_key(&base) {
-            walk(
-                &base,
-                defs.get(&base).expect("just checked"),
-                through_container,
-                defs,
-                leaves,
-                gc_bind,
-                allow,
-                allow_used,
-                violations,
-                seen,
-            );
+            // Not a leaf: a local struct/enum expands, anything else is skipped.
+            if is_camel(&base) && defs.contains_key(&base) {
+                walk(
+                    &base,
+                    defs.get(&base).expect("just checked"),
+                    through_container,
+                    defs,
+                    leaves,
+                    gc_bind,
+                    allow,
+                    allow_used,
+                    violations,
+                    seen,
+                );
+            }
         }
+    }
+}
+
+/// Flatten a tuple field type into its elements: `(JSValue, u32)` →
+/// `["JSValue", "u32"]`, nested tuples recursively; anything else (including
+/// `fn(..) -> T`, whose parens are not a tuple type) returns as-is.
+fn expand_tuple(ty: &str) -> Vec<String> {
+    let t = ty.trim();
+    if t.starts_with('(') && t.ends_with(')') {
+        split_top(&t[1..t.len() - 1])
+            .into_iter()
+            .flat_map(|e| expand_tuple(&e))
+            .collect()
+    } else {
+        vec![t.to_string()]
     }
 }
 
@@ -862,6 +905,72 @@ mod tests {
         assert!(
             missing.is_empty(),
             "add these wrapper types to HAND_WRITTEN_WRAPPERS: {missing:?}"
+        );
+    }
+
+    /// `split_top` must not treat the `>` of a fn-return arrow as a generic
+    /// close: `Vec<fn() -> bool>` otherwise desyncs the depth and swallows
+    /// every field that follows it (it hid `ContextImpl.realm_symbols`).
+    #[test]
+    fn split_top_tracks_fn_return_arrows() {
+        let parts = split_top("a: Vec<fn(&mut C) -> bool>, b: u8");
+        assert_eq!(parts.len(), 2, "{parts:?}");
+        assert!(parts[0].contains("fn(&mut C) -> bool"), "{parts:?}");
+        assert!(parts[1].starts_with("b:"), "{parts:?}");
+    }
+
+    /// Tuple field types are audited element-wise; nested tuples flatten and
+    /// non-tuple types (incl. `fn(..) -> T`) pass through unchanged.
+    #[test]
+    fn expand_tuple_flattens_elements() {
+        assert_eq!(expand_tuple("(JSValue, u32)"), ["JSValue", "u32"]);
+        assert_eq!(
+            expand_tuple("((JSValue, Atom), u32)"),
+            ["JSValue", "Atom", "u32"]
+        );
+        assert_eq!(expand_tuple("JSValue"), ["JSValue"]);
+        assert_eq!(expand_tuple("fn(&mut C) -> bool"), ["fn(&mut C) -> bool"]);
+        assert_eq!(expand_tuple("()"), [] as [&str; 0]);
+    }
+
+    /// Hand-written tuple structs that hold a GC handle but are not macro
+    /// wrappers must be leaves — otherwise a payload field of one of these
+    /// types is silently skipped (`StringRef`/`BigIntRef` blind spot).
+    #[test]
+    fn the_leaf_table_covers_handle_tuple_structs() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let table = leaf_table();
+        let mut missing = Vec::new();
+        for (file, text) in source_files(&dir) {
+            for (no, line) in text.lines().enumerate() {
+                let t = line.trim();
+                if t.starts_with("//") {
+                    continue;
+                }
+                // `pub struct Name(<handle>…);` — tuple struct holding a GC
+                // handle directly (multi-line declarations are not scanned).
+                let Some(rest) = t
+                    .strip_prefix("pub struct ")
+                    .or_else(|| t.strip_prefix("pub(crate) struct "))
+                    .or_else(|| t.strip_prefix("struct "))
+                else {
+                    continue;
+                };
+                if !(rest.contains("GcRef<") || rest.contains("NonNull<GcHead>")) {
+                    continue;
+                }
+                let name: String = rest
+                    .chars()
+                    .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                    .collect();
+                if name.is_empty() || !table.contains(name.as_str()) {
+                    missing.push(format!("{file}:{}: {name}", no + 1));
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "add these GC-handle tuple structs to HAND_WRITTEN_WRAPPERS: {missing:?}"
         );
     }
 
