@@ -10,8 +10,8 @@
 //! set (`gc_type_register!` entries, every `def_native_object!` payload type and
 //! every `PayloadPtr::new` payload type), expands local struct/enum field types
 //! (and tuple field types, element-wise) recursively, and reports every GC-typed
-//! field that is neither wrapped in `WriteBarrier`/`WriteBarrierVec` nor
-//! allowlisted — with `file:line`.
+//! field that is neither wrapped in `WriteBarrier`/`WriteBarrierVec`/
+//! `WriteBarrierMap` nor allowlisted — with `file:line`.
 //!
 //! Three rules, all heuristic (deliberately no `syn`/`regex` dependency):
 //!
@@ -19,10 +19,11 @@
 //! 2. a GC leaf field of a *container element* type (reached through `Vec`/
 //!    `Box`/`[…]`) must be covered by an `impl GcBind for ElementType`, or be
 //!    allowlisted — elements are bound by their container's `push`;
-//! 3. `WriteBarrier::new` / `WriteBarrierVec::from_vec` may only construct
-//!    (struct-literal field init, `let`); on the right of a field assignment or
-//!    inside `mem::replace`/`mem::swap` it is a whole-field replacement that
-//!    bypasses the barrier.
+//! 3. `WriteBarrier::new` / `WriteBarrierVec::from_vec` /
+//!    `WriteBarrierMap::new` may only construct (struct-literal field init,
+//!    `let`); on the right of a field assignment or inside
+//!    `mem::replace`/`mem::swap` it is a whole-field replacement that bypasses
+//!    the barrier.
 //!
 //! # Using it from an embedding crate
 //!
@@ -577,11 +578,12 @@ fn peel(mut ty: &str) -> (&str, bool, bool) {
     let mut in_container = false;
     loop {
         let t = ty.trim();
-        if let Some(inner) = strip_layer(t, &["WriteBarrierVec", "WriteBarrier"]) {
+        if let Some(inner) = strip_layer(t, &["WriteBarrierVec", "WriteBarrierMap", "WriteBarrier"])
+        {
             wrapped = true;
-            // a guarded Vec is still a container: its element type's fields are
-            // covered by the element's `GcBind` impl, not by the guard
-            in_container |= t.starts_with("WriteBarrierVec");
+            // a guarded Vec/Map is still a container: its element type's fields
+            // are covered by the element's `GcBind` impl, not by the guard
+            in_container |= t.starts_with("WriteBarrierVec") || t.starts_with("WriteBarrierMap");
             ty = inner;
             continue;
         }
@@ -851,7 +853,8 @@ pub struct GcLeafField {
     pub name: String,
     /// The declared type, as written in the source.
     pub ty: String,
-    /// The field sits behind `WriteBarrier`/`WriteBarrierVec` (rule 1 holds).
+    /// The field sits behind `WriteBarrier`/`WriteBarrierVec`/`WriteBarrierMap`
+    /// (rule 1 holds).
     pub wrapped: bool,
     /// The leaf was reached through a container (`Vec`/`Box`/…): rule 2
     /// applies instead — the element type needs an `impl GcBind`.
@@ -1027,7 +1030,11 @@ pub fn guard_construction_violations(dir: &Path) -> Vec<String> {
             if line.trim_start().starts_with("//") {
                 continue;
             }
-            for marker in ["WriteBarrier::new(", "WriteBarrierVec::from_vec("] {
+            for marker in [
+                "WriteBarrier::new(",
+                "WriteBarrierVec::from_vec(",
+                "WriteBarrierMap::new(",
+            ] {
                 let mut from = 0;
                 while let Some(idx) = line[from..].find(marker) {
                     let idx = from + idx;
@@ -1350,5 +1357,13 @@ mod tests {
             ("ShapeProperty", false, true)
         );
         assert_eq!(peel("UnsafeCell<JSValue>"), ("JSValue", false, false));
+        // a guarded map is wrapped *and* still a container (element needs GcBind)
+        assert_eq!(
+            peel("WriteBarrierMap<Atom, JSValue>"),
+            ("Atom, JSValue", true, true)
+        );
+        // longest prefix first: `WriteBarrier` must not swallow the others
+        assert_eq!(peel("WriteBarrierVec<JSValue>"), ("JSValue", true, true));
+        assert_eq!(peel("WriteBarrier<JSValue>"), ("JSValue", true, false));
     }
 }

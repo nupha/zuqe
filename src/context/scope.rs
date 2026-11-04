@@ -200,8 +200,8 @@ impl<'a> ScopedContext<'a> {
 
     /// Test-only L1 one-step primitive: `*slot = value`, then record the edge
     /// `owner → value`. Production code holds a typed slot
-    /// (`WriteBarrier`/`WriteBarrierVec`) or the foreign-slot API of its owner,
-    /// so D11 removed the last production caller.
+    /// (`WriteBarrier`/`WriteBarrierVec`/`WriteBarrierMap`) or the foreign-slot
+    /// API of its owner, so D11 removed the last production caller.
     ///
     /// Store-then-barrier is the recommended order (JSC does the same), but the
     /// order itself is not a correctness condition — only **no GC point between

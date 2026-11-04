@@ -8,7 +8,7 @@ pub(crate) mod gc;
 pub(crate) mod guard;
 
 pub(crate) use gc::GcHeapExt;
-pub use guard::{GcBind, WriteBarrier, WriteBarrierVec};
+pub use guard::{GcBind, WriteBarrier, WriteBarrierMap, WriteBarrierVec};
 
 /// The standard GC payload field audit test for any crate that depends on
 /// zuqe. Expands to `gc_audit_payload_fields`: rules 1–3 plus a root-set floor

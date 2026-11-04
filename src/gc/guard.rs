@@ -2,11 +2,16 @@
 // SPDX-FileCopyrightText: Copyright (c) 2025-2026 John Ray <996351336@qq.com>
 
 //! Write-barrier guards: the value-level trait [`GcBind`] (P1) and the payload
-//! slot types [`WriteBarrier`] / [`WriteBarrierVec`] (P2).
+//! slot types [`WriteBarrier`] / [`WriteBarrierVec`] / [`WriteBarrierMap`] (P2).
 //!
 //! See `memo/gc_bind_guard.md` and `docs/gc.md` Rule 5.
 
-use std::{ops::Deref, ptr::NonNull};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    hash::Hash,
+    ops::Deref,
+    ptr::NonNull,
+};
 
 use gc_lite::{GcHead, GcTrace, GcTraceCtx};
 
@@ -229,6 +234,16 @@ impl<T> WriteBarrierVec<T> {
         self.inner.first()
     }
 
+    /// Mutable access to the first element. **Sound only if every GC leaf
+    /// inside `T` is itself a `WriteBarrier`/`WriteBarrierVec` slot** —
+    /// otherwise the caller can assign a bare edge and the guard buys nothing.
+    /// Prefer `push` / `remove` + `push` where the element must be rebuilt
+    /// anyway.
+    #[inline]
+    pub fn first_mut(&mut self) -> Option<&mut T> {
+        self.inner.first_mut()
+    }
+
     #[inline(always)]
     pub fn get(&self, i: usize) -> Option<&T> {
         self.inner.get(i)
@@ -277,6 +292,15 @@ impl<T: GcBind> WriteBarrierVec<T> {
         self.inner.push(v);
         self.inner[idx].bind_node(ctx, owner);
     }
+
+    /// Like `Vec::insert`: shifts the tail right, stores `v` at `idx`, then
+    /// binds it to `owner`. The same no-GC-point rule as [`push`](Self::push)
+    /// applies; panics when `idx > len`, like `Vec::insert`.
+    #[inline]
+    pub fn insert(&mut self, ctx: &ScopedContext, owner: JSValue, idx: usize, v: T) {
+        self.inner.insert(idx, v);
+        self.inner[idx].bind(ctx, owner);
+    }
 }
 
 impl<T> Deref for WriteBarrierVec<T> {
@@ -302,6 +326,86 @@ impl<T: GcTrace> GcTrace for WriteBarrierVec<T> {
     }
 }
 
+/// A payload `HashMap` that can only be mutated through the write barrier —
+/// the [`WriteBarrierVec`] of maps.
+///
+/// Deliberately exposes no `&mut HashMap`/`DerefMut`: the bare
+/// `HashMap::insert(k, v)` call does not compile — writes go through
+/// [`insert`](Self::insert) / [`remove`](Self::remove) only. Zero-cost:
+/// `#[repr(transparent)]`, no runtime state. Not `Clone` — copying the
+/// container would fabricate unbarriered edges. `Deref` hands out the read
+/// paths (`get`/`values`/`keys`/`iter`/`len`/`is_empty`).
+#[repr(transparent)]
+#[derive(Debug)]
+pub struct WriteBarrierMap<K, V> {
+    inner: HashMap<K, V>,
+}
+
+impl<K, V> WriteBarrierMap<K, V> {
+    #[inline(always)]
+    pub fn new() -> Self {
+        Self {
+            inner: HashMap::new(),
+        }
+    }
+}
+
+impl<K: Eq + Hash, V> WriteBarrierMap<K, V> {
+    /// Removal needs no barrier, but the removed value loses `trace`
+    /// coverage: protect it (`gc_protect_transient`) before any GC point if it
+    /// is still used — `docs/gc.md` Rule 4, same as
+    /// [`WriteBarrierVec::remove`].
+    #[inline]
+    pub fn remove(&mut self, k: K) -> Option<V> {
+        self.inner.remove(&k)
+    }
+}
+
+impl<K: Eq + Hash, V: GcBind> WriteBarrierMap<K, V> {
+    /// The single write path: store, then barrier — the inserted value is
+    /// re-fetched through the entry, like `push` re-fetches the element. The
+    /// returned old value is *not* bound: it has left `trace`, so see
+    /// [`remove`](Self::remove) (Rule 4). Only `V` is bound — a key that names
+    /// a GC edge would not be recorded, so keys must not be GC edges.
+    #[inline]
+    pub fn insert(&mut self, ctx: &ScopedContext, owner: JSValue, k: K, v: V) -> Option<V> {
+        match self.inner.entry(k) {
+            Entry::Vacant(e) => {
+                e.insert(v).bind(ctx, owner);
+                None
+            }
+            Entry::Occupied(mut e) => {
+                let old = e.insert(v);
+                e.get().bind(ctx, owner);
+                Some(old)
+            }
+        }
+    }
+}
+
+impl<K, V> Deref for WriteBarrierMap<K, V> {
+    type Target = HashMap<K, V>;
+
+    #[inline(always)]
+    fn deref(&self) -> &HashMap<K, V> {
+        &self.inner
+    }
+}
+
+impl<K, V> Default for WriteBarrierMap<K, V> {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<K: GcTrace, V: GcTrace> GcTrace for WriteBarrierMap<K, V> {
+    #[inline]
+    fn trace(&self, tr: &mut GcTraceCtx) {
+        self.inner.trace(tr);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -316,6 +420,7 @@ mod tests {
         /// L1 primitive target (`bind_push`), no type-level guard.
         raw_list: Vec<JSValue>,
         list: WriteBarrierVec<JSValue>,
+        map: WriteBarrierMap<u64, JSValue>,
     }
 
     #[cfg(feature = "gc_generations")]
@@ -331,6 +436,7 @@ mod tests {
                 opt: None,
                 raw_list: Vec::new(),
                 list: WriteBarrierVec::new(),
+                map: WriteBarrierMap::new(),
             },
         )
     }
@@ -402,6 +508,120 @@ mod tests {
         Ok(())
     }
 
+    /// `insert` shifts the tail right, places the element at `idx` and binds
+    /// it: an unbound insert leaves an old→freed edge and the minor's
+    /// validator panics with "missing write barrier".
+    // `gc_minor`/`is_young` only exist with `gc_generations`.
+    #[cfg(feature = "gc_generations")]
+    #[test]
+    fn insert_places_and_binds_the_element() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let cid = <GcBindTest as NativeObject>::class_id();
+        let mut ctx = rt.create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            cx.use_class(cid)?;
+            Ok(())
+        })?;
+
+        ctx.with_root_scope(|mut cx| -> Result<(), i32> {
+            cx.rt_mut().gc_set_promote_after(1);
+
+            let mut owner = new_owner(&mut cx)?;
+
+            // Promote the (still empty) owner to old.
+            cx.rt_mut().gc_minor();
+            assert!(!owner.gc_node().is_young(), "owner must be old");
+
+            // Young children whose only reference will be the payload slot.
+            let a = cx.create_base_object()?;
+            let b = cx.create_base_object()?;
+            for c in [a, b] {
+                assert!(
+                    cx.remove_local(c.gc_node_ptr()),
+                    "child must be scope-local before the minor"
+                );
+            }
+            let (a, b): (JSValue, JSValue) = (a.into(), b.into());
+
+            let v = JSValue::from(owner);
+            let p = owner.payload_mut().expect("payload");
+            p.list.insert(&cx, v, 0, a);
+            p.list.insert(&cx, v, 0, b);
+            // the tail shifted right: `b` landed at 0, `a` moved to 1
+            assert_eq!(p.list.get(0), Some(&b));
+            assert_eq!(p.list.get(1), Some(&a));
+            assert_eq!(p.list.len(), 2);
+
+            // Validator: one unbound edge here panics with "missing write barrier".
+            cx.rt_mut().gc_minor();
+            assert!(cx.rt().gc_minor_count() >= 2);
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// `WriteBarrierMap::insert` stores then binds the value (the first minor
+    /// validates the bind), `Deref` hands the reads back, and `remove` takes
+    /// the value out of `trace` (Rule 4 — nothing here uses it afterwards).
+    // `gc_minor`/`is_young` only exist with `gc_generations`.
+    #[cfg(feature = "gc_generations")]
+    #[test]
+    fn map_insert_binds_reads_and_removes() -> Result<(), i32> {
+        let mut rt = Runtime::create()?;
+        let cid = <GcBindTest as NativeObject>::class_id();
+        let mut ctx = rt.create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            cx.use_class(cid)?;
+            Ok(())
+        })?;
+
+        ctx.with_root_scope(|mut cx| -> Result<(), i32> {
+            cx.rt_mut().gc_set_promote_after(1);
+
+            let mut owner = new_owner(&mut cx)?;
+
+            // Promote the (still empty) owner to old.
+            cx.rt_mut().gc_minor();
+            assert!(!owner.gc_node().is_young(), "owner must be old");
+
+            // Young child whose only reference will be the payload slot.
+            let child = cx.create_base_object()?;
+            assert!(
+                cx.remove_local(child.gc_node_ptr()),
+                "child must be scope-local before the minor"
+            );
+            let child: JSValue = child.into();
+
+            let v = JSValue::from(owner);
+            {
+                let p = owner.payload_mut().expect("payload");
+                assert_eq!(p.map.insert(&cx, v, 1, child), None, "fresh key");
+                // Deref reads: get/values/keys/iter/len/is_empty
+                assert_eq!(p.map.get(&1), Some(&child));
+                assert_eq!(p.map.values().copied().collect::<Vec<_>>(), [child]);
+                assert_eq!(p.map.keys().copied().collect::<Vec<_>>(), [1]);
+                assert_eq!(p.map.iter().count(), 1);
+                assert_eq!(p.map.len(), 1);
+                assert!(!p.map.is_empty());
+            }
+
+            // Validator: one unbound edge here panics with "missing write barrier".
+            cx.rt_mut().gc_minor();
+            assert!(cx.rt().gc_minor_count() >= 2);
+
+            // Replace hands the old value back (it leaves `trace` from here),
+            // remove takes the current one out of the traced slot.
+            let p = owner.payload_mut().expect("payload");
+            let next: JSValue = cx.create_base_object()?.into();
+            assert_eq!(p.map.insert(&cx, v, 1, next), Some(child));
+            assert_eq!(p.map.remove(1), Some(next));
+            assert!(p.map.is_empty());
+            assert_eq!(p.map.get(&1), None);
+            Ok(())
+        })?;
+        Ok(())
+    }
+
     /// The zero-cost claim: the guards are layout-transparent, so JIT/host
     /// code that reads payload fields by offset is unaffected.
     #[test]
@@ -467,5 +687,19 @@ mod tests {
             std::mem::offset_of!(GuardedList, slot),
             std::mem::offset_of!(BareList, slot)
         );
+    }
+
+    /// `first_mut` hands out the head in place — the one bare `&mut` in the
+    /// API. Sound only when every GC leaf inside `T` is itself a guard slot;
+    /// a leaf-free `T` is the trivially sound case.
+    #[test]
+    fn first_mut_mutates_the_head_in_place() {
+        let mut v = WriteBarrierVec::from_vec(vec![1u32, 2]);
+        *v.first_mut().expect("head") = 9;
+        assert_eq!(v.get(0), Some(&9));
+        assert_eq!(v.get(1), Some(&2));
+
+        let mut empty: WriteBarrierVec<u32> = WriteBarrierVec::new();
+        assert!(empty.first_mut().is_none());
     }
 }
