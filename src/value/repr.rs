@@ -28,12 +28,13 @@ impl ObjectImpl {
                 // back to "Object".
                 #[cfg(feature = "builtin_regexp")]
                 crate::JS_CLASS_REGEXP => {
-                    ctx.rt().class_def(crate::JS_CLASS_REGEXP).unwrap().name_atom
+                    ctx.rt()
+                        .class_def(crate::JS_CLASS_REGEXP)
+                        .unwrap()
+                        .name_atom
                 }
                 #[cfg(feature = "builtin_date")]
-                crate::JS_CLASS_DATE => {
-                    ctx.rt().class_def(crate::JS_CLASS_DATE).unwrap().name_atom
-                }
+                crate::JS_CLASS_DATE => ctx.rt().class_def(crate::JS_CLASS_DATE).unwrap().name_atom,
 
                 _ => Atom::CONST_Object,
             }

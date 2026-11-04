@@ -104,7 +104,8 @@ fn js_iterator_helper_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         };
     }
 
-    let ip = this_obj.payload_iterator_helper()
+    let ip = this_obj
+        .payload_iterator_helper()
         .ok_or_else(|| ctx.throw_type_error("not an Iterator Helper"))?;
 
     if ip.executing.get() {
@@ -204,11 +205,7 @@ fn filter_next(ctx: &mut ScopedContext, ip: &IteratorHelperData) -> JSResult {
     }
 }
 
-fn flatmap_next(
-    ctx: &mut ScopedContext,
-    owner: Object,
-    ip: &IteratorHelperData,
-) -> JSResult {
+fn flatmap_next(ctx: &mut ScopedContext, owner: Object, ip: &IteratorHelperData) -> JSResult {
     let mut index = ip.count.get();
     loop {
         if !ip.has_inner.get() {

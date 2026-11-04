@@ -10,13 +10,13 @@ use std::{
     rc::{Rc, Weak},
 };
 
+use super::tick::tick_tree;
 use crate::{
     error::Exception,
     runtime::{DummyUserState, RuntimeImpl, RuntimeUserState, tick::TickStatus},
     value::JSValue,
 };
 use gc_lite::GcHead;
-use super::tick::tick_tree;
 
 // ── Thread-local scheduler ─────────────────────────────────────────────
 //

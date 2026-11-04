@@ -909,10 +909,8 @@ mod tests {
         ctx.with_root_scope(|mut cx| -> Result<(), i32> {
             cx.rt_mut().gc_set_promote_after(1);
 
-            let owner = cx.create_instance(PayloadPtr::new(
-                JS_CLASS_SET,
-                JSMapState::new(false, 8),
-            ))?;
+            let owner =
+                cx.create_instance(PayloadPtr::new(JS_CLASS_SET, JSMapState::new(false, 8)))?;
             let owner = JSValue::from(owner);
 
             // Promote the result Set.

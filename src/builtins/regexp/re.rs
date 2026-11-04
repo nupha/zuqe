@@ -301,7 +301,11 @@ impl RegExp {
         debug_assert!(ctx.class_slots[class_id as usize].proto.is_none());
 
         let it_proto = ctx.iterator_proto()?;
-        ctx.init_class_proto_extends(class_id, Some(it_proto), js_regexp_string_iterator_proto_funcs)
+        ctx.init_class_proto_extends(
+            class_id,
+            Some(it_proto),
+            js_regexp_string_iterator_proto_funcs,
+        )
     }
 }
 

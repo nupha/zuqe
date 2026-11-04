@@ -35,7 +35,8 @@ fn js_iterator_wrap_next(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         .as_object()
         .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
-    let wrap = this_obj.payload_iterator_wrap()
+    let wrap = this_obj
+        .payload_iterator_wrap()
         .ok_or_else(|| ctx.throw_type_error("not an Iterator Wrap"))?;
 
     let (value, done) = call_iterator_next(ctx, wrap.obj, wrap.next)?;
@@ -48,7 +49,8 @@ fn js_iterator_wrap_return(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         .as_object()
         .ok_or_else(|| ctx.throw_type_error_not_an_object())?;
 
-    let wrap = this_obj.payload_iterator_wrap()
+    let wrap = this_obj
+        .payload_iterator_wrap()
         .ok_or_else(|| ctx.throw_type_error("not an Iterator Wrap"))?;
 
     // GetMethod(iterator, "return")

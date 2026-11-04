@@ -182,7 +182,8 @@ fn js_number_toPrecision(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
         }
     };
 
-    ctx.create_string_from_utf8(s.as_bytes().to_vec()).map(JSValue::make_string)
+    ctx.create_string_from_utf8(s.as_bytes().to_vec())
+        .map(JSValue::make_string)
 }
 
 fn js_number_toExponential(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
@@ -214,7 +215,8 @@ fn js_number_toExponential(ctx: &mut ScopedContext, cc: CallContext) -> JSResult
         )
     };
 
-    ctx.create_string_from_utf8(s.as_bytes().to_vec()).map(JSValue::make_string)
+    ctx.create_string_from_utf8(s.as_bytes().to_vec())
+        .map(JSValue::make_string)
 }
 
 fn js_number_toFixed(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {

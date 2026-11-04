@@ -574,7 +574,9 @@ macro_rules! def_native_object {
 mod tests {
     use gc_lite::GcTrace;
 
-    use crate::{CallContext, ClassCtorDef, JSResult, JSValue, NativeObject, Runtime, ScopedContext};
+    use crate::{
+        CallContext, ClassCtorDef, JSResult, JSValue, NativeObject, Runtime, ScopedContext,
+    };
 
     #[derive(GcTrace, Debug, PartialEq)]
     pub struct HostPayload {
@@ -666,7 +668,10 @@ mod tests {
     fn host_class_extends_links_both_chains() -> Result<(), i32> {
         let mut rt = Runtime::create()?;
         let (base, derived) = (HostBase::class_id(), HostDerived::class_id());
-        assert_ne!(derived, 0, "derived class id must be assigned at engine init");
+        assert_ne!(
+            derived, 0,
+            "derived class id must be assigned at engine init"
+        );
         assert_ne!(derived, base);
 
         let mut ctx = rt.create_context(|cx| {
