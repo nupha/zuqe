@@ -62,7 +62,7 @@ IteratorConcatData.iter — Cell slot; `set_iter` stores and binds (iter_concat.
 IteratorConcatData.next — Cell slot; `set_next` stores and binds (iter_concat.rs)
 IteratorHelperData.inner — Cell slot; `set_inner` stores and binds (iter_helper.rs)
 IteratorHelperData.inner_next — Cell slot; `set_inner_next` stores and binds (iter_helper.rs)
-WeakRefTarget.Symbol.0 — weak target; WeakRefData is not traced at all
+WeakRefTarget::Symbol.0 — weak target; WeakRefData is not traced at all
 # `ArrayPayload.values` is a plain `Vec<JSValue>`: rule 2 accepts it because
 # `JSValue` has `GcBind`. Every mutator binds at its call site; `reverse`/
 # `sort` are in-place permutations a guard cannot express (array single-point
@@ -77,7 +77,7 @@ ModuleDefImpl.module_name — mdef setters bind
 ArrayBufferPayload.typed_array_list — weak list (`Vec<GcWeak>`), no strong edge
 ObjectImpl.weak_refs — weak list (`Vec<GcWeak>`), no strong edge
 TypedArrayPayload.obj — weak target (`GcWeak`), no strong edge
-WeakRefTarget.Object.0 — weak target; WeakRefData is not traced at all
+WeakRefTarget::Object.0 — weak target; WeakRefData is not traced at all
 ShapeImpl.next — shape registry is a root, force-descended
 ShapeImpl.parent — transition-dedup hint: never dereferenced, deliberately untraced (shape.rs)
 BytecodeImpl.feedback — `FeedbackSlot::record_call` stores, `jit::note_call` binds
@@ -85,14 +85,14 @@ RegExpStringIterPayload.iterated_string — construction only
 RopeImpl.left — construction only (set in `RopeImpl::create`)
 RopeImpl.right — construction only (set in `RopeImpl::create`)
 RopeImpl.flat — Cell slot; `set_flat` stores and binds (rope.rs)
-VarRefImpl.pvalue — points into a frame slot (a GC root); `set_value` binds the Detached arm
+VarRefImpl::Bind.pvalue — points into a frame slot (a GC root); `set_value` binds the Detached arm
 # Raw pointer to the VM arena buffer base; not a GC-traced edge. The buffer's
 # JSValue slots are traced by VM stack root scanning, not through this field.
-FrameBuffer.data_base — raw pointer to VM stack arena buffer, not a GC-traced slot; slots traced as stack roots
+FrameBuffer::Arena.data_base — raw pointer to VM stack arena buffer, not a GC-traced slot; slots traced as stack roots
 # Property slot contents: slot writes go through bind_prop_slot/replace_prop_slot
 # (the single write paths that bind). JSProperty is a #[repr(C,u8)] JIT-layout
 # union stored in PropValues; its GC-holding variants cannot be individually
 # barrier-wrapped without breaking the slot-binding protocol.
-JSProperty.Normal.0 — property slot value; writes go through bind_prop_slot/replace_prop_slot
-JSProperty.VarRef.0 — property slot var-ref; writes go through bind_prop_slot/replace_prop_slot
-JSProperty.LazyPrototype.0 — property slot lazy-prototype realm; slot writes go through bind_prop_slot/replace_prop_slot
+JSProperty::Normal.0 — property slot value; writes go through bind_prop_slot/replace_prop_slot
+JSProperty::VarRef.0 — property slot var-ref; writes go through bind_prop_slot/replace_prop_slot
+JSProperty::LazyPrototype.0 — property slot lazy-prototype realm; slot writes go through bind_prop_slot/replace_prop_slot

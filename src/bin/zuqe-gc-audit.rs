@@ -87,11 +87,7 @@ fn main() {
         let fields: Vec<_> = t
             .fields
             .iter()
-            .filter_map(|f| {
-                verdicts
-                    .get(&format!("{}.{}", t.name, f.name))
-                    .map(|v| (f, *v))
-            })
+            .filter_map(|f| verdicts.get(&f.key(&t.name)).map(|v| (f, *v)))
             .collect();
         if !fields.is_empty() {
             rows.push((t, fields));
@@ -130,11 +126,14 @@ fn main() {
 
     // The field icons carry the per-field verdict; only diagnostics that are
     // NOT field lines are printed here — a stale exemption (it no longer
-    // matches a field, so it cannot be seen by reading the exemption file) and
-    // whole-field guard replacement (rule 3).
+    // matches a field, so it cannot be seen by reading the exemption file),
+    // whole-field guard replacement (rule 3), payload roots the scanner could
+    // not parse, and non-failing unknown-type warnings.
     let stale = zuqe::gc_audit::stale_exemptions(&src, &allow_refs);
     let guards = zuqe::gc_audit::guard_construction_violations(&src);
-    if !stale.is_empty() || !guards.is_empty() {
+    let root_misses = zuqe::gc_audit::payload_root_misses(&src);
+    let warnings = zuqe::gc_audit::unknown_field_type_warnings(&src);
+    if !stale.is_empty() || !guards.is_empty() || !root_misses.is_empty() || !warnings.is_empty() {
         println!();
     }
     if !stale.is_empty() {
@@ -149,13 +148,25 @@ fn main() {
             println!("{line}");
         }
     }
+    if !root_misses.is_empty() {
+        println!("payload roots missing from the parsed definitions (fail):");
+        for line in &root_misses {
+            println!("{line}");
+        }
+    }
+    if !warnings.is_empty() {
+        println!("unknown field types (warning only; add to the leaf table if they are GC nodes):");
+        for line in &warnings {
+            println!("{line}");
+        }
+    }
 
     println!(
         "\n{} {} of {total} GC-leaf field(s) fail audit",
         if failed == 0 { "✔️" } else { "❌" },
         failed
     );
-    if failed > 0 || !stale.is_empty() || !guards.is_empty() {
+    if failed > 0 || !stale.is_empty() || !guards.is_empty() || !root_misses.is_empty() {
         std::process::exit(1);
     }
 }

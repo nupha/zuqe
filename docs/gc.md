@@ -336,15 +336,33 @@ def_native_object!(
 ```
 
 `#[derive(GcTrace)]` does the same for you, with `#[gc(skip)]` / `#[gc(with)]` for fine-grained
-control — but it expands to absolute `::gc_lite::…` paths, so it needs `gc-lite` as a **direct**
-dependency of your crate. A crate that depends only on `zuqe` writes the impl by hand; that is
-what the template in section 17 does.
-
-A payload that holds **no** GC nodes still needs an impl — write it empty:
+control. Prefer the derive for every payload: a hand-written impl can miss a field that *is*
+guarded, and no static audit can see the omission. A crate that depends only on `zuqe` points the
+expansion at its re-export — no direct `gc-lite` dependency and no `Cargo.toml` change:
 
 ```rust
-impl GcTrace for Payload {
-    fn trace(&self, _: &mut GcTraceCtx) {}
+use zuqe::gc_lite::GcTrace;
+
+#[derive(GcTrace)]
+#[gc(crate_path = zuqe::gc_lite)]
+pub(crate) struct FooPayload {
+    result: WriteBarrier<JSValue>,
+    handler: WriteBarrier<Option<Object>>,
+    queue: WriteBarrierVec<Req>,
+}
+```
+
+The derive expands per field (and per enum variant), so a new field or variant is traced
+automatically. `#[gc(skip)]` is only for non-GC fields (a raw pointer mirror, a cached integer);
+skipping a real GC edge is exactly the bug Rule 1 exists to prevent.
+
+A payload that holds **no** GC nodes still needs an impl — the derive on such a struct is empty:
+
+```rust
+#[derive(GcTrace)]
+#[gc(crate_path = zuqe::gc_lite)]
+pub(crate) struct Payload {
+    count: u32,
 }
 ```
 
@@ -700,13 +718,24 @@ What it checks:
 |---|---|
 | 1 | a reachable GC-leaf payload field that is neither a guard slot nor allowlisted |
 | 2 | a container element type with no `impl GcBind` and no exemption |
-| 3 | a whole-field guard replacement (`field = WriteBarrier::new(…)`, `mem::replace`) |
+| 3 | a whole-field guard replacement (`field = WriteBarrier::new(…)`, `*binding = …`, `mem::replace`) |
 | — | stale exemption entries (the field was renamed, wrapped or removed) |
 | — | a root-set floor, so scanning the wrong directory cannot pass |
+| — | a payload root the macros name but the scanner did not parse (a failure) |
+| — | an unknown field type the scanner cannot classify (warning, CLI + `unknown_field_type_warnings`) |
 
-The scanner is a deliberate text heuristic (no `syn`): unknown field types are skipped rather than
-guessed, only *direct* GC-leaf fields are enumerated, and a payload type unreachable from the root
-set is invisible. It reports shape, never write timing.
+The scanner is a deliberate text heuristic (no `syn`): it reports shape, never write timing.
+Enumerations are variant-aware: an enum field's audit key is `Type::Variant.field` (tuple variants:
+`Type::Variant.N`), so two variants may declare the same field name and an exemption covers only
+the variant it names.
+
+**Column-0 convention.** Payload `struct`/`enum` items must be declared at the top level of a
+module (column 0, not nested inside another item or module body). The scanner does not implement
+nested-item parsing; instead a payload named by `def_native_object!`/`PayloadPtr::new` but missing
+from the parsed definitions is reported as
+`payload type not parsed: Name (…, nested or indented?)` and **fails** the audit. This turns a
+silent root drop into an explicit error without growing the heuristic into a Rust parser.
+`#[cfg(test)] mod` blocks are excluded from the scan, so test fixtures do not trip this rule.
 
 ### 16.1 Standard layout
 
@@ -771,8 +800,10 @@ actual count (`root set suspiciously small: N entries`), so set the floor somewh
 `zuqe-gc-audit` prints the same inventory as a report instead of a test: the payload root set as a
 type list with `file:line` and, per field, its verdict and `bare`/`wrapped`/`container` status —
 `✔️` passes, `🔵` allowlisted, `❌` violation. Only diagnostics that cannot be seen in that list are
-printed below it: stale exemption entries and whole-field guard replacements. The last line counts
-the failures. It reads the **same** exemption file as the test (default: the nearest directory at or
+printed below it: stale exemption entries, whole-field guard replacements, payload roots the
+scanner could not parse (fails), and `⚠ unknown type` warnings for CamelCase field types that are
+neither local definitions nor leaf-table entries (does not fail). The last line counts the
+failures. It reads the **same** exemption file as the test (default: the nearest directory at or
 above the scanned directory that contains a `Cargo.toml`), so the report and `cargo test` always
 agree.
 
@@ -792,13 +823,17 @@ cargo run --bin zuqe-gc-audit -- [SRC_DIR]
 ### 16.5 Discovery helpers
 
 - `gc_leaf_types(dir)` — every struct/enum that *directly* declares a GC-leaf field, with
-  `file:line` and the field's `wrapped`/`container` status: the discovery inventory;
-- `field_verdicts(dir, allowlist)` — the verdict per field, keyed by `Type.field`:
-  `Pass` / `Allowlisted` / `Violation(reason)`;
+  `file:line` and the field's `wrapped`/`container` status and enum `variant`: the discovery
+  inventory; `GcLeafField::key(type_name)` gives the variant-aware audit key;
+- `field_verdicts(dir, allowlist)` — the verdict per field, keyed by `Type.field` or
+  `Type::Variant.field`: `Pass` / `Allowlisted` / `Violation(reason)`;
 - `stale_exemptions(dir, allowlist)` — entries that no longer match an allowlisted field;
 - `payload_root_types(dir)` — the audit's root set;
+- `payload_root_misses(dir)` — payload names in macro arguments that the scanner did not parse
+  (nested/indented; a failure);
+- `unknown_field_type_warnings(dir)` — non-failing `⚠ unknown type` diagnostics;
 - `read_exemptions(path)` — read and parse an exemption file;
-- `test_failures(dir, allowlist, min_roots)` — exactly what the macro runs;
+- `test_failures(dir, allowlist, min_roots)` — exactly what the macro runs (including root misses);
 - `all_violations`, `gc_field_violations`, `guard_construction_violations` — the pieces, if you
   prefer your own shape.
 
@@ -806,8 +841,16 @@ cargo run --bin zuqe-gc-audit -- [SRC_DIR]
 
 The scanner reports shape, not timing: it cannot see whether a field is written after the instance
 was promoted, whether a `RefCell` borrow spans a JS call, or whether a value escapes a traced
-container between a `remove` and a `push`. Those remain review items and runtime-validator items.
-A green audit plus a green `--gc-stress` run on targeted paths is the strongest signal available.
+container between a `remove` and a `push`. It also cannot see `impl GcTrace` method bodies — that
+blind spot is closed at the type level by deriving `GcTrace` on every payload (a new field or
+variant is then traced without a hand edit). Unknown field types are reported as `⚠` warnings but
+not treated as failures (`String`/`u32`/`Instant` noise would dominate); if the type is a GC node,
+add it to the leaf table so the field gets a real verdict. Whole-field replacement is detected
+line-by-line, so a multi-line `… = WriteBarrier::new(\n  …)` form remains a review item; keep
+payload fields private and expose one setter so callers have no field to assign.
+
+Those timing items remain runtime-validator items. A green audit plus a green `--gc-stress` run on
+targeted paths is the strongest signal available.
 
 ## 17. Best-practice template
 
@@ -839,7 +882,7 @@ use std::ptr::NonNull;
 use zuqe::{
     GcBind, JSValue, Object, ScopedContext, WriteBarrier, WriteBarrierMap, WriteBarrierVec,
     def_native_object,
-    gc_lite::{GcHead, GcTrace, GcTraceCtx},
+    gc_lite::{GcHead, GcTrace},
 };
 
 /// One queued request. A local struct (not a tuple) so it can implement
@@ -857,7 +900,8 @@ impl GcBind for Req {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
+#[gc(crate_path = zuqe::gc_lite)]
 pub(crate) struct FooPayload {
     // full-mark coverage
     result: WriteBarrier<JSValue>,
@@ -867,38 +911,38 @@ pub(crate) struct FooPayload {
     cache: WriteBarrierMap<u64, Object>,
 }
 
-// Hand-written: the derive expands to `::gc_lite::…` and would need `gc-lite`
-// as a direct dependency. Only `zuqe` is required here.
-impl GcTrace for FooPayload {
-    fn trace(&self, gcx: &mut GcTraceCtx) {
-        self.result.trace(gcx);
-        self.handler.trace(gcx);
-        for r in self.queue.iter() {
-            r.cb.trace(gcx);
+// The derive traces every field above; no hand-written `impl GcTrace` to fall
+// behind when a field is added. Only `zuqe` is required (crate_path re-export).
+
+impl JSFoo {
+    /// Setters live on the native wrapper, so the caller never supplies an
+    /// owner (the classic silent-corruption bug): it is always this instance.
+    pub(crate) fn set_result(&mut self, ctx: &ScopedContext, v: JSValue) {
+        let owner = JSValue::from(*self);
+        if let Some(p) = self.payload_mut() {
+            p.result.set(ctx, owner, v);
         }
-        for v in self.cache.values() {
-            v.trace(gcx);
+    }
+
+    pub(crate) fn set_handler(&mut self, ctx: &ScopedContext, v: Option<Object>) {
+        let owner = JSValue::from(*self);
+        if let Some(p) = self.payload_mut() {
+            p.handler.set(ctx, owner, v);
         }
     }
-}
 
-impl FooPayload {
-    /// The payload exposes setters only, so a bare write cannot compile.
-    /// `owner` is the instance that holds this payload.
-    pub(crate) fn set_result(&mut self, ctx: &ScopedContext, owner: JSValue, v: JSValue) {
-        self.result.set(ctx, owner, v);
+    pub(crate) fn push_req(&mut self, ctx: &ScopedContext, r: Req) {
+        let owner = JSValue::from(*self);
+        if let Some(p) = self.payload_mut() {
+            p.queue.push(ctx, owner, r); // store + barrier, one step
+        }
     }
 
-    pub(crate) fn set_handler(&mut self, ctx: &ScopedContext, owner: JSValue, v: Option<Object>) {
-        self.handler.set(ctx, owner, v);
-    }
-
-    pub(crate) fn push_req(&mut self, ctx: &ScopedContext, owner: JSValue, r: Req) {
-        self.queue.push(ctx, owner, r); // store + barrier, one step
-    }
-
-    pub(crate) fn cache_put(&mut self, ctx: &ScopedContext, owner: JSValue, k: u64, v: Object) {
-        self.cache.insert(ctx, owner, k, v);
+    pub(crate) fn cache_put(&mut self, ctx: &ScopedContext, k: u64, v: Object) {
+        let owner = JSValue::from(*self);
+        if let Some(p) = self.payload_mut() {
+            p.cache.insert(ctx, owner, k, v);
+        }
     }
 }
 
@@ -911,13 +955,11 @@ def_native_object!(
 );
 ```
 
-At the call site, capture the owner **before** taking `&mut self` for the payload borrow (`JSValue`
-is `Copy`), and let the setter do the store and the barrier together:
+At the call site, call the wrapper's setter: it derives the owner from `self`, so there is no owner
+argument to get wrong, and the store + barrier happen together:
 
 ```rust
-let owner = this;                       // captured before the mutable borrow
-let p = get_foo_payload_mut(ctx, &mut this)?;
-p.set_handler(ctx, owner, Some(cb))?;   // no separate bind call, none to forget
+this.set_handler(ctx, Some(cb));   // owner = JSValue::from(this), inside the setter
 ```
 
 `tests/gc_audit.rs`:
@@ -947,7 +989,8 @@ Do:
 
 - give every mutable GC field a guard slot, and keep the field private to the payload module;
 - give every container element type an `impl GcBind` that skips weak and `#[gc(skip)]` fields;
-- route post-construction writes through one setter that stores and binds in the same function;
+- route post-construction writes through one setter **on the native wrapper** that derives the owner
+  from `self` and stores + binds in the same function;
 - build the payload with `new`/`from_vec`/`new()` and never whole-field-replace a slot afterwards;
 - read `Deref`/`get()`; there is no `iter_mut`, no index assignment, no `DerefMut`;
 - run the audit and the validator on targeted paths before calling a change done.

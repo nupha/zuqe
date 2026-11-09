@@ -104,6 +104,11 @@ struct Field {
     name: String,
     ty: String,
     skip: bool,
+    /// `Some(Variant)` for a field declared inside an enum variant. The audit
+    /// key becomes `Type::Variant.field` (tuple variants: `Type::Variant.N`),
+    /// so two variants may declare the same field name without sharing an
+    /// exemption.
+    variant: Option<String>,
 }
 
 struct Def {
@@ -128,7 +133,7 @@ fn source_files(dir: &Path) -> Vec<(String, String)> {
                 continue;
             }
             let text = std::fs::read_to_string(&path).expect("read source");
-            out.push((rel(&path, dir), text));
+            out.push((rel(&path, dir), strip_cfg_test_modules(&text)));
         }
     }
     out.sort();
@@ -140,6 +145,88 @@ fn rel(path: &Path, dir: &Path) -> String {
         .unwrap_or(path)
         .to_string_lossy()
         .into_owned()
+}
+
+/// Remove `#[cfg(test)] mod … { … }` blocks (and
+/// `#[cfg(all(test, …))] mod …`) from the scanned text. Their payloads are
+/// test fixtures declared inside a module, so they would otherwise show up as
+/// "payload type not parsed" root misses. Production items are untouched.
+fn strip_cfg_test_modules(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while let Some(pos) = text[i..].find("#[cfg(") {
+        let start = i + pos;
+        let line_start = text[..start].rfind('\n').map(|n| n + 1).unwrap_or(0);
+        if text[line_start..start].contains("//") {
+            out.push_str(&text[i..start + 6]);
+            i = start + 6;
+            continue;
+        }
+        let Some(close) = text[start..].find(']') else {
+            break;
+        };
+        let attr_end = start + close + 1;
+        if !text[start..attr_end].contains("test") {
+            out.push_str(&text[i..attr_end]);
+            i = attr_end;
+            continue;
+        }
+        // `mod name { … }` (skip whitespace between the attribute and `mod`).
+        let rest = &text[attr_end..];
+        let lead = rest.len() - rest.trim_start().len();
+        let after_ws = attr_end + lead;
+        let body = &text[after_ws..];
+        let is_mod = body.starts_with("mod ")
+            || body.starts_with("pub mod ")
+            || body.starts_with("pub(crate) mod ")
+            || body.starts_with("pub(super) mod ");
+        if !is_mod {
+            out.push_str(&text[i..attr_end]);
+            i = attr_end;
+            continue;
+        }
+        let Some(brace_rel) = body.find('{') else {
+            out.push_str(&text[i..attr_end]);
+            i = attr_end;
+            continue;
+        };
+        let brace = after_ws + brace_rel;
+        let mut depth = 0i32;
+        let mut in_str = false;
+        let mut escaped = false;
+        let mut end = None;
+        for (k, ch) in text[brace..].char_indices() {
+            if in_str {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == '"' {
+                    in_str = false;
+                }
+                continue;
+            }
+            match ch {
+                '"' => in_str = true,
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(brace + k);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(end) = end else {
+            break;
+        };
+        out.push_str(&text[i..start]);
+        i = end + 1;
+    }
+    out.push_str(&text[i..]);
+    out
 }
 
 /// Split on top-level commas, tracking (), [], {} and generic `<>` depth.
@@ -246,13 +333,25 @@ fn parse_defs(files: &[(String, String)]) -> BTreeMap<String, Def> {
                 continue;
             };
             let name = rest[kind.len() + 1..]
-                .split(|c: char| c.is_whitespace() || c == '(' || c == '{')
+                .split(|c: char| c.is_whitespace() || c == '(' || c == '{' || c == ';')
                 .next()
                 .unwrap_or("")
                 .to_string();
 
-            // Tuple/unit struct: `pub struct X(...);` — no named fields.
+            // Tuple/unit struct: `pub struct X(...);` — no named fields, but
+            // it is a declared type: record it so a macro payload reference
+            // resolves instead of showing up as a "payload type not parsed".
             if line.contains(';') && !line.contains('{') {
+                if !name.is_empty() && !defs.contains_key(&name) {
+                    defs.insert(
+                        name,
+                        Def {
+                            file: file.clone(),
+                            line: i + 1,
+                            fields: Vec::new(),
+                        },
+                    );
+                }
                 i += 1;
                 continue;
             }
@@ -284,7 +383,7 @@ fn parse_defs(files: &[(String, String)]) -> BTreeMap<String, Def> {
                     Def {
                         file: file.clone(),
                         line: i + 1,
-                        fields: parse_fields(&body),
+                        fields: parse_fields(&body, kind == "enum"),
                     },
                 );
             }
@@ -296,7 +395,16 @@ fn parse_defs(files: &[(String, String)]) -> BTreeMap<String, Def> {
 
 /// Field list of a struct body, and of the enum variants inside it (both
 /// struct-variants `V { f: T }` and tuple-variants `V(T)`).
-fn parse_fields(body: &str) -> Vec<Field> {
+///
+/// Enum fields carry their variant, so the audit key is
+/// `Type::Variant.field` (tuple variants: `Type::Variant.N`) instead of a bare
+/// name every variant shares. A single-variant exemption can never silently
+/// cover a same-named field of another variant.
+fn parse_fields(body: &str, is_enum: bool) -> Vec<Field> {
+    parse_fields_in(body, is_enum, None)
+}
+
+fn parse_fields_in(body: &str, is_enum: bool, variant: Option<&str>) -> Vec<Field> {
     let body = strip_line_comments(body);
     let mut out = Vec::new();
     for seg in split_top(&body) {
@@ -327,7 +435,8 @@ fn parse_fields(body: &str) -> Vec<Field> {
             .unwrap_or(rest)
             .trim_start();
 
-        // `name: Type` — a struct field.
+        // `name: Type` — a struct field (or a field inside an enum
+        // struct-variant; `variant` is already set in that case).
         if let Some(colon) = rest.find(':') {
             let head = rest[..colon].trim();
             if is_plain_ident(head) {
@@ -339,22 +448,30 @@ fn parse_fields(body: &str) -> Vec<Field> {
                         .trim()
                         .to_string(),
                     skip,
+                    variant: variant.map(str::to_string),
                 });
                 continue;
             }
         }
 
-        // `Variant { ... }` — an enum struct-variant: recurse into its fields.
+        // Everything below is enum-variant syntax; a struct body has none.
+        if !is_enum {
+            continue;
+        }
+
+        // `Variant { ... }` — an enum struct-variant: recurse into its fields,
+        // tagging each one with the variant name.
         if let Some(open) = rest.find('{') {
             let head = rest[..open].trim();
             if is_plain_ident(head) {
                 let close = rest.rfind('}').unwrap_or(rest.len());
-                out.extend(parse_fields(&rest[open + 1..close]));
+                out.extend(parse_fields_in(&rest[open + 1..close], false, Some(head)));
             }
             continue;
         }
 
-        // `Variant(T, ...)` — an enum tuple-variant: each element is a field.
+        // `Variant(T, ...)` — an enum tuple-variant: each element is a field
+        // named by its ordinal, so the audit key is `Type::Variant.N`.
         if let Some(open) = rest.find('(') {
             let head = rest[..open].trim();
             if is_plain_ident(head) {
@@ -364,15 +481,25 @@ fn parse_fields(body: &str) -> Vec<Field> {
                         continue;
                     }
                     out.push(Field {
-                        name: format!("{head}.{n}"),
+                        name: n.to_string(),
                         ty: part,
                         skip,
+                        variant: Some(head.to_string()),
                     });
                 }
             }
         }
     }
     out
+}
+
+/// Audit key of a field: `Type.field` for a struct field,
+/// `Type::Variant.field` for an enum variant field.
+fn field_key(type_name: &str, f: &Field) -> String {
+    match &f.variant {
+        Some(v) => format!("{type_name}::{v}.{}", f.name),
+        None => format!("{type_name}.{}", f.name),
+    }
 }
 
 fn is_plain_ident(s: &str) -> bool {
@@ -403,6 +530,11 @@ fn call_sites(text: &str, marker: &str, open: char) -> Vec<usize> {
     let mut from = 0;
     while let Some(idx) = text[from..].find(marker) {
         let idx = from + idx;
+        let line_start = text[..idx].rfind('\n').map(|n| n + 1).unwrap_or(0);
+        if text[line_start..idx].contains("//") {
+            from = idx + marker.len();
+            continue;
+        }
         let after = &text[idx + marker.len()..];
         if after.trim_start().starts_with(open) {
             out.push(idx);
@@ -412,11 +544,33 @@ fn call_sites(text: &str, marker: &str, open: char) -> Vec<usize> {
     out
 }
 
+/// Root set plus the payload names the macros mention but `parse_defs` could
+/// not resolve (nested/indented declaration, a type from another crate, or a
+/// payload type the scanner has no rule for). A miss is a *failure*: silently
+/// dropping the root would leave the whole payload unaudited.
+struct RootScan {
+    types: BTreeSet<String>,
+    misses: BTreeSet<(String, &'static str)>,
+}
+
+/// First CamelCase identifier of `expr`, used to name a root miss when
+/// `type_from_expr` cannot resolve a known local type.
+fn first_camel_ident(expr: &str) -> Option<String> {
+    idents(expr)
+        .into_iter()
+        .find(|id| is_camel(id))
+        .map(str::to_string)
+}
+
 /// Root set: `gc_type_register!` entries, `def_native_object!` payload types
 /// and `PayloadPtr::new` payload types. The last source is what catches enum
 /// payloads (`ObjectPayload::LIST(...)`) that no macro declares.
-fn root_set(files: &[(String, String)], defs: &BTreeMap<String, Def>) -> BTreeSet<String> {
-    let mut roots = BTreeSet::new();
+fn root_scan(files: &[(String, String)], defs: &BTreeMap<String, Def>) -> RootScan {
+    let mut scan = RootScan {
+        types: BTreeSet::new(),
+        misses: BTreeSet::new(),
+    };
+    let leaves = leaf_table();
 
     for (_, text) in files {
         for start in call_sites(text, "gc_type_register!", '{') {
@@ -429,7 +583,7 @@ fn root_set(files: &[(String, String)], defs: &BTreeMap<String, Def>) -> BTreeSe
             for entry in text[from..close].split(';') {
                 let name = last_segment(entry.split(',').next().unwrap_or(""));
                 if is_camel(name) && defs.contains_key(name) {
-                    roots.insert(name.to_string());
+                    scan.types.insert(name.to_string());
                 }
             }
         }
@@ -468,12 +622,22 @@ fn root_set(files: &[(String, String)], defs: &BTreeMap<String, Def>) -> BTreeSe
                     continue;
                 }
                 if let Some(t) = type_from_expr(cand, defs) {
-                    roots.insert(t);
+                    scan.types.insert(t);
+                } else if let Some(name) = first_camel_ident(cand) {
+                    // A known GC wrapper (`JSValue`, `Object`, …) is not a
+                    // payload declaration, so it is not a miss.
+                    if !leaves.contains(name.as_str()) {
+                        scan.misses.insert((name, marker));
+                    }
                 }
             }
         }
     }
-    roots
+    scan
+}
+
+fn root_set(files: &[(String, String)], defs: &BTreeMap<String, Def>) -> BTreeSet<String> {
+    root_scan(files, defs).types
 }
 
 /// Wrapper type names declared by `object_cast!`/`gcref_wrapper!` sites inside
@@ -723,6 +887,7 @@ fn walk(
     violations: &mut Vec<String>,
     seen: &mut BTreeSet<String>,
     verdicts: &mut BTreeMap<String, FieldVerdict>,
+    warnings: &mut BTreeSet<String>,
 ) {
     if !seen.insert(type_name.to_string()) {
         return;
@@ -743,14 +908,17 @@ fn walk(
             let is_leaf = leaves.contains(&base);
 
             if is_leaf {
-                let key = format!("{type_name}.{}", f.name);
+                let key = field_key(type_name, f);
                 let is_exempt = allow.contains_key(key.as_str());
                 // Natural verdict (without exemption): shared wrappers (Rc/Arc/Weak)
                 // let the GC ref escape — always suspicious, 一切皆可疑.
                 if shared {
                     if is_exempt {
                         allow_used.insert(key.clone());
-                        verdicts.entry(key).or_insert(FieldVerdict::Allowlisted);
+                        // An exemption is a global fact about the key: a later
+                        // (or earlier) naturally-safe visit through a container
+                        // must not hide it and make the entry look stale.
+                        verdicts.insert(key, FieldVerdict::Allowlisted);
                     } else {
                         verdicts.insert(
                             key,
@@ -777,17 +945,17 @@ fn walk(
                 }
                 if is_exempt {
                     allow_used.insert(key.clone());
-                    verdicts.entry(key).or_insert(FieldVerdict::Allowlisted);
+                    verdicts.insert(key, FieldVerdict::Allowlisted);
                 } else {
                     let reason = if through_container {
                         CONTAINER_VIOLATION
                     } else {
                         BARE_VIOLATION
                     };
-                    verdicts.insert(key, FieldVerdict::Violation(reason));
+                    verdicts.insert(key.clone(), FieldVerdict::Violation(reason));
                     violations.push(format!(
-                        "  {}:{}: {type_name}.{}: `{}` — {reason}",
-                        def.file, def.line, f.name, f.ty,
+                        "  {}:{}: {key}: `{}` — {reason}",
+                        def.file, def.line, f.ty,
                     ));
                 }
                 continue;
@@ -807,31 +975,87 @@ fn walk(
                     violations,
                     seen,
                     verdicts,
+                    warnings,
                 );
             } else if let Some(found) = find_gc_leaf_in(&ty, leaves) {
                 // Safety net: a GC leaf type is present but wrapped/structured in a
                 // way the normal path cannot resolve (unknown wrapper, custom generic,
                 // multi-arg position, shared wrapper that escaped normalization, etc.).
                 // Treat as unsafe unless explicitly allowlisted — "anything is possible".
-                let key = format!("{type_name}.{}", f.name);
+                let key = field_key(type_name, f);
                 if allow.contains_key(key.as_str()) {
                     allow_used.insert(key.clone());
-                    verdicts.entry(key).or_insert(FieldVerdict::Allowlisted);
+                    verdicts.insert(key, FieldVerdict::Allowlisted);
                 } else {
                     let reason = if shared {
                         "GC leaf type behind Rc/Arc/Weak shared wrapper; can escape traced/barriered slot"
                     } else {
                         "GC leaf type hidden in unresolvable wrapper; not verified safe"
                     };
-                    verdicts.insert(key, FieldVerdict::Violation(reason));
+                    verdicts.insert(key.clone(), FieldVerdict::Violation(reason));
                     violations.push(format!(
-                        "  {}:{}: {type_name}.{}: `{}` — contains GC leaf `{found}` inside unresolvable wrapper; not verified safe (wrap with WriteBarrier*/allowlist with justification)",
-                        def.file, def.line, f.name, f.ty,
+                        "  {}:{}: {key}: `{}` — contains GC leaf `{found}` inside unresolvable wrapper; not verified safe (wrap with WriteBarrier*/allowlist with justification)",
+                        def.file, def.line, f.ty,
                     ));
                 }
+            } else if warns_unknown(&ty, &base) {
+                // Cross-crate wrapper, alias, or a GC node we have no rule for.
+                // Non-failing: String/u32/Instant noise must not break a build,
+                // but a silent skip must not hide a real edge either.
+                warnings.insert(format!(
+                    "  ⚠ {}:{}: {type_name}.{}: unknown type `{}` — not in local defs or leaf table; add it to the leaf table if it is a GC node, otherwise this diagnostic is informational",
+                    def.file, def.line, f.name, base,
+                ));
             }
         }
     }
+}
+
+/// Standard-library / container names that are never a GC node on their own:
+/// warning about them would bury the real cross-crate wrapper diagnostics.
+const NON_GC_TYPE_NAMES: &[&str] = &[
+    "String",
+    "Path",
+    "PathBuf",
+    "Instant",
+    "Duration",
+    "SystemTime",
+    "OsString",
+    "OsStr",
+    "CString",
+    "CStr",
+    "Vec",
+    "Option",
+    "Result",
+    "Box",
+    "Rc",
+    "Arc",
+    "Weak",
+    "RefCell",
+    "Cell",
+    "Mutex",
+    "RwLock",
+    "PhantomData",
+    "HashMap",
+    "BTreeMap",
+    "HashSet",
+    "BTreeSet",
+    "VecDeque",
+    "SmallVec",
+    "Pin",
+    "ManuallyDrop",
+    "MaybeUninit",
+    "Cow",
+    "NonNull",
+    "Range",
+    "Bound",
+];
+
+/// Whether an unresolved field type deserves the non-failing `⚠ unknown type`
+/// diagnostic: CamelCase (a type, not a primitive/generic `T`), not a
+/// multi-arg peel remainder (`Atom, JSValue`), not a known non-GC std type.
+fn warns_unknown(ty: &str, base: &str) -> bool {
+    is_camel(base) && base.len() > 1 && !ty.contains(',') && !NON_GC_TYPE_NAMES.contains(&base)
 }
 
 /// Flatten a tuple field type into its elements: `(JSValue, u32)` →
@@ -928,6 +1152,8 @@ pub struct GcLeafType {
 pub struct GcLeafField {
     /// Field name; enum tuple variants use the ordinal (`0`, `1`, …).
     pub name: String,
+    /// `Some(Variant)` for a field declared inside an enum variant.
+    pub variant: Option<String>,
     /// The declared type, as written in the source.
     pub ty: String,
     /// The field sits behind `WriteBarrier`/`WriteBarrierVec`/`WriteBarrierMap`
@@ -936,6 +1162,18 @@ pub struct GcLeafField {
     /// The leaf was reached through a container (`Vec`/`Box`/…): rule 2
     /// applies instead — the element type needs an `impl GcBind`.
     pub container: bool,
+}
+
+impl GcLeafField {
+    /// The audit key: `Type.field` for a struct field,
+    /// `Type::Variant.field` for an enum variant field (tuple:
+    /// `Type::Variant.N`). This is the key an exemption must use.
+    pub fn key(&self, type_name: &str) -> String {
+        match &self.variant {
+            Some(v) => format!("{type_name}::{v}.{}", self.name),
+            None => format!("{type_name}.{}", self.name),
+        }
+    }
 }
 
 /// Scan `dir` for struct/enum definitions that directly declare a GC-leaf
@@ -966,6 +1204,7 @@ pub fn gc_leaf_types(dir: &Path) -> Vec<GcLeafType> {
             if hit {
                 fields.push(GcLeafField {
                     name: f.name.clone(),
+                    variant: f.variant.clone(),
                     ty: f.ty.clone(),
                     wrapped,
                     container,
@@ -1023,6 +1262,7 @@ pub fn field_verdicts(dir: &Path, allowlist: &[&str]) -> BTreeMap<String, FieldV
                 &mut Vec::new(),
                 &mut BTreeSet::new(),
                 &mut out,
+                &mut BTreeSet::new(),
             );
         }
     }
@@ -1065,6 +1305,7 @@ pub fn gc_field_violations(dir: &Path, allowlist: &[&str]) -> Vec<String> {
             &mut out,
             &mut BTreeSet::new(),
             &mut BTreeMap::new(),
+            &mut BTreeSet::new(),
         );
     }
 
@@ -1080,6 +1321,66 @@ pub fn gc_field_violations(dir: &Path, allowlist: &[&str]) -> Vec<String> {
         ));
     }
     out
+}
+
+/// Non-failing diagnostics for fields the audit cannot classify: a CamelCase
+/// type that is neither a local `struct`/`enum` nor in the leaf table, so the
+/// audit skipped it instead of deciding whether it is a GC edge. Typical case:
+/// a cross-crate hand-written wrapper. Add the type to the leaf table if it is
+/// a GC node; the same field then becomes a normal violation/pass. Otherwise
+/// the warning is informational and no exemption is needed (or possible: an
+/// exemption key only resolves to a verdict for a type the audit can classify).
+///
+/// These never make the audit fail — `String`/`u32`/`Instant` noise must not
+/// break a build — but the CLI prints them so a silent skip is visible.
+pub fn unknown_field_type_warnings(dir: &Path) -> Vec<String> {
+    let files = source_files(dir);
+    let defs = parse_defs(&files);
+    let roots = root_set(&files, &defs);
+    let leaves = leaf_types(&files);
+    let mut gc_bind = gc_bind_impls(&files);
+    gc_bind.extend(macro_wrapper_types(&files));
+    let allow: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut warnings = BTreeSet::new();
+
+    for root in &roots {
+        let Some(def) = defs.get(root) else {
+            continue;
+        };
+        walk(
+            root,
+            def,
+            false,
+            &defs,
+            &leaves,
+            &gc_bind,
+            &allow,
+            &mut BTreeSet::new(),
+            &mut Vec::new(),
+            &mut BTreeSet::new(),
+            &mut BTreeMap::new(),
+            &mut warnings,
+        );
+    }
+    warnings.into_iter().collect()
+}
+
+/// Payload types named in `def_native_object!`/`PayloadPtr::new` arguments but
+/// missing from the parsed definitions. Unlike an unknown *field* type this is
+/// a failure: the whole payload is absent from the audit, usually because it
+/// is declared nested/indented, so it was never treated as a root.
+pub fn payload_root_misses(dir: &Path) -> Vec<String> {
+    let files = source_files(dir);
+    let defs = parse_defs(&files);
+    root_scan(&files, &defs)
+        .misses
+        .into_iter()
+        .map(|(name, marker)| {
+            format!(
+                "  payload type not parsed: {name} ({marker}, nested or indented?) — payload types must be top-level struct/enum items"
+            )
+        })
+        .collect()
 }
 
 /// Exemption entries that no longer match anything: the field was renamed,
@@ -1117,12 +1418,13 @@ pub fn guard_construction_violations(dir: &Path) -> Vec<String> {
                     let idx = from + idx;
                     let before = line[..idx].trim_end();
                     // `x.field = WriteBarrier::new(..)` — a field assignment,
-                    // not a `let`/struct-literal construction.
+                    // not a `let`/struct-literal construction. `*controller =
+                    // …` (a match-arm binding deref) is the same whole-field
+                    // replacement: the lhs has no `.`, but it still bypasses
+                    // the barrier.
+                    let lhs = before.split([';', '{', '}']).next_back().unwrap_or(before);
                     let field_assign = before.ends_with('=')
-                        && before
-                            .split([';', '{', '}'])
-                            .next_back()
-                            .is_some_and(|lhs| lhs.contains('.'));
+                        && (lhs.contains('.') || lhs.trim_start().starts_with('*'));
                     let mem_op = before.contains("mem::replace") || before.contains("mem::swap");
                     if field_assign || mem_op {
                         out.push(format!("  {file}:{}: {}", no + 1, line.trim()));
@@ -1154,6 +1456,7 @@ pub fn all_violations(dir: &Path, allowlist: &[&str]) -> Vec<String> {
 /// it only supplies its own source directory, allowlist and root-count floor.
 pub fn test_failures(dir: &Path, allowlist: &[&str], min_roots: usize) -> Vec<String> {
     let mut out = all_violations(dir, allowlist);
+    out.extend(payload_root_misses(dir));
     let roots = payload_root_types(dir);
     if roots.len() < min_roots {
         out.push(format!(
@@ -1525,8 +1828,7 @@ mod tests {
     }
 
     /// End-to-end: the full audit (root walk + field verdicts) must flag GC
-    /// leaves hidden in any compound wrapper, on a synthetic payload.
-    #[test]
+    /// leaves hidden in any compound wrapper, on a synthetic payload.    #[test]
     fn the_audit_catches_gc_leaves_in_compound_wrappers() {
         let dir = std::env::temp_dir().join(format!(
             "zuqe-gc-audit-compound-{}-{}",
@@ -1689,5 +1991,290 @@ mod tests {
         ));
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Create a throwaway `<tmp>/<name>/src/lib.rs` fixture and return the
+    /// crate root (the directory the audit scans is `root/src`).
+    fn write_fixture(name: &str, source: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "zuqe-gc-audit-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let src = dir.join("src");
+        std::fs::create_dir_all(&src).expect("create temp src");
+        std::fs::write(src.join("lib.rs"), source).expect("write fixture");
+        dir
+    }
+
+    /// P2-5: two enum variants may declare the same field name; the audit key
+    /// must be `Type::Variant.field`, and an exemption must cover only the
+    /// variant it names.
+    #[test]
+    fn enum_variant_field_keys_are_distinct_and_exemptions_are_scoped() {
+        let dir = write_fixture(
+            "enum-keys",
+            "pub enum Kind {
+    Default { pending_read: JSValue, controller: Option<JSValue> },
+    Byte { pending_read: JSValue },
+}
+
+pub struct Payload {
+    pub kind: Kind,
+}
+
+fn _root() {
+    let _ = PayloadPtr::new(0, Payload::new());
+}
+",
+        );
+        let src = dir.join("src");
+
+        let verdicts = field_verdicts(&src, &[]);
+        for key in [
+            "Kind::Default.pending_read",
+            "Kind::Default.controller",
+            "Kind::Byte.pending_read",
+        ] {
+            assert!(
+                matches!(verdicts.get(key), Some(FieldVerdict::Violation(_))),
+                "{key} must be a violation, got {:?}",
+                verdicts.get(key)
+            );
+        }
+        // The variant-blind bare key must be gone: a mistake that reintroduces
+        // it would make one variant's exemption cover the other's field.
+        assert!(verdicts.get("Kind.pending_read").is_none());
+
+        // Exempting Byte.pending_read leaves Default.pending_read violating.
+        let verdicts = field_verdicts(&src, &["Kind::Byte.pending_read — reviewed"]);
+        assert_eq!(
+            verdicts.get("Kind::Byte.pending_read"),
+            Some(&FieldVerdict::Allowlisted)
+        );
+        assert!(
+            matches!(
+                verdicts.get("Kind::Default.pending_read"),
+                Some(FieldVerdict::Violation(_))
+            ),
+            "Default.pending_read must stay violated: {:?}",
+            verdicts.get("Kind::Default.pending_read")
+        );
+
+        // Discovery exposes the same variant-aware key.
+        let types = gc_leaf_types(&src);
+        let kind = types.iter().find(|t| t.name == "Kind").expect("Kind");
+        let pending: Vec<String> = kind
+            .fields
+            .iter()
+            .filter(|f| f.name == "pending_read")
+            .map(|f| f.key(&kind.name))
+            .collect();
+        assert_eq!(
+            pending,
+            ["Kind::Default.pending_read", "Kind::Byte.pending_read"]
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// An exemption is a global fact about a `Type.field` key. When the same
+    /// type is reached both through a container (a natural rule-2 pass) and
+    /// directly as a root (bare), the allowlisted verdict must win; otherwise
+    /// `field_verdicts` disagrees with `gc_field_violations` and the entry is
+    /// reported stale even though it is still needed.
+    #[test]
+    fn allowlisted_verdict_wins_over_a_natural_pass_from_another_root_path() {
+        let dir = write_fixture(
+            "allowlisted-wins",
+            "pub struct Inner {
+    pub v: JSValue,
+}
+
+impl GcBind for JSValue {
+    fn bind_node(&self, _: &(), _: ()) {}
+}
+
+pub struct Container {
+    pub items: Vec<Inner>,
+}
+
+pub struct Direct {
+    pub inner: Inner,
+}
+
+fn _root() {
+    let _ = PayloadPtr::new(0, Container::new());
+    let _ = PayloadPtr::new(1, Direct::new());
+}
+",
+        );
+        let src = dir.join("src");
+        let allow = ["Inner.v — direct root needs the exemption"];
+
+        assert_eq!(
+            field_verdicts(&src, &allow).get("Inner.v"),
+            Some(&FieldVerdict::Allowlisted),
+            "the direct-root visit must upgrade the container-path Pass"
+        );
+        assert!(
+            stale_exemptions(&src, &allow).is_empty(),
+            "the exemption is still used by the direct-root path"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// P1-4 + P3-7: a payload declared inside a module (indented) is not parsed
+    /// as a top-level item, so the macro root must be reported instead of
+    /// silently dropped.
+    #[test]
+    fn nested_payload_is_reported_as_a_root_miss() {
+        let dir = write_fixture(
+            "root-miss",
+            "mod outer {
+    pub(crate) struct NestedPayload {
+        pub(crate) v: JSValue,
+    }
+}
+
+fn _root() {
+    let _ = PayloadPtr::new(0, outer::NestedPayload::new());
+}
+",
+        );
+        let src = dir.join("src");
+
+        let misses = payload_root_misses(&src);
+        assert!(
+            misses.iter().any(|m| m.contains("NestedPayload")),
+            "miss must name the payload: {misses:?}"
+        );
+        assert!(
+            misses.iter().any(|m| m.contains("nested or indented")),
+            "miss must explain the convention: {misses:?}"
+        );
+        // It is a failure, not a warning.
+        assert!(
+            test_failures(&src, &[], 0)
+                .iter()
+                .any(|l| l.contains("payload type not parsed: NestedPayload")),
+            "root miss must fail the audit"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// P2-6: an unresolvable CamelCase field type is a non-failing warning;
+    /// once it is in the leaf table the same field becomes a normal violation.
+    #[test]
+    fn unknown_field_type_is_a_warning_and_the_leaf_table_changes_the_verdict() {
+        let dir = write_fixture(
+            "unknown-type",
+            "pub struct FooPayload {
+    pub handle: ForeignHandle,
+}
+
+fn _root() {
+    let _ = PayloadPtr::new(0, FooPayload::new());
+}
+",
+        );
+        let src = dir.join("src");
+
+        let warnings = unknown_field_type_warnings(&src);
+        assert!(
+            warnings.iter().any(|w| w.contains("ForeignHandle")),
+            "warning must name the type: {warnings:?}"
+        );
+        assert!(
+            all_violations(&src, &[]).is_empty(),
+            "unknown types stay non-failing"
+        );
+        assert!(
+            test_failures(&src, &[], 0).is_empty(),
+            "warnings must not fail the audit"
+        );
+
+        // Teach the audit that ForeignHandle is a GC leaf (the fixture is not
+        // compiled, so any macro shape that declares the wrapper works).
+        std::fs::write(src.join("wrapper.rs"), "object_cast!(ForeignHandle, 1);\n")
+            .expect("write wrapper fixture");
+        let verdicts = field_verdicts(&src, &[]);
+        assert!(
+            matches!(
+                verdicts.get("FooPayload.handle"),
+                Some(FieldVerdict::Violation(_))
+            ),
+            "leaf-table entry must turn the warning into a violation: {:?}",
+            verdicts.get("FooPayload.handle")
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// P1-3: `*controller = WriteBarrier::new(..)` (a match-arm binding deref,
+    /// lhs has no `.`) is the same whole-field replacement as `x.slot = …`.
+    #[test]
+    fn guard_construction_catches_deref_binding_replacement() {
+        let dir = write_fixture(
+            "guard-deref",
+            "fn f() {
+    *controller = WriteBarrier::new(Some(c));
+    self.slot = WriteBarrier::new(v);
+    let ok = WriteBarrier::new(v);
+    mem::replace(&mut p.slot, WriteBarrier::new(v));
+}
+",
+        );
+        let src = dir.join("src");
+
+        let found = guard_construction_violations(&src);
+        assert_eq!(found.len(), 3, "{found:?}");
+        assert!(
+            found.iter().any(|l| l.contains("*controller =")),
+            "deref-binding replacement missing: {found:?}"
+        );
+        assert!(found.iter().any(|l| l.contains("self.slot =")));
+        assert!(found.iter().any(|l| l.contains("mem::replace")));
+        assert!(!found.iter().any(|l| l.contains("let ok")));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// P3-7 support: test-only modules are excluded from scanning, so their
+    /// fixture payloads do not turn into false root misses.
+    #[test]
+    fn cfg_test_modules_are_not_scanned() {
+        let text = "pub struct Real { pub v: JSValue }\n\
+                    #[cfg(test)]\n\
+                    mod tests {\n\
+                        struct Fixture { v: JSValue }\n\
+                        fn f() { let _ = PayloadPtr::new(0, Fixture::new()); }\n\
+                    }\n\
+                    fn _root() { let _ = PayloadPtr::new(0, Real::new()); }\n";
+        let stripped = strip_cfg_test_modules(text);
+        assert!(stripped.contains("struct Real"));
+        assert!(!stripped.contains("Fixture"), "{stripped}");
+
+        let files = vec![("lib.rs".to_string(), stripped)];
+        let defs = parse_defs(&files);
+        assert!(defs.contains_key("Real"));
+        assert!(!defs.contains_key("Fixture"));
+        assert!(payload_root_misses_from(&files, &defs).is_empty());
+    }
+
+    fn payload_root_misses_from(
+        files: &[(String, String)],
+        defs: &BTreeMap<String, Def>,
+    ) -> Vec<String> {
+        root_scan(files, defs)
+            .misses
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect()
     }
 }

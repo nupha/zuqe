@@ -142,6 +142,17 @@ macro_rules! def_native_object {
                 v.0.into()
             }
         }
+
+        // A native-class wrapper is itself a GC node. The direct impl (not
+        // just autoderef to `Object`) is what lets `Option<$native_ty>`,
+        // `WriteBarrier<Option<$native_ty>>` and `#[derive(GcTrace)]` payloads
+        // trace it without a hand-written `impl GcTrace`.
+        impl $crate::gc_lite::GcTrace for $native_ty {
+            #[inline(always)]
+            fn trace(&self, tr: &mut $crate::gc_lite::GcTraceCtx) {
+                $crate::gc_lite::GcTrace::trace(&self.0, tr)
+            }
+        }
     };
 
     // ── @make_cd: construct the ClassDef ──
