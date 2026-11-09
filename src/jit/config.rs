@@ -8,35 +8,6 @@ use super::metrics::JitMetrics;
 /// Sink called with a metrics snapshot after each poll.
 pub(crate) type MetricsSink = Box<dyn Fn(&JitMetrics)>;
 
-const DEFAULT_CALL_THRESHOLD: u32 = 32;
-const DEFAULT_LOOP_THRESHOLD: u32 = 56;
-/// The invocation count that promotes an already-compiled function to the
-/// optimizing tier (the first gate compiles the baseline). 1024 sits in the
-/// mainstream band (V8 Maglev 400/1000, SpiderMonkey Ion 1500, JSC DFG 1000).
-const DEFAULT_TIER2_CALL_THRESHOLD: u32 = 1024;
-/// The back-edge counterpart of [`DEFAULT_TIER2_CALL_THRESHOLD`], keeping the
-/// same 1:2 ratio the first gate has (32 calls / 56 back edges).
-const DEFAULT_TIER2_LOOP_THRESHOLD: u32 = 2048;
-/// How many invocations a demoted function must see before it may be promoted
-/// again (V8's `minimum_invocations_after_ic_update = 500`). It stops the
-/// promotion and the tier-down from chasing each other.
-const DEFAULT_TIER2_MIN_INVOCATIONS: u32 = 500;
-/// Evidence a site must show before `Automatic` pays for a speculative fast
-/// path (8 matches the reference's "at least 8 executions before a trial"):
-/// with the stock thresholds a genuinely hot site clears it for free, while a
-/// one-off observation in a cold branch no longer earns a guard-miss path.
-const DEFAULT_SPECIALIZATION_MIN_SAMPLES: u32 = 8;
-const DEFAULT_MAX_CODE_BYTES: usize = 16 * 1024 * 1024;
-const DEFAULT_MAX_METADATA_BYTES: usize = 16 * 1024 * 1024;
-const DEFAULT_MAX_QUEUE_LEN: usize = 256;
-const DEFAULT_WORKERS: usize = 1;
-const DEFAULT_COMPILE_TIMEOUT_MS: u64 = 30_000;
-const DEFAULT_MAX_COMPILE_ATTEMPTS: u32 = 4;
-/// The benefit side of the cost gate: what one bytecode of native execution
-/// saves over interpreting it (the interpreter spends ~20–50 ns per bytecode).
-/// The cost side is measured at run time.
-const DEFAULT_NATIVE_SAVING_NS_PER_BYTECODE: u64 = 20;
-
 /// Which tier the JIT is allowed to reach.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum JitTierPolicy {
@@ -130,27 +101,56 @@ impl std::fmt::Debug for JitConfig {
 impl Default for JitConfig {
     fn default() -> Self {
         Self {
-            call_threshold: DEFAULT_CALL_THRESHOLD,
-            loop_threshold: DEFAULT_LOOP_THRESHOLD,
-            tier2_call_threshold: DEFAULT_TIER2_CALL_THRESHOLD,
-            tier2_loop_threshold: DEFAULT_TIER2_LOOP_THRESHOLD,
-            tier2_min_invocations: DEFAULT_TIER2_MIN_INVOCATIONS,
+            call_threshold: Self::DEFAULT_CALL_THRESHOLD,
+            loop_threshold: Self::DEFAULT_LOOP_THRESHOLD,
+            tier2_call_threshold: Self::DEFAULT_TIER2_CALL_THRESHOLD,
+            tier2_loop_threshold: Self::DEFAULT_TIER2_LOOP_THRESHOLD,
+            tier2_min_invocations: Self::DEFAULT_TIER2_MIN_INVOCATIONS,
             tier_policy: JitTierPolicy::default(),
-            specialization_min_samples: DEFAULT_SPECIALIZATION_MIN_SAMPLES,
-            max_code_bytes: DEFAULT_MAX_CODE_BYTES,
-            max_metadata_bytes: DEFAULT_MAX_METADATA_BYTES,
-            max_queue_len: DEFAULT_MAX_QUEUE_LEN,
+            specialization_min_samples: Self::DEFAULT_SPECIALIZATION_MIN_SAMPLES,
+            max_code_bytes: Self::DEFAULT_MAX_CODE_BYTES,
+            max_metadata_bytes: Self::DEFAULT_MAX_METADATA_BYTES,
+            max_queue_len: Self::DEFAULT_MAX_QUEUE_LEN,
             auto_poll: true,
-            workers: DEFAULT_WORKERS,
-            compile_timeout_ms: DEFAULT_COMPILE_TIMEOUT_MS,
-            max_compile_attempts: DEFAULT_MAX_COMPILE_ATTEMPTS,
-            native_saving_ns_per_bytecode: DEFAULT_NATIVE_SAVING_NS_PER_BYTECODE,
+            workers: Self::DEFAULT_WORKERS,
+            compile_timeout_ms: Self::DEFAULT_COMPILE_TIMEOUT_MS,
+            max_compile_attempts: Self::DEFAULT_MAX_COMPILE_ATTEMPTS,
+            native_saving_ns_per_bytecode: Self::DEFAULT_NATIVE_SAVING_NS_PER_BYTECODE,
             metrics_observer: None,
         }
     }
 }
 
 impl JitConfig {
+    /// Baseline (tier1) call threshold default.
+    pub const DEFAULT_CALL_THRESHOLD: u32 = 32;
+    /// Baseline (tier1) loop/back-edge threshold default.
+    pub const DEFAULT_LOOP_THRESHOLD: u32 = 56;
+    /// Tier2 promotion call threshold default.
+    pub const DEFAULT_TIER2_CALL_THRESHOLD: u32 = 1024;
+    /// Tier2 promotion loop/back-edge threshold default.
+    pub const DEFAULT_TIER2_LOOP_THRESHOLD: u32 = 2048;
+    /// How many invocations a demoted function must see before it may be promoted
+    /// again (V8's `minimum_invocations_after_ic_update = 500`). It stops the
+    /// promotion and the tier-down from chasing each other.
+    pub const DEFAULT_TIER2_MIN_INVOCATIONS: u32 = 500;
+    /// Evidence a site must show before `Automatic` pays for a speculative fast
+    /// path (8 matches the reference's "at least 8 executions before a trial"):
+    /// with the stock thresholds a genuinely hot site clears it for free, while a
+    /// one-off observation in a cold branch no longer earns a guard-miss path.
+    pub const DEFAULT_SPECIALIZATION_MIN_SAMPLES: u32 = 8;
+    pub const DEFAULT_MAX_CODE_BYTES: usize = 16 * 1024 * 1024;
+    pub const DEFAULT_MAX_METADATA_BYTES: usize = 16 * 1024 * 1024;
+    pub const DEFAULT_MAX_QUEUE_LEN: usize = 256;
+    /// Compiler worker thread count default.
+    pub const DEFAULT_WORKERS: usize = 1;
+    pub const DEFAULT_COMPILE_TIMEOUT_MS: u64 = 30_000;
+    pub const DEFAULT_MAX_COMPILE_ATTEMPTS: u32 = 4;
+    /// The benefit side of the cost gate: what one bytecode of native execution
+    /// saves over interpreting it (the interpreter spends ~20–50 ns per bytecode).
+    /// The cost side is measured at run time.
+    pub const DEFAULT_NATIVE_SAVING_NS_PER_BYTECODE: u64 = 20;
+
     pub fn builder() -> JitConfigBuilder {
         JitConfigBuilder(Self::default())
     }
