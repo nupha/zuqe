@@ -1323,6 +1323,87 @@ pub fn gc_field_violations(dir: &Path, allowlist: &[&str]) -> Vec<String> {
     out
 }
 
+/// Types annotated with `unsafe_empty_gc_trace!` assert they contain no GC
+/// nodes. This check keeps that assertion honest: any reachable GC leaf in
+/// their fields — wrapped, shared, or behind a container — fails the audit.
+///
+/// Unlike rules 1–2 there is no wrapping or allowlist that makes a GC field
+/// safe here: the type is not traced at all, so even a `WriteBarrier` field
+/// would never be visited. Unknown cross-crate field types are skipped, the
+/// same way the rest of the audit treats them.
+pub fn empty_trace_violations(dir: &Path) -> Vec<String> {
+    let files = source_files(dir);
+    let defs = parse_defs(&files);
+    let leaves = leaf_types(&files);
+    let mut out = Vec::new();
+
+    for (_, text) in &files {
+        for idx in call_sites(text, "unsafe_empty_gc_trace!", '(') {
+            let open = idx + "unsafe_empty_gc_trace!".len() + 1;
+            let mut depth = 1usize;
+            let mut end = text.len();
+            for (k, ch) in text[open..].char_indices() {
+                match ch {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = open + k;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for arg in split_top(&text[open..end]) {
+                let Some(base) = base_name(&arg) else {
+                    continue;
+                };
+                let Some(def) = defs.get(&base) else {
+                    continue;
+                };
+                let mut seen = BTreeSet::new();
+                check_empty_trace(&base, def, &defs, &leaves, &mut seen, &mut out);
+            }
+        }
+    }
+    out
+}
+
+fn check_empty_trace(
+    type_name: &str,
+    def: &Def,
+    defs: &BTreeMap<String, Def>,
+    leaves: &BTreeSet<String>,
+    seen: &mut BTreeSet<String>,
+    out: &mut Vec<String>,
+) {
+    if !seen.insert(type_name.to_string()) {
+        return;
+    }
+    for f in &def.fields {
+        let ty = f.ty.trim();
+        // `PhantomData<T>` and function pointers do not own `T`.
+        if ty.starts_with("PhantomData") || ty.starts_with("fn(") {
+            continue;
+        }
+        if let Some(leaf) = find_gc_leaf_in(ty, leaves) {
+            out.push(format!(
+                "  {}:{}: {type_name}.{}: `{}` — `unsafe_empty_gc_trace!` type contains GC node `{leaf}`; remove the macro or trace the field",
+                def.file, def.line, f.name, f.ty,
+            ));
+            continue;
+        }
+        for id in idents(ty) {
+            if is_camel(id)
+                && let Some(nested) = defs.get(id)
+            {
+                check_empty_trace(id, nested, defs, leaves, seen, out);
+            }
+        }
+    }
+}
+
 /// Non-failing diagnostics for fields the audit cannot classify: a CamelCase
 /// type that is neither a local `struct`/`enum` nor in the leaf table, so the
 /// audit skipped it instead of deciding whether it is a GC edge. Typical case:
@@ -1442,7 +1523,8 @@ pub fn guard_construction_violations(dir: &Path) -> Vec<String> {
 /// means clean. This is the one call an embedding crate's test needs; the
 /// allowlist is that crate's own (entries are `Type.field — reason`).
 pub fn all_violations(dir: &Path, allowlist: &[&str]) -> Vec<String> {
-    let mut out = gc_field_violations(dir, allowlist);
+    let mut out = empty_trace_violations(dir);
+    out.extend(gc_field_violations(dir, allowlist));
     out.extend(guard_construction_violations(dir));
     out
 }
@@ -2008,6 +2090,52 @@ mod tests {
         std::fs::create_dir_all(&src).expect("create temp src");
         std::fs::write(src.join("lib.rs"), source).expect("write fixture");
         dir
+    }
+
+    /// A type declared with `unsafe_empty_gc_trace!` must contain no GC node:
+    /// wrapping the field does not help because the type is never traced.
+    #[test]
+    fn empty_trace_type_with_gc_field_fails() {
+        let dir = write_fixture(
+            "empty-trace-gc",
+            "unsafe_empty_gc_trace!(Bad);\n\
+             struct Bad {\n\
+                 value: JSValue,\n\
+             }\n\
+             struct Wrapped {\n\
+                 value: WriteBarrier<JSValue>,\n\
+             }\n\
+             unsafe_empty_gc_trace!(Wrapped);\n",
+        );
+        let v = empty_trace_violations(&dir.join("src"));
+        assert_eq!(v.len(), 2, "{v:?}");
+        assert!(v.iter().any(|l| l.contains("Bad.value")), "{v:?}");
+        assert!(v.iter().any(|l| l.contains("Wrapped.value")), "{v:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Plain data, and GC nodes reached through a local struct, are checked
+    /// recursively; a clean no-trace payload passes.
+    #[test]
+    fn empty_trace_type_checks_nested_local_types() {
+        let dir = write_fixture(
+            "empty-trace-nested",
+            "unsafe_empty_gc_trace!(Clean, Wrapper);\n\
+             struct Clean {\n\
+                 bytes: Vec<u8>,\n\
+                 name: String,\n\
+             }\n\
+             struct Nested {\n\
+                 root: JSValue,\n\
+             }\n\
+             struct Wrapper {\n\
+                 nested: Nested,\n\
+             }\n",
+        );
+        let v = empty_trace_violations(&dir.join("src"));
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert!(v[0].contains("Nested.root"), "{v:?}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// P2-5: two enum variants may declare the same field name; the audit key

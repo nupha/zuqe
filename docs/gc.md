@@ -312,6 +312,18 @@ registration, so the collector traces every field whenever an instance is marked
 that is not `GcTrace` fails to compile at the macro call — there is no way to register an untraced
 payload.
 
+When the payload **transitively contains no GC nodes** and its fields do not implement `GcTrace`,
+use the explicit escape hatch instead of an empty hand-written impl:
+
+```rust
+// The payload holds only plain Rust data (bytes, strings, handles, ...).
+zuqe::gc_lite::unsafe_empty_gc_trace!(FilePayload);
+```
+
+The `unsafe_` prefix marks the contract: adding a GC-bearing field later without removing this
+impl is a use-after-free. Prefer `#[derive(GcTrace)]` when fields do implement `GcTrace` — it stays
+correct when fields are added — and keep `#[gc(skip)]` for per-field opt-outs.
+
 The impl must report **every** GC field, unconditionally:
 
 ```rust

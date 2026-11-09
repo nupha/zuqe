@@ -132,8 +132,14 @@ fn main() {
     let stale = zuqe::gc_audit::stale_exemptions(&src, &allow_refs);
     let guards = zuqe::gc_audit::guard_construction_violations(&src);
     let root_misses = zuqe::gc_audit::payload_root_misses(&src);
+    let empty_traces = zuqe::gc_audit::empty_trace_violations(&src);
     let warnings = zuqe::gc_audit::unknown_field_type_warnings(&src);
-    if !stale.is_empty() || !guards.is_empty() || !root_misses.is_empty() || !warnings.is_empty() {
+    if !stale.is_empty()
+        || !guards.is_empty()
+        || !root_misses.is_empty()
+        || !empty_traces.is_empty()
+        || !warnings.is_empty()
+    {
         println!();
     }
     if !stale.is_empty() {
@@ -154,6 +160,12 @@ fn main() {
             println!("{line}");
         }
     }
+    if !empty_traces.is_empty() {
+        println!("`unsafe_empty_gc_trace!` types that contain GC nodes (fail):");
+        for line in &empty_traces {
+            println!("{line}");
+        }
+    }
     if !warnings.is_empty() {
         println!("unknown field types (warning only; add to the leaf table if they are GC nodes):");
         for line in &warnings {
@@ -166,7 +178,12 @@ fn main() {
         if failed == 0 { "✔️" } else { "❌" },
         failed
     );
-    if failed > 0 || !stale.is_empty() || !guards.is_empty() || !root_misses.is_empty() {
+    if failed > 0
+        || !stale.is_empty()
+        || !guards.is_empty()
+        || !root_misses.is_empty()
+        || !empty_traces.is_empty()
+    {
         std::process::exit(1);
     }
 }

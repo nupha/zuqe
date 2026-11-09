@@ -69,11 +69,12 @@ Optional keyword arguments (all prefixed with `,`):
 > **⚠️ GC safety (MUST READ):** A `JSValue`/`Object` stored in a class payload or in a
 > `thread_local!` is invisible to Zuqe's GC — if the collector reclaims it while you still use it,
 > the engine panics with a use-after-free. **The payload type must implement
-> `gc_lite::GcTrace`** — typically by adding `#[derive(GcTrace)]` (or a manual `impl` when the
-> type holds no GC nodes) — and any `thread_local!` holding GC nodes must be traced via
-> `rt.gc_set_trace_handler`. The macro wires the payload's trace and free channels into the
-> class automatically at registration, and a payload type that is not `GcTrace` fails to
-> compile right at the macro call. Note that `extends:` subclasses do *not* inherit the parent's
+> `gc_lite::GcTrace`** — typically by adding `#[derive(GcTrace)]` (or a manual `impl` / the
+> `zuqe::gc_lite::unsafe_empty_gc_trace!` macro when the type holds no GC nodes) — and any
+> `thread_local!` holding GC nodes must be traced via
+> `rt.gc_set_trace_handler`. `def_native_object!` wires the payload's trace and free channels
+> into the class automatically at registration, and a payload type that is not `GcTrace`
+> fails to compile right at the macro call. Note that `extends:` subclasses do *not* inherit the parent's
 > payload type — each class's payload carries its own `GcTrace` impl. See
 > [GC safety for native code — class payloads & thread_local](gc.md) for the full rules,
 > examples, and review checklist.
