@@ -1,20 +1,25 @@
 # GC field audit exemptions — one `Type.field — reason` entry per line.
 # Blank lines and `#` comments are skipped.
 #
-# This file is the single source of truth for the audit: `tests/gc_audit.rs`
-# (through `zuqe::gc_audit_test!`) and `zuqe-gc-audit` both read it. Do not keep
-# exemptions anywhere else. Every entry is a claim reviewed like code — the
-# field needs no write barrier because the instance is born young and never
-# receives the value afterwards (construction only), its single write path
-# binds, it is a weak edge, it lives in a root container, and so on.
-# See `docs/gc.md`, "Auditing GC payload fields from your own crate".
+# Single source of truth for the audit: read by `tests/gc_audit.rs` (via
+# `zuqe::gc_audit_test!`) and `zuqe-gc-audit`. Do not keep exemptions elsewhere.
+# Each entry is a reviewed claim (treat like code): this `Type.field` needs no
+# write barrier of its own. A stale entry (field gone/renamed/wrapped, or
+# naturally passes) fails the audit.
 #
-# Why each kind is legitimate:
-# 1. root containers — a minor force-descends them, a barrier is pointless;
-# 2. construction-only — no late write, so the instance is young at the write;
-# 3. structural non-goals — raw-pointer mirrors, `Cell` slots (the guard is
-#    deliberately not `Copy`), untraced weak targets, composite shapes that
-#    `memo/gc_bind_guard.md` §7 leaves to private fields + setters.
+# Legitimate categories (the field still gets audited; exemption is per-field):
+# 1. root containers — a minor GC force-descends them, so a barrier is pointless;
+# 2. construction-only — the value is stored only while the instance is young
+#    (no late write after promotion), so no old→young edge is created;
+# 3. structural non-goals (not a target for WriteBarrier guard wrapping; handle
+#    by other structure + a reviewed exemption):
+#    - raw-pointer mirror (e.g. `*mut/*const` to a buffer): not a GC-traced
+#      edge; buffer/slots are traced elsewhere (e.g. stack roots).
+#    - `Cell` slot with a single setter that stores and binds: guard slots are
+#      deliberately not `Copy`; interior mutation must go through that one path.
+#    - untraced weak target (`GcWeak` / weak edge): never a strong edge to bind.
+#    - composite shape: keep GC fields private and route every post-construction
+#      write through setters that bind (no guard-slot wrapping of the shape).
 
 ContextImpl.iterator_proto — root container (context_list, force-descended)
 ContextImpl.async_iterator_proto — root container
@@ -23,18 +28,13 @@ ContextImpl.array_proto_values — root container
 ContextImpl.eval_func — root container
 ContextImpl.global_obj — root container
 ContextImpl.global_var_obj — root container
-ContextImpl.loaded_modules — root container
-ProtoCtorPair.proto — class_slots, part of the ContextImpl root
-ProtoCtorPair.ctor — class_slots, part of the ContextImpl root
 ShapeImpl.proto — shape registry is a root, force-descended
 AsyncStateImpl.this_val — rooted via gc_pending_async_states
-AsyncStateImpl.resolving_funcs — rooted via gc_pending_async_states
 AsyncStateImpl.bytecode_func — rooted via gc_pending_async_states
 AGenPayload.async_state — construction only
 BFuncPayload.bytecode — construction only
 BoundFunctionPayload.func_obj — construction only
 BoundFunctionPayload.this_val — construction only
-BoundFunctionPayload.bind_args — construction only
 BytecodeImpl.realm — construction only
 BytecodeImpl.func_name — construction only
 BytecodeDebugInfo.filename — construction only
@@ -44,7 +44,6 @@ IteratorHelperData.next — construction only
 IteratorHelperData.func — construction only
 IteratorWrapData.obj — construction only
 IteratorWrapData.next — construction only
-IteratorZipData.padding — construction only
 JSAsyncFromSyncIteratorData.obj — construction only
 JSAsyncFromSyncIteratorData.next_method — construction only
 JSMapIteratorData.obj — construction only
@@ -56,12 +55,8 @@ FinalizationRegistryData.callback — construction only
 DataViewPayload.buffer — construction only
 TypedArrayPayload.array_buffer — construction only
 PromiseResolvePayload.promise — construction only
-IteratorZipData.keys — construction only, no late write of the Atoms
-NFuncPayload.data — private to nfun.rs; `replace_data` stores and binds at the write site
-ContextImpl.error_protos — root container
 StackFrame.func_obj — VM stack frame, a traced root
 StackFrame.this_obj — VM stack frame, a traced root
-AsyncStackFrame.var_refs — VM stack frame, a traced root
 ElementsView.data — raw-pointer mirror of `ArrayPayload.values`, not a slot
 IteratorConcatData.iter — Cell slot; `set_iter` stores and binds (iter_concat.rs)
 IteratorConcatData.next — Cell slot; `set_next` stores and binds (iter_concat.rs)
@@ -78,12 +73,6 @@ ObjectImpl.prop_values — `bind_prop_slot` / `replace_prop_slot` are the only w
 ContextImpl.array_shape — root container; the shape registry is a traced root
 ContextImpl.func_shapes — root container; the shape registry is a traced root
 ModuleDefImpl.module_name — mdef setters bind
-ModuleDependency.module_name — `ModuleDef::add_dependency` binds (reqres.rs)
-ModuleDependency.attributes — `ModuleDef::add_dependency` binds (reqres.rs)
-ImportEntry.import_name — `ModuleDefImpl::add_import_entry` binds (esm.rs)
-ExportEntry.local_name — `ModuleDefImpl::add_export_internal` / `set_export_local_name` bind
-ExportEntry.export_name — `ModuleDefImpl::add_export_internal` binds (export.rs)
-ExportType.var_ref — `ModuleDefImpl::add_export_internal` / `set_export_var_ref` bind
 # Weak edges: a `GcWeak` is never a strong edge, so no barrier applies.
 ArrayBufferPayload.typed_array_list — weak list (`Vec<GcWeak>`), no strong edge
 ObjectImpl.weak_refs — weak list (`Vec<GcWeak>`), no strong edge
@@ -97,3 +86,13 @@ RopeImpl.left — construction only (set in `RopeImpl::create`)
 RopeImpl.right — construction only (set in `RopeImpl::create`)
 RopeImpl.flat — Cell slot; `set_flat` stores and binds (rope.rs)
 VarRefImpl.pvalue — points into a frame slot (a GC root); `set_value` binds the Detached arm
+# Raw pointer to the VM arena buffer base; not a GC-traced edge. The buffer's
+# JSValue slots are traced by VM stack root scanning, not through this field.
+FrameBuffer.data_base — raw pointer to VM stack arena buffer, not a GC-traced slot; slots traced as stack roots
+# Property slot contents: slot writes go through bind_prop_slot/replace_prop_slot
+# (the single write paths that bind). JSProperty is a #[repr(C,u8)] JIT-layout
+# union stored in PropValues; its GC-holding variants cannot be individually
+# barrier-wrapped without breaking the slot-binding protocol.
+JSProperty.Normal.0 — property slot value; writes go through bind_prop_slot/replace_prop_slot
+JSProperty.VarRef.0 — property slot var-ref; writes go through bind_prop_slot/replace_prop_slot
+JSProperty.LazyPrototype.0 — property slot lazy-prototype realm; slot writes go through bind_prop_slot/replace_prop_slot

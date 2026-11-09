@@ -385,6 +385,16 @@ fn is_plain_ident(s: &str) -> bool {
         && s != "impl"
 }
 
+/// Any GC leaf type name present as an identifier token inside `ty`.
+/// Safety net: catches GC nodes hidden in wrappers `peel`/`base_name` do not
+/// resolve (arbitrary nesting, unknown generics, shared wrappers we missed).
+fn find_gc_leaf_in(ty: &str, leaves: &BTreeSet<String>) -> Option<String> {
+    idents(ty)
+        .into_iter()
+        .find(|id| leaves.contains(*id))
+        .map(|s| s.to_string())
+}
+
 /// Offsets of real call sites: the marker must be followed by optional
 /// whitespace and the opening delimiter, so prose/comments mentioning the
 /// macro are not parsed as code.
@@ -571,11 +581,15 @@ fn gc_bind_impls(files: &[(String, String)]) -> BTreeSet<String> {
 }
 
 /// Peel guard/container layers off a field type, including arrays:
-/// `[Vec<T>; 2]` → `T`. Returns `(inner, wrapped_by_guard,
-/// went_through_container)`.
-fn peel(mut ty: &str) -> (&str, bool, bool) {
+/// `[Vec<T>; 2]` → `T`. Returns `(inner, wrapped_by_guard, went_through_container,
+/// shared_wrapper_seen)`. `shared_wrapper_seen` is set when a shared-ownership
+/// wrapper (`Rc`/`Arc`/`Weak`) was peeled through — such wrappers let a GC ref
+/// escape the traced/barriered slot, so the field stays suspicious even if it
+/// would otherwise look guarded.
+fn peel(mut ty: &str) -> (&str, bool, bool, bool) {
     let mut wrapped = false;
     let mut in_container = false;
+    let mut shared = false;
     loop {
         let t = ty.trim();
         if let Some(inner) = strip_layer(t, &["WriteBarrierVec", "WriteBarrierMap", "WriteBarrier"])
@@ -604,6 +618,17 @@ fn peel(mut ty: &str) -> (&str, bool, bool) {
             "HashMap",
             "BTreeMap",
             "IndexMap",
+            // Shared/sync wrappers: not GC-aware; peel through so a GC leaf hidden
+            // inside (e.g. `Rc<RefCell<JSValue>>`, `Arc<JSValue>`) is still seen.
+            "Rc",
+            "Arc",
+            "Weak",
+            "Mutex",
+            "RwLock",
+            "Pin",
+            "ManuallyDrop",
+            "MaybeUninit",
+            "Cow",
         ] {
             if let Some(inner) = strip_layer(t, &[layer]) {
                 in_container |= matches!(
@@ -617,6 +642,7 @@ fn peel(mut ty: &str) -> (&str, bool, bool) {
                         | "BTreeMap"
                         | "IndexMap"
                 );
+                shared |= matches!(layer, "Rc" | "Arc" | "Weak");
                 ty = inner;
                 moved = true;
                 break;
@@ -632,7 +658,7 @@ fn peel(mut ty: &str) -> (&str, bool, bool) {
         }
         break;
     }
-    (ty.trim(), wrapped, in_container)
+    (ty.trim(), wrapped, in_container, shared)
 }
 
 fn strip_layer<'a>(ty: &'a str, names: &[&str]) -> Option<&'a str> {
@@ -705,7 +731,7 @@ fn walk(
         if f.skip {
             continue;
         }
-        let (inner, wrapped, container) = peel(&f.ty);
+        let (inner, wrapped, container, shared) = peel(&f.ty);
         let through_container = through_container || container;
         // A tuple field type is checked element-wise — `(JSValue, u32)` must
         // not hide its GC elements. The allowlist key stays `Type.field`, so
@@ -718,29 +744,52 @@ fn walk(
 
             if is_leaf {
                 let key = format!("{type_name}.{}", f.name);
-                if wrapped {
-                    verdicts.entry(key).or_insert(FieldVerdict::Pass);
+                let is_exempt = allow.contains_key(key.as_str());
+                // Natural verdict (without exemption): shared wrappers (Rc/Arc/Weak)
+                // let the GC ref escape — always suspicious, 一切皆可疑.
+                if shared {
+                    if is_exempt {
+                        allow_used.insert(key.clone());
+                        verdicts.entry(key).or_insert(FieldVerdict::Allowlisted);
+                    } else {
+                        verdicts.insert(
+                            key,
+                            FieldVerdict::Violation(
+                                "GC leaf type behind Rc/Arc/Weak shared wrapper; can escape traced/barriered slot",
+                            ),
+                        );
+                        violations.push(format!(
+                            "  {}:{}: {type_name}.{}: `{}` — GC leaf behind Rc/Arc/Weak shared wrapper; can escape traced/barriered slot (not GC-safe)",
+                            def.file, def.line, f.name, f.ty,
+                        ));
+                    }
                     continue;
                 }
-                if allow.contains_key(key.as_str()) {
-                    allow_used.insert(key.clone());
-                    verdicts.entry(key).or_insert(FieldVerdict::Allowlisted);
+                if wrapped {
+                    // Naturally safe: do not consume an exemption so stale entries
+                    // (wrapped but still listed) are detected.
+                    verdicts.entry(key).or_insert(FieldVerdict::Pass);
                     continue;
                 }
                 if through_container && gc_bind.contains(&base) {
                     verdicts.entry(key).or_insert(FieldVerdict::Pass);
                     continue;
                 }
-                let reason = if through_container {
-                    CONTAINER_VIOLATION
+                if is_exempt {
+                    allow_used.insert(key.clone());
+                    verdicts.entry(key).or_insert(FieldVerdict::Allowlisted);
                 } else {
-                    BARE_VIOLATION
-                };
-                verdicts.insert(key, FieldVerdict::Violation(reason));
-                violations.push(format!(
-                    "  {}:{}: {type_name}.{}: `{}` — {reason}",
-                    def.file, def.line, f.name, f.ty,
-                ));
+                    let reason = if through_container {
+                        CONTAINER_VIOLATION
+                    } else {
+                        BARE_VIOLATION
+                    };
+                    verdicts.insert(key, FieldVerdict::Violation(reason));
+                    violations.push(format!(
+                        "  {}:{}: {type_name}.{}: `{}` — {reason}",
+                        def.file, def.line, f.name, f.ty,
+                    ));
+                }
                 continue;
             }
 
@@ -759,6 +808,27 @@ fn walk(
                     seen,
                     verdicts,
                 );
+            } else if let Some(found) = find_gc_leaf_in(&ty, leaves) {
+                // Safety net: a GC leaf type is present but wrapped/structured in a
+                // way the normal path cannot resolve (unknown wrapper, custom generic,
+                // multi-arg position, shared wrapper that escaped normalization, etc.).
+                // Treat as unsafe unless explicitly allowlisted — "anything is possible".
+                let key = format!("{type_name}.{}", f.name);
+                if allow.contains_key(key.as_str()) {
+                    allow_used.insert(key.clone());
+                    verdicts.entry(key).or_insert(FieldVerdict::Allowlisted);
+                } else {
+                    let reason = if shared {
+                        "GC leaf type behind Rc/Arc/Weak shared wrapper; can escape traced/barriered slot"
+                    } else {
+                        "GC leaf type hidden in unresolvable wrapper; not verified safe"
+                    };
+                    verdicts.insert(key, FieldVerdict::Violation(reason));
+                    violations.push(format!(
+                        "  {}:{}: {type_name}.{}: `{}` — contains GC leaf `{found}` inside unresolvable wrapper; not verified safe (wrap with WriteBarrier*/allowlist with justification)",
+                        def.file, def.line, f.name, f.ty,
+                    ));
+                }
             }
         }
     }
@@ -783,12 +853,19 @@ fn expand_tuple(ty: &str) -> Vec<String> {
 /// `Option<Vec<T>>` → `Option`, `zuqe::Object` → `Object`,
 /// `crate::x::Foo<Bar>` → `Foo`.
 fn base_name(ty: &str) -> Option<String> {
-    let t = ty
-        .trim()
-        .trim_start_matches('&')
-        .trim_start_matches('*')
-        .trim_start_matches("const ")
-        .trim();
+    let mut t = ty.trim();
+    loop {
+        let next = t
+            .trim_start_matches('&')
+            .trim_start_matches('*')
+            .trim_start_matches("mut ")
+            .trim_start_matches("const ")
+            .trim();
+        if next.len() == t.len() {
+            break;
+        }
+        t = next;
+    }
     if t.is_empty() || t.starts_with("dyn ") || t.starts_with("fn(") || t.starts_with('(') {
         return None;
     }
@@ -882,7 +959,7 @@ pub fn gc_leaf_types(dir: &Path) -> Vec<GcLeafType> {
             if f.skip {
                 continue;
             }
-            let (inner, wrapped, container) = peel(&f.ty);
+            let (inner, wrapped, container, _shared) = peel(&f.ty);
             let hit = expand_tuple(inner)
                 .iter()
                 .any(|ty| base_name(ty).is_some_and(|b| leaves.contains(&b)));
@@ -1350,20 +1427,267 @@ mod tests {
     /// must still be reported as a bare field.
     #[test]
     fn peel_understands_the_container_table() {
-        assert_eq!(peel("SmallVec<[JSValue; 2]>"), ("JSValue", false, true));
-        assert_eq!(peel("VecDeque<JSValue>"), ("JSValue", false, true));
+        assert_eq!(
+            peel("SmallVec<[JSValue; 2]>"),
+            ("JSValue", false, true, false)
+        );
+        assert_eq!(peel("VecDeque<JSValue>"), ("JSValue", false, true, false));
         assert_eq!(
             peel("HashList<ShapeProperty>"),
-            ("ShapeProperty", false, true)
+            ("ShapeProperty", false, true, false)
         );
-        assert_eq!(peel("UnsafeCell<JSValue>"), ("JSValue", false, false));
+        assert_eq!(
+            peel("UnsafeCell<JSValue>"),
+            ("JSValue", false, false, false)
+        );
         // a guarded map is wrapped *and* still a container (element needs GcBind)
         assert_eq!(
             peel("WriteBarrierMap<Atom, JSValue>"),
-            ("Atom, JSValue", true, true)
+            ("Atom, JSValue", true, true, false)
         );
         // longest prefix first: `WriteBarrier` must not swallow the others
-        assert_eq!(peel("WriteBarrierVec<JSValue>"), ("JSValue", true, true));
-        assert_eq!(peel("WriteBarrier<JSValue>"), ("JSValue", true, false));
+        assert_eq!(
+            peel("WriteBarrierVec<JSValue>"),
+            ("JSValue", true, true, false)
+        );
+        assert_eq!(
+            peel("WriteBarrier<JSValue>"),
+            ("JSValue", true, false, false)
+        );
+    }
+
+    /// Shared/sync ownership wrappers must be peeled through: a GC leaf hidden
+    /// inside `Rc`/`Arc`/locks is still a GC leaf and must not escape detection.
+    /// The 4th element flags that a shared wrapper (Rc/Arc/Weak) was seen.
+    #[test]
+    fn peel_sees_through_shared_wrappers() {
+        assert_eq!(peel("Rc<JSValue>"), ("JSValue", false, false, true));
+        assert_eq!(peel("Arc<JSValue>"), ("JSValue", false, false, true));
+        assert_eq!(
+            peel("Rc<RefCell<JSValue>>"),
+            ("JSValue", false, false, true)
+        );
+        assert_eq!(
+            peel("Arc<Mutex<RefCell<JSValue>>>"),
+            ("JSValue", false, false, true)
+        );
+        assert_eq!(peel("Pin<Box<JSValue>>"), ("JSValue", false, true, false));
+        // Path-qualified: prefix strip doesn't match, but the safety-net scan
+        // in the audit still catches the GC leaf.
+        assert_eq!(
+            peel("std::rc::Rc<JSValue>"),
+            ("std::rc::Rc<JSValue>", false, false, false)
+        );
+    }
+
+    /// `base_name` must resolve raw pointers so `*mut JSValue`/`*const JSValue`
+    /// are recognized as carrying a GC leaf, not skipped as `mut`/`const`.
+    #[test]
+    fn base_name_resolves_raw_pointers() {
+        assert_eq!(base_name("JSValue").as_deref(), Some("JSValue"));
+        assert_eq!(base_name("*mut JSValue").as_deref(), Some("JSValue"));
+        assert_eq!(base_name("*const JSValue").as_deref(), Some("JSValue"));
+        assert_eq!(base_name("NonNull<JSValue>").as_deref(), Some("NonNull"));
+        assert_eq!(base_name("std::rc::Rc<JSValue>").as_deref(), Some("Rc"));
+    }
+
+    /// Safety net: GC leaf identifiers are found anywhere inside a type string,
+    /// so an unrecognized wrapper cannot hide a GC node from the audit.
+    #[test]
+    fn find_gc_leaf_in_detects_hidden_leaves() {
+        let leaves = leaf_table()
+            .into_iter()
+            .map(String::from)
+            .collect::<BTreeSet<_>>();
+        // `Rc`/`RefCell` are not GC leaves; the first GC leaf token is `JSValue`.
+        assert_eq!(
+            find_gc_leaf_in("Rc<RefCell<JSValue>>", &leaves).as_deref(),
+            Some("JSValue")
+        );
+        assert_eq!(
+            find_gc_leaf_in("MyBox<Arc<JSValue>>", &leaves).as_deref(),
+            Some("JSValue")
+        );
+        assert_eq!(
+            find_gc_leaf_in("HashMap<String, Rc<Object>>", &leaves).as_deref(),
+            Some("Object")
+        );
+        assert_eq!(
+            find_gc_leaf_in("Rc<RefCell<Atom>>", &leaves).as_deref(),
+            Some("Atom")
+        );
+        assert_eq!(
+            find_gc_leaf_in("std::rc::Rc<Promise>", &leaves).as_deref(),
+            Some("Promise")
+        );
+        assert_eq!(find_gc_leaf_in("Vec<u8>", &leaves), None);
+        assert_eq!(find_gc_leaf_in("String", &leaves), None);
+    }
+
+    /// End-to-end: the full audit (root walk + field verdicts) must flag GC
+    /// leaves hidden in any compound wrapper, on a synthetic payload.
+    #[test]
+    fn the_audit_catches_gc_leaves_in_compound_wrappers() {
+        let dir = std::env::temp_dir().join(format!(
+            "zuqe-gc-audit-compound-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let src = dir.join("src");
+        std::fs::create_dir_all(&src).expect("create temp src");
+        // Build the fixture by parts so the text scanner (which reads source
+        // files naively) does not see `pub struct` / `PayloadPtr::new` tokens in
+        // this file and treat them as real definitions/roots.
+        let fixture = [
+            "use std::cell::RefCell;\n",
+            "use std::rc::Rc;\n",
+            "use std::sync::{Arc, Mutex, RwLock};\n\n",
+            "pu",
+            "b struct HiddenPayload {\n",
+            "    pu",
+            "b a: Rc<RefCell<JSValue>>,\n",
+            "    pu",
+            "b b: Rc<JSValue>,\n",
+            "    pu",
+            "b c: Arc<JSValue>,\n",
+            "    pu",
+            "b d: Arc<Mutex<JSValue>>,\n",
+            "    pu",
+            "b e: Rc<RefCell<Option<Object>>>,\n",
+            "    pu",
+            "b f: Arc<RefCell<Atom>>,\n",
+            "    pu",
+            "b g: *mut JSValue,\n",
+            "    pu",
+            "b h: HashMap<String, Rc<JSValue>>,\n",
+            "    pu",
+            "b i: CustomWrap<JSValue>,\n",
+            "    pu",
+            "b j: Option<Rc<JSValue>>,\n",
+            "    pu",
+            "b m: std::rc::Rc<JSValue>,\n",
+            "    pu",
+            "b n: Arc<RwLock<JSValue>>,\n",
+            "    pu",
+            "b o: ManuallyDrop<JSValue>,\n",
+            "    pu",
+            "b p: MaybeUninit<JSValue>,\n",
+            "    pu",
+            "b q: Pin<Box<JSValue>>,\n",
+            "    pu",
+            "b r: Rc<RefCell<Promise>>,\n",
+            "    pu",
+            "b s: *const Object,\n",
+            "    pu",
+            "b t: (Rc<JSValue>, u32),\n",
+            "    pu",
+            "b u: Vec<Rc<JSValue>>,\n",
+            "    pu",
+            "b v: WriteBarrier<Rc<JSValue>>,\n",
+            "    pu",
+            "b w: WriteBarrierVec<Rc<JSValue>>,\n",
+            "    pu",
+            "b k: WriteBarrier<JSValue>,\n",
+            "    pu",
+            "b l: WriteBarrierVec<JSValue>,\n",
+            "    pu",
+            "b plain: u32,\n",
+            "}\n\n",
+            "// Register the payload so the root-set walk reaches it.\n",
+            "fn _root() {\n",
+            "    let _ = PayloadPtr::ne",
+            "w(0, HiddenPayload::ne",
+            "w());\n",
+            "}\n",
+            // Provide GcBind impls so rule-2 container checks see them in this
+            // synthetic dir (normally discovered from zuqe's own sources).
+            "impl GcBind for JSValue { fn bind_node(&self,_:&(),_:()){} }\n",
+            "impl GcBind for Object { fn bind_node(&self,_:&(),_:()){} }\n",
+            "impl GcBind for Atom { fn bind_node(&self,_:&(),_:()){} }\n",
+            "impl GcBind for Promise { fn bind_node(&self,_:&(),_:()){} }\n",
+        ]
+        .concat();
+        std::fs::write(src.join("lib.rs"), fixture).expect("write temp lib.rs");
+
+        let verdicts = field_verdicts(&src, &[]);
+        // GC leaf hidden in shared/unknown wrappers, raw ptrs, or shared wrappers
+        // behind guards/containers — all violations (一切皆可疑).
+        for key in [
+            "HiddenPayload.a",
+            "HiddenPayload.b",
+            "HiddenPayload.c",
+            "HiddenPayload.d",
+            "HiddenPayload.e",
+            "HiddenPayload.f",
+            "HiddenPayload.g",
+            "HiddenPayload.h",
+            "HiddenPayload.i",
+            "HiddenPayload.j",
+            "HiddenPayload.m",
+            "HiddenPayload.n",
+            "HiddenPayload.o",
+            "HiddenPayload.p",
+            "HiddenPayload.r",
+            "HiddenPayload.s",
+            "HiddenPayload.t",
+            "HiddenPayload.u", // plain Vec + Rc(shared) => caught
+            "HiddenPayload.v", // WriteBarrier + Rc(shared) => still caught
+            "HiddenPayload.w", // WriteBarrierVec + Rc(shared) => still caught
+        ] {
+            assert!(
+                matches!(verdicts.get(key), Some(FieldVerdict::Violation(_))),
+                "{key} must be a violation, got {:?}",
+                verdicts.get(key)
+            );
+        }
+        // `Pin<Box<JSValue>>`: no Rc/Arc shared wrapper; Box is a container and
+        // JSValue has GcBind, so rule 2 accepts it (same shape as Vec<JSValue>).
+        // Not a shared-escape case the Rc/Arc rule targets.
+        assert_eq!(
+            verdicts.get("HiddenPayload.q"),
+            Some(&FieldVerdict::Pass),
+            "Pin<Box<JSValue>> passes via container+GcBind (no shared wrapper), got {:?}",
+            verdicts.get("HiddenPayload.q")
+        );
+        // Properly guarded fields pass.
+        assert_eq!(
+            verdicts.get("HiddenPayload.k"),
+            Some(&FieldVerdict::Pass),
+            "WriteBarrier<JSValue> must pass"
+        );
+        assert_eq!(
+            verdicts.get("HiddenPayload.l"),
+            Some(&FieldVerdict::Pass),
+            "WriteBarrierVec<JSValue> must pass"
+        );
+        // Non-GC field is absent from verdicts.
+        assert!(verdicts.get("HiddenPayload.plain").is_none());
+
+        // With exemptions the specific fields become allowlisted.
+        let verdicts = field_verdicts(
+            &src,
+            &[
+                "HiddenPayload.a — reviewed",
+                "HiddenPayload.g — raw ptr reviewed",
+            ],
+        );
+        assert_eq!(
+            verdicts.get("HiddenPayload.a"),
+            Some(&FieldVerdict::Allowlisted)
+        );
+        assert_eq!(
+            verdicts.get("HiddenPayload.g"),
+            Some(&FieldVerdict::Allowlisted)
+        );
+        // Others still violate.
+        assert!(matches!(
+            verdicts.get("HiddenPayload.b"),
+            Some(FieldVerdict::Violation(_))
+        ));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
