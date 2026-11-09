@@ -153,7 +153,10 @@ and an old chain.
 - A fresh allocation is **young** (age 0) and every minor sweeps it unless marked.
 - A young node that survives `promote_after` minors is promoted to **old**. The default is **1 in
   debug builds** (the shorter young phase surfaces a missing old→young barrier sooner) and **2 in
-  release builds**.
+  release builds**. Promotion is **transitive along young references**: when a node becomes old,
+  every young node it reaches is promoted too, recursively. Those edges were created while the
+  parent was young, so no write barrier recorded them; leaving the children young would create an
+  unremembered old→young edge that the next minor cannot see.
 - A **major** merges the whole young chain first: every live node is old afterwards.
 - A minor never sweeps old nodes; old garbage waits for a major.
 - A minor marks the young chain (age>0 survivors are roots) plus the **remembered set** of old
