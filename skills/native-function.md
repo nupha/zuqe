@@ -18,14 +18,22 @@ pub type CallbackFn = fn(ctx: &mut ScopedContext, cc: CallContext) -> JSResult;
 - `cc.arguments()` / `cc.arg(n)`：参数切片 / 第 n 个参数（越界返回 `UNDEFINED`）
 - `cc.length()`：实参个数
 - `cc.magic()`：`FieldDef::FUNC` 注册时的 magic（用于多函数复用同一回调）
-- `cc.data(n)` / `cc.replace_data(...)`：绑定数据（`create_native_function_with_data` 场景；`replace_data` 内部已做 write barrier，见源码注释）
+- `cc.data(n)` / `cc.data_len()`：绑定数据（`create_native_function_with_data` 场景）
+- `cc.replace_data(ctx, n, val)`：替换第 n 个绑定数据；内部完成 store + write barrier
+  （`NFuncPayload.data` 是私有字段，这是唯一后写路径）
 
 ## 参数、返回值与错误处理
 
-- **读取参数**：用 `cc.arg(n)`/`cc.arguments()` 取得 `JSValue`，再按类型转换/校验（`to_int32`、`as_object`、字符串/number 转换等以实际 API 为准；转换失败通常已抛异常或返回错误，遵循调用点约定）。
+- **读取参数**：用 `cc.arg(n)`/`cc.arguments()` 取得 `JSValue`。`JSValue` 没有
+  `to_int32`；数值转换用 `to_number(ctx)?` 得到 `IntOrFloat`，再
+  `.to_i32()` / `.to_f64()` / `.to_u32()`。其他转换：`to_bool()?`、
+  `to_string(ctx)?`、`to_index(ctx)?`（`i64`，用于数组索引）。
 - **返回值**：成功返回 `Ok(value)`；无返回值用 `Ok(JSValue::UNDEFINED)`。
-- **抛异常**：通过 `ScopedContext` 的 `throw_*`（如 `throw_type_error`、`throw_range_error`、`throw_internal_error` 等，具体方法以 `ScopedContext`/context API 为准）设置当前异常，然后 `return Err(-1)`。**不要**在已设置异常时再返回 `Ok(...)`。
-- **`this` 校验**：方法通常需校验 `cc.this()` 是否为期望的 native object/class 实例；类型不匹配时抛 `TypeError`。
+- **抛异常**：通过 `ScopedContext` 的 `throw_*`（如 `throw_type_error`、`throw_range_error`、
+  `throw_internal_error` 等）设置当前异常，然后 `return Err(-1)`。**不要**在已设置异常时
+  再返回 `Ok(...)`。
+- **`this` 校验**：方法通常需校验 `cc.this()` 是否为期望的 native object/class 实例；
+  类型不匹配时抛 `TypeError`。
 
 ## 注册方式（宿主/内建）
 
@@ -49,7 +57,8 @@ pub const FOO_PROTO_FUNCS: &[FieldDef] = &[
 ];
 ```
 
-`FieldDef::FUNC` 的 `length` 是 JS 可见形参个数；`magic` 可用于一个回调分发多个操作（`cc.magic()`）。
+`FieldDef::FUNC` 的 `length` 是 JS 可见形参个数（`u8`）；`magic` 是 `i16`，
+可用于一个回调分发多个操作（`cc.magic()`）。
 
 ### 2) 创建独立 native function 对象并挂到对象/全局
 
@@ -79,6 +88,15 @@ pub fn install_global(ctx: &mut ScopedContext) -> Result<(), i32> {
 
 native module 通过 `create_module` + `FieldDef` 导出；见 [native-module.md](native-module.md)。模块导出与“注册全局函数”是不同集成点，不要混淆。
 
+### 4) 构造函数
+
+需要 `new` 的原生类优先用 [native-class.md](native-class.md) 的
+`def_native_object!` + `ClassCtorDef`：宏负责 prototype、constructor flag、
+`new_instance` 和 payload。直接 `create_native_function(Callback::Constructor(..), ...)`
+只会把函数标记为 constructor；实例创建、prototype 链接仍需按 class/引擎原语处理，
+不建议宿主手写。`ClassCtorDef::new(cb, length, call_as_func)` 的第三个参数是
+“能否不带 `new` 调用”，不是“是否 constructor”。
+
 ## `ScopedContext` 使用要点
 
 > scope/root 与跨 JS 保活的规则见 [`gc-safety.md`](gc-safety.md#rule-4--值离开-traced-容器后跨-js-re-entry) Rule 4；trace 实现示例见
@@ -91,14 +109,12 @@ native module 通过 `create_module` + `FieldDef` 导出；见 [native-module.md
 
 ```rust
 use zuqe::{
-    CallContext, Callback, EvalFlags, JSResult, JSValue, Runtime, ScopedContext, JS_PROP_C_W_E,
+    CallContext, Callback, EvalFlags, EvalName, EvalType, JSResult, JSValue, Runtime,
+    ScopedContext, JS_PROP_C_W_E,
 };
 
 fn js_add1(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    let n = match cc.arg(0).to_int32(ctx) {
-        Ok(v) => v,
-        Err(e) => return Err(e),
-    };
+    let n = cc.arg(0).to_number(ctx)?.to_i32();
     Ok(JSValue::from(n + 1))
 }
 
@@ -109,19 +125,28 @@ fn main() -> Result<(), i32> {
         Ok(())
     })?;
 
-    ctx.with_new_scope(|cx| {
-        let f = cx.create_native_function(Callback::Func(js_add1), "add1", 1, 0)?;
-        let mut g = cx.global_obj();
-        g.define_property_value_str(cx, "add1", JSValue::from(f), JS_PROP_C_W_E)?;
+    ctx.with_root_scope(|mut root| {
+        root.with_new_scope(|cx| {
+            let f = cx.create_native_function(Callback::Func(js_add1), "add1", 1, 0)?;
+            let mut g = cx.global_obj();
+            g.define_property_value_str(cx, "add1", f.into(), JS_PROP_C_W_E)?;
 
-        let v = cx.eval("add1(41)", "<host>", EvalFlags::global())?;
-        assert!(v.is_number());
-        Ok(())
+            let v = cx.eval(
+                b"add1(41)",
+                &EvalName::Name("<host>".into()),
+                EvalType::Global,
+                EvalFlags::empty(),
+            )?;
+            assert!(v.is_number());
+            Ok::<(), i32>(())
+        })
     })
 }
 ```
 
-> `to_int32`、`EvalFlags`、`global_obj` 等具体签名以你依赖的 zuqe 版本为准；模板意在展示**回调签名 + 异常返回 + 安装 + scope** 的标准形状。
+> 签名以当前源码为准：`CallbackFn = fn(&mut ScopedContext, CallContext) -> JSResult`，
+> `JSResult = Result<JSValue, i32>`。模板展示**回调签名 + 异常返回 + 安装 + scope**
+> 的标准形状。
 
 ## 反模式
 

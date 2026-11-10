@@ -6,8 +6,8 @@
 //! this file through `zuqe::gc_audit_test!` — the same one-liner any
 //! embedding crate writes. Exemptions live only in `gc_audit_exemption.txt`
 //! at the crate root (the standard's single source of truth, shared with
-//! `zuqe-gc-audit`); see `docs/gc.md`, "Auditing GC payload fields from your
-//! own crate". This test also pins zuqe's payload set.
+//! `zuqe-gc-audit`); see `skills/gc-write-barrier.md`, "静态审计".
+//! This test also pins zuqe's payload set.
 
 use std::path::{Path, PathBuf};
 

@@ -53,7 +53,7 @@ sudo zypper install mingw64-gcc
 
 ## Configuration
 
-Merge the following settings into the existing `.cargo/config.toml`. Do **not** overwrite that file — it already holds the `[patch.crates-io]` entries this project needs:
+Merge the following settings into the existing `.cargo/config.toml`. Do **not** overwrite that file — it already holds the `[patch.crates-io]` entry this project needs (`gc-lite = { path = "../gc-lite-v2" }`):
 
 ```toml
 [target.x86_64-pc-windows-gnu]

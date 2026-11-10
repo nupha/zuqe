@@ -10,14 +10,19 @@
 1. **需求澄清**
    - 要暴露什么能力（函数/class/module/事件/生命周期）？JS 侧 API 形状？同步/异步？错误语义？
    - 是否持有 GC 节点、是否跨 JS 调用、是否有长寿命缓存/thread-local？
+   - 是否需要 ESM loader、native module、zapi 扩展？入口用 `EvalName::BaseUrl` 吗？
 2. **选型（边界先行）**
    - **宿主/引擎内建（Rust，直接依赖 `zuqe`）**：用 `ScopedContext`/`CallContext`/`JSResult`/`CallbackFn`、`def_native_object!`、`FieldDef`、`create_module`。适合嵌入式宿主、引擎内建能力。
-   - **zapi 第三方 cdylib 扩展**：用 `zuqe-zapi`/`ZqApi`、`ZqBodyFn`、`ZqFieldDef`、`zq_module_init!` 等 ABI。适合可动态加载插件。
+   - **zapi 第三方 cdylib 扩展**：用 `zuqe-zapi`/`ZqApi`、`ZqBodyFn`、`ZqFieldDef`、`#[zq_module]`（生成 `zq_module_register`）等 ABI。适合可动态加载插件。
+   - **ESM 模块**是宿主 loader/normalizer 的职责，不是 native module；见 [native-module.md](native-module.md)。
    - **禁止混用**两套范式/类型/注册方式。选型结论写入实现说明或 PR 描述。
 3. **实现**
+   - 执行入口 / Runtime / Promise：[embedding-basics.md](embedding-basics.md)、[promise.md](promise.md)
    - 函数绑定：[native-function.md](native-function.md)
    - native class：[native-class.md](native-class.md)
-   - native module：[native-module.md](native-module.md)
+   - 模块（ESM + native）：[native-module.md](native-module.md)
+   - zapi 扩展：[zapi-extension.md](zapi-extension.md)
+   - JIT 配置：[jit.md](jit.md)
    - 设计时先想 GC：payload 字段、thread-local、跨 JS 持有、后写路径。
 4. **GC 自查**（先读 [gc-safety.md](gc-safety.md#2-gc-rules唯一规则来源)；trace 看 [gc-trace.md](gc-trace.md#2-实现示例)，屏障看 [gc-write-barrier.md](gc-write-barrier.md#2-实现模式)）
    - 补 `GcTrace`（无 GC 节点：零尺寸 payload 用 `()`，非零尺寸用 `unsafe_empty_gc_trace!`）、
@@ -39,7 +44,25 @@
 
 - [ ] 已明确受众：宿主/内建 Rust **或** zapi 第三方 cdylib；未混用 `ScopedContext`/`FieldDef`/`def_native_object!` 与 `Zq*` ABI 类型。
 - [ ] native module/函数/class 的注册方式与选型一致（`create_module`/`FieldDef` vs zapi 清单/host 加载）。
+- [ ] ESM 模块与 native module 未混淆：ESM 走 loader/normalizer，native 走 `create_module`。
 - [ ] 未把内建特权机制（如 InitFn、pub(crate) 原语）当作第三方可用 API。
+
+### A2. Runtime 与执行入口
+
+- [ ] `Runtime`/`Context` 创建顺序正确；Context 不跨线程、不跨 Runtime。
+- [ ] 默认 `async_support` 下用 `Context::eval_wait(...).await`；没有给 `eval_wait` 多传 `&mut Runtime`。
+- [ ] 模块入口用 `EvalName::BaseUrl(path_to_url(...)?)`；普通脚本可用 `EvalName::Name`。
+- [ ] Promise 返回值用 `Promise::try_from` + `into_future`，并与 `run_async`/`eval_wait` 一起驱动。
+- [ ] 临时值放 `with_new_scope`；root scope 值不再需要时 `remove_local`。
+- [ ] `set_vm_stack_arena` 的 `Result` 已处理；`set_vm_stack_limit >= arena`。
+
+### A3. 模块与 Promise
+
+- [ ] 未设置 loader 时 import 会抛 `ReferenceError`；宿主已明确设置或有意保留默认。
+- [ ] normalizer/loader 是 plain `fn` 指针；宿主状态走 `RuntimeImpl::user_state`。
+- [ ] import attributes（如 JSON）在 loader 中处理；`compile_module` 使用正确 URL。
+- [ ] Promise channel/slot 的 `convert` 在 JS 线程执行；跨线程数据是普通 Rust 类型，不含 GC 句柄。
+- [ ] 未观察的 Promise 需要 `*_hold_when_awaited` 时才不会保活进程。
 
 ### B. 本地函数绑定
 
@@ -62,11 +85,13 @@
   - [ ] 未开放 InitFn 给第三方。
 - [ ] `extends:` 子类有独立 payload/`GcTrace`（不共享父类 payload 类型）。
 
-### D. Native module
+### D. Native module 与 ESM
 
 - [ ] `create_module(name, &'static [FieldDef])`；导出表 `'static`；未用已弃用 `register_module`（新代码）。
 - [ ] loader/normalizer 为 plain `fn` 指针语义，宿主状态走 `user_state`/明确机制。
-- [ ] 模块名/解析策略与宿主集成一致。
+- [ ] 模块名/解析策略与宿主集成一致；zapi 扩展由 loader 识别扩展名并调用 `load_zapi_extension`。
+- [ ] 模块入口是 `EvalName::BaseUrl`；`import.meta.url` / 相对 `import()` 已按预期解析。
+- [ ] import attributes 已在 loader 中处理；JSON 模块包装正确。
 
 ### E. GC 规则检查（引用）
 

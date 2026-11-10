@@ -1,143 +1,115 @@
-# ESM Module Support
+# Module System (internals)
 
-This guide explains how to enable and use ES (ECMAScript) module support in the Zuqe runtime. ESM modules provide a standardized way to organize JavaScript code into reusable modules with `import` / `export`.
+This page describes how Zuqe represents, resolves, links, and evaluates ES
+modules. For the host-facing API — `set_module_loader`,
+`set_module_normalizer`, `create_module`, import attributes, `import.meta` — see
+**[Modules: ESM loading and native modules](../skills/native-module.md)**.
 
-## Overview
+## Representation
 
-Zuqe supports ESM modules by providing callbacks for module name normalization and module loading. Both have a builtin default installed in every runtime, so neither has to be registered for the engine to compile: name resolution works out of the box, and every import fails with a `ReferenceError` until `Runtime::set_module_loader` supplies a loader. Name resolution only needs `Runtime::set_module_normalizer` when a host wants different resolution.
+A module is a GC node wrapper around `ModuleDefImpl` (`src/module/mdef.rs`):
 
-Callback function signatures are defined for module handling:
+- `module_name: Atom` — the identity/cache key (a canonical URL for ESM).
+- `dependencies: Vec<ModuleDependency>` — static imports.
+- `import_entries` / `export_entries` / `star_export_entries` — the module
+  record's import/export tables.
+- `module_ns: WriteBarrier<Option<Object>>` — lazily built namespace object.
+- `bytecode: WriteBarrier<JSValue>` — for JS modules, either a `Bytecode` or a
+  `BCWrapper` once the function object has been created.
+- `init_func: Option<Box<dyn ModuleInitFn>>` — native modules only; runs at
+  evaluation time to install exports.
+- `status: JSModuleStatus` — `UNLINKED` → `LINKING` → `LINKED` →
+  `EVALUATING` / `EVALUATING_ASYNC` → `EVALUATED`.
+- DFS fields (`dfs_index`, `dfs_ancestor_index`, `stack_prev`, `cycle_root`) and
+  `async_parent_modules` support cycle handling and top-level await.
+- `has_tla` — whether the module body contains `await`.
 
-The module loader callback receives a `ScopedContext`, the normalized module name (a `file://` URL), and an `attrs` `JSValue` carrying the module's import attributes (e.g. `{ type: "json" }` from `import x from './d.json' with { type: 'json' }`). It is responsible for loading the module source and compiling it into a `ModuleDef`.
+`ModuleDef` itself is `GcRef<ModuleDefImpl>`; `From<ModuleDef> for JSValue`
+creates a `Module`-tagged JS value. All module records are rooted through the
+context's `loaded_modules` table.
 
-## Setting Up Module Loader
+## Resolution
 
-Use `Runtime::set_module_loader` to supply a loader (until then every import throws):
+`js_host_resolve_imported_module` (`src/module/reqres.rs`) handles a static
+import:
 
-```rust
-rt.set_module_loader(js_module_loader);
-```
+1. **Native modules first.** The specifier is interned verbatim and looked up in
+   `loaded_modules`. If it is a native module (`ModuleDef::is_native()`), it is
+   returned *before* normalization, so a bare name such as `"os"` is not turned
+   into a filesystem path.
+2. **Normalize.** The runtime's `module_normalize_func` (a plain `fn` pointer)
+   maps `(base_url, specifier)` to a canonical `Url`. The default joins relative
+   specifiers against the importer URL and converts absolute paths to URLs.
+   `file://` URLs are canonicalized centrally after normalization, so symlink
+   aliases collapse to one cache key.
+3. **Look up / load.** If the normalized URL is already in `loaded_modules`, it
+   is reused. Otherwise `module_load_func` is called with the URL and the import
+   attributes `JSValue`. The default loader is a stub that throws
+   `ReferenceError` for every import.
+4. **Compile.** A JS loader normally calls
+   `ScopedContext::compile_module(source, module_url, strip)`, which produces a
+   `ModuleDef` with `EvalType::Module` and `ExecMode::STRICT`.
 
-## Complete Example
+Dynamic `import()` follows the same resolve/load path at runtime.
 
-Here's a complete example showing how to implement script file based module loading:
+## Linking
 
-```rust
-use url::Url;
-use zuqe::{JSValue, ModuleDef, Runtime, ScopedContext, url_to_abspath};
+`ModuleDef::resolve_deps` loads direct dependencies, then `link`
+(`src/module/resolve.rs`) performs the recursive linking pass:
 
-// Module name normalization (optional)
-fn module_normalize(
-    ctx: &mut ScopedContext,
-    base_name: &Url,
-    name: &str,
-) -> Result<Url, i32> {
-    // Resolve relative to the importing module's URL. `Url::join` handles
-    // `.`/`..` and works uniformly for `file:` and `http:` bases.
-    base_name.join(name).map_err(|_| -1)
-}
+- Each module gets a DFS index; `stack_prev` and `cycle_root` identify strongly
+  connected components.
+- Import/export entries are resolved to slot accesses; `export *` is collected
+  in `star_export_entries`.
+- A module becomes `LINKED` only after its dependencies are linked.
+- Link errors are cached on the module (`set_eval_error`) so subsequent imports
+  throw the same error instead of retrying.
 
-// Module loader function
-fn module_loader(
-    ctx: &mut ScopedContext,
-    module_name: &Url,
-    attrs: JSValue,
-) -> Result<ModuleDef, i32> {
-    // `module_name` is the normalized module name (a `file://` URL). Convert it
-    // back to a local path for filesystem access; dispatch by scheme here for
-    // future `https:` support.
-    let path = match zuqe::url_to_abspath(module_name) {
-        Some(p) => p,
-        None => {
-            ctx.throw_reference_error(&format!(
-                "could not load module '{module_name}': not a file:// URL"
-            ));
-            return Err(-1);
-        }
-    };
+## Evaluation
 
-    // Support JSON modules via import attributes, e.g.
-    //   import data from './config.json' with { type: 'json' };
-    let is_json = attrs.is_object()
-        && attrs
-            .get_property_str(ctx, "type")
-            .map(|v| {
-                v.as_string(true)
-                    .is_some_and(|s| s.content().encode_utf8(false).as_ref() == "json")
-            })
-            .unwrap_or(false);
+`ModuleDef::evaluate` (`src/module/eval.rs`) returns a Promise:
 
-    match std::fs::read_to_string(&path) {
-        Ok(content) => {
-            if is_json {
-                // Wrap JSON as `export default <json>` so it can be imported as
-                // a normal ES module namespace.
-                let mut src = String::from("export default ");
-                src.push_str(&content);
-                src.push('\n');
-                ctx.compile_module(src.as_bytes(), module_name, false)
-            } else {
-                ctx.compile_module(content.as_bytes(), module_name, false)
-            }
-        }
-        Err(_) => {
-            ctx.throw_reference_error(&format!("could not load module '{module_name}'"));
-            Err(-1)
-        }
-    }
-}
+- A JS module body runs as a function (or async function when `has_tla`) in the
+  module's own environment; the completion value becomes the module's
+  evaluation result.
+- Native modules run `init_func`, which installs the `FieldDef` export values —
+  no bytecode is involved.
+- Cyclic imports use the SCC root recorded during linking; a module in
+  `EVALUATING_ASYNC` is represented by its cycle root.
+- Top-level `await` transitions the module to `EVALUATING_ASYNC`; dependent
+  modules are tracked in `async_parent_modules` and evaluated when it settles.
+- A rejected top-level evaluation promise is surfaced by the host entry
+  (`eval_wait`) as `ExitStatus::Exception`, not silently dropped.
 
-fn main() -> Result<(), i32> {
-    let mut rt = Runtime::create()?;
+## `import.meta`
 
-    // Setup module loading callbacks
-    rt.set_module_normalizer(module_normalize); // omit to keep the default normalizer
-    rt.set_module_loader(module_loader);
+Each module owns an `import.meta` object. `set_import_meta` installs:
 
-    // Create execution context
-    let mut ctx = rt
-        .create_context(|cx| {
-            ScopedContext::ECMA_CONTEXT_SETUP(cx)
-        })
-        .expect("fail to create context");
+- `url` — the module's `module_name` (so `import.meta.url === module_name`).
+- `main` — whether this is the main entry module.
 
-    // .. omitted ...
+Static imports wire `import.meta` for every module, not only the entry, so
+`import.meta.url` also holds inside dependency modules. The object is reached at
+runtime through the current module frame / async callback context.
 
-    Ok(())
-}
-```
+## Native modules
 
-## Default Normalization
+A native module is a `ModuleDef` with `init_func = Some(...)` and no bytecode.
+`ScopedContext::create_module(name, entries)` creates it and registers it in
+`loaded_modules` under the verbatim name. At evaluation, `set_export_values`
+walks the `FieldDef` table and installs functions, constants, lazy values, and
+class constructors.
 
-A runtime starts out with a builtin normalizer, so `set_module_normalizer` only needs to be called to _override_ it. That default is a simple resolution following the ES module specifications: an absolute path is turned into a URL directly, anything else is joined against the importing module's URL. Note that `file://` URLs are canonicalized centrally after normalization, so symlink aliases collapse to a single cache key for custom normalizers too.
+`loaded_module_names(ModuleNameFilter)` exposes the registry for hosts; the
+filter distinguishes native (`NativeOnly`), bytecode (`BytecodeOnly`), and all
+modules.
 
-There is no "unset" state, and the builtin normalizer is not exported — a host that needs to go back to it should keep its own copy of the pointer. In practice resolution policy is picked once at startup, so this rarely matters.
+## Cache and lifetime
 
-## Default Loader
-
-Likewise `module_load_func` starts out holding a stub that throws a `ReferenceError` for every import, because where modules come from is entirely host policy. Until `set_module_loader` is called, every `import` fails with `could not load module '<name>'`:
-
-```rust
-// Any import at this point throws:
-//   ReferenceError: could not load module 'file:///path/to/foo.js'
-rt.set_module_loader(module_loader);
-```
-
-## Import.meta Support
-
-Modules have access to `import.meta` which provides metadata about the module:
-
-- `import.meta.url`: The URL of the module
-- `import.meta.main`: Boolean indicating if this is the main module
-
-## Best Practices
-
-1. **Error Messages**: Provide clear error messages in your module loader
-2. **Path Resolution**: Implement proper path resolution in your normalize function
-3. **File Extensions**: Consider handling different file extensions (.js, .mjs, .ts)
-4. **Caching**: Implement module caching to avoid recompiling already loaded modules
-5. **Security**: Validate module paths to prevent directory traversal attacks
-
-## Write a native module
-
-You have learned how to enable module support in zuqe. Next, let's see how to write the native module and expose it to JavaScript world. Read [Native Module](native-module.md) for detail.
+- `loaded_modules` is the single module cache, keyed by the normalized module
+  name (or the verbatim native name).
+- `js_free_modules` removes modules according to the teardown flag (`ALL` or
+  `NOT_RESOLVED`); module records are GC nodes, so their lifetimes also follow
+  the GC graph.
+- zapi extension libraries are cached process-wide by the host loader, not in
+  `loaded_modules`; the module wrapper is a normal native module.

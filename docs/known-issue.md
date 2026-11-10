@@ -1,9 +1,10 @@
 # Known Issue: release fat-LTO miscompile — GC root loss → SEGV
 
 Status: **not reproducible on current master** (`d8b6bb2f`, = `origin/master`).
-Diagnosis complete for the pre-fix revisions (see `memo/lto-ub-handover.md`,
-whose §20.2 holds the LLVM report draft); upstream root-cause
-attribution (engine UB vs LLVM bug) still open.
+Diagnosis complete for the pre-fix revisions (maintainer-local notes
+`memo/lto-ub-handover.md`, not shipped in this repository; its §20.2 holds the
+LLVM report draft); upstream root-cause attribution (engine UB vs LLVM bug)
+still open.
 
 Verified on master with the mitigation flag removed — rustc flags confirmed as
 `-C opt-level=3 -C panic=abort -C lto=fat -C codegen-units=1`, with **no**
@@ -95,7 +96,7 @@ Measurement caveats:
 - `.cargo/config.toml` used to inject `-Cllvm-args=-memdep-block-scan-limit=1`
   globally, masking the issue. Cross-toolchain measurement requires removing
   that flag. **The flag injection and the build.rs guard have since been
-  removed** — the flag now lives in the inactive `.cargo/config_obsolete.toml`
+  removed** — the flag now lives in the inactive `.cargo/config_obsolete.toml.bak`
   (`5d96a8f9b`), the guard was deleted (`cdb6484a2`); this file now documents
   the historical state.
 - **Cargo target-dir reuse across toolchains (gotcha).** Without an explicit

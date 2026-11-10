@@ -143,7 +143,8 @@ use zuqe::{
 };
 
 /// 容器元素类型：局部 struct（tuple 不能 impl 外部 trait GcBind）。
-#[derive(Debug)]
+#[derive(Debug, GcTrace)]
+#[gc(crate_path = zuqe::gc_lite)]
 struct Req {
     once: bool,
     cb: Object,

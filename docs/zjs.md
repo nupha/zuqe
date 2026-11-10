@@ -20,7 +20,9 @@ zjs [options] <filename>
 
 - **`--vm-stack-limit <n>`** _(default: 512k)_: Set the **hard cap on the total live virtual stack** (arena-used + heap-used) to `n` bytes. When a new frame would push the combined usage past this limit, a stack-overflow error is thrown. This is what actually bounds recursion depth.
 
-- **`--thread-stack-limit <n>`**: Set the **C-stack recursion limit** — the maximum native stack bytes JS recursion may consume below the eval-entry SP. Omitted or `0` selects **auto mode**: the guard is derived from the current thread's real stack bottom, keeping a fixed internal head-room (`THREAD_STACK_LIMIT_MARGIN`) free for the throw path. Auto mode is the default; a strict limit only applies when set explicitly.
+- **`--thread-stack-limit <n>`**: Set the **C-stack recursion limit** — the maximum native stack bytes JS recursion may consume below the eval-entry SP. Omitted or `0` selects **auto mode**: the guard is derived from the current thread's real stack bottom, keeping a fixed internal head-room (`THREAD_STACK_LIMIT_MARGIN`) free for the throw path. Auto mode is the default; a strict limit only applies when set explicitly. On platforms where `Runtime::CAN_AUTO_THREAD_STACK_LIMIT` is false, `zjs` falls back to a strict 512 KiB limit.
+
+- **`--gc-stress`**: Debug + `gc_generations` builds only. Request a minor collection after every GC-node allocation, so the write-barrier validator sees nearly every write. Very slow; use on small, targeted scripts. In other builds the flag is rejected as unknown rather than silently ignored.
 
   Examples:
 
@@ -232,7 +234,6 @@ let entry_name =
     zuqe::path_to_url(&args.filename).expect("entry path must convert to a file:// URL");
 let run_result = ctx
     .eval_wait(
-        &mut rt,
         script.as_bytes(),
         &EvalName::BaseUrl(entry_name),
         if is_module { EvalType::Module } else { EvalType::Global },
@@ -271,7 +272,6 @@ async fn main() -> ExitCode {
     // `ExitStatus::Value` for the host to print.
     let run_result = ctx
         .eval_wait(
-            &mut rt,
             script.as_bytes(),
             &EvalName::BaseUrl(entry_name),
             if is_module { EvalType::Module } else { EvalType::Global },
@@ -327,7 +327,7 @@ async fn main() -> ExitCode {
 Key differences from the synchronous variant:
 
 - `#[tokio::main]` makes the entry point async.
-- The async `ctx.eval_wait(&mut rt, ...)` is used instead of the blocking
+- The async `ctx.eval_wait(...)` is used instead of the blocking
   `eval_wait()` — it drives the runtime's tick loop as a `Future` and observes
   the top-level Promise, so a rejected module entry surfaces as
   `ExitStatus::Exception` instead of being silently dropped.

@@ -142,16 +142,24 @@ let chunk = queue.borrow_mut().remove(0);
 call_js_that_may_gc(ctx)?;
 use(chunk); // 可能 UAF
 
-// GOOD：放进对象拥有的 traced slot，closure 退出时释放
-cp.with_in_flight(owner, |held| -> Result<Promise, i32> {
-    held.push(ctx, chunk);              // traced until the closure returns, and bound
-    if cp.should_call_pull(ctx)? { cp.call_pull(ctx)?; }
-    iterator_result_promise(ctx, chunk, false)
-});
+// GOOD：先把 chunk 放进对象拥有的 traced slot（并 bind），再调用 JS。
+// in_flight 是 payload 上的 WriteBarrierVec<JSValue> 字段；
+// JSFoo 是 def_native_object! 生成的 native wrapper（示意）。
+let owner = this; // JSValue: Copy
+{
+    let p = JSFoo::payload_mut_of(&mut this).ok_or(-1)?;
+    p.in_flight.push(ctx, owner, chunk); // traced + bound
+}
+call_js_that_may_gc(ctx)?;
+{
+    let p = JSFoo::payload_mut_of(&mut this).ok_or(-1)?;
+    p.in_flight.clear(); // 不再需要；清除本身不需要 barrier
+}
 ```
 
 若 hold 放在 payload slot，写入路径还必须按 Rule 5 barrier；见
-[`gc-write-barrier.md`](gc-write-barrier.md#2-实现模式)。
+[`gc-write-barrier.md`](gc-write-barrier.md#2-实现模式)。注意不要在 JS 调用期间
+持有 `payload_mut` 的 Rust 借用（上例用两个短作用域）。
 
 ### 2.4 scope / root（对应 Rule 4 的 scope 部分）
 

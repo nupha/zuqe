@@ -57,35 +57,43 @@ impl FooPayload {
 ```
 
 guard slot 只负责屏障；payload 的 `GcTrace` 仍要单独实现（见 [`gc-trace.md`](gc-trace.md#21-payload-的-gctrace对应-rule-1)）。
-构造期与实例存在后的写入方式见 [`gc-safety.md` Rule 5](gc-safety.md#rule-5--old-容器接收-young-值写屏障)。
+`WriteBarrierVec<T>` / `WriteBarrierMap<K, V>` 的 `GcTrace` 要求 `T`/`V` 实现
+`GcTrace`；元素类型若只实现 `GcBind`（没有 `GcTrace`），payload 的 derive 会
+编译失败。构造期与实例存在后的写入方式见 [`gc-safety.md` Rule 5](gc-safety.md#rule-5--old-容器接收-young-值写屏障)。
 
 ### 2.2 setter + owner
 
 ```rust
-// GOOD：同一 setter 完成存储并 bind 每条边。
-pub(crate) fn set_capability(
-    &mut self,
-    ctx: &ScopedContext,
-    promise: Promise,
-    funcs: [JSValue; 2],
-) {
-    let owner = self.gc_head_ptr();
-    self.promise.set_node(ctx, owner, Some(promise));
-    self.resolving_funcs[0].set_node(ctx, owner, funcs[0]);
-    self.resolving_funcs[1].set_node(ctx, owner, funcs[1]);
+// GOOD：setter 放在 native wrapper 上，owner 由 self 推导，调用方没有传错的机会。
+impl JSFoo {
+    pub(crate) fn set_capability(
+        &mut self,
+        ctx: &ScopedContext,
+        promise: Promise,
+        funcs: [JSValue; 2],
+    ) -> Result<(), i32> {
+        let owner = JSValue::from(*self); // JSFoo: Copy
+        let p = self.payload_mut().ok_or(-1)?;
+        p.promise.set(ctx, owner, Some(promise));
+        p.resolving_funcs[0].set(ctx, owner, funcs[0]);
+        p.resolving_funcs[1].set(ctx, owner, funcs[1]);
+        Ok(())
+    }
 }
 ```
 
-调用点通常在拿到 payload 可变借用前捕获 owner：
+如果 setter 必须放在 payload 上、由调用方传 owner，则调用点要在借 payload
+前捕获实例值：
 
 ```rust
 let owner = this;                       // JSValue 是 Copy
-let p = get_foo_payload_mut(ctx, &mut this)?;
-p.set_handler(ctx, owner, Some(cb))?;   // setter 内 store + bind
+let p = JSFoo::payload_mut_of(&mut this).ok_or(-1)?;
+p.set_handler(ctx, owner, Some(cb));    // setter 内 store + bind
 ```
 
-> 更安全的做法：把 setter 放到 native wrapper 上，内部 `let owner = JSValue::from(*self);`，
-> 调用方不传 owner（见 §5.3）。static audit 无法验证 owner，只有这种 API 设计能消除传错的机会。
+> `WriteBarrier::set` 接收 `owner: JSValue`。`set_node` 是 `pub(crate)`，只供
+> 引擎内部使用；宿主 crate 不能调用。static audit 无法验证 owner，只有
+> wrapper setter + review 能兜底。
 
 ### 2.3 `GcBind`（容器元素）
 
@@ -352,7 +360,9 @@ fn late_write_is_barriered() -> Result<(), i32> {
         cx.rt_mut().gc_minor_now(); // owner -> old
 
         let child = cx.create_base_object()?;
-        assert!(cx.remove_local(child.gc_node_ptr()));
+        let child_val = JSValue::from(child);
+        let node = std::ptr::NonNull::from(child_val.gc_node().expect("gc node"));
+        assert!(cx.remove_local(node));
 
         // setter 在 native wrapper 上：owner = JSValue::from(owner)，调用方不传 owner
         owner.set_cached(&cx, Some(child));

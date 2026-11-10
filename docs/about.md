@@ -24,7 +24,7 @@ As a divine guardian, the Vermilion Bird protects. Zuqe protects the host: it is
 
 Zuqe is a **lightweight JavaScript engine implemented in Rust**. It is designed to be embedded into Rust applications with low memory overhead and a small binary size, balancing **efficiency, safety, and ease of embedding**.
 
-- Implements a comprehensive set of **ES2024** features.
+- Implements a comprehensive set of **ES2023+** features.
 - Passes a **substantial portion** of the [Test262](https://github.com/tc39/test262) conformance suite.
 - Ships a rich embedding API: native functions, native classes, native ES modules, scoped execution, and configurable garbage collection.
 
@@ -35,7 +35,7 @@ Zuqe is built around a small set of convictions:
 - **Embeddable first.** The primary user is a Rust developer who wants to script their application — not someone building a standalone browser. Every API decision optimizes for that embedding relationship.
 - **Safe by construction.** Rust's ownership model plus a stackless interpreter means the host application stays protected even when untrusted or buggy scripts run.
 - **Small and trimmable.** You should only pay for what you use. Built‑in objects and full Unicode support are individually gated behind Cargo features, so embedded targets can strip the engine down to the bone.
-- **Fast where it counts.** Predictable property access (hidden classes + inline caches), cache‑friendly values (NaN‑boxing), and lazy strings (ropes) keep real‑world workloads smooth without a JIT.
+- **Fast where it counts.** Predictable property access (hidden classes + inline caches), cache‑friendly values (NaN‑boxing), lazy strings (ropes), and an optional tiered JIT keep real‑world workloads smooth; the interpreter remains the semantic reference.
 
 ## Architecture Highlights
 
@@ -45,8 +45,9 @@ Engine‑level design choices that set Zuqe apart:
 - **Hidden Classes & Inline Caches** — Objects share `Shape`s and use per‑opcode inline caches for fast, predictable property access.
 - **String Ropes** — Concatenations are kept as lazy ropes rather than eagerly copied, keeping string operations memory‑efficient.
 - **NaN‑Boxing Values** — JS values are encoded in a compact 64‑bit NaN‑boxed representation for cache‑friendly, low‑overhead storage.
-- **Scope‑Based Garbage Collection** — Tracing mark-sweep GC; nestable GC scopes protect scope-local values as roots until the scope exits.
+- **Scope‑Based Garbage Collection** — Tracing mark-sweep GC with optional generational minor collections (`gc_generations`); nestable GC scopes protect scope-local values as roots until the scope exits.
 - **Bidirectional Async Bridge** — JS `Promise`s and Rust `Future`s interoperate in both directions (feature `async_support`).
+- **Tiered JIT** — Hot bytecode functions compile to Cranelift machine code while the interpreter stays the reference; anything the backend cannot translate keeps running interpreted (feature `jit`).
 
 ## When to reach for Zuqe
 

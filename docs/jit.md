@@ -44,57 +44,19 @@ while the interpreter stays the reference for correctness.
 
 ## Using it
 
-```rust
-use zuqe::{Jit, JitConfig, JitTierPolicy};
+The JIT is attached per `Runtime` with `Jit::attach_to(&rt, JitConfig::builder()…build())`.
+Compilation is automatic: the engine polls at the interpreter trampoline, the
+event-loop tick, and taken loop back edges (including back-edge OSR). Hosts only
+read `JitMetrics`; `Jit::poll()` is an optional manual hook for tests.
 
-let mut rt = zuqe::Runtime::create()?;
-let mut ctx = rt.create_context(zuqe::ScopedContext::ECMA_CONTEXT_SETUP)?;
-let jit = Jit::attach_to(&rt, JitConfig::builder()
-    .tier_policy(JitTierPolicy::Automatic)   // production default
-    .call_threshold(32)                      // gate 1: 32 entries alone queue the function
-    .loop_threshold(56)                      // …or 56 back edges; mixed counts share one budget
-    .tier2_call_threshold(1024)              // gate 2: promote to the optimizing tier
-    .tier2_loop_threshold(2048)              // gate 2: …or this many back edges
-    .build())?;
+Tier policies are `Interpreter`, `Tier1`, `Tier2`, and `Automatic` (default,
+two weighted gates over calls and back edges). Anything the backend cannot
+translate keeps running interpreted.
 
-ctx.eval("for (var i = 0, s = 0; i < 1e6; i++) s += i;".as_bytes(),
-         &zuqe::EvalName::Name("app.js".into()),
-         zuqe::EvalType::Global, zuqe::EvalFlags::empty())?;
+For the complete host-facing API — feature setup, thresholds, metrics, and
+caveats — see **[Tiered JIT usage](../skills/jit.md)**. The rest of this page
+covers the implementation pipeline and test framework.
 
-// No poll call: the engine compiles queued functions automatically at
-// trampoline frame boundaries, on every event-loop tick, and at a hot loop's
-// back edge (this snippet is a single top-level loop, so it is the back edge
-// that hands the frame to native code — back-edge OSR).
-println!("{:?}", jit.metrics());
-```
-
-- `Jit::attach_to(&runtime, config)` — one JIT per `Runtime`; fails if the host
-  has no Cranelift backend.
-- **Compilation is automatic.** The runtime polls at three engine safe points:
-  the interpreter's trampoline (frame boundaries), the event-loop tick, and a
-  taken loop back edge. No host call is needed. The poll is a no-op unless work
-  is queued or compiling and no native frame is in flight. Verification and
-  lowering run on worker threads; a poll only dispatches, drains and installs.
-  The back-edge point is also where a *running* frame switches to native code:
-  a top-level loop that never calls anything (so it never crosses a frame
-  boundary) queues itself at its own back edge and enters the compiled loop
-  header once the worker's result is installed — back-edge OSR.
-- `Jit::poll()` — optional explicit poll for hosts/tests that want to compile at
-  an exact moment; pair it with `JitConfig::auto_poll(false)` when the timing
-  must be fully manual.
-- `JitMetrics` — function entries, back edges, queue length/drops,
-  verified/rejected/compiled counts, native entries, interrupts, compile
-  failures/timeouts, speculative fast-path counts, code bytes, and the tiering
-  counters (`tier2_promotions`, `functions_recompiled`, `tier_downs`).
-- Tiers: `Interpreter` (hooks inert), `Tier1` (baseline only), `Tier2` (always
-  specialize what feedback recorded), `Automatic` (default; two gates — the
-  first compiles the baseline tier, the second promotes the function to the
-  optimizing tier, and the specialization is gated on evidence). Each gate is a
-  single weighted budget over entries and back edges: `L×calls + C×loops ≥ C×L`
-  for a configured `(C, L)` pair, so the corners `C` calls and `L` back edges
-  fire as before and a mix of both fires earlier.
-
-## How it works
 
 ### Pipeline
 
@@ -242,10 +204,9 @@ attempt past it is abandoned and its late completion is discarded.
 
 ## Document map
 
-| Document | Contents |
-|---|---|
-| [`memo/jit_impl.md`](../memo/jit_impl.md) | The single implementation guide: design, pipeline, optimizations, thresholds, traps, decisions, platform notes, and a compressed history. Start here. |
-| [`memo/jit_todo.md`](../memo/jit_todo.md) | Status only: implemented / not implemented / next steps. |
+This page is the shipped JIT documentation: design, pipeline, thresholds, traps,
+platform notes, and the test framework. The original `memo/` working notes are
+maintainer-local and are not part of this repository.
 
 ## Code map
 
@@ -430,6 +391,5 @@ Apple Silicon executable memory, and real-hardware aarch64 validation.
 ASan is blocked by the allocator under ASan, not by the JIT (see
 `tests/jit/ci-sanitize.sh`); TSan runs clean. `with`/generator/`async`/`eval`/
 `import` opcodes stay rejected by design. Kernel-level performance is uneven
-after the recent interpreter speedups: see [`memo/jit_todo.md`](../memo/jit_todo.md)
-for the measured matrix, the kernels where native code currently loses, and the
-task list.
+after the recent interpreter speedups; use `examples/jit-bench` to measure the
+current matrix on your target.

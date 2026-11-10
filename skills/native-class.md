@@ -40,10 +40,24 @@ def_native_object!(
     JSFoo,        // #[repr(transparent)] wrapper over Object
     FooPayload,   // 或 () 表示无 payload；零尺寸 payload 一律用 ()
     FOO_PROTO,
-    Some(ClassCtorDef::new(js_foo_ctor, 0, false)), // (ctor, length, is_constructor?)
+    Some(ClassCtorDef::new(js_foo_ctor, 0, false)), // (ctor, length, call_as_func)
     // extends: JSBase::class_id,                    // 可选：声明父类（见继承）
 );
 ```
+
+`ClassCtorDef::new(callback, length, call_as_func)`：
+
+- `callback`: 构造回调，签名同 `CallbackFn`。
+- `length`: `Function.length`。
+- `call_as_func`: `true` 时允许不带 `new` 直接调用（`Callback::ConstructorOrFunc`）；
+  `false` 时只能 `new`（`Callback::Constructor`）。
+- 链式配置：`.expose_to_global()` 自动装到全局；`.magic(i16)` 设置 magic；
+  `.entries(&'static [FieldDef])` 安装静态成员。
+
+`def_native_object!` 会为带 payload 的宿主类接上 `drop_payload_fn::<P>` 与
+`user_payload_trace::<P>`；由于后者要求 `P: GcTrace`，**payload 类型没有
+`GcTrace` 会在宏调用处直接编译失败**。`extends:` 只声明父类，子类 payload 不会
+共享父类的 trace。
 
 ### Context 初始化
 
@@ -56,7 +70,50 @@ ctx.use_class(JSFoo::class_id())?;
 
 ### Payload 访问
 
-宏生成 `payload()` / `payload_mut()` / `take_payload()` 及 `*_of` 变体（见 `native.rs`）。访问前确认 class_id 匹配（宏/NativeObject 已做）。`payload_raw`/`replace_payload` 属底层能力，优先用生成的类型安全方法。
+宏生成：
+
+- `payload() -> Option<&Payload>` / `payload_mut() -> Option<&mut Payload>`
+- `take_payload() -> Option<Box<Payload>>`（取走后 payload slot 为空）
+- `payload_of(&JSValue) -> Option<&Payload>` / `payload_mut_of(&mut JSValue)` /
+  `take_payload_of(&mut JSValue)`
+
+访问前宏/NativeObject 已校验 class_id。`payload_raw`/`replace_payload` 属底层能力，
+优先用生成的类型安全方法。
+
+### 创建实例
+
+- 构造函数内：`Self::new_instance(ctx, cc.this(), payload)`（`cc.this()` 是
+  `new_target`）。
+- 构造函数外（工厂/模块导出）：`Self::new_instance(ctx, JSValue::UNDEFINED, payload)`；
+  引擎会用类自己的 prototype 创建实例。
+
+```rust
+impl JSFile {
+    pub fn create_file_instance(ctx: &mut ScopedContext, fh: std::fs::File)
+        -> Result<Object, i32> {
+        Self::new_instance(ctx, JSValue::UNDEFINED, RefCell::new(FileDesc::File(fh)))
+            .map(Into::into)
+    }
+}
+```
+
+`FieldDef::LAZY_VALUE` 可以在模块导出时构造实例：
+
+```rust
+FieldDef::LAZY_VALUE("in", |cx| {
+    JSFile::create_stdin_instance(cx).map(JSValue::from)
+}, JS_PROP_ENUMERABLE)
+```
+
+### 通过 `FieldDef::CLASS` 导出构造器
+
+```rust
+static FILE_MODULE_ENTRIES: &[FieldDef] = &[
+    FieldDef::CLASS("File", || JSFile::class_id(), JS_PROP_C_W_E),
+];
+```
+
+`FieldDef::CLASS` 接收 `fn() -> ClassID`，模块 init 时按 class_id 查找并暴露构造器。
 
 ### 无 payload
 

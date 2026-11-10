@@ -6,3 +6,7 @@
 !tests/**
 !examples/
 !examples/**
+!skills/
+!skills/**
+!docs/
+!docs/**

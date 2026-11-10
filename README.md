@@ -43,7 +43,7 @@ Zuqe's JavaScript support spans modern syntax and a broad set of built-in object
 - **Collections**: `Map`, `Set`, `WeakMap`, `WeakSet`
 - **Promises**: Full `Promise` implementation with `async`/`await` support
 - **JSON**: `JSON.parse()` and `JSON.stringify()` with proper error handling
-- **Regular Expressions**: PCRE2-based regex engine with modern ES features
+- **Regular Expressions**: QuickJS `libregexp` C library via Rust bindings (`lre`)
 - **Typed Arrays**: `Int8Array`, `Uint8Array`, `Float32Array`, … plus `DataView`/`ArrayBuffer`
 - **Reflection**: `Reflect` object with comprehensive reflection capabilities
 - **Proxy**: Complete object-interception implementation (get/set/apply/… traps)
@@ -92,7 +92,8 @@ Add `zuqe` to your dependencies in `Cargo.toml`:
 
 ```toml
 [dependencies]
-zuqe = "0.10.0"
+zuqe = "0.11.2"
+tokio = { version = "1", features = ["full"] } # for the async entry point below
 ```
 
 Zuqe provides several Cargo features to customize the build:
@@ -101,7 +102,11 @@ Zuqe provides several Cargo features to customize the build:
 | -------------------- | ----------------------------------------------------------------------- | ------- |
 | `jit`                | Tiered bytecode JIT (Cranelift) with worker-thread compilation          | on      |
 | `async_support`      | Enable Promise↔Future bridge and `Runtime::run_async()`                 | on      |
+| `gc_generations`     | Generational GC with minor collections and write barriers               | on      |
 | `all_unicode`        | Full Unicode support (XID, normalization)                               | on      |
+| `zapi`               | Load zapi `cdylib` extensions as ES modules                             | off     |
+| `intl402`            | `Intl` support (ICU-backed)                                             | off     |
+| `persistent`         | Bytecode persistence helpers                                            | off     |
 | `crossbeam_channel`  | Use `crossbeam::channel` instead of `std::sync::mpsc`                   | off     |
 | `serde_json_support` | Enable `JSValue` ↔ `serde_json::Value` conversion                       | off     |
 | `builtin_*`          | Individual built-in feature gates (symbol, proxy, mapset, regexp, etc.) | on      |
@@ -129,12 +134,16 @@ fn main() {
 
 ### Run JavaScript
 
-Use `with_new_scope` and `eval_wait` to execute code within a bounded scope, waiting until all jobs and promises settle:
+With the default `async_support` feature, `Context::eval_wait` is an async
+function. It executes the entry and drives the event loop until all jobs and
+promises settle; the context's own runtime is used, so there is no runtime
+argument:
 
 ```rust
-use zuqe::{Context, EvalFlags, EvalName, EvalType, ExitStatus, Runtime, ScopedContext};
+use zuqe::{EvalFlags, EvalName, EvalType, Exception, ExitStatus, Runtime, ScopedContext};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let mut rt = Runtime::create().unwrap();
     let mut ctx = rt
         .create_context(|cx| {
@@ -147,32 +156,36 @@ fn main() {
         greet("Zuqe");
     "#;
 
-    ctx.with_new_scope(|mut scope| {
-        let res = scope.eval_wait(
+    let res = ctx
+        .eval_wait(
             script.as_bytes(),
             &EvalName::Name("example.js".into()),
             EvalType::Global,
             EvalFlags::empty(),
-        );
+        )
+        .await;
 
-        match res {
-            ExitStatus::Value(val) => {
-                println!("eval result: {}", val.to_string(&mut scope).unwrap());
-            }
-            ExitStatus::Exception(e) => {
-                let mut err_msg = e.to_text(&mut scope).message;
-                if let Some(tb) = e.to_text(&mut scope).traceback {
-                    err_msg = format!("{err_msg}\n{tb}");
-                }
-                println!("error: {err_msg}");
-            }
-            other => println!("stopped: {other:?}"),
+    match res {
+        ExitStatus::Value(val) => {
+            let s = ctx.with_root_scope(|mut scope| {
+                val.to_string(&mut scope).unwrap().content().encode_utf8(false)
+            });
+            println!("eval result: {s}");
         }
-    });
+        ExitStatus::Exception(Exception::Error(err)) => {
+            let msg = ctx.with_root_scope(|mut scope| {
+                err.to_string(&mut scope).unwrap().content().encode_utf8(false)
+            });
+            println!("error: {msg}");
+        }
+        other => println!("stopped: {other:?}"),
+    }
 }
 ```
 
-`eval_wait` drives the event loop of the context's **own** runtime — a context belongs to exactly one runtime, so there is no runtime to pass in. `with_new_scope` executes the closure inside a dedicated, bounded scope. Each call creates a fresh scope, runs the script within it, and tears it down when the closure returns. This isolates local variables and temporary values, preventing leaks between executions and allowing safe reuse of the same `Context`.
+`Context::eval_wait` creates its own GC scope, so no manual `with_new_scope` is
+needed. For the full execution guide (sync mode, `eval`, `EvalName`, scopes,
+resource limits), see [Embedding Basics](skills/embedding-basics.md).
 
 ### Embedding API Highlights
 
@@ -181,7 +194,13 @@ Beyond basic execution, Zuqe provides a rich embedding API:
 **Native Functions & Classes** — Wrap Rust functions as JS callables and define full classes with the `def_native_object!` macro:
 
 ```rust
+use std::cell::RefCell;
 use zuqe::{CallContext, FieldDef, JSResult, JSValue, ScopedContext, def_native_object};
+
+#[derive(Debug)]
+enum FileDesc { Stdin, Stdout, Stderr, File(std::fs::File) }
+// Payload holds only OS handles: no GC nodes to trace.
+zuqe::gc_lite::unsafe_empty_gc_trace!(FileDesc);
 
 def_native_object!("File", JSFile, RefCell<FileDesc>, CLASS_FILE_PROTO, None);
 
@@ -212,7 +231,7 @@ let result: Result<JSValue, JSValue> = fut.await;
 
 // Rust Future → Promise (via channel)
 let (promise, tx) = Promise::create_with_channel(ctx, |cx, n: i32| {
-    Ok(JSValue::Int(n))
+    Ok(JSValue::from(n))
 })?;
 tokio::spawn(async move { tx.send(42).ok(); });
 ```
@@ -236,19 +255,31 @@ For more comprehensive examples, check the [examples](examples/) directory which
 
 ## 📚 Documentation
 
-- **[User Guide](docs/)**:
-  - [About Zuqe](docs/about.md) — the name, the philosophy, and the engine
-  - [Basic Usage](docs/basic.md)
-  - [Modules](docs/module.md)
-  - [Native Functions](docs/native-function.md)
-  - [Native Classes](docs/native-classe.md)
-  - [Native Module](docs/native-module.md)
-  - [Running Loop](docs/loop.md)
-  - [Promise](docs/promise.md)
-  - [GC](docs/gc.md)
-  - [Tiered JIT](docs/jit.md) — goals, design, and a feature-to-code map
-- **[Examples](examples/)**:
-  - [ZJS](docs/zjs.md)
+Documentation is split by audience:
+
+- **[Skills](skills/SKILL.md)** — how to use and embed Zuqe from Rust. Start here
+  if you are writing host code or an extension:
+  - [Embedding Basics](skills/embedding-basics.md) — Runtime/Context, `eval`/`eval_wait`, limits
+  - [Native Functions](skills/native-function.md)
+  - [Native Classes](skills/native-class.md)
+  - [Modules (ESM + native)](skills/native-module.md)
+  - [Promise / Future](skills/promise.md)
+  - [Tiered JIT usage](skills/jit.md)
+  - [zapi extensions](skills/zapi-extension.md)
+  - [GC safety rules](skills/gc-safety.md)
+  - [Workflow checklist](skills/workflow-checklist.md)
+- **[Docs](docs/)** — internals, design, build, and tool manuals:
+  - [About Zuqe](docs/about.md) — the name, philosophy, and design goals
+  - [Garbage Collection](docs/gc.md) — collector implementation
+  - [Running Loop](docs/loop.md) — tick internals
+  - [Module System](docs/module.md) — module graph internals
+  - [Promise internals](docs/promise.md)
+  - [Tiered JIT](docs/jit.md) — pipeline and design
+  - [ZJS](docs/zjs.md) — the `zjs` command-line interpreter
+  - [Build on Windows](docs/build-windows-gnu.md) and
+    [cross-compile](docs/build-cross.md)
+  - [Known issue](docs/known-issue.md)
+- **[Examples](examples/)**
 
 ## 🤝 Contributing
 
