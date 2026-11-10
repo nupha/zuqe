@@ -1,4 +1,4 @@
-# Embedding Basics: Runtime, Context, and Execution
+# Basics: Runtime, Context, and Execution
 
 > For Rust host code that depends on `zuqe`. This page covers the public API.
 > Tick, Promise job, and GC internals are in `docs/loop.md`, `docs/promise.md`,
@@ -12,24 +12,45 @@ zuqe = "0.11"          # use the version in Cargo.toml
 tokio = { version = "1", features = ["full"] } # async hosts only
 ```
 
-The default feature set in `Cargo.toml` includes `inline_cache`, `big_int`,
-`all_unicode`, `async_support`, `gc_generations`, `jit`, and the default
-`builtin_*` features.
+The feature names below match `Cargo.toml`. `default` is a feature group, not a
+single switch. Every feature is listed, including the default ones.
 
-Common optional features:
-
-| Feature | Purpose |
-|---|---|
-| `zapi` | Load zapi cdylib extensions. See [zapi-extension.md](zapi-extension.md). |
-| `intl402` | `Intl` support. Uses ICU. |
-| `persistent` | Bytecode persistence helpers (`dumpValue`/`restoreValue` in `zjs`). |
-| `crossbeam_channel` | Use `crossbeam::channel` instead of `std::sync::mpsc`. |
-| `serde_json_support` | `JSValue` and `serde_json::Value` conversion. |
-| `jit_dump` | Dump Cranelift IR and machine code. Debug only. |
-| `gc_protect_transient` | Only needed when `gc_alloc` can trigger a GC. Normally off. |
+| Feature | Default | Purpose |
+|---|---|---|
+| `default` | - | Group: `inline_cache`, `big_int`, `all_unicode`, `async_support`, `gc_generations`, `jit`, and the default `builtin_*` set. |
+| `inline_cache` | on | Per-opcode inline caches for property access. |
+| `big_int` | on | `BigInt` support, including `BigInt` literals and operators. |
+| `all_unicode` | on | Full Unicode identifier rules and normalization (`unicode-id-start`, `unicode-normalization`). |
+| `async_support` | on | Async `eval_wait`, `Runtime::run_async()`, and the Promise/Future bridge. Adds `futures-util`. |
+| `crossbeam_channel` | off | Use `crossbeam::channel` instead of `std::sync::mpsc` for host channels. |
+| `serde_json_support` | off | Convert between `JSValue` and `serde_json::Value`. |
+| `zapi` | off | Load zapi cdylib extensions. Adds `zuqe_zapi` and `libloading`. See [zapi-extension.md](zapi-extension.md). |
+| `quantum_poll` | off | Allow a fallback periodic poll cap on event-loop park (`use_quantum_poll`). Normally not needed. |
+| `persistent` | off | Serialize and deserialize bytecode and JS values (`ZQBC` format). Used by `zjs` `dumpValue`/`restoreValue`. |
+| `child_runtime` | off | Create child runtimes driven by a parent runtime event loop. |
+| `builtin_proxy` | on | `Proxy` support. |
+| `builtin_atomic` | on | `Atomics` support. |
+| `builtin_mapset` | on | `Map`, `Set`, `WeakMap`, and `WeakSet`. |
+| `builtin_regexp` | on | `RegExp` and regexp string methods through the `lre`/QuickJS regexp library. |
+| `builtin_reflect` | on | `Reflect` support. |
+| `builtin_json` | on | `JSON` support. |
+| `builtin_date` | on | `Date` support. |
+| `builtin_math` | on | `Math` support. |
+| `builtin_weakref` | on | `WeakRef` and `FinalizationRegistry`. |
+| `intl402` | off | `Intl` support. Uses ICU and `fixed_decimal`. |
+| `gc_generations` | on | Generational GC: young/old generations, minor collections, and write barriers. |
+| `gc_protect_transient` | off | Protect temporary GC objects when `gc_alloc` can trigger a collection. Enable only when the allocator can collect. |
+| `dump_bytecode` | off | Print bytecode disassembly during compilation. Development tool. |
+| `debug_gc` | off | In debug builds, run a GC after every opcode. Very slow; debug only. |
+| `jit` | on | Tiered bytecode JIT with Cranelift. Adds the Cranelift crates. See Section 7. |
+| `jit_dump` | off | Dump Cranelift IR and machine code. Implies `jit`. Debug tool. |
 
 For a smaller build, use `--no-default-features --features "..."` and list only
-the features you need.
+the features you need. For example:
+
+```bash
+cargo build --no-default-features --features "async_support,big_int,builtin_json,builtin_mapset,jit"
+```
 
 ## 2. Create a Runtime and Context
 
@@ -200,7 +221,38 @@ rt.set_thread_stack_limit(512 << 10);       // C stack recursion limit; 0 = auto
 - Auto mode needs platform support for the stack bottom.
   `Runtime::CAN_AUTO_THREAD_STACK_LIMIT` tells you at compile time.
 
-## 7. Module loading hooks
+## 7. Attach the JIT
+
+The `jit` feature is on by default. To use it, attach one JIT to the runtime:
+
+```rust
+#[cfg(feature = "jit")]
+let jit = zuqe::Jit::attach_to(
+    &rt,
+    zuqe::JitConfig::builder()
+        .tier_policy(zuqe::JitTierPolicy::Automatic)
+        .build(),
+)
+.map_err(|_| -1)?;
+
+// Optional: read counters.
+#[cfg(feature = "jit")]
+println!("{:?}", jit.metrics());
+```
+
+- `Jit::attach_to(&rt, config)` returns `Err(JitError)` if there is no
+  Cranelift backend, or if the runtime already has a JIT.
+- Compilation is automatic. The engine polls at safe points: interpreter frame
+  boundaries, event-loop ticks, and loop back edges. You do not need to call
+  `Jit::poll()`.
+- `Jit` holds a strong reference to `Runtime`. Keep the handle alive as long as
+  you want the JIT.
+- With `jit` disabled, the `Jit` type is not compiled. Guard with
+  `#[cfg(feature = "jit")]` or a separate build.
+- Thresholds, tiers, metrics, and manual polling are covered in
+  [Tiered JIT Usage](jit.md).
+
+## 8. Module loading hooks
 
 Module sources are host policy:
 
@@ -214,7 +266,7 @@ Both callbacks are plain `fn` pointers. They carry no host state. Put state in
 [Modules: ESM Loading and Native Modules](native-module.md) for signatures,
 import attributes, `import.meta`, and zapi extension loading.
 
-## 8. Quick checklist
+## 9. Quick checklist
 
 - [ ] Runtime and Context are created in the right order. `Context` is not sent
       across threads or runtimes.
@@ -226,3 +278,5 @@ import attributes, `import.meta`, and zapi extension loading.
 - [ ] Temporary values use `with_new_scope`. Remove root-scope values with
       `remove_local` when done.
 - [ ] Resource limits are set as needed. `set_vm_stack_arena` errors are handled.
+- [ ] With `jit` enabled, `Jit::attach_to` is called once and the handle stays
+      alive.

@@ -13,7 +13,7 @@ rules for host code. Start here when writing Rust code against `zuqe`.
 | Topic | Document |
 |---|---|
 | Entry point, topic index, boundaries | [zuqe Embedding Skill](../skills/SKILL.md) |
-| Runtime/Context, `eval`/`eval_wait`, features, limits | [Embedding Basics: Runtime, Context, and Execution](../skills/embedding-basics.md) |
+| Runtime/Context, `eval`/`eval_wait`, features, limits | [Basics: Runtime, Context, and Execution](../skills/basics.md) |
 | Native functions | [Native Function Binding](../skills/native-function.md) |
 | Native classes | [Native Classes](../skills/native-class.md) |
 | ESM loading and native modules | [Modules: ESM Loading and Native Modules](../skills/native-module.md) |
@@ -49,7 +49,7 @@ in `skills/`; the pages below link there instead of duplicating them.
 These older standalone API pages now contain a short pointer only. The full
 content is in `skills/`:
 
-- [basic.md](basic.md) -> [Embedding Basics: Runtime, Context, and Execution](../skills/embedding-basics.md)
+- [basic.md](basic.md) -> [Basics: Runtime, Context, and Execution](../skills/basics.md)
 - [native-function.md](native-function.md) -> [Native Function Binding](../skills/native-function.md)
 - [native-classe.md](native-classe.md) -> [Native Classes](../skills/native-class.md)
 - [native-module.md](native-module.md) -> [Modules: ESM Loading and Native Modules](../skills/native-module.md)

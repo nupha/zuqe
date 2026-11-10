@@ -4,7 +4,7 @@ This page is a short pointer. The full embedding guide — Cargo features,
 `Runtime`/`Context` setup, synchronous and async `eval_wait`, `EvalName`,
 `EvalType`, `EvalFlags`, GC scopes, resource limits, and module hooks — lives in:
 
-- **[Embedding Basics: Runtime, Context, and Execution](../skills/embedding-basics.md)**
+- **[Basics: Runtime, Context, and Execution](../skills/basics.md)**
 - **[zuqe Embedding Skill](../skills/SKILL.md)**
 
 Minimal shape:

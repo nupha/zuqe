@@ -27,7 +27,7 @@
    - **Do not mix** the two styles, types, or registration paths. Record the
      choice in the implementation notes or PR.
 3. **Implement**
-   - Entry, Runtime, Promise: [Embedding Basics](embedding-basics.md) and
+   - Entry, Runtime, Promise: [Basics: Runtime, Context, and Execution](basics.md) and
      [Promise and Rust Future Bridge](promise.md)
    - Function binding: [Native Function Binding](native-function.md)
    - Native class: [Native Classes](native-class.md)

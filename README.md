@@ -185,7 +185,7 @@ async fn main() {
 
 `Context::eval_wait` creates its own GC scope, so no manual `with_new_scope` is
 needed. For the full execution guide (sync mode, `eval`, `EvalName`, scopes,
-resource limits), see [Embedding Basics](skills/embedding-basics.md).
+resource limits), see [Basics: Runtime, Context, and Execution](skills/basics.md).
 
 ### Embedding API Highlights
 
@@ -259,7 +259,7 @@ Documentation is split by audience:
 
 - **[Skills](skills/SKILL.md)** — how to use and embed Zuqe from Rust. Start here
   if you are writing host code or an extension:
-  - [Embedding Basics: Runtime, Context, and Execution](skills/embedding-basics.md) — Runtime/Context, `eval`/`eval_wait`, limits
+  - [Basics: Runtime, Context, and Execution](skills/basics.md) — Runtime/Context, `eval`/`eval_wait`, limits
   - [Native Function Binding](skills/native-function.md)
   - [Native Classes](skills/native-class.md)
   - [Modules: ESM Loading and Native Modules](skills/native-module.md)
