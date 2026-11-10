@@ -223,22 +223,39 @@ rt.set_thread_stack_limit(512 << 10);       // C stack recursion limit; 0 = auto
 
 ## 7. Attach the JIT
 
-The `jit` feature is on by default. To use it, attach one JIT to the runtime:
+The `jit` feature is on by default. Attach one JIT to the runtime before you run
+code:
 
 ```rust
-#[cfg(feature = "jit")]
-let jit = zuqe::Jit::attach_to(
-    &rt,
-    zuqe::JitConfig::builder()
-        .tier_policy(zuqe::JitTierPolicy::Automatic)
-        .build(),
-)
-.map_err(|_| -1)?;
+fn main() -> Result<(), i32> {
+    let mut rt = zuqe::Runtime::create()?;
+    let mut ctx = rt.create_context(zuqe::ScopedContext::ECMA_CONTEXT_SETUP)?;
 
-// Optional: read counters.
-#[cfg(feature = "jit")]
-println!("{:?}", jit.metrics());
+    #[cfg(feature = "jit")]
+    let jit = zuqe::Jit::attach_to(
+        &rt,
+        zuqe::JitConfig::builder()
+            .tier_policy(zuqe::JitTierPolicy::Automatic)
+            .build(),
+    )
+    .map_err(|_| -1)?;
+
+    ctx.eval(
+        b"for (var i = 0, s = 0; i < 1e6; i++) s += i;",
+        &zuqe::EvalName::Name("app.js".into()),
+        zuqe::EvalType::Global,
+        zuqe::EvalFlags::empty(),
+    )?;
+
+    #[cfg(feature = "jit")]
+    println!("{:?}", jit.metrics());
+
+    Ok(())
+}
 ```
+
+This is the minimal load path: create the runtime, attach the JIT, run code, read
+metrics.
 
 - `Jit::attach_to(&rt, config)` returns `Err(JitError)` if there is no
   Cranelift backend, or if the runtime already has a JIT.
