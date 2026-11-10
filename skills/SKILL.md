@@ -55,9 +55,14 @@ read the GC safety rules first.
 | Topic | File | When to read |
 |---|---|---|
 | **Workflow and checklist** | [workflow-checklist.md](workflow-checklist.md) | Every zuqe embedding task |
-| **Basics** | [Basics: Runtime, Context, and Execution](basics.md) | Cargo features, Runtime/Context, `eval`/`eval_wait`, `EvalName`, limits, JIT attach, module hooks |
+| **Basics** | [Basics: Runtime, Context, and Execution](basics.md) | Cargo features, Runtime/Context, `eval`/`eval_wait`, `EvalName`, limits, module hooks |
 | **Promise and Future** | [promise.md](promise.md) | `Promise::create*`, channels/slots, `into_future`, `create_from_future`, `run_async` |
-| **Tiered JIT** | [jit.md](jit.md) | `Jit::attach_to`, tiers/thresholds, metrics, compile timing |
+
+### JIT
+
+| Topic | File | When to read |
+|---|---|---|
+| **Tiered JIT Usage** | [Tiered JIT Usage](jit.md) | Enable `jit`, `Jit::attach_to`, tiers, thresholds, metrics, compile timing |
 
 ### GC
 
