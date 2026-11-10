@@ -21,7 +21,15 @@ zuqe = { version = "0.11", features = ["jit"] } # jit is on by default
 - `with`, generator, `async`, `eval`, and `import` opcodes are rejected by
   design.
 
-## 2. Basic use
+## 2. Enable and attach the JIT
+
+`jit` is on by default. For a custom build, include it explicitly:
+
+```bash
+cargo build --no-default-features --features "jit"
+```
+
+Then attach one JIT before running code:
 
 ```rust
 use zuqe::{Jit, JitConfig, JitTierPolicy};

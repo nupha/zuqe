@@ -42,7 +42,7 @@ single switch. Every feature is listed, including the default ones.
 | `gc_protect_transient` | off | Protect temporary GC objects when `gc_alloc` can trigger a collection. Enable only when the allocator can collect. |
 | `dump_bytecode` | off | Print bytecode disassembly during compilation. Development tool. |
 | `debug_gc` | off | In debug builds, run a GC after every opcode. Very slow; debug only. |
-| `jit` | on | Tiered bytecode JIT with Cranelift. Adds the Cranelift crates. See Section 7. |
+| `jit` | on | Tiered bytecode JIT with Cranelift. Adds the Cranelift crates. See [Tiered JIT Usage](jit.md). |
 | `jit_dump` | off | Dump Cranelift IR and machine code. Implies `jit`. Debug tool. |
 
 For a smaller build, use `--no-default-features --features "..."` and list only
@@ -221,53 +221,10 @@ rt.set_thread_stack_limit(512 << 10);       // C stack recursion limit; 0 = auto
 - Auto mode needs platform support for the stack bottom.
   `Runtime::CAN_AUTO_THREAD_STACK_LIMIT` tells you at compile time.
 
-## 7. Attach the JIT
+## 7. JIT
 
-The `jit` feature is on by default. Attach one JIT to the runtime before you run
-code:
-
-```rust
-fn main() -> Result<(), i32> {
-    let mut rt = zuqe::Runtime::create()?;
-    let mut ctx = rt.create_context(zuqe::ScopedContext::ECMA_CONTEXT_SETUP)?;
-
-    #[cfg(feature = "jit")]
-    let jit = zuqe::Jit::attach_to(
-        &rt,
-        zuqe::JitConfig::builder()
-            .tier_policy(zuqe::JitTierPolicy::Automatic)
-            .build(),
-    )
-    .map_err(|_| -1)?;
-
-    ctx.eval(
-        b"for (var i = 0, s = 0; i < 1e6; i++) s += i;",
-        &zuqe::EvalName::Name("app.js".into()),
-        zuqe::EvalType::Global,
-        zuqe::EvalFlags::empty(),
-    )?;
-
-    #[cfg(feature = "jit")]
-    println!("{:?}", jit.metrics());
-
-    Ok(())
-}
-```
-
-This is the minimal load path: create the runtime, attach the JIT, run code, read
-metrics.
-
-- `Jit::attach_to(&rt, config)` returns `Err(JitError)` if there is no
-  Cranelift backend, or if the runtime already has a JIT.
-- Compilation is automatic. The engine polls at safe points: interpreter frame
-  boundaries, event-loop ticks, and loop back edges. You do not need to call
-  `Jit::poll()`.
-- `Jit` holds a strong reference to `Runtime`. Keep the handle alive as long as
-  you want the JIT.
-- With `jit` disabled, the `Jit` type is not compiled. Guard with
-  `#[cfg(feature = "jit")]` or a separate build.
-- Thresholds, tiers, metrics, and manual polling are covered in
-  [Tiered JIT Usage](jit.md).
+JIT setup, attachment, tiers, thresholds, metrics, and compile timing are in
+[Tiered JIT Usage](jit.md).
 
 ## 8. Module loading hooks
 
@@ -295,5 +252,3 @@ import attributes, `import.meta`, and zapi extension loading.
 - [ ] Temporary values use `with_new_scope`. Remove root-scope values with
       `remove_local` when done.
 - [ ] Resource limits are set as needed. `set_vm_stack_arena` errors are handled.
-- [ ] With `jit` enabled, `Jit::attach_to` is called once and the handle stays
-      alive.
