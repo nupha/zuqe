@@ -3,7 +3,7 @@
 This page describes how Zuqe implements Promises and bridges them to Rust
 futures. For the host-facing API — creating/settling Promises, channels, result
 slots, `into_future`, `create_from_future` — see
-**[Promise / Future](../skills/promise.md)**.
+**[Promise and Rust Future Bridge](../skills/promise.md)**.
 
 ## Promise payload
 
@@ -114,6 +114,6 @@ semantics.
 
 ## Related
 
-- Host API: [Promise / Future](../skills/promise.md)
+- Host API: [Promise and Rust Future Bridge](../skills/promise.md)
 - Tick loop: [Running Loop](loop.md)
 - GC roots and barriers: [Garbage Collection](gc.md)

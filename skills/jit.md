@@ -1,23 +1,27 @@
-# Tiered JIT 使用
+# Tiered JIT Usage
 
-> 面向宿主配置。JIT 的验证、lowering、代码缓存、测试矩阵等内部细节见
-> `docs/jit.md`。这里只讲公开 API 与宿主需要知道的行为。
+> For host configuration. JIT verification, lowering, code cache, and test
+> details are in `docs/jit.md`. This page covers the public API and host-visible
+> behavior.
 
-## 1. 开关与语义
+## 1. Feature and semantics
 
 ```toml
 [dependencies]
-zuqe = { version = "0.11", features = ["jit"] } # jit 在默认 feature 中
+zuqe = { version = "0.11", features = ["jit"] } # jit is on by default
 ```
 
-- `jit` 编译**已经解析好的 bytecode**，不碰 parser/emitter/bytecode 格式。
-- 默认 `JitTierPolicy::Automatic` 下，结果与解释器 bit-for-bit 一致；后端无法
-  翻译的 opcode 会让函数保持解释执行（fail-closed）。
-- 不是 tracing/GC-integrated JIT：值仍在解释器的 frame buffer 中，没有
-  register-resident GC root。
-- `with`/generator/`async`/`eval`/`import` 等 opcode 按设计拒绝编译。
+- `jit` compiles **already parsed bytecode**. It does not touch the parser,
+  emitter, or bytecode format.
+- With the default `JitTierPolicy::Automatic`, results match the interpreter
+  bit for bit. An opcode the backend cannot translate keeps the function
+  interpreted. This is fail-closed.
+- It is not a tracing or GC-integrated JIT. Values stay in the interpreter
+  frame buffer. There are no register-resident GC roots.
+- `with`, generator, `async`, `eval`, and `import` opcodes are rejected by
+  design.
 
-## 2. 基本用法
+## 2. Basic use
 
 ```rust
 use zuqe::{Jit, JitConfig, JitTierPolicy};
@@ -46,55 +50,63 @@ ctx.eval(
 println!("{:?}", jit.metrics());
 ```
 
-`Jit::attach_to(&runtime, config)`：
+`Jit::attach_to(&runtime, config)`:
 
-- 每个 `Runtime` 一个 JIT；没有 Cranelift 后端时返回 `Err(JitError)`。
-- `Jit` 持有 `Runtime` 的强引用，保证 handle 存活期间 runtime 不被释放；不必手动
-  控制 drop 顺序，但同一个 runtime 只能 attach 一次。
+- One JIT per `Runtime`. It returns `Err(JitError)` if there is no Cranelift
+  backend.
+- `Jit` holds a strong reference to `Runtime`. The runtime stays alive while
+  the handle lives. You do not need to control drop order. A runtime can be
+  attached only once.
 
-## 3. 编译时机
+## 3. When compilation runs
 
-**默认自动编译，宿主不需要每轮调用 `poll()`。** 引擎在三个安全点轮询：
+**Compilation is automatic. The host does not call `poll()` every round.** The
+engine polls at three safe points:
 
-1. 解释器 trampoline 的 frame 边界；
-2. 事件循环 tick；
-3. 已执行的 loop back edge（同时支持 back-edge OSR：正在跑的循环可以切到
-   已安装的编译代码）。
+1. interpreter trampoline frame boundaries;
+2. event-loop ticks;
+3. executed loop back edges. This also supports back-edge OSR: a running loop
+   can switch to installed compiled code.
 
-验证与 lowering 在 worker 线程执行；runtime 线程只 dispatch/drain/install。
-因此：
+Verification and lowering run on worker threads. The runtime thread only
+dispatches, drains, and installs. As a result:
 
-- 单个顶层热循环即使不跨 frame 边界，也会在自己的 back edge 排队并进入编译。
-- `Jit::poll()` 仅在需要精确控制时使用；配合
-  `JitConfig::builder().auto_poll(false)` 可完全手动驱动。
+- A single hot top-level loop queues itself at its own back edge, even if it
+  never crosses a frame boundary. It then enters compiled code.
+- `Jit::poll()` is for exact control only. Use
+  `JitConfig::builder().auto_poll(false)` to drive it fully by hand.
 
-## 4. Tier 与阈值
+## 4. Tiers and thresholds
 
-| 策略 | 行为 |
+| Policy | Behavior |
 |---|---|
-| `Interpreter` | 不安装任何 native 代码，hook 惰性 |
-| `Tier1` | 只编译 baseline tier |
-| `Tier2` | 总是对已记录 feedback 的部分做特化 |
-| `Automatic` | 默认；两个 gate：第一次编译 baseline，第二次 promote 到优化 tier |
+| `Interpreter` | Install no native code. Hooks stay idle. |
+| `Tier1` | Compile the baseline tier only. |
+| `Tier2` | Always specialize parts with recorded feedback. |
+| `Automatic` | Default. Two gates: baseline compile, then promote to the optimizing tier. |
 
-每个 gate 是 entries 与 back edges 的加权预算：
-`L×calls + C×loops ≥ C×L`。`call_threshold`/`loop_threshold` 对应第一 gate，
-`tier2_call_threshold`/`tier2_loop_threshold` 对应第二 gate。
+Each gate is a weighted budget over entries and back edges:
+`L * calls + C * loops >= C * L`. `call_threshold` and `loop_threshold` are the
+first gate. `tier2_call_threshold` and `tier2_loop_threshold` are the second.
 
-## 5. 指标
+## 5. Metrics
 
-`jit.metrics()` 返回 `JitMetrics`，包含：
+`jit.metrics()` returns `JitMetrics`, with:
 
-- function entries、back edges、queue length/drops；
-- verified/rejected/compiled counts、native entries；
-- interrupts、compile failures/timeouts；
-- speculative fast-path counts、code bytes；
-- tiering 计数：`tier2_promotions`、`functions_recompiled`、`tier_downs`。
+- function entries, back edges, queue length and drops;
+- verified, rejected, and compiled counts, plus native entries;
+- interrupts, compile failures, and timeouts;
+- speculative fast-path counts and code bytes;
+- tiering counters: `tier2_promotions`, `functions_recompiled`, and
+  `tier_downs`.
 
-## 6. 宿主注意
+## 6. Host notes
 
-- JIT 失败的函数继续解释执行，不需要宿主回退。
-- 不要依赖 JIT 的编译时刻做语义保证；正确性以解释器为参考。
-- Apple Silicon 的 `MAP_JIT` 尚未实现；当前支持 Linux x86_64/aarch64（qemu）、
-  Intel macOS、Windows x86_64。
-- 生产环境不要开 `jit_dump`（会写出 `.clif`/`.bin`，且路径是编译期 feature）。
+- A function that fails to compile keeps running interpreted. No host fallback
+  is needed.
+- Do not rely on compile timing for semantics. The interpreter is the
+  reference.
+- Apple Silicon `MAP_JIT` is not implemented. Current targets are Linux
+  x86_64/aarch64 (qemu), Intel macOS, and Windows x86_64.
+- Do not enable `jit_dump` in production. It writes `.clif` and `.bin` files
+  and is a compile-time feature.

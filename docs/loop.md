@@ -10,8 +10,8 @@ tick handlers. Hosts do **not** call `tick()` directly; they drive it through:
 - synchronous `eval_wait` when `async_support` is disabled.
 
 Host-facing setup and signatures are in
-**[Embedding Basics](../skills/embedding-basics.md)**; Promise-specific bridging
-is in **[Promise / Future](../skills/promise.md)**.
+**[Embedding Basics: Runtime, Context, and Execution](../skills/embedding-basics.md)**;
+Promise-specific bridging is in **[Promise and Rust Future Bridge](../skills/promise.md)**.
 
 ## One tick
 

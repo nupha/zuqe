@@ -7,23 +7,23 @@ readers and should not be mixed:
 
 **Audience: application developers and LLM agents.** These are task-oriented
 guides for the public embedding API: setup, execution, native bindings, modules,
-Promise/Future bridging, JIT configuration, zapi extensions, and GC rules for
-host code. Start here when writing Rust code against `zuqe`.
+Promise and Future bridging, JIT configuration, zapi extensions, and GC safety
+rules for host code. Start here when writing Rust code against `zuqe`.
 
 | Topic | Document |
 |---|---|
-| Entry point, topic index, boundaries | [skills/SKILL.md](../skills/SKILL.md) |
-| Runtime/Context, `eval`/`eval_wait`, features, limits | [skills/embedding-basics.md](../skills/embedding-basics.md) |
-| Native functions | [skills/native-function.md](../skills/native-function.md) |
-| Native classes | [skills/native-class.md](../skills/native-class.md) |
-| ESM loading and native modules | [skills/native-module.md](../skills/native-module.md) |
-| Promise ↔ Rust Future | [skills/promise.md](../skills/promise.md) |
-| Tiered JIT usage | [skills/jit.md](../skills/jit.md) |
-| zapi `cdylib` extensions | [skills/zapi-extension.md](../skills/zapi-extension.md) |
-| GC rules (the only rule source) | [skills/gc-safety.md](../skills/gc-safety.md) |
-| GC trace examples | [skills/gc-trace.md](../skills/gc-trace.md) |
-| Write barriers / audit / gc-stress | [skills/gc-write-barrier.md](../skills/gc-write-barrier.md) |
-| Workflow and review checklist | [skills/workflow-checklist.md](../skills/workflow-checklist.md) |
+| Entry point, topic index, boundaries | [zuqe Embedding Skill](../skills/SKILL.md) |
+| Runtime/Context, `eval`/`eval_wait`, features, limits | [Embedding Basics: Runtime, Context, and Execution](../skills/embedding-basics.md) |
+| Native functions | [Native Function Binding](../skills/native-function.md) |
+| Native classes | [Native Classes](../skills/native-class.md) |
+| ESM loading and native modules | [Modules: ESM Loading and Native Modules](../skills/native-module.md) |
+| Promise and Rust Future | [Promise and Rust Future Bridge](../skills/promise.md) |
+| Tiered JIT usage | [Tiered JIT Usage](../skills/jit.md) |
+| zapi `cdylib` extensions | [Writing a zapi Extension (cdylib)](../skills/zapi-extension.md) |
+| GC rules (the only rule source) | [GC Safety Rules](../skills/gc-safety.md) |
+| GC trace examples | [GC Tracing: Examples and Pitfalls](../skills/gc-trace.md) |
+| Write barriers, audit, gc-stress | [Write Barriers: Patterns and Tools](../skills/gc-write-barrier.md) |
+| Workflow and review checklist | [Workflow and Review Checklist](../skills/workflow-checklist.md) |
 
 ## `docs/` — internals, design, and reference
 
@@ -45,3 +45,12 @@ in `skills/`; the pages below link there instead of duplicating them.
 | Cross-compile Windows from Linux/macOS | [build-cross.md](build-cross.md) |
 | `zjs` command-line interpreter | [zjs.md](zjs.md) |
 | Known release fat-LTO miscompile | [known-issue.md](known-issue.md) |
+
+These older standalone API pages now contain a short pointer only. The full
+content is in `skills/`:
+
+- [basic.md](basic.md) -> [Embedding Basics: Runtime, Context, and Execution](../skills/embedding-basics.md)
+- [native-function.md](native-function.md) -> [Native Function Binding](../skills/native-function.md)
+- [native-classe.md](native-classe.md) -> [Native Classes](../skills/native-class.md)
+- [native-module.md](native-module.md) -> [Modules: ESM Loading and Native Modules](../skills/native-module.md)
+- [zapi-extension.md](zapi-extension.md) -> [Writing a zapi Extension (cdylib)](../skills/zapi-extension.md)

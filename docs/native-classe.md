@@ -9,8 +9,8 @@ trace/drop wiring. The payload type must implement `gc_lite::GcTrace` (usually
 The full guide — constructor configuration (`ClassCtorDef`), payload shapes,
 `use_class`, `extends:`, `FieldDef::CLASS`, and GC requirements — is in:
 
-- **[Writing native classes](../skills/native-class.md)**
-- **[GC safety for payloads](../skills/gc-safety.md)**
+- **[Native Classes](../skills/native-class.md)**
+- **[GC Safety Rules](../skills/gc-safety.md)**
 
 A minimal declaration:
 

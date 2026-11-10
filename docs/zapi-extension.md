@@ -18,7 +18,7 @@ module manifest and `finalize` hook, `ZqGcTrace` / `payload_no_gc`, async work
 (`promise_threaded`, `promise_fut`, async iterators, jobs), and the host loading
 contract — is in:
 
-- **[Writing a zapi extension](../skills/zapi-extension.md)**
+- **[Writing a zapi Extension (cdylib)](../skills/zapi-extension.md)**
 
 Runnable references:
 

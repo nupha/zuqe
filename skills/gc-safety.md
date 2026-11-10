@@ -1,137 +1,168 @@
-# GC安全守则
+# GC Safety Rules
 
-> **目的：** 写 native function / module / class 时，只要 Rust 侧会持有或写入 **GC 节点**，
-> 就必须保证它在 GC 下安全。本文件给出要遵守的 **规则（Rule 0-5）**、缺失后果、
-> **最佳实践模板**与提交前 checklist。
+> **Purpose:** native functions, modules, and classes may hold or write **GC
+> nodes** on the Rust side. Those nodes must be safe under GC. This file gives
+> the **rules (0-5)**, the failure modes, a **template**, and a pre-commit
+> checklist.
 >
-> **本文件是 GC 规则的唯一来源。** trace 的实现示例/反例见 [`gc-trace.md`](gc-trace.md#2-实现示例)，
-> 写屏障的实现模式与检查工具见 [`gc-write-barrier.md`](gc-write-barrier.md#3-检查流程)；
-> 本文件不重复这些细节，只保留规则和链接。
+> **This file is the only rule source.** Trace examples and pitfalls are in
+> [GC Tracing](gc-trace.md). Barrier patterns and audit tools are in
+> [Write Barriers](gc-write-barrier.md). This file keeps the rules and links.
 
-## 1. GC 安全包含两部分
+## 1. GC safety has two parts
 
-GC 正确性由两套机制共同保证，**缺一不可**：
+Both parts are required:
 
-| 部分 | 回答的问题 | 覆盖 | 细节 |
+| Part | Question | Covers | Details |
 |---|---|---|---|
-| **GC node trace** | 这个值还能被**全量标记**找到吗？ | full mark / major | [`gc-trace.md`](gc-trace.md#2-实现示例) |
-| **node write barrier** | old 容器里新写入的 young 子对象，**minor** 能看到吗？ | minor / remembered set（`gc_generations`） | [`gc-write-barrier.md`](gc-write-barrier.md#2-实现模式) |
+| **GC node trace** | Can a full mark still find this value? | full mark / major | [GC Tracing](gc-trace.md) |
+| **Node write barrier** | Can a minor see a young child written into an old container? | minor / remembered set (`gc_generations`) | [Write Barriers](gc-write-barrier.md) |
 
-### 1.1 缺失 trace 会导致什么
+### 1.1 What a missing trace causes
 
-GC 只从它知道的 roots 出发标记。Rust 侧的一个 `JSValue`/`Object` 放在 payload 字段、
-`thread_local!` 或未被 trace 的 Rust 容器里时，对 collector 都不可见。
+The GC marks only from roots it knows. A `JSValue` or `Object` in a payload
+field, a `thread_local!`, or an untraced Rust container is invisible.
 
-- 如果它是该对象唯一的引用 → full mark/major 把它当作垃圾回收；
-- Rust 侧继续使用 → **use-after-free**；
-- debug 常见 `gc: bad node`；release 可能随机崩溃、`TypeError`、回调错乱、teardown 崩溃；
-- 短脚本可能一次 full mark 都没跑到，“能跑通”不代表 trace 正确。
+- If it is the only reference, a full mark or major collects it.
+- Rust keeps using it: **use-after-free**.
+- Debug builds often show `gc: bad node`. Release builds may crash randomly,
+  throw `TypeError`, corrupt callbacks, or crash at teardown.
+- A short script may never run a full mark. "It ran" does not mean trace is
+  correct.
 
-### 1.2 缺失 write barrier 会导致什么
+### 1.2 What a missing write barrier causes
 
-在 `gc_generations` 下，minor 只扫 young + remembered set，**不 descend old payload**。
+With `gc_generations`, a minor scans young nodes plus the remembered set. It
+does **not descend old payloads**.
 
-- 一个已经变 old 的 owner 写入 young 子对象，却没有记录这条边；
-- 下一次 minor 看不到它 → 回收 young 子对象；
-- owner 仍保存引用 → **悬空引用 / UAF**；
-- debug 在 minor 后 panic：`— missing write barrier`；release 静默 UAF；
-- 常见表现：promise/异步操作永远不 settle、随机 `TypeError`、`gc: bad node`。
+- An old owner writes a young child without recording the edge.
+- The next minor does not see it and collects the young child.
+- The owner still holds the reference: **dangling reference / UAF**.
+- Debug builds panic after the minor: `— missing write barrier`. Release builds
+  have a silent UAF.
+- Common symptoms: promises or async work never settle, random `TypeError`,
+  `gc: bad node`.
 
-### 1.3 两者不能互相替代
+### 1.3 They cannot replace each other
 
-- 只 trace 不 barrier：full mark 能看到，但 minor 丢子对象；
-- 只 barrier 不 trace：minor 能看到，但 full mark 丢子对象；
-- 增量/并发标记下同样需要 barrier：标记进行中的每条新边都必须让 collector 看见。
+- Trace only: a full mark sees the child, but a minor loses it.
+- Barrier only: a minor sees it, but a full mark loses it.
+- Incremental or concurrent marking needs barriers too. Every new edge created
+  during marking must be visible to the collector.
 
-## 2. GC Rules（唯一规则来源）
+## 2. GC rules (the only rule source)
 
-> 具体的 API 用法、代码示例、反例和检查工具在 [`gc-trace.md`](gc-trace.md#2-实现示例) /
-> [`gc-write-barrier.md`](gc-write-barrier.md#2-实现模式)；下面只给规则本身。
+> API usage, examples, pitfalls, and tools are in
+> [GC Tracing](gc-trace.md) and [Write Barriers](gc-write-barrier.md). This
+> section gives only the rules.
 
-### Rule 0 — 黄金规则：Rust 侧持有的节点必须可达
+### Rule 0: every Rust-held node must be reachable
 
-任何被 Rust 侧持有的 GC 节点，都必须进入 GC 可达图。payload 字段、`thread_local!`、未被 trace
-的 Rust 容器里的裸持有，都不在 collector 的视野里。
+Every GC node held by Rust must be in the GC reachability graph. A payload
+field, `thread_local!`, or untraced Rust container is unknown to the collector.
 
-- 漏 trace 是致命的；不确定就 trace（对非节点 trace 是无害 no-op）。
-- 这条规则覆盖宿主 payload、`thread_local!`、模块记录和跨 JS 调用中的临时持有。
+- A missing trace is fatal. When unsure, trace. Tracing a non-node is a
+  harmless no-op.
+- This covers host payloads, `thread_local!`, module records, and temporary
+  values across JS calls.
 
-细节：[`gc-trace.md`](gc-trace.md#1-不做-trace-的失败模式)。
+Details: [GC Tracing](gc-trace.md).
 
-### Rule 1 — payload 持有 GC 节点必须实现 `GcTrace`
+### Rule 1: payloads that hold GC nodes implement `GcTrace`
 
-- payload/长寿命 Rust 结构含 GC 节点 → 实现 `GcTrace`，**无条件 trace 每个 GC 字段**。
-- 绝大多数情况用 `#[derive(GcTrace)]`（只依赖 zuqe 时加 `#[gc(crate_path = zuqe::gc_lite)]`）；只有
-  derive 无法表达的特殊 trace 逻辑才手写 `impl GcTrace`，并在注释说明原因。
-- 无 GC 节点时不要默认手写空 `impl GcTrace`：零尺寸 payload 用 `()` 无 payload 形式；非零尺寸且字段
-  不实现 `GcTrace` 用 `unsafe_empty_gc_trace!`；字段都可 trace 时仍用 derive。见
-  [`gc-trace.md` §2.6](gc-trace.md#26-无-gc-节点的-payload)。
-- `extends:` 子类不共享父类 payload/trace。
-- lazy cache（`RefCell<Option<Object>>`、`Vec<JSValue>`、缓存 map 等）只从 payload 可达时也要 trace。
-- weak/不追踪字段用 `#[gc(skip)]`；不要 trace weak target。
-- **`GcTrace` 不是 write barrier**；后写路径还要按 Rule 5 处理。
+- A payload or long-lived Rust struct with GC nodes must implement `GcTrace`
+  and trace **every** GC field unconditionally.
+- Use `#[derive(GcTrace)]` in most cases. For a crate that only depends on
+  `zuqe`, add `#[gc(crate_path = zuqe::gc_lite)]`. Hand-write `impl GcTrace`
+  only when derive cannot express the logic, and explain why in a comment.
+- Do not default to an empty hand-written impl. Use `()` for zero-size
+  payloads. Use `unsafe_empty_gc_trace!` for non-zero payloads whose fields do
+  not implement `GcTrace`. Use derive when fields can be traced. See
+  [GC Tracing](gc-trace.md).
+- An `extends:` child does not share the parent payload or trace.
+- Trace lazy caches (`RefCell<Option<Object>>`, `Vec<JSValue>`, cache maps) when
+  they are reachable only from the payload.
+- Use `#[gc(skip)]` for weak or untraced fields. Do not trace a weak target.
+- **`GcTrace` is not a write barrier.** Late writes also follow Rule 5.
 
-细节与示例：[`gc-trace.md`](gc-trace.md#21-payload-的-gctrace对应-rule-1)。
+Details and examples: [GC Tracing](gc-trace.md).
 
-### Rule 2 — `thread_local!` 持有 GC 节点：注册 user trace
+### Rule 2: `thread_local!` holding GC nodes needs a user trace
 
-- 每个持有 GC 节点的 `thread_local!` 写一个 trace fn，覆盖所有 GC 字段。
-- 在每个相关 runtime/thread 上用 `gc_set_trace_handler` 注册。
-- 注册的 user trace 是 root；该 root 豁免不扩展到普通 old 容器或 payload。
+- For each `thread_local!` that holds GC nodes, write a trace function that
+  covers every GC field.
+- Register it on each runtime or thread with `gc_set_trace_handler`.
+- The registered user trace is a root. The root exemption does not extend to
+  normal old containers or payloads.
 
-细节与示例：[`gc-trace.md`](gc-trace.md#22-thread_local-的-trace对应-rule-2)。
+Details and examples: [GC Tracing](gc-trace.md).
 
-### Rule 3 — `Vec` 存储中的裸指针
+### Rule 3: raw pointers into `Vec` storage
 
-- 不要缓存可增长 `Vec` 的元素指针；每次变更后从索引重新取。
-- 确需元素地址稳定时，用 `Vec<Box<T>>`。
+- Do not cache pointers to elements of a growable `Vec`. Re-index after each
+  change.
+- If an element address must stay stable, use `Vec<Box<T>>`.
 
-细节与反例：[`gc-trace.md`](gc-trace.md#25-vec-裸指针对应-rule-3)。
+Details and pitfalls: [GC Tracing](gc-trace.md).
 
-### Rule 4 — 值离开 traced 容器后跨 JS re-entry
+### Rule 4: values leaving a traced container before JS re-entry
 
-- 从 traced 容器 `remove`/`pop`/`take` 后，若还要调用可能运行 JS 的 API，必须先把值放进
-  对象拥有的 traced slot，并覆盖所有退出路径（含 `?`）。
-- scope 保护不能跨 safepoint 保活；**禁止**用 `gc_protect_transient` 作为修复。
-- `RefCell` borrow 不要跨 JS；不要用“全局 roots `Vec` + 手动 push/pop”。
-- root scope 的值活到 Context 销毁；临时工作用 `with_new_scope`，不再需要的值 `remove_local`。
+- After `remove`, `pop`, or `take` from a traced container, put the value into
+  an object-owned traced slot before any API that may run JS. Cover all exit
+  paths, including `?`.
+- Scope protection does not survive a safepoint. **Do not** use
+  `gc_protect_transient` as a fix.
+- Do not hold a `RefCell` borrow across JS. Do not use a global roots `Vec` with
+  manual push and pop.
+- Root-scope values live until the Context is dropped. Use `with_new_scope` for
+  temporary work. Call `remove_local` when a root value is no longer needed.
 
-细节、示例与反例：[`gc-trace.md`](gc-trace.md#23-跨-js-调用前保活对应-rule-4)。
+Details and examples: [GC Tracing](gc-trace.md).
 
-### Rule 5 — old 容器接收 young 值（写屏障）
+### Rule 5: an old container receiving a young value
 
-- `gc_generations` 下，old 节点接收 young 值必须记录 old→young 边；假设任何可变容器都可能是 old。
-- 首选 **字段私有 + setter + guard slot**（`WriteBarrier`/`WriteBarrierVec`/`WriteBarrierMap`）：
-  `set`/`push`/`insert` 一次完成 store + bind。
-- owner 必须是持有 payload 的节点；store 与 bind 之间不得有 GC point。
-- 容器元素必须实现 `GcBind`；weak/`#[gc(skip)]` 跳过。
-- 禁止 whole-field replacement（`field = WriteBarrier::new(...)`、`mem::replace`）。
-- 移除本身不需要 barrier，但移除后的值失去 trace 覆盖；跨 GC point 继续使用按 Rule 4 处理。
-- 引擎已覆盖的写入（property slot/array/Map/Set/closure VarRef/`replace_data`/JIT/root containers）
-  不要手写重复 barrier；**payload 字段不在其列**。
-- 增量/并发标记下要求更严：标记进行中的每条新边都必须记录。
+- With `gc_generations`, an old node that receives a young value must record
+  the old-to-young edge. Assume any mutable container may be old.
+- Prefer **private fields, setters, and guard slots**
+  (`WriteBarrier`/`WriteBarrierVec`/`WriteBarrierMap`). `set`, `push`, and
+  `insert` store and bind in one step.
+- The owner must be the node that holds the payload. There must be no GC point
+  between store and bind.
+- Container elements must implement `GcBind`. Skip weak and `#[gc(skip)]`
+  fields.
+- Do not replace a whole guard field (`field = WriteBarrier::new(...)` or
+  `mem::replace`).
+- Removal needs no barrier. The removed value loses trace coverage. If it is
+  used across a GC point, follow Rule 4.
+- Writes already covered by the engine (property slots, arrays, Map/Set,
+  closure VarRef, `replace_data`, JIT, root containers) need no duplicate
+  barrier. **Payload fields are not covered.**
+- Incremental or concurrent marking is stricter. Record every new edge during
+  marking.
 
-细节、API、示例与工具：[`gc-write-barrier.md`](gc-write-barrier.md#2-实现模式)。
+Details, API, and tools: [Write Barriers](gc-write-barrier.md).
 
-> GC 的检查流程（静态审计、动态 minor、gc stress）与工具见 [`gc-write-barrier.md`](gc-write-barrier.md#3-检查流程)；
-> 嵌入开发的全局流程与 checklist 见 [`workflow-checklist.md`](workflow-checklist.md#标准流程)。
+> The GC check flow (static audit, dynamic minor, gc stress) is in
+> [Write Barriers](gc-write-barrier.md). The full embedding workflow is in
+> [Workflow and Checklist](workflow-checklist.md).
 
-## 3. 最佳实践模板
+## 3. Best-practice template
 
-> 从样板开始：先复制下面的结构，再按实际类型/API 调整。细节规则见 §2；trace/屏障的更多写法见
-> [`gc-trace.md`](gc-trace.md#2-实现示例) / [`gc-write-barrier.md`](gc-write-barrier.md#2-实现模式)。
+> Start from this shape, then adjust to the real types and API. More trace and
+> barrier examples are in [GC Tracing](gc-trace.md) and
+> [Write Barriers](gc-write-barrier.md).
 
 ```text
 my-crate/
 ├── Cargo.toml
-├── gc_audit_exemption.txt      # 唯一 exemption 来源；无条目可暂不建
+├── gc_audit_exemption.txt      # only exemption source; optional if empty
 ├── src/
-│   └── foo.rs                  # payload、GcTrace、guard slots、setter
+│   └── foo.rs                  # payload, GcTrace, guard slots, setters
 └── tests/
     └── gc_audit.rs             # zuqe::gc_audit_test!(<root floor>);
 ```
 
-`src/foo.rs`：
+`src/foo.rs`:
 
 ```rust
 use std::ptr::NonNull;
@@ -142,7 +173,7 @@ use zuqe::{
     gc_lite::{GcHead, GcTrace},
 };
 
-/// 容器元素类型：局部 struct（tuple 不能 impl 外部 trait GcBind）。
+/// Container element type: a local struct. Tuples cannot impl external GcBind.
 #[derive(Debug, GcTrace)]
 #[gc(crate_path = zuqe::gc_lite)]
 struct Req {
@@ -153,27 +184,28 @@ struct Req {
 impl GcBind for Req {
     fn bind_node(&self, ctx: &ScopedContext, owner: NonNull<GcHead>) {
         GcBind::bind_node(&self.cb, ctx, owner);
-        // weak 引用跳过；与 #[gc(skip)]/GcTrace 行为对齐
+        // Skip weak references. Match #[gc(skip)] and GcTrace behavior.
     }
 }
 
 #[derive(Debug, GcTrace)]
 #[gc(crate_path = zuqe::gc_lite)]
 pub(crate) struct FooPayload {
-    // full mark：derive 按字段展开 trace
+    // full mark: derive expands trace by field
     result: WriteBarrier<JSValue>,
     handler: WriteBarrier<Option<Object>>,
-    // minor：guard slot 负责 store + bind；元素类型 impl GcBind
+    // minor: the guard slot stores and binds; element type impls GcBind
     queue: WriteBarrierVec<Req>,
     cache: WriteBarrierMap<u64, Object>,
 }
 
-// GcTrace 由 derive 生成，新增字段不会漏；只有特殊 trace 逻辑才手写 impl。
-// 若 FooPayload 无 GC 节点且字段不实现 GcTrace，用 unsafe_empty_gc_trace!(FooPayload)；
-// 若它根本没有状态，直接使用 () 无 payload 形式。不要写空 impl GcTrace。
+// GcTrace comes from derive, so new fields are covered. Hand-write impl only
+// for special trace logic. If FooPayload has no GC nodes and fields do not
+// implement GcTrace, use unsafe_empty_gc_trace!(FooPayload). If it has no
+// state, use the () no-payload form. Do not write an empty impl GcTrace.
 
 impl FooPayload {
-    // 只暴露 setter；owner 由调用点传入（实例自身）
+    // Expose setters only. The caller passes the owner (the instance).
     pub(crate) fn set_result(&mut self, ctx: &ScopedContext, owner: JSValue, v: JSValue) {
         self.result.set(ctx, owner, v);
     }
@@ -195,20 +227,20 @@ def_native_object!(
     "Foo",
     JSFoo,
     FooPayload,
-    FOO_PROTO, // proto/ctor 见 native-class.md
+    FOO_PROTO, // proto/ctor in native-class.md
     Some(ClassCtorDef::new(js_foo_constructor, 1, false)),
 );
 ```
 
-调用点：
+Call site:
 
 ```rust
-let owner = this;                       // 在借用 payload 前捕获 owner
-let p = get_foo_payload_mut(ctx, &mut this)?;
-p.set_handler(ctx, owner, Some(cb))?;   // setter 内 store + bind
+let owner = this; // capture owner before borrowing the payload
+let p = JSFoo::payload_mut_of(&mut this).ok_or(-1)?;
+p.set_handler(ctx, owner, Some(cb)); // setter stores and binds
 ```
 
-`tests/gc_audit.rs`：
+`tests/gc_audit.rs`:
 
 ```rust
 //! Static GC audit: bare payload fields, missing GcBind impls,
@@ -216,24 +248,36 @@ p.set_handler(ctx, owner, Some(cb))?;   // setter 内 store + bind
 zuqe::gc_audit_test!(10);
 ```
 
-落地顺序：
+Order of work:
 
-1. 按 Rule 0-5 设计字段：GC 字段 → trace；可能后写 → guard slot/setter。
-2. 实现 `GcTrace` 与 setter；容器元素实现 `GcBind`。
-3. 建 `tests/gc_audit.rs` 与 `gc_audit_exemption.txt`，跑 `cargo test --test gc_audit` 红→绿。
-4. 在 debug + `gc_generations` 下做定向 old→young 验证，必要时跑 `--gc-stress`。
-5. 过一遍全局 [`workflow-checklist.md`](workflow-checklist.md#重点检测-checklist)。
+1. Design fields per Rules 0-5: GC fields need trace; possible late writes need
+   guard slots and setters.
+2. Implement `GcTrace` and setters. Container elements implement `GcBind`.
+3. Add `tests/gc_audit.rs` and `gc_audit_exemption.txt`. Run
+   `cargo test --test gc_audit` until it passes.
+4. In debug + `gc_generations`, run a focused old-to-young check. Use
+   `--gc-stress` when needed.
+5. Recheck [Workflow and Checklist](workflow-checklist.md).
 
-## 4. 提交前 Checklist（引用）
+## 4. Pre-commit checklist
 
-> 按 [`gc-safety.md`](gc-safety.md) Rule 0-5 逐条检查；这里的条目只指向对应文档，不重复规则。
+> Check each Rule 0-5 item. These entries point to the details and do not repeat
+> the rules.
 
-- [ ] Rule 0-2：每个 GC 字段都有可达性方案（payload/thread-local/跨 JS）。实现示例见 [`gc-trace.md`](gc-trace.md#21-payload-的-gctrace对应-rule-1)。
-- [ ] 无 GC 节点的 payload 选对形态：零尺寸用 `()`，非零尺寸且字段不实现 `GcTrace` 用
-  `unsafe_empty_gc_trace!`；没有用空手写 impl 掩盖字段。审计会检查宏类型不含 GC 节点，见
-  [`gc-trace.md` §2.6](gc-trace.md#26-无-gc-节点的-payload)。
-- [ ] Rule 4：跨 JS 的值有 traced slot 保活；无 `gc_protect_transient`/scope 依赖；`RefCell` 不跨 JS。见 [`gc-trace.md`](gc-trace.md#23-跨-js-调用前保活对应-rule-4)。
-- [ ] Rule 5：后写字段有 guard slot/setter；owner 正确；无 whole-field replacement；元素有 `GcBind`。见 [`gc-write-barrier.md`](gc-write-barrier.md#2-实现模式)。
-- [ ] 静态审计：`cargo test --test gc_audit` 通过，exemption 有理由且无 stale。见 [`gc-write-barrier.md`](gc-write-barrier.md#4-静态审计zuqe-gc-auditshape)。
-- [ ] 动态验证：定向 old→young 路径过 minor；定向用例跑过 `--gc-stress`。见 [`gc-write-barrier.md`](gc-write-barrier.md#5-动态-minor-验证timing)。
-- [ ] 评审：过一遍 [`workflow-checklist.md`](workflow-checklist.md#重点检测-checklist)。
+- [ ] Rule 0-2: every GC field has a reachability plan (payload, thread-local,
+      or cross-JS). Examples are in [GC Tracing](gc-trace.md).
+- [ ] Payload shape is correct when there are no GC nodes: use `()` for
+      zero-size; use `unsafe_empty_gc_trace!` for non-zero fields without
+      `GcTrace`. Do not hide fields behind a hand-written empty impl. The audit
+      checks the macro type. See [GC Tracing](gc-trace.md).
+- [ ] Rule 4: values across JS have a traced slot; no `gc_protect_transient` or
+      scope dependency; no `RefCell` borrow across JS. See
+      [GC Tracing](gc-trace.md).
+- [ ] Rule 5: late-write fields use guard slots and setters; owner is correct;
+      no whole-field replacement; elements implement `GcBind`. See
+      [Write Barriers](gc-write-barrier.md).
+- [ ] Static audit: `cargo test --test gc_audit` passes. Exemptions have
+      reasons and none are stale. See [Write Barriers](gc-write-barrier.md).
+- [ ] Dynamic check: a focused old-to-young path runs a minor, and the focused
+      case runs with `--gc-stress`. See [Write Barriers](gc-write-barrier.md).
+- [ ] Review: recheck [Workflow and Checklist](workflow-checklist.md).

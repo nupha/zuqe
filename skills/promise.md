@@ -1,14 +1,15 @@
-# Promise 与 Rust Future 桥接
+# Promise and Rust Future Bridge
 
-> 面向宿主 Rust 代码。JS 侧 Promise 语义（微任务、reaction 顺序、错误处理）
-> 由引擎保证；这里讲宿主如何创建、settle、等待 Promise。
-> Promise 的 job/tick 内部实现见 `docs/promise.md` 与 `docs/loop.md`。
+> For Rust host code. The engine keeps JS Promise behavior (microtasks,
+> reaction order, error handling). This page shows how the host creates,
+> settles, and waits for Promises.
+> Promise job and tick internals are in `docs/promise.md` and `docs/loop.md`.
 
 ```rust
 use zuqe::builtins::promise::Promise;
 ```
 
-## 1. 类型与状态
+## 1. Type and state
 
 ```rust
 pub enum PromiseState { Pending, Fulfilled, Rejected }
@@ -19,13 +20,14 @@ impl Promise {
 }
 ```
 
-`state()`/`result()` 主要用于宿主测试与诊断，不暴露给 JS。
+`state()` and `result()` are for host tests and diagnostics. They are not
+exposed to JS.
 
-## 2. 从 Rust 创建并 settle
+## 2. Create and settle from Rust
 
 ```rust
 impl Promise {
-    /// 返回 pending Promise 和 [resolve, reject] 两个 JS 函数。
+    /// Return a pending Promise and the [resolve, reject] JS functions.
     pub fn create(ctx: &mut ScopedContext) -> Result<(Promise, [JSValue; 2]), i32>;
 
     pub fn resolve(&mut self, ctx: &mut ScopedContext, value: JSValue);
@@ -37,16 +39,16 @@ impl Promise {
 
 ```rust
 let (mut promise, resolving) = Promise::create(ctx)?;
-let _ = resolving; // 之后可调用它们，或直接：
+let _ = resolving; // call them later, or settle directly:
 promise.resolve(ctx, JSValue::from(42));
 ```
 
-`resolve`/`reject` 会触发已注册的 reaction；`then` 遵循 `SpeciesConstructor`
-语义，返回新的 wrapper Promise。
+`resolve` and `reject` trigger registered reactions. `then` follows
+`SpeciesConstructor` and returns a new wrapper Promise.
 
-## 3. 由宿主任务驱动 Promise
+## 3. Drive a Promise from host work
 
-### 3.1 `create_with_job`：在 JS 线程轮询
+### 3.1 `create_with_job`: poll on the JS thread
 
 ```rust
 impl Promise {
@@ -57,13 +59,15 @@ impl Promise {
 }
 ```
 
-job 在 JS 线程的微任务循环中调用：
+The job runs in the JS thread microtask loop:
 
-- `Ok(Some(v))`：resolve 并结束 job。
-- `Ok(None)`：继续等待（job 保持注册；没有外部唤醒时事件循环会 park）。
-- `Err(code)`：job 失败；调用方应已在 `ctx` 上设置异常，Promise 被 reject。
+- `Ok(Some(v))`: resolve the Promise and finish the job.
+- `Ok(None)`: keep waiting. The job stays registered. The loop parks if no
+  external wake arrives.
+- `Err(code)`: the job failed. The caller should already have set an exception
+  on `ctx`. The Promise is rejected.
 
-### 3.2 通道：`create_with_channel` / `create_with_receiver`
+### 3.2 Channels: `create_with_channel` and `create_with_receiver`
 
 ```rust
 impl Promise {
@@ -80,13 +84,17 @@ impl Promise {
 }
 ```
 
-- 返回/接收的 `WakeSender<D>`、`WakeReceiver<D>` 是公开 newtype；底层
-  `Sender`/`Receiver` 别名不是公开 API。
-- `WakeSender` 在每次成功 `send`/`try_send` 以及 drop 时唤醒 park 的事件循环。
-- `convert` 在 JS 线程调用一次，返回 `JSResult` 决定 fulfill/reject。
-- channel 在收到值前断开时，Promise 以 internal error reject。
-- 需要新通道用 `ctx.make_channel(n)`（有界）或 `ctx.make_local_channel()`（无界，
-  `D` 不必 `Send`）；已有 `WakeReceiver` 时用 `create_with_receiver`。
+- `WakeSender<D>` and `WakeReceiver<D>` are public newtypes. The raw
+  `Sender`/`Receiver` aliases are not public API.
+- `WakeSender` wakes the parked event loop on a successful `send` or `try_send`,
+  and on drop.
+- `convert` runs once on the JS thread. Its `JSResult` decides fulfill or
+  reject.
+- If the channel disconnects before a value arrives, the Promise is rejected
+  with an internal error.
+- Use `ctx.make_channel(n)` for a bounded channel. Use
+  `ctx.make_local_channel()` for an unbounded channel; `D` does not need
+  `Send`. If you already have a `WakeReceiver`, use `create_with_receiver`.
 
 ```rust
 let (promise, tx) = Promise::create_with_channel(ctx, |cx, res: Result<Vec<u8>, String>| {
@@ -102,7 +110,7 @@ std::thread::spawn(move || {
 // JS: const data = await host.readFile(...);
 ```
 
-### 3.3 `create_with_result_slot`：单次写入槽
+### 3.3 `create_with_result_slot`: a single-write slot
 
 ```rust
 pub struct PromiseResultSlot<D: Send> { /* ... */ }
@@ -122,20 +130,23 @@ impl Promise {
 }
 ```
 
-- `commit` 线程安全；槽只能写一次，第二次返回 `Err(data)`。
-- 传给 `create_with_result_slot` 时槽必须为空，否则抛 internal error。
-- 所有 committer 在未提交的情况下 drop 时，debug 立即 panic，release reject，
-  不会永久挂起。
+- `commit` is thread-safe. The slot accepts one value. A second commit returns
+  `Err(data)`.
+- The slot must be empty when passed to `create_with_result_slot`. Otherwise an
+  internal error is thrown.
+- If all committers drop without committing, debug builds panic at once.
+  Release builds reject the Promise. It does not hang forever.
 
-### 3.4 `hold_when_awaited` 变体
+### 3.4 `hold_when_awaited` variants
 
-`create_with_receiver_hold_when_awaited` 和
-`create_with_channel_hold_when_awaited` 只在 Promise 被观察（`await`/`.then`）
-时维持事件循环；未观察的 fire-and-forget Promise 不会阻止进程退出。
+`create_with_receiver_hold_when_awaited` and
+`create_with_channel_hold_when_awaited` keep the event loop alive only while
+the Promise is observed (`await` or `.then`). An unobserved fire-and-forget
+Promise does not block process exit.
 
-## 4. Promise ↔ Future
+## 4. Promise and Future
 
-### 4.1 Promise → Future：`into_future`
+### 4.1 Promise to Future: `into_future`
 
 ```rust
 impl TryFrom<JSValue> for Promise { type Error = i32; }
@@ -153,10 +164,11 @@ if let Ok(p) = Promise::try_from(val) {
 }
 ```
 
-`PromiseFuture` 实现 `Future<Output = Result<JSValue, JSValue>>`；内部挂
-`then`/`catch`，settle 时唤醒 Waker。
+`PromiseFuture` implements `Future<Output = Result<JSValue, JSValue>>`. It
+attaches `then` and `catch` handlers and wakes the Waker when the Promise
+settles.
 
-### 4.2 Future → Promise：`create_from_future`
+### 4.2 Future to Promise: `create_from_future`
 
 ```rust
 impl Promise {
@@ -166,52 +178,58 @@ impl Promise {
 }
 ```
 
-这个 API 不接收 `Future` 本身，而是接收一个注册闭包；闭包拿到 `notify`：
+This API does not take a `Future`. It takes a registration closure. The closure
+receives `notify`:
 
 ```rust
 let promise = Promise::create_from_future(ctx, |notify| {
-    // 在 JS 线程或已有的轮询逻辑里拿到结果后调用；`notify` 没有 Send bound，
-    // 不要把它 move 到其他线程。
+    // Call this on the JS thread, or from same-thread polling logic.
+    // `notify` has no Send bound. Do not move it to another thread.
     notify(Ok(JSValue::from(42)));
 })?;
 ```
 
-`notify(Ok(v))` fulfill，`notify(Err(reason))` reject。结果在后续 tick 中
-settle，仍在 Zuqe 的 job + tick 系统内。跨线程结果请用
-`create_with_channel` / `create_with_result_slot` 传入，再在 `convert` 里
-构造 `JSValue`。
+`notify(Ok(v))` fulfills. `notify(Err(reason))` rejects. The result settles on a
+later tick, still inside the Zuqe job and tick system. For cross-thread
+results, use `create_with_channel` or `create_with_result_slot`, then build the
+`JSValue` in `convert`.
 
-## 5. 与事件循环一起驱动
+## 5. Drive it with the event loop
 
-- 默认 `async_support`：`ctx.eval_wait(...).await` 已处理顶层 Promise；
-  低层用 `tokio::join!(rt.run_async(), promise_future)`。
-- 无 `async_support`：`eval_wait` 同步阻塞到循环空闲。
-- `Runtime::run_async()` 返回 `RunFuture`，`Output = ExitStatus`；每次 poll
-  推进 tick，直到没有工作。
-- 不要在 `eval_wait` 里再手动传 `&mut Runtime`——Context 自己就属于一个
-  Runtime，循环从 `ctx.rt()` 取。
+- Default `async_support`: `ctx.eval_wait(...).await` handles the top-level
+  Promise. At low level, use
+  `tokio::join!(rt.run_async(), promise_future)`.
+- Without `async_support`: `eval_wait` blocks until the loop is idle.
+- `Runtime::run_async()` returns `RunFuture` with `Output = ExitStatus`. Each
+  poll advances the tick loop until no work remains.
+- Do not pass `&mut Runtime` to `eval_wait`. The Context belongs to one Runtime
+  and gets the loop from `ctx.rt()`.
 
-## 6. JS 侧 Promise
+## 6. JS-side Promise
 
-标准 `Promise` 构造器与静态方法均可用：`Promise.resolve/reject/all/allSettled/
-any/race/try/withResolvers`，实例 `then/catch/finally`。宿主通常只需返回
-Rust 创建的 Promise，JS 侧照常 `await`。
+The standard `Promise` constructor and static methods are available:
+`Promise.resolve`, `reject`, `all`, `allSettled`, `any`, `race`, `try`, and
+`withResolvers`. Instance methods are `then`, `catch`, and `finally`. The host
+usually only returns a Rust-created Promise. JS can `await` it as usual.
 
-## 7. 选择建议
+## 7. Choosing an API
 
-| 场景 | API |
+| Use case | API |
 |---|---|
-| 在 JS 线程轮询宿主状态 | `create_with_job` |
-| 后台线程/异步运行时结果，单值 | `create_with_channel` |
-| 已有 `WakeReceiver` | `create_with_receiver` |
-| 单次写入槽，多 producer | `create_with_result_slot` |
-| 已有回调式 Future 集成 | `create_from_future` |
-| 未观察的 Promise 不应保活进程 | `*_hold_when_awaited` |
+| Poll host state on the JS thread | `create_with_job` |
+| One result from a thread or async runtime | `create_with_channel` |
+| You already have a `WakeReceiver` | `create_with_receiver` |
+| Single-write slot with many producers | `create_with_result_slot` |
+| Existing callback-style Future integration | `create_from_future` |
+| Unobserved Promise must not keep the process alive | `*_hold_when_awaited` |
 
-## 8. GC 注意
+## 8. GC notes
 
-Promise、resolving functions、`convert` 闭包捕获的 JS 值都必须可达：
+Promises, resolving functions, and JS values captured by `convert` must stay
+reachable:
 
-- 长寿命 Rust 结构里的 `Promise`/`JSValue` 用 `#[derive(GcTrace)]` 追踪。
-- 从 traced 容器取出后跨 JS 调用，按 [gc-safety.md](gc-safety.md) Rule 4 保活。
-- 修改 payload 中的 Promise/回调字段，按 Rule 5 走 guard slot + setter。
+- Use `#[derive(GcTrace)]` for `Promise`/`JSValue` in long-lived Rust structs.
+- Keep values alive across JS calls per Rule 4 in
+  [GC Safety Rules](gc-safety.md).
+- When you write Promise or callback fields in a payload, use a guard slot and
+  setter per Rule 5.

@@ -1,10 +1,16 @@
-# 编写 native class
+# Native Classes
 
-> 覆盖宿主/引擎内建 native class 的标准模式。**zapi 第三方扩展**定义 class 走 zapi ABI（`ZqClassDef`/`ZqFieldDef`、由 host 注册），不是 `def_native_object!` 直接路径——见文末边界与 [native-module.md](native-module.md)。
+> Covers host and engine-builtin native classes. **zapi extensions** define
+> classes through the zapi ABI (`ZqClassDef`/`ZqFieldDef`, registered by the
+> host). They do not use `def_native_object!`. See the boundary at the end and
+> [Modules: ESM Loading and Native Modules](native-module.md).
 
-## `def_native_object!`：宿主类（host/external crate）
+## `def_native_object!`: host classes
 
-源码：`src/class/native.rs`。宿主类通过 linkme `HOST_CLASS_DEFS` 在引擎初始化时分配 class id（`Type::class_id()` 在 init 前为 0）。在 context 中使用前必须 `use_class`。
+Source: `src/class/native.rs`. Host classes are collected at link time in
+`HOST_CLASS_DEFS`. The engine assigns their class id during engine init. Before
+init, `Type::class_id()` is 0. Call `use_class` before using the class in a
+context.
 
 ```rust
 use zuqe::{
@@ -17,75 +23,82 @@ use zuqe::{
 #[gc(crate_path = zuqe::gc_lite)]
 pub struct FooPayload {
     value: u32,
-    // GC 节点字段由 derive 自动 trace；可变 GC 字段还需 WriteBarrier
-    // （细节见 gc-trace.md / gc-write-barrier.md）
+    // GcTrace derive covers GC node fields. Mutable GC fields also need a
+    // WriteBarrier. See gc-trace.md and gc-write-barrier.md.
     cached: Option<zuqe::Object>,
 }
 
-// 绝大多数情况用 derive：字段和 enum 变体自动覆盖，新增字段不会漏。
-// 只有特殊 trace 逻辑才手写 impl GcTrace；无 GC 节点的 payload 见下方专节。
+// Use derive in most cases. It covers all fields and enum variants.
+// Hand-write impl GcTrace only for special logic. See the no-GC payload
+// section below for payloads without GC nodes.
 
 fn js_foo_ctor(ctx: &mut ScopedContext, cc: CallContext) -> JSResult {
-    // new_target = cc.this() / constructor 协议按引擎约定；示例用 cc.this()
+    // Constructor new_target is cc.this() by engine convention.
     JSFoo::new_instance(ctx, cc.this(), FooPayload { value: 0, cached: None })
         .map(JSValue::from)
 }
 
 pub const FOO_PROTO: &[zuqe::FieldDef] = &[
-    // FieldDef::FUNC / GETSET / ... 见 native-function.md
+    // FieldDef::FUNC, GETSET, ... see native-function.md
 ];
 
 def_native_object!(
     "Foo",
     JSFoo,        // #[repr(transparent)] wrapper over Object
-    FooPayload,   // 或 () 表示无 payload；零尺寸 payload 一律用 ()
+    FooPayload,   // use () for no payload; always use () for zero-size payloads
     FOO_PROTO,
     Some(ClassCtorDef::new(js_foo_ctor, 0, false)), // (ctor, length, call_as_func)
-    // extends: JSBase::class_id,                    // 可选：声明父类（见继承）
+    // extends: JSBase::class_id,                    // optional parent (see inheritance)
 );
 ```
 
-`ClassCtorDef::new(callback, length, call_as_func)`：
+`ClassCtorDef::new(callback, length, call_as_func)`:
 
-- `callback`: 构造回调，签名同 `CallbackFn`。
-- `length`: `Function.length`。
-- `call_as_func`: `true` 时允许不带 `new` 直接调用（`Callback::ConstructorOrFunc`）；
-  `false` 时只能 `new`（`Callback::Constructor`）。
-- 链式配置：`.expose_to_global()` 自动装到全局；`.magic(i16)` 设置 magic；
-  `.entries(&'static [FieldDef])` 安装静态成员。
+- `callback`: constructor callback, same signature as `CallbackFn`.
+- `length`: `Function.length`.
+- `call_as_func`: `true` allows a plain call without `new`
+  (`Callback::ConstructorOrFunc`). `false` allows `new` only
+  (`Callback::Constructor`).
+- Chain methods: `.expose_to_global()` installs it on the global object.
+  `.magic(i16)` sets the magic. `.entries(&'static [FieldDef])` adds static
+  members.
 
-`def_native_object!` 会为带 payload 的宿主类接上 `drop_payload_fn::<P>` 与
-`user_payload_trace::<P>`；由于后者要求 `P: GcTrace`，**payload 类型没有
-`GcTrace` 会在宏调用处直接编译失败**。`extends:` 只声明父类，子类 payload 不会
-共享父类的 trace。
+For a host class with a payload, `def_native_object!` wires
+`drop_payload_fn::<P>` and `user_payload_trace::<P>`. The latter requires
+`P: GcTrace`. Therefore, **a payload type without `GcTrace` fails to compile at
+the macro call**. `extends:` only declares the parent. A child payload does not
+share the parent trace.
 
-### Context 初始化
+### Context setup
 
 ```rust
 ctx.use_class(JSFoo::class_id())?;
-// 之后可通过 ctx.class_proto/constructor 等按需安装到全局
+// Then install the prototype or constructor on the global object as needed.
 ```
 
-`use_class`/`use_classes` 会按需扩展 class slots 并初始化 class 定义；带 `extends` 的宿主类按引擎实现建立继承链（参考 `src/class/native.rs` 测试 `host_class_extends_links_both_chains`）。
+`use_class` and `use_classes` grow the class slots as needed and initialize the
+class. A host class with `extends` is linked by the engine. See
+`host_class_extends_links_both_chains` in `src/class/native.rs`.
 
-### Payload 访问
+### Payload access
 
-宏生成：
+The macro generates:
 
-- `payload() -> Option<&Payload>` / `payload_mut() -> Option<&mut Payload>`
-- `take_payload() -> Option<Box<Payload>>`（取走后 payload slot 为空）
-- `payload_of(&JSValue) -> Option<&Payload>` / `payload_mut_of(&mut JSValue)` /
-  `take_payload_of(&mut JSValue)`
+- `payload() -> Option<&Payload>` and `payload_mut() -> Option<&mut Payload>`
+- `take_payload() -> Option<Box<Payload>>` (empties the payload slot)
+- `payload_of(&JSValue) -> Option<&Payload>`,
+  `payload_mut_of(&mut JSValue)`, and `take_payload_of(&mut JSValue)`
 
-访问前宏/NativeObject 已校验 class_id。`payload_raw`/`replace_payload` 属底层能力，
-优先用生成的类型安全方法。
+The macro and `NativeObject` check the class id. `payload_raw` and
+`replace_payload` are low-level. Prefer the generated type-safe methods.
 
-### 创建实例
+### Create instances
 
-- 构造函数内：`Self::new_instance(ctx, cc.this(), payload)`（`cc.this()` 是
-  `new_target`）。
-- 构造函数外（工厂/模块导出）：`Self::new_instance(ctx, JSValue::UNDEFINED, payload)`；
-  引擎会用类自己的 prototype 创建实例。
+- Inside a constructor: `Self::new_instance(ctx, cc.this(), payload)`.
+  `cc.this()` is the new target.
+- Outside a constructor (factory or module export):
+  `Self::new_instance(ctx, JSValue::UNDEFINED, payload)`. The engine uses the
+  class prototype.
 
 ```rust
 impl JSFile {
@@ -97,7 +110,7 @@ impl JSFile {
 }
 ```
 
-`FieldDef::LAZY_VALUE` 可以在模块导出时构造实例：
+`FieldDef::LAZY_VALUE` can build instances during module export:
 
 ```rust
 FieldDef::LAZY_VALUE("in", |cx| {
@@ -105,7 +118,7 @@ FieldDef::LAZY_VALUE("in", |cx| {
 }, JS_PROP_ENUMERABLE)
 ```
 
-### 通过 `FieldDef::CLASS` 导出构造器
+### Export a constructor with `FieldDef::CLASS`
 
 ```rust
 static FILE_MODULE_ENTRIES: &[FieldDef] = &[
@@ -113,27 +126,29 @@ static FILE_MODULE_ENTRIES: &[FieldDef] = &[
 ];
 ```
 
-`FieldDef::CLASS` 接收 `fn() -> ClassID`，模块 init 时按 class_id 查找并暴露构造器。
+`FieldDef::CLASS` takes `fn() -> ClassID`. The module init looks up the class id
+and exposes the constructor.
 
-### 无 payload
+### No payload
 
 ```rust
 def_native_object!("Bar", JSBar, (), BAR_PROTO, None);
 // JSBar::new_instance(ctx, new_target) -> Result<Self, i32>
 ```
 
-零尺寸/无状态的 payload 不需要存在：直接用 `()`，不要写 `struct BarPayload;` 再给它一个空
-`GcTrace`。例：`TextEncoder` 没有任何实例状态，就用 `()` 形式，省掉每次实例化的 `Box` 分配和
-`payload_drop`。
+A zero-size or stateless payload should not exist. Use `()` directly. Do not
+write `struct BarPayload;` and give it an empty `GcTrace`. For example,
+`TextEncoder` has no per-instance state. Using `()` avoids a `Box` allocation
+and `payload_drop` per instance.
 
-### 无 GC 节点的 payload
+### Payload with no GC nodes
 
-payload 有数据，但传递闭包内**没有** `JSValue`/`Object`/`GcRef`/`WriteBarrier` 等 GC 节点时，按字段
-是否实现 `GcTrace` 选择：
+A payload may hold data but no `JSValue`, `Object`, `GcRef`, or `WriteBarrier`
+in its transitive closure. Choose by whether the fields implement `GcTrace`:
 
 ```rust
-// 字段都可 trace（String/Vec<u8>/Arc<[u8]>...）：仍优先 derive。
-// 当前生成空 trace，以后新增 GC 字段会自动跟上。
+// All fields can be traced (String, Vec<u8>, Arc<[u8]>, ...): use derive.
+// It generates an empty trace today, and future GC fields are covered.
 #[derive(GcTrace)]
 #[gc(crate_path = zuqe::gc_lite)]
 pub(crate) struct BlobPayload {
@@ -141,8 +156,9 @@ pub(crate) struct BlobPayload {
     type_: String,
 }
 
-// 字段不实现 GcTrace（raw handle、第三方容器、tokio Mutex...）：
-// 用显式空 trace 宏，替代手写空 impl。
+// Fields do not implement GcTrace (raw handle, third-party container,
+// tokio Mutex, ...): use the explicit empty trace macro instead of a
+// hand-written empty impl.
 pub(crate) struct IoHandlePayload {
     file: tokio::fs::File,
     kind: HandleKind,
@@ -150,49 +166,82 @@ pub(crate) struct IoHandlePayload {
 zuqe::gc_lite::unsafe_empty_gc_trace!(IoHandlePayload);
 ```
 
-`unsafe_empty_gc_trace!` 是对**整个类型**的断言，不是消编译错误的工具：
+`unsafe_empty_gc_trace!` is an assertion about the **whole type**. It is not a
+way to silence the compiler:
 
-- 它要求类型传递闭包内没有任何 GC 节点；以后加入 `JSValue`/`Object`/`WriteBarrier` 字段，必须删除宏
-  并补 trace，否则就是 UAF。
-- 只有一两个字段不实现 `GcTrace` 时，优先 `#[derive(GcTrace)]` + `#[gc(skip)]`，粒度更小、更安全。
-- `gc_audit` 会递归检查被宏标记的类型：可达字段里出现 GC 节点（包括包在 `WriteBarrier` 里的）会直接
-  失败。
+- The type's transitive closure must contain no GC nodes. If you later add a
+  `JSValue`, `Object`, or `WriteBarrier` field, remove the macro and add trace.
+  Otherwise you get a use-after-free.
+- If only one or two fields lack `GcTrace`, prefer `#[derive(GcTrace)]` plus
+  `#[gc(skip)]`. It is smaller and safer.
+- `gc_audit` recursively checks types marked by the macro. A reachable GC node,
+  including one inside `WriteBarrier`, fails the audit.
 
-## 构造、方法、属性、原型
+## Constructors, methods, properties, prototypes
 
-- **原型方法/属性**：通过 `proto_entries`（`&[FieldDef]`）声明；`FieldDef::FUNC`/`GETSET`/常量等。
-- **构造器**：`ClassCtorDef::new(fn, length, is_constructor)`；构造回调内创建实例并附加 payload。
-- **`this` 类型检查**：方法回调中用 `NativeObject::from_value`/`from_object` 或 `JSFoo::payload_of(&cc.this())` 等校验，失败抛 `TypeError`。
-- **属性标志**：按 ECMA/WebIDL 语义选择 `JS_PROP_*`；不要随意放宽 configurable/writable/enumerable。
+- **Prototype methods and properties**: declare with `proto_entries`
+  (`&[FieldDef]`). Use `FieldDef::FUNC`, `GETSET`, constants, and so on.
+- **Constructor**: `ClassCtorDef::new(fn, length, call_as_func)`.
+- **`this` checks**: use `NativeObject::from_value`, `from_object`, or
+  `JSFoo::payload_of(&cc.this())`. Throw `TypeError` on failure.
+- **Property flags**: choose `JS_PROP_*` to match ECMA/WebIDL semantics. Do not
+  widen configurable, writable, or enumerable without a reason.
 
-## 类继承：**只有一条落地路径**
+## Class inheritance: one path only
 
-这是项目硬约束（`AGENTS.md` / 任务要求），用于避免多套建链逻辑漂移：
+This is a project rule. It keeps one linking implementation.
 
-1. **先按根类建**，再建立继承关系；不要在构造过程中手工拼链。
-2. **宿主自带类**：使用 `def_native_object!(..., extends: Parent::class_id)` 声明父类，并通过 `use_class` 初始化（引擎按统一机制链接）。
-3. **引擎内建/内核原语**：继承关系由 `ScopedContext::link_class_extends` / `init_class_proto_extends`（及相关 `bind_ctor_proto*`）建立——这些是 `pub(crate)` 原语（`src/class/using.rs`），是**引擎唯一**落地实现；内建类的 `class_init` 应复用它们，不另起炉灶。
-4. **禁止**手写 `obj.set_prototype(...)` 来建立 class prototype/constructor 继承链（除了引擎原语内部；业务/绑定代码不得绕过）。
-5. **不开放 InitFn 给第三方**。第三方扩展按其受众走 zapi 支持的范式；不要把内建 init 机制暴露/照搬给第三方。
-6. **宿主/内建 与 zapi 第三方范式不混用**：同一需求选型时先定路径（见 [workflow-checklist.md](workflow-checklist.md)）。
+1. Build the root class first, then link inheritance. Do not build chains by
+   hand in constructors.
+2. **Host classes**: declare the parent with
+   `def_native_object!(..., extends: Parent::class_id)` and initialize with
+   `use_class`. The engine links both sides.
+3. **Engine builtins and kernel primitives**: use
+   `ScopedContext::link_class_extends`, `init_class_proto_extends`, and related
+   `bind_ctor_proto*` functions. These are `pub(crate)` primitives in
+   `src/class/using.rs` and are the only engine implementation. Builtin
+   `class_init` code must reuse them.
+4. **Do not** write `obj.set_prototype(...)` to build a class prototype or
+   constructor chain. Only the engine primitives may do this.
+5. **Do not expose InitFn to third parties.** zapi extensions use the zapi
+   path. Do not expose or copy builtin init mechanisms to them.
+6. **Do not mix host/builtin and zapi styles.** Choose the path first. See
+   [workflow-checklist.md](workflow-checklist.md).
 
-> 若你不确定某继承写法是否合规：能用 `def_native_object! extends` 就用；不能用时查 `src/class/using.rs` 与现有内建模式，**不要**发明新建链方式。
+> If you are unsure about an inheritance pattern: use
+> `def_native_object! extends` when possible. Otherwise read
+> `src/class/using.rs` and existing builtins. Do not invent a new way to link
+> classes.
 
-## GC：payload 设计（引用）
+## GC payload design
 
-> 规则见 [`gc-safety.md`](gc-safety.md#2-gc-rules唯一规则来源) §2 Rule 0-5；trace 示例/反例见
-> [`gc-trace.md`](gc-trace.md#2-实现示例)；屏障实现与工具见 [`gc-write-barrier.md`](gc-write-barrier.md#2-实现模式)。
+> Rules are in [GC Safety Rules](gc-safety.md). Trace examples are in
+> [GC Tracing](gc-trace.md). Barrier patterns and tools are in
+> [Write Barriers](gc-write-barrier.md).
 
-写 class/payload 时重点对照 Rule 1（trace）与 Rule 5（后写 barrier）；`extends:` 子类、
-weak/`#[gc(skip)]`、容器元素 `GcBind` 也按对应规则处理。payload 无自动 re-trace fallback
-（zapi 实例的 per-minor payload 重扫是引擎对 zapi 路径的补偿，不适用于宿主 payload）。
+For classes and payloads, focus on Rule 1 (trace) and Rule 5 (late-write
+barrier). Apply the same rules to `extends:` subclasses, weak fields,
+`#[gc(skip)]`, and container elements with `GcBind`. Host payloads have no
+automatic re-trace fallback. The zapi per-minor payload re-scan is only for the
+zapi path.
 
-无 GC 节点的 payload 按“存在形式”选最小方案：零尺寸/无状态 → `()`；非零尺寸且字段不实现
-`GcTrace` → `unsafe_empty_gc_trace!`；字段都可 trace → `#[derive(GcTrace)]`。不要把空 `impl GcTrace`
-当成默认写法。
+For payloads with no GC nodes, choose the smallest form: zero-size or
+stateless uses `()`; non-zero fields without `GcTrace` use
+`unsafe_empty_gc_trace!`; traceable fields use `#[derive(GcTrace)]`. Do not use
+an empty hand-written `GcTrace` impl as the default.
 
-## zapi 第三方 class（边界说明）
+## zapi third-party classes
 
-zapi 扩展通过 `ZqClassDef`/`ZqFieldDef`/body trampoline 描述类与成员，由 `src/zapi/host.rs` 加载并注册；GC 追踪通过 class `gc_trace` 回调，并由引擎对 **old zapi 实例**在每次 minor 做 payload 重扫（补偿 zapi 无 barrier ABI 的限制）——这仍要求 `gc_trace` 回调报告其持有的全部 GC 字段。该路径是 **ABI/FFI**，不使用 `ScopedContext`/`FieldDef`/`def_native_object!` 宿主宏。第三方不得依赖/获得 InitFn 等内建特权。
+zapi extensions describe classes and members with `ZqClassDef`, `ZqFieldDef`,
+and body trampolines. `src/zapi/host.rs` loads and registers them. GC tracing
+uses the class `gc_trace` callback. The engine re-scans the payload of every
+**old zapi instance** on each minor. This compensates for the missing barrier
+ABI, but the callback must still report every GC field.
 
-选型时若需求是“宿主二进制内嵌 zuqe 并加内建能力”，走宿主路径；若是“可加载 cdylib 扩展”，走 zapi 路径并遵循 zapi 约束。
+This path is ABI/FFI. It does not use `ScopedContext`, `FieldDef`, or
+`def_native_object!`. Third parties do not get InitFn or other builtin
+privileges.
+
+If the task is "embed zuqe in a host binary and add builtin features", use the
+host path. If it is "a loadable cdylib extension", use zapi and follow its
+rules.

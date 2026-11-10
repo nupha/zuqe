@@ -1,38 +1,40 @@
-# 嵌入基础：Runtime、Context 与执行
+# Embedding Basics: Runtime, Context, and Execution
 
-> 面向宿主 Rust 代码（直接依赖 `zuqe`）。这里只讲公开 API 的“怎么用”；
-> tick / Promise job / GC 的内部实现见 `docs/loop.md`、`docs/promise.md`、`docs/gc.md`。
+> For Rust host code that depends on `zuqe`. This page covers the public API.
+> Tick, Promise job, and GC internals are in `docs/loop.md`, `docs/promise.md`,
+> and `docs/gc.md`.
 
-## 1. Cargo 依赖与 feature
+## 1. Cargo dependency and features
 
 ```toml
 [dependencies]
-zuqe = "0.11"          # 以 Cargo.toml 中的实际版本为准
-tokio = { version = "1", features = ["full"] } # 仅异步宿主需要
+zuqe = "0.11"          # use the version in Cargo.toml
+tokio = { version = "1", features = ["full"] } # async hosts only
 ```
 
-默认 feature 集合（`Cargo.toml` 的 `default`）包含：
-`inline_cache`、`big_int`、`all_unicode`、`async_support`、`gc_generations`、
-`jit`，以及 `builtin_mapset/proxy/atomic/regexp/reflect/json/date/math/weakref`。
+The default feature set in `Cargo.toml` includes `inline_cache`, `big_int`,
+`all_unicode`, `async_support`, `gc_generations`, `jit`, and the default
+`builtin_*` features.
 
-常用可选 feature：
+Common optional features:
 
-| feature | 作用 |
+| Feature | Purpose |
 |---|---|
-| `zapi` | 加载 zapi 动态扩展（`cdylib`），见 [zapi-extension.md](zapi-extension.md) |
-| `intl402` | `Intl` 支持，依赖 ICU |
-| `persistent` | 字节码持久化（`zjs` 的 `dumpValue`/`restoreValue`） |
-| `crossbeam_channel` | 用 `crossbeam::channel` 替代 `std::sync::mpsc` |
-| `serde_json_support` | `JSValue` ↔ `serde_json::Value` |
-| `jit_dump` | 转储 Cranelift IR / 机器码，仅调试 |
-| `gc_protect_transient` | 仅在 `gc_alloc` 可能触发 GC 时需要；一般不要开 |
+| `zapi` | Load zapi cdylib extensions. See [zapi-extension.md](zapi-extension.md). |
+| `intl402` | `Intl` support. Uses ICU. |
+| `persistent` | Bytecode persistence helpers (`dumpValue`/`restoreValue` in `zjs`). |
+| `crossbeam_channel` | Use `crossbeam::channel` instead of `std::sync::mpsc`. |
+| `serde_json_support` | `JSValue` and `serde_json::Value` conversion. |
+| `jit_dump` | Dump Cranelift IR and machine code. Debug only. |
+| `gc_protect_transient` | Only needed when `gc_alloc` can trigger a GC. Normally off. |
 
-裁剪构建用 `--no-default-features --features "...`，逐个列出真正需要的功能。
+For a smaller build, use `--no-default-features --features "..."` and list only
+the features you need.
 
-## 2. 创建 Runtime 与 Context
+## 2. Create a Runtime and Context
 
-`Runtime` 拥有 GC 堆和事件循环；`Context` 是隔离的全局环境。一个 Context
-只属于一个 Runtime。
+`Runtime` owns the GC heap and the event loop. `Context` is an isolated global
+environment. A Context belongs to exactly one Runtime.
 
 ```rust
 use zuqe::{Context, Runtime, ScopedContext};
@@ -44,15 +46,16 @@ fn build() -> Result<(Runtime, Context<'static>), i32> {
 }
 ```
 
-`ScopedContext::ECMA_CONTEXT_SETUP` 安装标准 ECMAScript 全局对象；也可以传入
-自己的 setup 闭包，只暴露受限的宿主 API。
+`ScopedContext::ECMA_CONTEXT_SETUP` installs the standard ECMAScript globals.
+You can also pass your own setup closure and expose only a small host API.
 
-## 3. 执行脚本：`eval_wait` 与 `eval`
+## 3. Run a script: `eval_wait` and `eval`
 
-### 3.1 推荐：`eval_wait`（驱动到事件循环空闲）
+### 3.1 Recommended: `eval_wait`
 
-`Context::eval_wait` 负责执行入口脚本/模块，并驱动 tick 直到没有待处理任务。
-默认 `async_support` 打开时它是 **async** 函数，参数里**没有** `&mut Runtime`：
+`Context::eval_wait` runs an entry script or module. It drives the tick loop
+until no work remains. With default `async_support`, it is **async** and does
+**not** take `&mut Runtime`:
 
 ```rust
 use zuqe::{EvalFlags, EvalName, EvalType, Exception, ExitStatus};
@@ -93,11 +96,11 @@ async fn main() -> std::process::ExitCode {
 }
 ```
 
-`eval_wait` 会观察入口的顶层 Promise：模块顶层 rejection 会变成
-`ExitStatus::Exception(Exception::Error(reason))`，不会被静默丢弃。
+`eval_wait` watches the entry top-level Promise. A module rejection becomes
+`ExitStatus::Exception(Exception::Error(reason))`. It is not dropped.
 
-当 `async_support` 关闭时，`Context::eval_wait` 与 `ScopedContext::eval_wait`
-是同步函数，签名中同样没有 Runtime：
+When `async_support` is off, `Context::eval_wait` and `ScopedContext::eval_wait`
+are synchronous. They also take no Runtime:
 
 ```rust
 let status = ctx.with_root_scope(|mut scope| {
@@ -110,10 +113,10 @@ let status = ctx.with_root_scope(|mut scope| {
 });
 ```
 
-### 3.2 低层：`eval` + `run_async`
+### 3.2 Low level: `eval` plus `run_async`
 
-`eval` 不阻塞：普通值立即返回；如果脚本返回 Promise，需要自己把它转成
-Future，并与 `Runtime::run_async()` 一起驱动。
+`eval` does not block. A plain value returns at once. If the script returns a
+Promise, convert it to a Rust Future and drive it with `Runtime::run_async()`.
 
 ```rust
 use zuqe::builtins::promise::Promise;
@@ -145,72 +148,81 @@ let value = if let Some(fut) = promise_future {
 };
 ```
 
-`Runtime::run_async()` 返回 `RunFuture`，其 `Output` 是 `ExitStatus`。更多
-Promise 桥接见 [promise.md](promise.md)。
+`Runtime::run_async()` returns `RunFuture`. Its `Output` is `ExitStatus`. More
+Promise details are in [promise.md](promise.md).
 
-## 4. `EvalName` / `EvalType` / `EvalFlags`
+## 4. `EvalName`, `EvalType`, and `EvalFlags`
 
-- `EvalName::Name(s)`：只作为调试文件名，不绑定 URL base；`Name("")` 表示显式无名字。
-- `EvalName::BaseUrl(url)`：同时作为名字和 URL base。**模块执行必须用它**，
-  这样 `import.meta.url` 和相对 `import()` 才能解析。
-- `EvalType::Global`：脚本语义；`EvalType::Module`：ESM，返回 Promise；
-  `EvalType::Indirect`：间接 eval 语义；`Direct` 只用于内部 eval。
-- `EvalFlags::STRICT`、`STRIP`、`BACKTRACE_BARRIER`、`COMPILE_TO_ASYNC`、
-  `NO_AWAIT_RESULT`。一般宿主入口用 `EvalFlags::empty()`。
+- `EvalName::Name(s)` is only a debug filename. It does not bind a URL base.
+  `Name("")` means no name.
+- `EvalName::BaseUrl(url)` is both the name and the URL base. **Module execution
+  must use it**, so `import.meta.url` and relative `import()` resolve.
+- `EvalType::Global` runs a script. `EvalType::Module` runs an ES module and
+  returns a Promise. `EvalType::Indirect` uses indirect eval semantics.
+  `Direct` is for internal eval only.
+- `EvalFlags` has `STRICT`, `STRIP`, `BACKTRACE_BARRIER`, `COMPILE_TO_ASYNC`,
+  and `NO_AWAIT_RESULT`. Host entries usually use `EvalFlags::empty()`.
 
-入口文件名转 URL 用 `zuqe::path_to_url`（返回 `Result<Url, _>`）。
+Use `zuqe::path_to_url` to convert an entry filename to a URL.
 
-## 5. GC scope 的公开入口
+## 5. Public GC scope entry points
 
-- `Context::with_root_scope(|scope| ...)`：在 root scope 中执行。root scope
-  中的值会一直存活到 Context 销毁，不需要时用 `scope.remove_local(node)`。
-- `ScopedContext::with_new_scope(|scope| ...)`：创建子 scope；闭包返回值会
-  promotion 到父 scope。临时工作放这里。
-- `Context::eval` / `Context::eval_wait` 内部已经创建子 scope，调用方不需要
-  再手动包一层。
+- `Context::with_root_scope(|scope| ...)` runs in the root scope. Values in the
+  root scope live until the Context is dropped. Call
+  `scope.remove_local(node)` when a value is no longer needed.
+- `ScopedContext::with_new_scope(|scope| ...)` creates a child scope. The
+  closure result is promoted to the parent scope. Use it for temporary work.
+- `Context::eval` and `Context::eval_wait` already create a child scope. You do
+  not need to wrap them.
 
-`Context::with_new_scope` 是 crate 内部方法；宿主应写成
-`ctx.with_root_scope(|scope| scope.with_new_scope(...))`。
+`Context::with_new_scope` is crate-internal. Hosts should write
+`ctx.with_root_scope(|scope| scope.with_new_scope(...))`.
 
-## 6. 资源限制与宿主配置
+## 6. Resource limits and host setup
 
 ```rust
 let mut rt = zuqe::Runtime::create()?;
-rt.install_panic_handler();                 // release 下 panic 时尽量回收 GC
+rt.install_panic_handler();                 // try to free GC on panic in release
 
-rt.gc_set_memory_limit(64 << 20);           // GC 堆上限（字节）
-rt.set_vm_stack_arena(256 << 10).map_err(|_| -1)?; // VM 帧 bump arena
-rt.set_vm_stack_limit(512 << 10);           // VM 虚拟栈总上限（arena + heap spill）
-rt.set_thread_stack_limit(512 << 10);       // C 栈递归上限；0 = 自动
+rt.gc_set_memory_limit(64 << 20);           // GC heap limit in bytes
+rt.set_vm_stack_arena(256 << 10).map_err(|_| -1)?; // VM frame bump arena
+rt.set_vm_stack_limit(512 << 10);           // total VM stack: arena + heap spill
+rt.set_thread_stack_limit(512 << 10);       // C stack recursion limit; 0 = auto
 ```
 
-- `set_vm_stack_arena` 返回 `Result<(), ()>`，分配失败时返回 `Err(())`。
-- `set_vm_stack_limit` 应 `>=` arena；小于 arena 只会浪费 arena 空间。
-- `set_thread_stack_limit(0)` 为自动模式，从当前线程真实栈底推导并保留
-  `THREAD_STACK_LIMIT_MARGIN` 的 throw 路径余量。
-- C-stack 自动模式依赖平台能报告栈底；`Runtime::CAN_AUTO_THREAD_STACK_LIMIT`
-  给出编译期判断。
+- `set_vm_stack_arena` returns `Result<(), ()>`. It returns `Err(())` if the
+  allocation fails.
+- `set_vm_stack_limit` should be `>=` the arena size. A smaller limit only
+  wastes arena space.
+- `set_thread_stack_limit(0)` uses auto mode. It derives the limit from the
+  real thread stack bottom and keeps `THREAD_STACK_LIMIT_MARGIN` for the throw
+  path.
+- Auto mode needs platform support for the stack bottom.
+  `Runtime::CAN_AUTO_THREAD_STACK_LIMIT` tells you at compile time.
 
-## 7. 模块加载钩子
+## 7. Module loading hooks
 
-模块来源是宿主策略：
+Module sources are host policy:
 
 ```rust
-rt.set_module_normalizer(my_normalizer); // 可选，默认归一化已可用
-rt.set_module_loader(my_loader);         // 不设置则每次 import 抛 ReferenceError
+rt.set_module_normalizer(my_normalizer); // optional; a default normalizer exists
+rt.set_module_loader(my_loader);         // without it, every import throws
 ```
 
-两个回调都是普通 `fn` 指针，不带宿主状态；需要状态时放
-`RuntimeImpl::user_state`，回调里通过 `ctx.rt()` 访问。完整签名、import
-attributes、`import.meta` 与 zapi 扩展加载见 [native-module.md](native-module.md)。
+Both callbacks are plain `fn` pointers. They carry no host state. Put state in
+`RuntimeImpl::user_state` and read it with `ctx.rt()`. See
+[Modules: ESM Loading and Native Modules](native-module.md) for signatures,
+import attributes, `import.meta`, and zapi extension loading.
 
-## 8. 最小检查清单
+## 8. Quick checklist
 
-- [ ] Runtime 与 Context 的创建顺序正确；`Context` 不跨线程、不跨 Runtime。
-- [ ] 默认 `async_support` 下使用 `Context::eval_wait(...).await`，没有多传
-      `&mut Runtime`。
-- [ ] 模块入口用 `EvalName::BaseUrl(path_to_url(...)?)`。
-- [ ] Promise 返回值用 `Promise::try_from` + `into_future`，并与 `run_async`
-      一起驱动。
-- [ ] 临时值放 `with_new_scope`；root scope 中的值及时 `remove_local`。
-- [ ] 资源限制在创建 Context 前后按需设置；`set_vm_stack_arena` 的错误已处理。
+- [ ] Runtime and Context are created in the right order. `Context` is not sent
+      across threads or runtimes.
+- [ ] With default `async_support`, use `Context::eval_wait(...).await`. Do not
+      pass `&mut Runtime`.
+- [ ] Module entries use `EvalName::BaseUrl(path_to_url(...)?)`.
+- [ ] Promise results use `Promise::try_from` and `into_future`, driven with
+      `run_async`.
+- [ ] Temporary values use `with_new_scope`. Remove root-scope values with
+      `remove_local` when done.
+- [ ] Resource limits are set as needed. `set_vm_stack_arena` errors are handled.

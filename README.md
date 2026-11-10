@@ -259,15 +259,15 @@ Documentation is split by audience:
 
 - **[Skills](skills/SKILL.md)** — how to use and embed Zuqe from Rust. Start here
   if you are writing host code or an extension:
-  - [Embedding Basics](skills/embedding-basics.md) — Runtime/Context, `eval`/`eval_wait`, limits
-  - [Native Functions](skills/native-function.md)
+  - [Embedding Basics: Runtime, Context, and Execution](skills/embedding-basics.md) — Runtime/Context, `eval`/`eval_wait`, limits
+  - [Native Function Binding](skills/native-function.md)
   - [Native Classes](skills/native-class.md)
-  - [Modules (ESM + native)](skills/native-module.md)
-  - [Promise / Future](skills/promise.md)
-  - [Tiered JIT usage](skills/jit.md)
-  - [zapi extensions](skills/zapi-extension.md)
-  - [GC safety rules](skills/gc-safety.md)
-  - [Workflow checklist](skills/workflow-checklist.md)
+  - [Modules: ESM Loading and Native Modules](skills/native-module.md)
+  - [Promise and Rust Future Bridge](skills/promise.md)
+  - [Tiered JIT Usage](skills/jit.md)
+  - [Writing a zapi Extension (cdylib)](skills/zapi-extension.md)
+  - [GC Safety Rules](skills/gc-safety.md)
+  - [Workflow and Review Checklist](skills/workflow-checklist.md)
 - **[Docs](docs/)** — internals, design, build, and tool manuals:
   - [About Zuqe](docs/about.md) — the name, philosophy, and design goals
   - [Garbage Collection](docs/gc.md) — collector implementation

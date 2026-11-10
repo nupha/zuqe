@@ -11,10 +11,10 @@ handling. It is for changing the engine.
 
 If you are writing a host crate that depends on `zuqe` — native payloads, `GcTrace`, guard slots,
 `GcBind`, or the static GC audit — read the user-facing rules in
-**[skills/gc-safety.md](../skills/gc-safety.md)** first. That file is the single source of truth
-for Rule 0-5; implementation examples live in
-**[skills/gc-trace.md](../skills/gc-trace.md)** and
-**[skills/gc-write-barrier.md](../skills/gc-write-barrier.md)**. This page does not repeat them.
+**[GC Safety Rules](../skills/gc-safety.md)** first. That file is the single source of truth
+for rules 0-5; implementation examples live in
+**[GC Tracing: Examples and Pitfalls](../skills/gc-trace.md)** and
+**[Write Barriers: Patterns and Tools](../skills/gc-write-barrier.md)**. This page does not repeat them.
 
 ---
 
@@ -140,7 +140,7 @@ A mark starts from:
 - **runtime roots**: pending jobs, the shape registry, prototype/constructor slots, module and
   bytecode tables;
 - **user trace callbacks** registered with `gc_set_trace_handler` (Rule 2 in
-  [skills/gc-safety.md](../skills/gc-safety.md#2-gc-rules唯一规则来源));
+  [GC Safety Rules](../skills/gc-safety.md));
 - **root containers** (the context itself, the shape registry, jobs, user state): a minor
   force-descends these, so writes into them need no barrier.
 
@@ -198,7 +198,7 @@ silent corruption, caught only by the debug assert in `GcHeap::bind` and by revi
 
 **Removal is free.** `remove`/`pop`/`clear`/`retain`/`take` need no barrier — but the removed
 value loses `trace` coverage, so if it is still used after the next GC point it must be held in a
-traced slot (Rule 4 in [skills/gc-safety.md](../skills/gc-safety.md#2-gc-rules唯一规则来源)).
+traced slot (Rule 4 in [GC Safety Rules](../skills/gc-safety.md)).
 
 ## 6. Guard slots and their representation
 
@@ -234,7 +234,7 @@ Deliberately withheld:
   bare edge. Prefer rebuilding the element through `remove` + `push` where that is natural.
 - **Whole-field replacement still compiles** (`p.slot = WriteBarrier::new(v)`,
   `mem::replace(&mut p.slot, …)`). Rust cannot forbid it, so the static audit rejects it
-  (see [skills/gc-write-barrier.md](../skills/gc-write-barrier.md)).
+  (see [Write Barriers: Patterns and Tools](../skills/gc-write-barrier.md)).
 
 Guard slots cover the **minor**: `set`/`push`/`insert` call `bind` on the stored value, and a
 container element supplies its own edges through `GcBind`. They do **not** replace `GcTrace`: a
@@ -280,15 +280,15 @@ holds, because the re-scan can only see what it reports.
 
 The public rules are in the skill docs, not here:
 
-- **[GC safety rules (Rule 0-5)](../skills/gc-safety.md#2-gc-rules唯一规则来源)** — what a host
+- **[GC Safety Rules](../skills/gc-safety.md)** — what a host
   payload must do: trace every GC node, register `thread_local!` traces, keep values alive across
   JS re-entry, and record old→young writes.
-- **[GC trace examples](../skills/gc-trace.md)** — `#[derive(GcTrace)]`, `#[gc(skip)]`,
+- **[GC Tracing: Examples and Pitfalls](../skills/gc-trace.md)** — `#[derive(GcTrace)]`, `#[gc(skip)]`,
   `#[gc(with = ...)]`, `unsafe_empty_gc_trace!`, and counter-examples.
-- **[Write barriers and audit](../skills/gc-write-barrier.md)** — `WriteBarrier`,
+- **[Write Barriers: Patterns and Tools](../skills/gc-write-barrier.md)** — `WriteBarrier`,
   `WriteBarrierVec`, `WriteBarrierMap`, `GcBind`, `zuqe-gc-audit`, dynamic minor verification,
   and `--gc-stress`.
-- **[Workflow checklist](../skills/workflow-checklist.md)** — the end-to-end review list.
+- **[Workflow and Review Checklist](../skills/workflow-checklist.md)** — the end-to-end review list.
 
 Two invariants connect the two halves:
 

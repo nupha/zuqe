@@ -3,7 +3,7 @@
 This page describes how Zuqe represents, resolves, links, and evaluates ES
 modules. For the host-facing API — `set_module_loader`,
 `set_module_normalizer`, `create_module`, import attributes, `import.meta` — see
-**[Modules: ESM loading and native modules](../skills/native-module.md)**.
+**[Modules: ESM Loading and Native Modules](../skills/native-module.md)**.
 
 ## Representation
 

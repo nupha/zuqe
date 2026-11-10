@@ -28,7 +28,7 @@ pub use guard::{GcBind, WriteBarrier, WriteBarrierMap, WriteBarrierVec};
 /// zuqe::gc_audit_test!(&["MyPayload.cache — construction only"], 30);
 /// ```
 ///
-/// See `skills/gc-write-barrier.md`, section "静态审计".
+/// See `skills/gc-write-barrier.md`, section "Static audit".
 #[macro_export]
 macro_rules! gc_audit_test {
     ($allowlist:expr, $min_roots:expr) => {

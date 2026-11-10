@@ -54,7 +54,7 @@ two weighted gates over calls and back edges). Anything the backend cannot
 translate keeps running interpreted.
 
 For the complete host-facing API — feature setup, thresholds, metrics, and
-caveats — see **[Tiered JIT usage](../skills/jit.md)**. The rest of this page
+caveats — see **[Tiered JIT Usage](../skills/jit.md)**. The rest of this page
 covers the implementation pipeline and test framework.
 
 

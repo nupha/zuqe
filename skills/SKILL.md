@@ -16,64 +16,100 @@ description: >
   JS/TS application logic that does not touch the embedding API.
 ---
 
-# zuqe 引擎嵌入开发 Skill
+# zuqe Embedding Skill
 
-面向 **zuqe** 引擎嵌入与扩展开发的可复用方法、模板与检查流程。本目录是
-**用户视角**的文档：讲宿主如何调用/嵌入/扩展 zuqe，不展开 GC 堆、tick、
-JIT lowering 等内部实现（这些在 `docs/`）。
+This directory is the user guide for embedding and extending **zuqe**. It shows
+how a Rust host calls, embeds, and extends the engine. It does not cover engine
+internals such as the GC heap, tick loop, or JIT lowering. Those live in
+`docs/`.
 
-> API 可能演进，编写/评审时以源码与本 skill 的 checklist 校对。
+> The API can change. Check the source and the checklists here when writing or
+> reviewing code.
 
-## 读前须知：三条边界
+## Read this first: three boundaries
 
-1. **宿主/引擎内建（Rust，直接依赖 `zuqe`） vs zapi 第三方扩展（cdylib，ABI/FFI）是两条不同路径。**
-   - 宿主/内建：使用 `ScopedContext`/`CallContext`/`JSResult`/`CallbackFn`、`def_native_object!`、`FieldDef`、`ScopedContext::create_module` 等 Rust API。
-   - zapi 扩展：使用 `zuqe-zapi`/`ZqApi`、`ZqBodyFn`、`ZqRawValue`、`ZqFieldDef` 清单、`#[zq_module]`（生成 `zq_module_register`）等 ABI 接口；由宿主加载并经 zapi host 注册。**不要把两套类型/注册方式混用。**
-2. **GC 正确性同时依赖 full mark 可达性与 generational write barrier。** `GcTrace` 覆盖 full mark；old→young 写入还必须 barrier（`gc_generations`）。缺一不可。不要给出 `gc_protect_transient` 之类错误修复建议。GC 部分先读 [GC安全守则](gc-safety.md#2-gc-rules唯一规则来源)，再按需进入写屏障/静态审计/动态 stress 细节。
-3. **模块有两条路径。** JS/ESM 模块由宿主 loader/normalizer 提供；native module 由 `create_module`/`FieldDef` 注册。zapi 扩展又走 cdylib ABI。见 [native-module.md](native-module.md)。
+1. **Host/builtin Rust vs zapi extensions are different paths.**
+   - Host/builtin code uses `ScopedContext`, `CallContext`, `JSResult`,
+     `CallbackFn`, `def_native_object!`, `FieldDef`, and
+     `ScopedContext::create_module`.
+   - zapi extensions use `zuqe-zapi`, `ZqApi`, `ZqBodyFn`, `ZqRawValue`,
+     `ZqFieldDef`, and `#[zq_module]` (which generates
+     `zq_module_register`). The host loads them through the zapi host.
+   - Never mix the two type systems or registration paths.
+2. **GC safety needs two parts.** `GcTrace` covers full marks. Old-to-young
+   writes also need a write barrier (`gc_generations`). You need both. Do not
+   suggest `gc_protect_transient` as a fix. Read
+   [GC Safety Rules](gc-safety.md) first, then the trace and barrier details.
+3. **Modules have two paths.** JS/ESM modules come from a host loader and
+   normalizer. Native modules are registered with `create_module`/`FieldDef`.
+   zapi extensions use the cdylib ABI. See
+   [Modules: ESM Loading and Native Modules](native-module.md).
 
-## 主题索引
+## Topic index
 
-按需阅读对应主题。**任何嵌入开发都先走全局流程与 Checklist**；涉及 GC 节点时按 GC 目录先读守则，再进细节。
+Always start with the global workflow and checklist. If GC nodes are involved,
+read the GC safety rules first.
 
-### 全局
+### Global
 
-| 主题 | 文件 | 何时读 |
+| Topic | File | When to read |
 |---|---|---|
-| **全局工作流程与 Checklist** | [`workflow-checklist.md`](workflow-checklist.md) | 所有 zuqe 嵌入开发（function/class/module/GC/评审）的通用流程与检查项 |
-| **嵌入基础** | [`embedding-basics.md`](embedding-basics.md) | Cargo feature、Runtime/Context、`eval`/`eval_wait`、`EvalName`、资源限制、模块钩子 |
-| **Promise / Future** | [`promise.md`](promise.md) | `Promise::create*`、channel/slot、`into_future`、`create_from_future`、`run_async` |
-| **Tiered JIT** | [`jit.md`](jit.md) | `Jit::attach_to`、tier/threshold、metrics、自动编译时机 |
+| **Workflow and checklist** | [workflow-checklist.md](workflow-checklist.md) | Every zuqe embedding task |
+| **Embedding basics** | [embedding-basics.md](embedding-basics.md) | Cargo features, Runtime/Context, `eval`/`eval_wait`, `EvalName`, limits, module hooks |
+| **Promise and Future** | [promise.md](promise.md) | `Promise::create*`, channels/slots, `into_future`, `create_from_future`, `run_async` |
+| **Tiered JIT** | [jit.md](jit.md) | `Jit::attach_to`, tiers/thresholds, metrics, compile timing |
 
 ### GC
 
-| 主题 | 文件 | 何时读 |
+| Topic | File | When to read |
 |---|---|---|
-| **GC安全守则（先读）** | [`gc-safety.md`](gc-safety.md#2-gc-rules唯一规则来源) | GC 规则（Rule 0-5）、两部分及缺失后果、最佳实践模板的唯一入口 |
-| ↳ 细节：GC 追踪 | [`gc-trace.md`](gc-trace.md#2-实现示例) | `GcTrace`/`thread_local`/跨 JS 保活的实现示例、反例与排查 |
-| ↳ 细节：写屏障与 GC 写安全 | [`gc-write-barrier.md`](gc-write-barrier.md#2-实现模式) | 屏障实现模式、失败模式、静态审计/动态 minor/gc stress 工具 |
+| **GC safety rules (read first)** | [gc-safety.md](gc-safety.md) | Rules 0-5, the two parts, failure modes, template |
+| ↳ Trace details | [gc-trace.md](gc-trace.md) | `GcTrace`, `thread_local!`, keeping values alive across JS calls |
+| ↳ Write barriers and tools | [gc-write-barrier.md](gc-write-barrier.md) | Barrier patterns, failure modes, static audit, minor GC and stress tests |
 
-### 绑定与扩展
+### Bindings and extensions
 
-| 主题 | 文件 | 何时读 |
+| Topic | File | When to read |
 |---|---|---|
-| 绑定本地函数 | [`native-function.md`](native-function.md) | 注册宿主/内建原生函数、实现回调、处理参数/返回值/异常、`ScopedContext` 要点 |
-| 编写 native class | [`native-class.md`](native-class.md) | `def_native_object!`、payload/`GcTrace`、无 payload/无 GC payload、构造/方法/原型/继承落地路径 |
-| 定义模块（ESM + native） | [`native-module.md`](native-module.md) | `create_module`/`FieldDef`、ESM loader/normalizer、import attributes、`import.meta` |
-| 编写 zapi 扩展 | [`zapi-extension.md`](zapi-extension.md) | `cdylib`、`#[zq_*]` 宏、class/async/job、GC trace、宿主加载 |
+| Native functions | [native-function.md](native-function.md) | Register host functions, callbacks, arguments, errors |
+| Native classes | [native-class.md](native-class.md) | `def_native_object!`, payload, `GcTrace`, inheritance |
+| Modules (ESM and native) | [native-module.md](native-module.md) | `create_module`/`FieldDef`, loader/normalizer, import attributes, `import.meta` |
+| zapi extensions | [zapi-extension.md](zapi-extension.md) | cdylib setup, `#[zq_*]` macros, classes, async work, GC trace |
 
-## 关键依据（内嵌要点）
+## Key rules
 
-- **GC 规则**：唯一来源是 [GC安全守则](gc-safety.md#2-gc-rules唯一规则来源) §2 Rule 0-5（trace 与 barrier 缺一不可）。trace 实现示例/反例见 [`gc-trace.md`](gc-trace.md#2-实现示例)，屏障工具见 [`gc-write-barrier.md`](gc-write-barrier.md#3-检查流程)。本 skill 的其他文件不重复规则，只注明引用。
-- **payload 形态**：零尺寸/无状态 payload 用 `def_native_object!(..., (), ...)`；无 GC 节点但字段不实现 `GcTrace` 用 `unsafe_empty_gc_trace!`；字段都可 trace 时用 `#[derive(GcTrace)]`。不要用空手写 impl 当默认，也不要用空 trace 宏掩盖 GC 字段（审计会检查）。
-- **项目约束**：GC node safe；ZAPI 边界清晰；**类继承只有一条落地路径**（先建根类，再用 `ScopedContext::link_class_extends` / `init_class_proto_extends` 等原语链接；宿主自带类用 `def_native_object!(..., extends: X)`；禁止手写 `set_prototype` 建链；不开放 InitFn 给第三方）；按受众区分宿主/第三方范式。
-- **执行入口**：默认 `async_support` 下 `Context::eval_wait(...)` 是 async 且**不接收** `&mut Runtime`；模块入口必须用 `EvalName::BaseUrl`。
-- **代码模式参考**：`src/class/native.rs`（`def_native_object!`）、`src/class/using.rs`（`link_class_extends`/`init_class_proto_extends`/`use_class`）、`src/module/mdef.rs`、`src/function/*`、`src/gc/guard.rs`、`src/builtins/*`、`src/zapi/host.rs`、`examples/`、`tests/gc_audit.rs`。
+- **GC rules:** [GC Safety Rules](gc-safety.md) is the only rule source. Trace
+  examples are in [gc-trace.md](gc-trace.md). Barrier and audit tools are in
+  [gc-write-barrier.md](gc-write-barrier.md). Other files link to these rules
+  and do not repeat them.
+- **Payload shapes:** use `()` for zero-size or stateless payloads. Use
+  `unsafe_empty_gc_trace!` when a non-zero payload has fields that do not
+  implement `GcTrace`. Use `#[derive(GcTrace)]` when fields can be traced. Do
+  not use an empty hand-written impl by default. Do not hide GC fields behind
+  an empty trace macro; the audit checks this.
+- **Project rules:** GC node safe. Clear zapi boundary. **Class inheritance has
+  one path only.** Build root classes first. Link host classes with
+  `def_native_object!(..., extends: X)` or with the engine primitives
+  `ScopedContext::link_class_extends` and `init_class_proto_extends`. Do not
+  write `set_prototype` by hand. Do not expose InitFn to third parties. Use the
+  right path for the audience.
+- **Entry point:** with default `async_support`, `Context::eval_wait(...)` is
+  async and does **not** take `&mut Runtime`. Module entry points must use
+  `EvalName::BaseUrl`.
+- **Source examples:** `src/class/native.rs`, `src/class/using.rs`,
+  `src/module/mdef.rs`, `src/function/*`, `src/gc/guard.rs`,
+  `src/builtins/*`, `src/zapi/host.rs`, `examples/`, and `tests/gc_audit.rs`.
 
-## 使用方式
+## How to use this skill
 
-1. 先判定受众与路径：宿主/内建 Rust 绑定，还是 zapi 第三方 cdylib 扩展。混用是错误。
-2. 先读全局 [工作流程与 Checklist](workflow-checklist.md)，按流程推进。
-3. 读对应主题，复制模板并按真实类型/API 调整；不要凭记忆猜字段名。
-4. **只要涉及 GC 节点，读 [GC安全守则](gc-safety.md#2-gc-rules唯一规则来源)**，按其中的 Rule 0-5 执行；trace 实现示例/反例见 [`gc-trace.md`](gc-trace.md#2-实现示例)，写屏障/静态审计/动态 minor/gc stress 见 [`gc-write-barrier.md`](gc-write-barrier.md#3-检查流程)。
-5. 提交前跑静态审计（`cargo test --test gc_audit`）和定向动态验证（debug+`gc_generations`，必要时 `--gc-stress`），再过一遍 [workflow-checklist.md](workflow-checklist.md)。
+1. Decide the audience and path: host/builtin Rust or a zapi cdylib extension.
+   Do not mix them.
+2. Read the [workflow and checklist](workflow-checklist.md).
+3. Read the topic file. Copy the template and adjust it to the real types and
+   API. Do not guess field names.
+4. If GC nodes are involved, read [GC Safety Rules](gc-safety.md) and follow
+   rules 0-5.
+5. Before you commit, run the static audit
+   (`cargo test --test gc_audit`). Run focused dynamic checks with
+   debug + `gc_generations`, and use `--gc-stress` when needed. Then recheck
+   [workflow-checklist.md](workflow-checklist.md).

@@ -1,33 +1,42 @@
-# GC 追踪：实现示例与反例
+# GC Tracing: Examples and Pitfalls
 
-> **规则唯一来源：** [`gc-safety.md`](gc-safety.md) §2 的 Rule 0-5。本文件**不重复规则**，只给
-> trace 的实现示例、反例和排查方法；写屏障与检查工具见 [`gc-write-barrier.md`](gc-write-barrier.md#3-检查流程)。
+> **The only rule source is** [GC Safety Rules](gc-safety.md), rules 0-5. This
+> file does not repeat the rules. It gives trace examples, pitfalls, and
+> debugging steps. Barrier details and tools are in
+> [Write Barriers](gc-write-barrier.md).
 
-> **绝大多数情况用 `#[derive(GcTrace)]`。** 持有 GC 节点的类型（payload、元素类型、长寿命状态
-> 结构）都用 derive，让每个字段和枚举变体自动 trace。**只有确实存在自定义 trace 逻辑时**
-> （条件 trace、特殊容器、特殊 weak 语义等）才手写 `impl GcTrace`，并在代码里注释说明原因。
-> 没有特殊原因，不要手写；手写 impl 漏字段不会被静态审计发现。
+> **Use `#[derive(GcTrace)]` in most cases.** Types that hold GC nodes
+> (payloads, element types, long-lived state) should use derive. It traces every
+> field and enum variant. **Hand-write `impl GcTrace` only when you need custom
+> logic** (conditional trace, special containers, special weak behavior). Do not
+> hand-write without a reason. A hand-written impl that misses a field is not
+> caught by the static audit.
 >
-> **不持有 GC 节点的类型**也不要手写空 impl：零尺寸用 `()` 无 payload；非零尺寸且字段不实现
-> `GcTrace` 用 `unsafe_empty_gc_trace!`（见 §2.6）。
+> **Types without GC nodes** should not use an empty hand-written impl. Use the
+> `()` no-payload form for zero-size types. Use `unsafe_empty_gc_trace!` for
+> non-zero types whose fields do not implement `GcTrace`.
 
-## 1. 不做 trace 的失败模式
+## 1. What happens without trace
 
-GC 只从它知道的 roots 出发标记。Rust 侧的 `JSValue`/`Object` 放在 payload 字段、
-`thread_local!` 或未被 trace 的 Rust 容器里时，对 collector 都不可见；如果它是唯一引用，下一次
-full mark/major 会把它回收，Rust 侧继续使用就是 UAF。
+The GC marks only from roots it knows. A `JSValue` or `Object` in a payload
+field, a `thread_local!`, or an untraced Rust container is invisible. If it is
+the only reference, the next full mark or major collects it. Rust keeps using
+it: UAF.
 
-- debug 常见：`gc: bad node`。
-- release 可能：随机崩溃、`TypeError`、回调错乱、teardown 崩溃。
-- 短脚本可能一次 full mark/major 都没跑到；不能因为“能跑通”就认为 trace 正确。
+- Debug builds often show `gc: bad node`.
+- Release builds may crash randomly, throw `TypeError`, corrupt callbacks, or
+  crash at teardown.
+- A short script may never run a full mark or major. "It ran" does not prove
+  trace is correct.
 
-trace 管 full mark，barrier 管 minor；两者分工见 [`gc-safety.md`](gc-safety.md) §1。
+Trace covers full marks. Barriers cover minors. See
+[GC Safety Rules](gc-safety.md).
 
-## 2. 实现示例
+## 2. Examples
 
-### 2.1 payload 的 `GcTrace`（对应 Rule 1）
+### 2.1 Payload `GcTrace` (Rule 1)
 
-**绝大多数情况用 derive。** 只要类型持有 GC 节点，先写：
+**Use derive in most cases.** If the type holds GC nodes, start with:
 
 ```rust
 use zuqe::gc_lite::GcTrace;
@@ -41,15 +50,19 @@ struct MyPayload {
 }
 ```
 
-- `#[gc(crate_path = zuqe::gc_lite)]` 用于**只依赖 `zuqe`** 的 crate；直接依赖 `gc-lite` 时可省略
-  （默认展开为 `::gc_lite::…`）。
-- derive 会按字段、按 enum 变体展开；以后新增字段/变体自动进入 trace，不会漏。
-- 空/无 GC 节点的 payload 不要一律 derive：零尺寸用 `()` 无 payload；非零尺寸且字段不实现
-  `GcTrace` 用 `unsafe_empty_gc_trace!`。见 [§2.6](#26-无-gc-节点的-payload)。
+- `#[gc(crate_path = zuqe::gc_lite)]` is for crates that **only depend on
+  `zuqe`**. If you depend on `gc-lite` directly, omit it. The default expands to
+  `::gc_lite::...`.
+- Derive expands by field and by enum variant. New fields and variants are
+  traced automatically.
+- Do not derive blindly for empty or no-GC payloads. Use `()` for zero-size
+  payloads. Use `unsafe_empty_gc_trace!` for non-zero fields without `GcTrace`.
+  See 2.6.
 
-字段级属性只影响单个字段，其余字段仍由 derive 自动 trace。
+Field attributes affect one field. Other fields are still traced by derive.
 
-**`#[gc(skip)]`：不追踪该字段。** 用于 weak target 或不由 GC 管理的句柄：
+**`#[gc(skip)]`: do not trace this field.** Use it for weak targets or handles
+not managed by GC:
 
 ```rust
 use zuqe::gc_lite::{GcTrace, GcWeak};
@@ -58,15 +71,16 @@ use zuqe::gc_lite::{GcTrace, GcWeak};
 #[gc(crate_path = zuqe::gc_lite)]
 struct MyPayload {
     cb: Object,
-    // weak 引用不保持目标存活，不能 trace；没有 skip 时 derive 也会因
-    // Option<GcWeak<Object>> 不实现 GcTrace 而编译失败。
+    // A weak reference does not keep its target alive, so it must not be
+    // traced. Without skip, derive fails because Option<GcWeak<Object>>
+    // does not implement GcTrace.
     #[gc(skip)]
     weak_target: Option<GcWeak<Object>>,
 }
 ```
 
-**`#[gc(with = "path")]`：用指定函数 trace 这个字段。** 当字段类型本身没有 `GcTrace`，或需要特殊
-遍历时使用：
+**`#[gc(with = "path")]`: trace this field with a function.** Use it when the
+field type has no `GcTrace`, or needs special traversal:
 
 ```rust
 use zuqe::gc_lite::{GcTrace, GcTraceCtx};
@@ -75,7 +89,7 @@ struct MyHandle {
     nodes: Vec<JSValue>,
 }
 
-// derive 生成的调用形式是 path(&self.handle, gcx)。
+// Derive calls path(&self.handle, gcx).
 fn trace_handle(handle: &MyHandle, gcx: &mut GcTraceCtx) {
     for node in &handle.nodes {
         node.trace(gcx);
@@ -91,29 +105,31 @@ struct MyPayload {
 }
 ```
 
-`skip` 不能用在真正的 strong GC 边上；`with` 必须覆盖该字段的所有 GC 子节点，否则和手写 trace 漏
-字段一样危险。
+`skip` must not hide a real strong GC edge. `with` must cover every GC child of
+the field. A missed child is as bad as a missing field in a hand-written trace.
 
-**只有 derive 无法表达时才手写 `impl GcTrace`**，例如条件 trace、第三方容器、特殊 weak 语义等：
+**Hand-write `impl GcTrace` only when derive cannot express the logic**, for
+example conditional trace, third-party containers, or special weak behavior:
 
 ```rust
 use zuqe::gc_lite::{GcTrace, GcTraceCtx};
 
 impl GcTrace for MyPayload {
     fn trace(&self, gcx: &mut GcTraceCtx) {
-        // 特殊逻辑；逐字段核对
+        // Special logic. Check every field.
         self.cb.trace(gcx);
         // ...
     }
 }
 ```
 
-手写 impl 的责任更大：新增字段时必须同步修改；**静态审计不解析 trace 方法体**，漏字段不会被它发现。
-因此除非有明确理由，不要手写。
+A hand-written impl has more risk. You must update it when fields change. **The
+static audit does not parse the trace body**, so it cannot find a missing field.
+Do not hand-write without a clear reason.
 
-### 2.2 `thread_local!` 的 trace（对应 Rule 2）
+### 2.2 `thread_local!` trace (Rule 2)
 
-规则见 [`gc-safety.md` Rule 2](gc-safety.md#rule-2--thread_local-持有-gc-节点注册-user-trace)。
+See [GC Safety Rules](gc-safety.md), Rule 2.
 
 ```rust
 thread_local! {
@@ -128,75 +144,76 @@ fn gc_trace_my_state(gcx: &mut GcTraceCtx) {
 
 rt.gc_set_trace_handler(|gcx| {
     gc_trace_my_state(gcx);
-    // 每个持有 GC 节点的 thread-local 一行
+    // One line per thread-local that holds GC nodes.
 });
 ```
 
-### 2.3 跨 JS 调用前保活（对应 Rule 4）
+### 2.3 Keep values alive across JS calls (Rule 4)
 
-规则见 [`gc-safety.md` Rule 4](gc-safety.md#rule-4--值离开-traced-容器后跨-js-re-entry)。
+See [GC Safety Rules](gc-safety.md), Rule 4.
 
 ```rust
-// BAD：值离开 traced 容器后，JS 调用可能回收它
+// BAD: the value left a traced container. The JS call may collect it.
 let chunk = queue.borrow_mut().remove(0);
 call_js_that_may_gc(ctx)?;
-use(chunk); // 可能 UAF
+use(chunk); // possible UAF
 
-// GOOD：先把 chunk 放进对象拥有的 traced slot（并 bind），再调用 JS。
-// in_flight 是 payload 上的 WriteBarrierVec<JSValue> 字段；
-// JSFoo 是 def_native_object! 生成的 native wrapper（示意）。
+// GOOD: put chunk in an object-owned traced slot (and bind it) first.
+// in_flight is a WriteBarrierVec<JSValue> field on the payload.
+// JSFoo is the native wrapper generated by def_native_object! (illustrative).
 let owner = this; // JSValue: Copy
 {
     let p = JSFoo::payload_mut_of(&mut this).ok_or(-1)?;
-    p.in_flight.push(ctx, owner, chunk); // traced + bound
+    p.in_flight.push(ctx, owner, chunk); // traced and bound
 }
 call_js_that_may_gc(ctx)?;
 {
     let p = JSFoo::payload_mut_of(&mut this).ok_or(-1)?;
-    p.in_flight.clear(); // 不再需要；清除本身不需要 barrier
+    p.in_flight.clear(); // no longer needed; clear needs no barrier
 }
 ```
 
-若 hold 放在 payload slot，写入路径还必须按 Rule 5 barrier；见
-[`gc-write-barrier.md`](gc-write-barrier.md#2-实现模式)。注意不要在 JS 调用期间
-持有 `payload_mut` 的 Rust 借用（上例用两个短作用域）。
+If the held value is in a payload slot, its write path must use a Rule 5
+barrier. See [Write Barriers](gc-write-barrier.md). Do not hold a `payload_mut`
+Rust borrow across a JS call. The example uses two short scopes.
 
-### 2.4 scope / root（对应 Rule 4 的 scope 部分）
+### 2.4 Scope and root (Rule 4 scope part)
 
 ```rust
 ctx.with_root_scope(|mut root| {
     root.with_new_scope(|scope| {
-        let tmp = Array::create(scope)?; // 只在 child scope 内受保护
-        Ok(tmp.into())                   // 返回值 promotion 到父 scope
+        let tmp = Array::create(scope)?; // protected only in the child scope
+        Ok(tmp.into())                   // promoted to the parent scope
     })
 });
 ```
 
-root scope 的值活到 Context 销毁；临时工作放 `with_new_scope`，不再需要的 root 值用
-`remove_local`。
+Root-scope values live until the Context is dropped. Use `with_new_scope` for
+temporary work. Call `remove_local` when a root value is no longer needed.
 
-### 2.5 `Vec` 裸指针（对应 Rule 3）
+### 2.5 Raw pointers into `Vec` (Rule 3)
 
-规则见 [`gc-safety.md` Rule 3](gc-safety.md#rule-3--vec-存储中的裸指针)。
+See [GC Safety Rules](gc-safety.md), Rule 3.
 
 ```rust
-// BAD：缓存元素指针，随后 push 可能 realloc，指针悬垂
+// BAD: cache an element pointer. A later push may reallocate.
 let p: *mut Item = &mut items[0];
-items.push(Item::new()); // 可能 realloc
-unsafe { (*p).touch(); } // 悬垂指针
+items.push(Item::new()); // may reallocate
+unsafe { (*p).touch(); } // dangling pointer
 
-// GOOD：每次从索引重新取；或让地址稳定
+// GOOD: re-index after each change, or keep addresses stable.
 items.push(Item::new());
 let p = &mut items[0];
 ```
 
-需要稳定地址时用 `Vec<Box<T>>`。
+Use `Vec<Box<T>>` when addresses must be stable.
 
-### 2.6 无 GC 节点的 payload
+### 2.6 Payload with no GC nodes
 
-payload 没有 GC 节点时，不要默认手写空 `impl GcTrace`。按存在形式选择最小方案：
+Do not default to an empty hand-written `impl GcTrace`. Choose the smallest form:
 
-1. **零尺寸/无状态**：用 `def_native_object!` 的 `()` 无 payload 形式，删掉 payload 类型。
+1. **Zero-size or stateless:** use the `()` no-payload form and remove the
+   payload type.
 
    ```rust
    def_native_object!(
@@ -209,33 +226,38 @@ payload 没有 GC 节点时，不要默认手写空 `impl GcTrace`。按存在�
    // JSTextEncoder::new_instance(ctx, new_target)
    ```
 
-2. **非零尺寸，字段都实现 `GcTrace`**：仍用 `#[derive(GcTrace)]`。即使当前全是 no-op 字段，新增
-   GC 字段时会自动进入 trace。
+2. **Non-zero size, all fields implement `GcTrace`:** use
+   `#[derive(GcTrace)]`. Even if all fields are no-ops today, new GC fields are
+   traced automatically.
 
-3. **非零尺寸，字段不实现 `GcTrace`（纯 Rust 句柄、第三方容器、tokio 同步原语等）**：用
-   `zuqe::gc_lite::unsafe_empty_gc_trace!`：
+3. **Non-zero size, fields do not implement `GcTrace`** (plain Rust handles,
+   third-party containers, tokio sync primitives): use
+   `zuqe::gc_lite::unsafe_empty_gc_trace!`:
 
    ```rust
    pub(crate) struct BlobPayload {
        bytes: Arc<[u8]>,
        type_: String,
    }
-   // 明确断言：payload 传递闭包内没有 GC 节点。
+   // Explicit assertion: the payload's transitive closure has no GC nodes.
    zuqe::gc_lite::unsafe_empty_gc_trace!(BlobPayload);
    ```
 
-4. **任何字段（包括 `#[gc(skip)]` 字段）可能持有 GC 节点**：不适用空 trace；必须 trace，或按
-   weak/外部句柄语义明确处理。
+4. **Any field, including a `#[gc(skip)]` field, may hold a GC node:** this is
+   not a no-trace case. Trace it, or handle it explicitly as a weak or external
+   handle.
 
-`unsafe_empty_gc_trace!` 只展开空 `trace`，不改变 payload 生命周期；`payload_drop` 仍由
-`def_native_object!` 正常接线。`unsafe_` 前缀是契约标记：类型传递闭包必须没有 GC 节点，新增 GC 字段
-后必须删除宏并补 trace。`gc_audit` 会递归检查这些类型，包在 `WriteBarrier` 里的 GC 字段也会被抓到。
+`unsafe_empty_gc_trace!` expands an empty `trace` only. It does not change
+payload lifetime. `payload_drop` is still wired by `def_native_object!`. The
+`unsafe_` prefix is a contract: the type's transitive closure must have no GC
+nodes. If you add a GC field, remove the macro and add trace. `gc_audit`
+recursively checks these types, including GC fields inside `WriteBarrier`.
 
-## 3. 反例集
+## 3. Pitfalls
 
-### 3.1 漏 trace 一个字段
+### 3.1 Missing one field in trace
 
-违反 [`gc-safety.md` Rule 1](gc-safety.md#rule-1--payload-持有-gc-节点必须实现-gctrace)。
+Violates Rule 1 in [GC Safety Rules](gc-safety.md).
 
 ```rust
 struct MyPayload {
@@ -245,163 +267,177 @@ struct MyPayload {
 
 impl GcTrace for MyPayload {
     fn trace(&self, gcx: &mut GcTraceCtx) {
-        self.cb.trace(gcx); // 漏了 self.value
+        self.cb.trace(gcx); // missing self.value
     }
 }
 ```
 
-`value` 只从 payload 可达时会被 full mark 回收，后续使用 UAF。
+If `value` is reachable only from the payload, a full mark collects it. Later
+use is UAF.
 
-如果这个类型用 `#[derive(GcTrace)]`，新增 `value` 字段会自动进入 trace，这个错误在类型层面就不会发生。
+If the type uses `#[derive(GcTrace)]`, a new `value` field is traced
+automatically. This bug cannot happen at the type level.
 
-### 3.2 `extends:` 子类复用父类 payload/trace
+### 3.2 `extends:` child reuses parent payload or trace
 
-违反 [`gc-safety.md` Rule 1](gc-safety.md#rule-1--payload-持有-gc-节点必须实现-gctrace)。
+Violates Rule 1 in [GC Safety Rules](gc-safety.md).
 
 ```rust
 struct ParentPayload { p: Object }
-struct ChildPayload { c: Object } // 没实现自己的 GcTrace
+struct ChildPayload { c: Object } // no GcTrace of its own
 ```
 
-GC 按对象自己的 `class_id` 查找 trace；子类字段不会被父类 trace 覆盖。每个子类 payload 都要各自
-`#[derive(GcTrace)]`（或手写自己的 impl）。
+GC looks up trace by the object's own `class_id`. The parent trace does not
+cover child fields. Every child payload needs its own `#[derive(GcTrace)]` or a
+manual impl.
 
-### 3.3 懒缓存 JS 对象未 trace
+### 3.3 Lazy cached JS object is not traced
 
-违反 [`gc-safety.md` Rule 1](gc-safety.md#rule-1--payload-持有-gc-节点必须实现-gctrace)。
+Violates Rule 1 in [GC Safety Rules](gc-safety.md).
 
 ```rust
 struct UrlPayload {
-    search_params: RefCell<Option<Object>>, // 只从 payload 可达，却没有 trace
+    search_params: RefCell<Option<Object>>, // reachable from payload, not traced
 }
 ```
 
-`searchParams`、解析结果、namespace、`import.meta` 等 lazy cache 都可能踩这个坑。
+`searchParams`, parse results, namespaces, `import.meta`, and other lazy caches
+can hit this.
 
-### 3.4 `thread_local!` 存了节点但没注册 trace
+### 3.4 `thread_local!` holds nodes but has no trace
 
-违反 [`gc-safety.md` Rule 2](gc-safety.md#rule-2--thread_local-持有-gc-节点注册-user-trace)。
+Violates Rule 2 in [GC Safety Rules](gc-safety.md).
 
 ```rust
 thread_local! {
     static CACHE: RefCell<Vec<Object>> = const { RefCell::new(Vec::new()) };
 }
-// 没有 gc_set_trace_handler，也没有覆盖 CACHE 的 trace fn
+// No gc_set_trace_handler and no trace fn for CACHE.
 ```
 
-节点对 collector 不可见，随时可能被回收。
+The collector cannot see these nodes. They may be collected at any time.
 
-### 3.5 `remove`/`pop`/`take` 后跨 JS 使用
+### 3.5 Using a value after `remove`, `pop`, or `take` across JS
 
-违反 [`gc-safety.md` Rule 4](gc-safety.md#rule-4--值离开-traced-容器后跨-js-re-entry)。
+Violates Rule 4 in [GC Safety Rules](gc-safety.md).
 
 ```rust
 let cb = list.borrow_mut().pop().unwrap();
-cb.call(ctx, JSValue::UNDEFINED, &[])?; // 可能 GC；cb 已离开 traced 容器
+cb.call(ctx, JSValue::UNDEFINED, &[])?; // may GC; cb left the traced container
 ```
 
-先把 `cb` 放回 traced slot（closure-scoped），再调用 JS。
+Put `cb` back in a traced slot first, then call JS.
 
-### 3.6 `RefCell` borrow 跨 JS
+### 3.6 `RefCell` borrow across JS
 
-违反 [`gc-safety.md` Rule 4](gc-safety.md#rule-4--值离开-traced-容器后跨-js-re-entry)。
+Violates Rule 4 in [GC Safety Rules](gc-safety.md).
 
 ```rust
 let mut list = cbs.borrow_mut();
 while let Some(cb) = list.pop() {
-    cb.call(ctx, JSValue::UNDEFINED, &[])?; // 持有 borrow_mut 跨 JS
+    cb.call(ctx, JSValue::UNDEFINED, &[])?; // borrow_mut held across JS
 }
 ```
 
-GC 在 JS 调用中 trace 同一个 cell 时会 `borrow()`，与未释放的 `borrow_mut()` 冲突，panic
-`already borrowed`。每次取出一个值后立即释放借用，再调用 JS。
+GC traces the same cell during the JS call and calls `borrow()`. That conflicts
+with the live `borrow_mut()` and panics with `already borrowed`. Release the
+borrow after each value, then call JS.
 
-### 3.7 依赖 `gc_protect_transient`
+### 3.7 Relying on `gc_protect_transient`
 
-违反 [`gc-safety.md` Rule 4](gc-safety.md#rule-4--值离开-traced-容器后跨-js-re-entry)。
+Violates Rule 4 in [GC Safety Rules](gc-safety.md).
 
 ```rust
-gc_protect_transient(value); // feature 未开启时 no-op，且仍依赖 scope
+gc_protect_transient(value); // no-op when the feature is off; still scope-bound
 call_js(ctx)?;
 use(value);
 ```
 
-正确做法是 Rule 4 的 traced slot。
+The correct fix is a Rule 4 traced slot.
 
-### 3.8 在 root scope 堆积临时值
+### 3.8 Stacking temporary values in the root scope
 
-违反 [`gc-safety.md` Rule 4](gc-safety.md#rule-4--值离开-traced-容器后跨-js-re-entry) 的
-scope/root 部分。
+Violates the scope and root part of Rule 4.
 
 ```rust
 ctx.with_root_scope(|mut root| {
     let tmp = root.create_base_object()?;
-    // 用完不 remove_local，泄漏到 Context 销毁
+    // not removed; leaks until the Context is dropped
     Ok(())
 });
 ```
 
-临时工作用 `with_new_scope`；确实放进 root scope 的值，不再需要时 `remove_local`。
+Use `with_new_scope` for temporary work. If a value really belongs in the root
+scope, call `remove_local` when done.
 
-### 3.9 只 trace 不 barrier
+### 3.9 Trace but no barrier
 
-违反 [`gc-safety.md` Rule 5](gc-safety.md#rule-5--old-容器接收-young-值写屏障)。
+Violates Rule 5.
 
 ```rust
-// trace 覆盖了 slot，但实例可能已 old 后直接赋值
+// trace covers the slot, but the instance may already be old
 self.cache = Some(obj);
 ```
 
-full mark 能看到，但 minor 不 descend old payload，`obj` 仍可能被回收。写入路径见
-[`gc-write-barrier.md`](gc-write-barrier.md#2-实现模式)。
+A full mark sees it, but a minor does not descend old payloads. `obj` may still
+be collected. See [Write Barriers](gc-write-barrier.md).
 
-### 3.10 trace weak target
+### 3.10 Trace a weak target
 
-违反 [`gc-safety.md` Rule 1](gc-safety.md#rule-1--payload-持有-gc-节点必须实现-gctrace) 的
-weak/`#[gc(skip)]` 部分。
+Violates the weak and `#[gc(skip)]` part of Rule 1.
 
 ```rust
 impl GcTrace for Payload {
     fn trace(&self, gcx: &mut GcTraceCtx) {
-        self.weak_target.trace(gcx); // weak 不应被 trace，否则目标永远不会死
+        self.weak_target.trace(gcx); // weak target should not be traced
     }
 }
 ```
 
-`GcBind` 中也要保持同样的跳过语义。用 derive 时给 weak 字段标 `#[gc(skip)]`；不要手写 trace
-weak target。
+Use the same skip behavior in `GcBind`. With derive, mark weak fields
+`#[gc(skip)]`. Do not hand-trace a weak target.
 
-### 3.11 用 `unsafe_empty_gc_trace!` 掩盖 GC 字段
+### 3.11 Hide GC fields with `unsafe_empty_gc_trace!`
 
-违反 [`gc-safety.md` Rule 1](gc-safety.md#rule-1--payload-持有-gc-节点必须实现-gctrace)。
+Violates Rule 1.
 
 ```rust
 struct MyPayload {
     cb: Object,
 }
 
-// 错误：Object 不会被 trace
+// Wrong: Object is not traced.
 zuqe::gc_lite::unsafe_empty_gc_trace!(MyPayload);
 ```
 
-空 trace 类型在 full mark 时完全不会被访问；即使字段包在 `WriteBarrier` 里也不行，因为没有任何代码
-会走到它。`gc_audit` 的 `empty_trace_violations` 会递归检查被宏标记的类型，发现可达 GC 节点即失败。
-宏只能用于确实没有任何 GC 节点的类型；不确定时回到 derive 或 `#[gc(skip)]`。
+A no-trace type is never visited by a full mark. Wrapping fields in
+`WriteBarrier` does not help, because no code reaches them. `gc_audit`
+`empty_trace_violations` recursively checks types marked by the macro. If it
+finds a reachable GC node, it fails. Use the macro only for types with no GC
+nodes. When unsure, use derive or `#[gc(skip)]`.
 
-## 4. 排查 trace 问题
+## 4. Debug trace problems
 
-1. **先看是不是 derive**：payload 绝大多数情况应使用 `#[derive(GcTrace)]`；只有手写 `impl GcTrace` 时，
-   才需要逐字段对照 payload 里每个 `JSValue`/`Object`/wrapper/回调句柄是否都出现在 `trace`。
-2. **生命周期**：这个值是否只从 payload/thread-local 可达？是 → 检查对应 Rule 1/2。
-3. **`extends:`**：子类是否有自己的 payload 和 `GcTrace`？
-4. **lazy cache**：`RefCell<Option<Object>>`、`Vec<JSValue>`、map 是否被覆盖？
-5. **weak**：weak target 是否被错误 trace 或 bind？
-6. **跨 JS**：从 traced 容器取出的值是否在 JS 调用后继续使用？`RefCell` borrow 是否跨 JS？
-7. **无 GC 节点判定**：如果用了 `unsafe_empty_gc_trace!`，确认类型传递闭包没有 GC 节点；
-   `gc_audit` 的 `empty_trace_violations` 会报 `unsafe_empty_gc_trace! type contains GC node`。
-8. **静态审计交叉检查**：`cargo test --test gc_audit` 会报告裸 GC 字段（shape）；它不证明 trace
-   写对，但能提示漏掉的可追踪字段。工具见 [`gc-write-barrier.md`](gc-write-barrier.md#4-静态审计zuqe-gc-auditshape)。
-9. **debug full/major**：用宿主提供的 GC API（如 zjs 的 `std.gc()`）制造回收，观察是否出现
-   `gc: bad node`；长时间/压力运行也能暴露。
+1. **Is it derived?** Most payloads should use `#[derive(GcTrace)]`. Only with a
+   hand-written `impl GcTrace` do you need to check every `JSValue`, `Object`,
+   wrapper, and callback handle against the trace body.
+2. **Lifetime:** is the value reachable only from a payload or `thread_local!`?
+   Then check Rule 1 or 2.
+3. **`extends:`**: does the child have its own payload and `GcTrace`?
+4. **Lazy cache:** are `RefCell<Option<Object>>`, `Vec<JSValue>`, and maps
+   covered?
+5. **Weak:** is a weak target traced or bound by mistake?
+6. **Across JS:** does a value from a traced container stay in use after a JS
+   call? Does a `RefCell` borrow cross JS?
+7. **No-GC decision:** if you use `unsafe_empty_gc_trace!`, confirm the type's
+   transitive closure has no GC nodes. `gc_audit` reports
+   `unsafe_empty_gc_trace! type contains GC node`.
+8. **Cross-check with the static audit:** `cargo test --test gc_audit` reports
+   bare GC fields by shape. It does not prove trace is correct, but it can show
+   a missed traceable field. See [Write Barriers](gc-write-barrier.md).
+9. **Debug full or major:** use a host GC API (for example `std.gc()` in zjs)
+   to force collection and look for `gc: bad node`. Long or stress runs also
+   expose problems.
 
-trace 规则本身请直接对照 [`gc-safety.md`](gc-safety.md) Rule 1/2/4；本文件不再重复。
+For the rules themselves, use [GC Safety Rules](gc-safety.md), Rules 1, 2, and
+4. This file does not repeat them.
