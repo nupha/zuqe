@@ -328,6 +328,27 @@ impl ContextImpl {
         self.bind_node(owner, child);
     }
 
+    /// Mark `owner` dirty for minor GC (generational remembered-set re-scan,
+    /// not tri-color marking) when its traced reachability changes without a
+    /// specific child edge to report via [`bind_value`](Self::bind_value).
+    /// No-op when `owner` is not a GC node.
+    #[cfg(feature = "gc_generations")]
+    #[inline]
+    pub fn gc_set_minor_dirty_value(&self, owner: JSValue) {
+        let Some(owner) = owner.as_gc_node() else {
+            return;
+        };
+        self.gc_set_minor_dirty_node(owner);
+    }
+
+    /// Node form of [`gc_set_minor_dirty_value`](Self::gc_set_minor_dirty_value).
+    #[cfg(feature = "gc_generations")]
+    #[inline(always)]
+    pub(crate) fn gc_set_minor_dirty_node(&self, owner: NonNull<GcHead>) {
+        let mut rt = self.rt;
+        rt.gc_set_minor_dirty_node(owner);
+    }
+
     /// get global object
     #[inline(always)]
     pub const fn global_obj(&self) -> Object {

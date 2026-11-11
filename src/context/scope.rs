@@ -241,6 +241,16 @@ impl<'a> ScopedContext<'a> {
         }
     }
 
+    /// Mark `owner` dirty for minor GC (generational remembered-set re-scan,
+    /// not tri-color marking) when its traced reachability changes without a
+    /// specific child edge to report via [`bind_value`](Self::bind_value).
+    /// No-op when `owner` is not a GC node.
+    #[cfg(feature = "gc_generations")]
+    #[inline(always)]
+    pub fn gc_set_minor_dirty_value(&self, owner: JSValue) {
+        self.ctx_ptr.gc_set_minor_dirty_value(owner);
+    }
+
     /// get gc scope state
     #[inline]
     #[allow(unused_unsafe)] // debug_assert may trigger unused unsafe warning

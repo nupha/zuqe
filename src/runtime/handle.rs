@@ -384,6 +384,15 @@ impl RuntimePtr {
         };
         self.bind_node(owner, child);
     }
+
+    /// Mark `owner` dirty for minor GC (generational remembered-set re-scan,
+    /// not tri-color marking) when its traced reachability changes without a
+    /// specific child edge to report.
+    #[cfg(feature = "gc_generations")]
+    #[inline(always)]
+    pub(crate) fn gc_set_minor_dirty_node(&mut self, owner: NonNull<GcHead>) {
+        self.gc_heap_mut().set_minor_dirty(owner);
+    }
 }
 
 impl From<&RuntimeImpl> for RuntimePtr {
