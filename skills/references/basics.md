@@ -24,7 +24,7 @@ single switch. Every feature is listed, including the default ones.
 | `async_support` | on | Async `eval_wait`, `Runtime::run_async()`, and the Promise/Future bridge. Adds `futures-util`. |
 | `crossbeam_channel` | off | Use `crossbeam::channel` instead of `std::sync::mpsc` for host channels. |
 | `serde_json_support` | off | Convert between `JSValue` and `serde_json::Value`. |
-| `zapi` | off | Load zapi cdylib extensions. Adds `zuqe_zapi` and `libloading`. See [zapi-extension.md](zapi-extension.md). |
+| `zapi` | off | Load zapi cdylib extensions. Adds `zuqe_zapi` and `libloading`. Authoring one is the zapi crate's topic: see `zuqe-zapi/skills/SKILL.md`. |
 | `quantum_poll` | off | Allow a fallback periodic poll cap on event-loop park (`use_quantum_poll`). Normally not needed. |
 | `persistent` | off | Serialize and deserialize bytecode and JS values (`ZQBC` format). Used by `zjs` `dumpValue`/`restoreValue`. |
 | `child_runtime` | off | Create child runtimes driven by a parent runtime event loop. |

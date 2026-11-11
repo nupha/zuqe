@@ -82,7 +82,7 @@ my.add(2, 3); // 5
 
 Extensions are compiled as `cdylib` dynamic libraries. The zapi API is defined by two crates (`zuqe_zapi` + `zuqe_zapi_macros`) with a stable ABI boundary. You write functions, classes, and constants using safe Rust with `#[zq_function]`, `#[zq_class]`, `#[zq_module]` — the macros generate the C ABI glue. Users drop the `.dylib`/`.so`/`.dll` next to their scripts and `import` it, regardless of which zuqe version they're running.
 
-This means extension authors ship a single binary; it works across engine upgrades. See [Writing a Zapi Extension](docs/zapi-extension.md) for the full guide.
+This means extension authors ship a single binary; it works across engine upgrades. Writing one needs only the `zuqe_zapi` crates (`zuqe-zapi/skills/SKILL.md`); what this engine does with it is in [Zapi Extensions: Host Side](docs/zapi-host.md).
 
 ## 🏁 Getting Started
 
@@ -265,7 +265,7 @@ Documentation is split by audience:
   - [Modules: ESM Loading and Native Modules](skills/references/native-module.md)
   - [Promise and Rust Future Bridge](skills/references/promise.md)
   - [Tiered JIT Usage](skills/references/jit.md)
-  - [Writing a zapi Extension (cdylib)](skills/references/zapi-extension.md)
+  - zapi extensions: `zuqe-zapi/skills/SKILL.md` (a sibling crate; authoring needs only `zuqe_zapi`)
   - [GC Safety Rules](skills/references/gc-safety.md)
   - [Workflow and Review Checklist](skills/references/workflow-checklist.md)
 - **[Docs](docs/)** — internals, design, build, and tool manuals:

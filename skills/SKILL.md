@@ -33,9 +33,9 @@ live in `docs/`.
    - Host/builtin code uses `ScopedContext`, `CallContext`, `JSResult`,
      `CallbackFn`, `def_native_object!`, `FieldDef`, and
      `ScopedContext::create_module`.
-   - zapi extensions use `zuqe-zapi`, `ZqApi`, `ZqBodyFn`, `ZqRawValue`,
-     `ZqFieldDef`, and `#[zq_module]` (which generates
-     `zq_module_register`). The host loads them through the zapi host.
+   - zapi extensions are a separate crate's topic: authoring one needs only
+     `zuqe_zapi` / `zuqe_zapi_macros`, no engine code. See
+     `zuqe-zapi/skills/SKILL.md` (in a seperate crate).
    - Never mix the two type systems or registration paths.
 2. **GC safety needs two parts.** `GcTrace` covers full marks. Old-to-young
    writes also need a write barrier (`gc_generations`). You need both. Do not
@@ -43,8 +43,8 @@ live in `docs/`.
    [GC Safety Rules](references/gc-safety.md) first, then the trace and barrier details.
 3. **Modules have two paths.** JS/ESM modules come from a host loader and
    normalizer. Native modules are registered with `create_module`/`FieldDef`.
-   zapi extensions use the cdylib ABI. See
-   [Modules: ESM Loading and Native Modules](references/native-module.md).
+   Loadable zapi cdylibs are a third path, written against `zuqe-zapi` alone.
+   See [Modules: ESM Loading and Native Modules](references/native-module.md).
 
 ## Topic index
 
@@ -53,34 +53,34 @@ read the GC safety rules first.
 
 ### Global
 
-| Topic | File | When to read |
-|---|---|---|
-| **Workflow and checklist** | [workflow-checklist.md](references/workflow-checklist.md) | Start every task here: requirement-to-path workflow, then the per-area review checklist to run before commit |
-| **Basics** | [Basics: Runtime, Context, and Execution](references/basics.md) | First page for a new host: choose Cargo features, create a Runtime and Context, run a script or module and read the ExitStatus, name the entry correctly, cap memory and stack, install the module loader |
-| **Promise and Future** | [promise.md](references/promise.md) | Bridging JS and Rust async: return a Promise that settles later, `await` a JS Promise in Rust, hand results over from threads or blocking IO, decide whether an unobserved Promise keeps the process alive |
+| Topic                      | File                                                            | When to read                                                                                                                                                                                               |
+| -------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Workflow and checklist** | [workflow-checklist.md](references/workflow-checklist.md)       | Start every task here: requirement-to-path workflow, then the per-area review checklist to run before commit                                                                                               |
+| **Basics**                 | [Basics: Runtime, Context, and Execution](references/basics.md) | First page for a new host: choose Cargo features, create a Runtime and Context, run a script or module and read the ExitStatus, name the entry correctly, cap memory and stack, install the module loader  |
+| **Promise and Future**     | [promise.md](references/promise.md)                             | Bridging JS and Rust async: return a Promise that settles later, `await` a JS Promise in Rust, hand results over from threads or blocking IO, decide whether an unobserved Promise keeps the process alive |
 
 ### JIT
 
-| Topic | File | When to read |
-|---|---|---|
+| Topic                | File                                  | When to read                                                                                                                                 |
+| -------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Tiered JIT Usage** | [Tiered JIT Usage](references/jit.md) | Turn `jit` on and attach it to a Runtime, choose a tier policy and thresholds, read `jit.metrics()`, and know which opcodes stay interpreted |
 
 ### GC
 
-| Topic | File | When to read |
-|---|---|---|
-| **GC safety rules (read first)** | [gc-safety.md](references/gc-safety.md) | The only rule source: why a node needs both a trace and a write barrier, rules 0-5 with their failure modes, and the standard safe template |
-| ↳ Trace details | [gc-trace.md](references/gc-trace.md) | Trace examples rule by rule, then the recurring pitfalls (a missed field, a cached JS object, a borrow or `remove` held across JS, a weak target, a hidden GC field) and how to debug a lost node |
-| ↳ Write barriers and tools | [gc-write-barrier.md](references/gc-write-barrier.md) | Barrier patterns (guard slot, setter, `GcBind`), running `zuqe-gc-audit` to green, a focused old-to-young check under minor GC, and `--gc-stress` |
+| Topic                            | File                                                  | When to read                                                                                                                                                                                      |
+| -------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **GC safety rules (read first)** | [gc-safety.md](references/gc-safety.md)               | The only rule source: why a node needs both a trace and a write barrier, rules 0-5 with their failure modes, and the standard safe template                                                       |
+| ↳ Trace details                  | [gc-trace.md](references/gc-trace.md)                 | Trace examples rule by rule, then the recurring pitfalls (a missed field, a cached JS object, a borrow or `remove` held across JS, a weak target, a hidden GC field) and how to debug a lost node |
+| ↳ Write barriers and tools       | [gc-write-barrier.md](references/gc-write-barrier.md) | Barrier patterns (guard slot, setter, `GcBind`), running `zuqe-gc-audit` to green, a focused old-to-young check under minor GC, and `--gc-stress`                                                 |
 
 ### Bindings and extensions
 
-| Topic | File | When to read |
-|---|---|---|
-| Native functions | [native-function.md](references/native-function.md) | Expose a Rust function or callback to JS: signature, argument checks, throw handling, and the ways to install it |
-| Native classes | [native-class.md](references/native-class.md) | Define a host class with `def_native_object!`: payload and trace, constructor, methods and properties, creating instances, `extends` |
-| Modules (ESM and native) | [native-module.md](references/native-module.md) | Two module kinds: make `import` work in a host (loader/normalizer, import attributes, `import.meta`), and expose Rust values as a native module |
-| zapi extensions | [zapi-extension.md](references/zapi-extension.md) | Build a third-party cdylib loaded at runtime: project setup, `#[zq_*]` macros, classes, async and thread jobs, and how the host loads it |
+| Topic                    | File                                                | When to read                                                                                                                                                                                                                   |
+| ------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Native functions         | [native-function.md](references/native-function.md) | Expose a Rust function or callback to JS: signature, argument checks, throw handling, and the ways to install it                                                                                                               |
+| Native classes           | [native-class.md](references/native-class.md)       | Define a host class with `def_native_object!`: payload and trace, constructor, methods and properties, creating instances, `extends`                                                                                           |
+| Modules (ESM and native) | [native-module.md](references/native-module.md)     | Two module kinds: make `import` work in a host (loader/normalizer, import attributes, `import.meta`), and expose Rust values as a native module                                                                                |
+| zapi extensions          | `zuqe-zapi/skills/SKILL.md`                         | Not a page in this skill: writing a zapi extension library needs only the `zuqe-zapi` crate (no engine code), so its authoring guide lives there — project setup, `#[zq_*]` macros, classes, async and thread jobs, GC tracing |
 
 ## Key rules
 

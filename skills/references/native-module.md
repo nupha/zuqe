@@ -9,9 +9,9 @@
 >    `ScopedContext::create_module` and `FieldDef`. Exports can be functions,
 >    constants, or classes.
 >
-> Loadable cdylib extensions are a third path (zapi ABI). See
-> [Writing a zapi Extension](zapi-extension.md). Do not mix `FieldDef` and
-> `ZqFieldDef`.
+> Loadable cdylib extensions are a third path (zapi ABI), written against the
+> `zuqe-zapi` crate alone — see `zuqe-zapi/skills/SKILL.md`. Do not mix `FieldDef`
+> and `ZqFieldDef`.
 
 Module internals (ModuleDef, linking/evaluation, cycles) are in
 `docs/module.md`.
@@ -225,7 +225,7 @@ zapi extensions ship as **cdylibs**:
 - The host caches extension libraries for the process and keeps them mapped. It
   does not unload them.
 
-See [Writing a zapi Extension](zapi-extension.md).
+Writing such an extension is the `zuqe-zapi` crate's topic: see `zuqe-zapi/skills/SKILL.md`.
 
 ## 4. GC and scope notes
 

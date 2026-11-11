@@ -21,7 +21,7 @@ rules for host code. Start here when writing Rust code against `zuqe`.
 | ESM loading and native modules | [Modules: ESM Loading and Native Modules](../skills/references/native-module.md) |
 | Promise and Rust Future | [Promise and Rust Future Bridge](../skills/references/promise.md) |
 | Tiered JIT usage | [Tiered JIT Usage](../skills/references/jit.md) |
-| zapi `cdylib` extensions | [Writing a zapi Extension (cdylib)](../skills/references/zapi-extension.md) |
+| zapi `cdylib` extensions | `zuqe-zapi/skills/SKILL.md` — the zapi crate's guide; authoring needs only `zuqe_zapi` |
 | GC rules (the only rule source) | [GC Safety Rules](../skills/references/gc-safety.md) |
 | GC trace examples | [GC Tracing: Examples and Pitfalls](../skills/references/gc-trace.md) |
 | Write barriers, audit, gc-stress | [Write Barriers: Patterns and Tools](../skills/references/gc-write-barrier.md) |
@@ -43,6 +43,7 @@ in `skills/`; the pages below link there instead of duplicating them.
 | Tiered JIT design and pipeline | [jit.md](jit.md) |
 | Module system architecture | [module.md](module.md) |
 | Promise internals | [promise.md](promise.md) |
+| Zapi extensions: host side (loading, registration, lifetime) | [zapi-host.md](zapi-host.md) |
 | Build on Windows (MinGW) | [build-windows-gnu.md](build-windows-gnu.md) |
 | Cross-compile Windows from Linux/macOS | [build-cross.md](build-cross.md) |
 | `zjs` command-line interpreter | [zjs.md](zjs.md) |
@@ -55,4 +56,3 @@ content is in `skills/`:
 - [native-function.md](native-function.md) -> [Native Function Binding](../skills/references/native-function.md)
 - [native-classe.md](native-classe.md) -> [Native Classes](../skills/references/native-class.md)
 - [native-module.md](native-module.md) -> [Modules: ESM Loading and Native Modules](../skills/references/native-module.md)
-- [zapi-extension.md](zapi-extension.md) -> [Writing a zapi Extension (cdylib)](../skills/references/zapi-extension.md)

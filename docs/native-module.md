@@ -10,7 +10,7 @@ The complete guide — `create_module`, `FieldDef` variants, ESM `set_module_loa
 boundary — is in:
 
 - **[Modules: ESM Loading and Native Modules](../skills/references/native-module.md)**
-- **[Writing a zapi Extension (cdylib)](../skills/references/zapi-extension.md)**
+- **Writing a zapi extension** is the `zuqe-zapi` crate's own topic: see `zuqe-zapi/skills/SKILL.md` (a sibling crate; authoring needs no engine code)
 
 Minimal registration:
 

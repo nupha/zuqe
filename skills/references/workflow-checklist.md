@@ -33,7 +33,7 @@
    - Native class: [Native Classes](native-class.md)
    - Modules (ESM and native):
      [Modules: ESM Loading and Native Modules](native-module.md)
-   - zapi extension: [Writing a zapi Extension](zapi-extension.md)
+   - zapi extension: a different crate's topic — see `zuqe-zapi/skills/SKILL.md`
    - JIT setup: [Tiered JIT Usage](jit.md)
    - Think about GC early: payload fields, thread-local, cross-JS holds, and
      late-write paths.
