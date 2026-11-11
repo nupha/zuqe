@@ -339,4 +339,5 @@ Key differences from the synchronous variant:
   `ExitStatus::Exception` instead of being silently dropped.
 - `Promise::into_future()` is still available to convert individual JS
   Promises into Rust `Future`s that can be `await`ed directly (see
-  [Basic Usage](basic.md) and [Promise](promise.md)).
+  [Basic Usage](basic.md) and
+  [Promise](../skills/references/promise.md)).

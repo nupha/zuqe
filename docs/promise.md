@@ -1,8 +1,8 @@
 # Promise (internals)
 
 This page describes how Zuqe implements Promises and bridges them to Rust
-futures. For the host-facing API — creating/settling Promises, channels, result
-slots, `into_future`, `create_from_future` — see
+futures. The host-facing API — creating/settling Promises, channels, result
+slots, `into_future`, `create_from_future` — is in
 **[Promise and Rust Future Bridge](../skills/references/promise.md)**.
 
 ## Promise payload
@@ -60,16 +60,13 @@ Job GC tracing is held in `RuntimeImpl::gc_job` while the job runs, so values
 captured by the job stay reachable even though the job has been popped from the
 queue.
 
-## Host bridges
+## Host bridge internals
 
-### `create_with_job`
-
-Creates a pending Promise plus resolve/reject functions, then queues a polling
-job. The closure returns `Ok(Some(v))` (settle), `Ok(None)` (`Block`), or
-`Err(code)` (reject with the current exception). The job's resolving functions
-are traced via `JobGcTrace2`.
-
-### Channel / result-slot variants
+Every `create_with_*` helper is a polling job behind the scenes.
+`create_with_job` creates a pending Promise plus resolve/reject functions, then
+queues a polling job; the closure returns `Ok(Some(v))` (settle), `Ok(None)`
+(`Block`), or `Err(code)` (reject with the current exception). The job's
+resolving functions are traced via `JobGcTrace2`.
 
 `create_with_receiver` and `create_with_channel` wrap `create_with_job` around a
 `WakeReceiver<D>`; the runtime polls `try_recv()` on the JS thread and calls the
@@ -78,42 +75,32 @@ host `convert` once. `create_with_result_slot` uses a shared, single-shot
 `Continue` instead of `Block` while the Promise has no reactions, so an
 unobserved promise does not keep the process alive.
 
-The sender side is a `WakeSender<D>`/`ZqWakeSender`-style handle: every send and
-drop wakes the parked event loop, so producers cannot forget to wake it.
-
-### `Promise::into_future`
-
 `Promise::into_future` registers a reaction (through the promise future
-registry) that stores the settled `Result<JSValue, JSValue>` and wakes the
-Rust `Waker`. `PromiseFuture::poll` returns `Pending` until the registry entry
-is filled, then `Ready(result)`. The registry is traced during GC so a pending
+registry) that stores the settled `Result<JSValue, JSValue>` and wakes the Rust
+`Waker`; `PromiseFuture::poll` returns `Pending` until the registry entry is
+filled, then `Ready(result)`. The registry is traced during GC so a pending
 future's values stay alive.
 
-### `Promise::create_from_future`
-
-Creates a Promise plus an `Rc<RefCell<Option<Result<JSValue, JSValue>>>>`
-result cell, then queues a polling job that settles the Promise when the cell
-is filled. The host-supplied closure receives a `notify` callback; calling it
-stores the result,
-and the next job poll settles the Promise. `notify` is not `Send`, so it must be
-called on the JS thread (or from same-thread polling logic); cross-thread results
-use the channel/slot APIs instead.
+`Promise::create_from_future` creates a Promise plus an
+`Rc<RefCell<Option<Result<JSValue, JSValue>>>>` result cell, then queues a
+polling job that settles the Promise when the cell is filled. The host-supplied
+closure receives a `notify` callback; calling it stores the result, and the next
+job poll settles the Promise. `notify` is not `Send`, so cross-thread results
+must use the channel/slot APIs instead.
 
 ## Runtime modes
 
 - `async_support` enabled: `Runtime::run_async()` returns a `RunFuture` that
   ticks until idle; `Context::eval_wait(...).await` combines this with top-level
-  Promise observation. A top-level rejection becomes
-  `ExitStatus::Exception(Exception::Error(reason))`.
+  Promise observation.
 - `async_support` disabled: `eval_wait` blocks, polling the tick loop until all
   microtasks and Promise jobs complete or the host interrupts.
 
 ## Unhandled rejections
 
-`RuntimeImpl` carries a host `promise_rejection_tracker` callback. It is invoked
-when a Promise is rejected without a handler and when a handler is later
-attached. Hosts use it to surface unhandled rejections without changing Promise
-semantics.
+`RuntimeImpl` carries a `promise_rejection_tracker` callback (the runtime fields
+are `#[deprecated]`, and there is no public setter). It is invoked when a
+Promise is rejected without a handler and when a handler is later attached.
 
 ## Related
 

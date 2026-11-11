@@ -55,32 +55,32 @@ read the GC safety rules first.
 
 | Topic | File | When to read |
 |---|---|---|
-| **Workflow and checklist** | [workflow-checklist.md](references/workflow-checklist.md) | Every zuqe embedding task |
-| **Basics** | [Basics: Runtime, Context, and Execution](references/basics.md) | Cargo features, Runtime/Context, `eval`/`eval_wait`, `EvalName`, limits, module hooks |
-| **Promise and Future** | [promise.md](references/promise.md) | `Promise::create*`, channels/slots, `into_future`, `create_from_future`, `run_async` |
+| **Workflow and checklist** | [workflow-checklist.md](references/workflow-checklist.md) | Start every task here: requirement-to-path workflow, then the per-area review checklist to run before commit |
+| **Basics** | [Basics: Runtime, Context, and Execution](references/basics.md) | First page for a new host: choose Cargo features, create a Runtime and Context, run a script or module and read the ExitStatus, name the entry correctly, cap memory and stack, install the module loader |
+| **Promise and Future** | [promise.md](references/promise.md) | Bridging JS and Rust async: return a Promise that settles later, `await` a JS Promise in Rust, hand results over from threads or blocking IO, decide whether an unobserved Promise keeps the process alive |
 
 ### JIT
 
 | Topic | File | When to read |
 |---|---|---|
-| **Tiered JIT Usage** | [Tiered JIT Usage](references/jit.md) | Enable `jit`, `Jit::attach_to`, tiers, thresholds, metrics, compile timing |
+| **Tiered JIT Usage** | [Tiered JIT Usage](references/jit.md) | Turn `jit` on and attach it to a Runtime, choose a tier policy and thresholds, read `jit.metrics()`, and know which opcodes stay interpreted |
 
 ### GC
 
 | Topic | File | When to read |
 |---|---|---|
-| **GC safety rules (read first)** | [gc-safety.md](references/gc-safety.md) | Rules 0-5, the two parts, failure modes, template |
-| ↳ Trace details | [gc-trace.md](references/gc-trace.md) | `GcTrace`, `thread_local!`, keeping values alive across JS calls |
-| ↳ Write barriers and tools | [gc-write-barrier.md](references/gc-write-barrier.md) | Barrier patterns, failure modes, static audit, minor GC and stress tests |
+| **GC safety rules (read first)** | [gc-safety.md](references/gc-safety.md) | The only rule source: why a node needs both a trace and a write barrier, rules 0-5 with their failure modes, and the standard safe template |
+| ↳ Trace details | [gc-trace.md](references/gc-trace.md) | Trace examples rule by rule, then the recurring pitfalls (a missed field, a cached JS object, a borrow or `remove` held across JS, a weak target, a hidden GC field) and how to debug a lost node |
+| ↳ Write barriers and tools | [gc-write-barrier.md](references/gc-write-barrier.md) | Barrier patterns (guard slot, setter, `GcBind`), running `zuqe-gc-audit` to green, a focused old-to-young check under minor GC, and `--gc-stress` |
 
 ### Bindings and extensions
 
 | Topic | File | When to read |
 |---|---|---|
-| Native functions | [native-function.md](references/native-function.md) | Register host functions, callbacks, arguments, errors |
-| Native classes | [native-class.md](references/native-class.md) | `def_native_object!`, payload, `GcTrace`, inheritance |
-| Modules (ESM and native) | [native-module.md](references/native-module.md) | `create_module`/`FieldDef`, loader/normalizer, import attributes, `import.meta` |
-| zapi extensions | [zapi-extension.md](references/zapi-extension.md) | cdylib setup, `#[zq_*]` macros, classes, async work, GC trace |
+| Native functions | [native-function.md](references/native-function.md) | Expose a Rust function or callback to JS: signature, argument checks, throw handling, and the ways to install it |
+| Native classes | [native-class.md](references/native-class.md) | Define a host class with `def_native_object!`: payload and trace, constructor, methods and properties, creating instances, `extends` |
+| Modules (ESM and native) | [native-module.md](references/native-module.md) | Two module kinds: make `import` work in a host (loader/normalizer, import attributes, `import.meta`), and expose Rust values as a native module |
+| zapi extensions | [zapi-extension.md](references/zapi-extension.md) | Build a third-party cdylib loaded at runtime: project setup, `#[zq_*]` macros, classes, async and thread jobs, and how the host loads it |
 
 ## Key rules
 
