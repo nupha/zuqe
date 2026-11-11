@@ -262,6 +262,13 @@ pub struct RuntimeImpl {
     /// `gc_trace_fns` survives this Vec's growth; freed when the runtime drops.
     #[cfg(feature = "zapi")]
     pub(crate) zapi_gc_tracers: Vec<Box<crate::zapi::ZapiGcTracer>>,
+    /// Owns the NUL-terminated copies of string constants installed on class
+    /// prototypes at runtime (`ZqMember::const_str`). `FieldDef::STR` keeps a
+    /// `&'static str` that the engine materializes lazily on first JS access, so
+    /// the bytes must outlive every property of this runtime. They are freed
+    /// with the runtime - declared after `gc_heap`, so the heap goes first.
+    #[cfg(feature = "zapi")]
+    pub(crate) zapi_class_strs: Vec<std::ffi::CString>,
     /// Live instances of zapi classes (`gc_generations` only).
     ///
     /// The zapi ABI has no write-barrier entry point, so an extension can write
@@ -520,6 +527,7 @@ impl RuntimeImpl {
             zapi_class_defs: Vec::new(),
             #[cfg(feature = "zapi")]
             zapi_gc_tracers: Vec::new(),
+            zapi_class_strs: Vec::new(),
             #[cfg(all(feature = "zapi", feature = "gc_generations"))]
             zapi_instances: Vec::new(),
             #[cfg(feature = "zapi")]

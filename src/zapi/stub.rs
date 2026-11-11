@@ -972,7 +972,31 @@ unsafe extern "C" fn zapi_class_install_prototype_members(
 ) -> i32 {
     let ctx = unsafe { ctx_from_env(env) };
     let slice = unsafe { std::slice::from_raw_parts(members, len) };
-    let converted: Vec<ZqFieldDef> = slice.iter().map(member_to_field).collect();
+
+    // The caller's buffers (name, `str_val`) are owned by the extension and die
+    // when this call returns. A name is interned during install, but a string
+    // constant becomes a lazy property whose `&'static str` is materialized on
+    // first JS access - so its bytes must outlive the call.
+    //
+    // The copies are kept in `str_owners`: dropped if any check below fails (no
+    // leak on the error paths), handed to the runtime - which frees them with
+    // the heap - only once the members are actually installed.
+    let mut str_owners: Vec<std::ffi::CString> = Vec::new();
+    let mut converted: Vec<ZqFieldDef> = Vec::with_capacity(slice.len());
+    for m in slice {
+        let mut f = member_to_field(m);
+        if f.kind == ZQ_FIELD_STR && !f.str_val.is_null() {
+            let bytes = unsafe { std::ffi::CStr::from_ptr(f.str_val) }.to_bytes();
+            // Cannot fail: the bytes came from a C string, so they hold no NUL.
+            let Ok(owned) = std::ffi::CString::new(bytes) else {
+                let _ = ctx.throw_internal_error("zapi member string contains a NUL");
+                return -1;
+            };
+            f.str_val = owned.as_ptr();
+            str_owners.push(owned);
+        }
+        converted.push(f);
+    }
 
     let Some(mut proto) = ctx.class_proto(class_id as ClassID) else {
         let _ = ctx.throw_internal_error(&format!("class {class_id} is not registered"));
@@ -980,8 +1004,11 @@ unsafe extern "C" fn zapi_class_install_prototype_members(
     };
     let existing = match proto.get_own_property_names(ctx, JS_GPN_STR_OR_INT_MASK) {
         Ok(keys) => keys.iter().map(|k| k.atom).collect::<Vec<_>>(),
-        Err(_) => return -1,
+        Err(_) => {
+            return -1;
+        }
     };
+
     if reject_install_collisions(ctx, class_id as ClassID, &converted, &existing).is_err() {
         return -1;
     }
@@ -991,7 +1018,12 @@ unsafe extern "C" fn zapi_class_install_prototype_members(
         return -1;
     }
     match proto.install_fields(ctx, &fields) {
-        Ok(()) => 0,
+        Ok(()) => {
+            // The installed lazy properties now point at these buffers, so the
+            // runtime takes ownership and frees them when it drops.
+            ctx.rt_mut().zapi_class_strs.extend(str_owners);
+            0
+        }
         Err(_) => -1,
     }
 }
@@ -2189,6 +2221,82 @@ mod class_registration_tests {
             let p = unsafe { &*(ptr as *const DispPayload) };
             DISPOSE_MAGIC.store(p.magic, Ordering::SeqCst);
         }
+    }
+
+    /// A string constant installed at runtime is copied into the runtime, not
+    /// leaked: the lazy property materializes it on first access, and the copy
+    /// dies with the runtime.
+    #[test]
+    fn runtime_str_constant_is_owned_by_the_runtime() -> Result<(), i32> {
+        let _lock = REG_LOCK.lock().unwrap();
+        let mut rt = Runtime::create()?;
+        let class_id =
+            rt.register_class_def(ClassDef::new("StrOwned", &[], None), std::ptr::null())?;
+        let mut ctx = rt.create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            cx.use_class(class_id)?;
+            Ok(())
+        })?;
+
+        let members = [super::ZqMemberDef::const_str(c"TAG", c"owned-tag")];
+        let rc = ctx.with_root_scope(|mut scope| {
+            let env = &mut scope as *mut ScopedContext as super::ZqRawCtx;
+            unsafe {
+                super::zapi_class_install_prototype_members(
+                    env,
+                    class_id as i32,
+                    members.as_ptr(),
+                    members.len(),
+                )
+            }
+        });
+        assert_eq!(rc, 0, "install must succeed");
+        assert_eq!(ctx.rt().zapi_class_strs.len(), 1, "one copy taken");
+
+        // The lazy property reads the copy, not the caller's C string.
+        let text = ctx.with_root_scope(|mut scope| {
+            let proto = scope.class_proto(class_id).ok_or(-1)?;
+            let v = proto.get_property_str(&mut scope, "TAG").map_err(|_| -1)?;
+            let s = v.to_string(&mut scope).map_err(|_| -1)?;
+            Ok::<_, i32>(s.content().encode_utf8(false).to_string())
+        })?;
+        assert_eq!(text, "owned-tag");
+        Ok(())
+    }
+
+    /// A failed install must take nothing with it: the copies made for the
+    /// members are dropped instead of leaked.
+    #[test]
+    fn failed_runtime_install_leaks_no_string_copy() -> Result<(), i32> {
+        let _lock = REG_LOCK.lock().unwrap();
+        let mut rt = Runtime::create()?;
+        let class_id =
+            rt.register_class_def(ClassDef::new("StrNoLeak", &[], None), std::ptr::null())?;
+        let mut ctx = rt.create_context(|cx| {
+            ScopedContext::ECMA_CONTEXT_SETUP(cx)?;
+            cx.use_class(class_id)?;
+            Ok(())
+        })?;
+
+        let members = [super::ZqMemberDef::const_str(c"TAG", c"never-installed")];
+        // `class_id + 1_000` is not registered: the install fails after the copy.
+        let rc = ctx.with_root_scope(|mut scope| {
+            let env = &mut scope as *mut ScopedContext as super::ZqRawCtx;
+            unsafe {
+                super::zapi_class_install_prototype_members(
+                    env,
+                    class_id as i32 + 1_000,
+                    members.as_ptr(),
+                    members.len(),
+                )
+            }
+        });
+        assert_eq!(rc, -1, "install on an unknown class must fail");
+        assert!(
+            ctx.rt().zapi_class_strs.is_empty(),
+            "no copy may survive a failed install"
+        );
+        Ok(())
     }
 
     /// `on_finalize` must fire before the payload is freed, with a still-valid
