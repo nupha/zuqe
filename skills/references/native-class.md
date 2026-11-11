@@ -137,9 +137,9 @@ def_native_object!("Bar", JSBar, (), BAR_PROTO, None);
 ```
 
 A zero-size or stateless payload should not exist. Use `()` directly. Do not
-write `struct BarPayload;` and give it an empty `GcTrace`. For example,
-`TextEncoder` has no per-instance state. Using `()` avoids a `Box` allocation
-and `payload_drop` per instance.
+write `struct BarPayload;` and give it an empty `GcTrace`. A class with no
+per-instance state (say, a stateless `TextEncoder` wrapper) is the case `()`
+was made for: it avoids a `Box` allocation and `payload_drop` per instance.
 
 ### Payload with no GC nodes
 

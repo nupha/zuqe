@@ -7,7 +7,8 @@
 >
 > Implementation and ABI details are in `docs/zapi-extension.md` and
 > `src/zapi/host.rs`. Runnable examples: `examples/zapi_basic`,
-> `examples/zapi_event`, and `examples/zapi_raw`.
+> `examples/zapi_event`, `examples/zapi_raw`, and the conformance extension
+> `examples/zapi_ffi_test`.
 
 ## 1. Project setup
 
@@ -35,7 +36,8 @@ use zuqe_zapi_macros::{zq_function, zq_module};
   `dlopen`.
 - `[lib] name` sets the imported file name. It is public API. Keep it stable.
 - The extension and host zapi ABI versions must match. A mismatch fails the
-  import with `zapi ABI/API version N mismatch`.
+  import with `zapi ABI version N mismatch (expect MIN - MAX)` (and the same
+  shape for the API version).
 
 ## 2. Minimal module
 
@@ -91,13 +93,18 @@ ZqValue::number(1.5)
 ZqValue::bool(true)
 ZqValue::null()
 ZqValue::undefined()
-ZqValue::new_string(ctx, "hi")?
+ZqValue::new_string(ctx, "hi")?      // mid-function: `?`, then keep going
 ZqValue::new_object(ctx)?
 ZqValue::new_array(ctx, &[ZqValue::int32(1), ZqValue::bool(true)])?
 ```
 
-`ZqValue::new_*` returns `Result<ZqValue, ZqError>`. When it is the last
-expression, return it directly. Do not wrap it in `Ok` or add `?`.
+`ZqValue::new_*` returns `Result<ZqValue, ZqError>`; the plain constructors
+(`int32`, `number`, `bool`, `null`, `undefined`) return `ZqValue` directly.
+
+- As a **statement**, unwrap with `?` like any other `Result`.
+- As the **last expression** of the function, return it as-is: the function
+  already returns `Result<ZqValue, ZqError>`, so write
+  `ZqValue::new_object(ctx)` — not `Ok(ZqValue::new_object(ctx)?)`.
 
 Throw a JS exception:
 
@@ -132,8 +139,9 @@ let text = ctx.call_function(stringify, json, &[obj])?;
 // ctx.call_constructor(callee, &args).
 ```
 
-The old aliases `set_str`, `get_str`, `has_str`, `delete_str`, `set`, and `get`
-are deprecated.
+The old aliases `get`, `set`, `has`, `get_str`, `set_str`, `has_str`, and
+`delete_str` are deprecated — use `get_property` / `set_property` /
+`has_property` / `del_property_str` and the `*_str` variants.
 
 ## 4. Module values: `#[zq_export]`
 
@@ -207,6 +215,9 @@ impl JsCounter {
   Registration order does not matter. A class from another `.dylib`, or a
   builtin such as `Array`, cannot be a parent. Parent lookup is member lookup,
   not `super`. Child payloads are independent.
+- `#[zq_class(prototype_members = MY_MEMBERS)]` adds a `&'static [ZqMemberDef]`
+  const to the prototype — the raw-ABI way to bulk-add members without writing
+  a method for each.
 - **GC**: every `ZqRawValue`/`ZqValue` in the payload must be traceable. Use
   `#[derive(ZqGcTrace)]` to cover all fields. Use `payload_no_gc` only when no
   field holds a JS handle. `payload_no_gc` with a real `ZqRawValue` causes a
@@ -283,7 +294,29 @@ ctx.new_async_iterator(Rows { done: false })
 `AsyncIterResult::Wait` means "not ready now, try next tick". It does not block
 JS.
 
-### 6.4 Polling jobs: `add_job` and `add_job_no_gc`
+### 6.4 Channel jobs: prefer `spawn_channel_job` / `spawn_event_job`
+
+These wrap `make_wake_channel` + `add_job` for you. The zapi source calls them
+the recommended spelling over the raw pieces.
+
+```rust
+// Request/response: holds the loop while registered (empty = parked).
+let tx = ctx.spawn_channel_job("file-read", |cx, data: Vec<u8>| {
+    // deliver `data` to JS ...
+    ZqChannelPoll::Done // or Continue to keep waiting
+});
+
+// Long-lived event stream: does NOT hold the loop (empty = idle), and each
+// tick drains the whole channel instead of one message.
+let tx = ctx.spawn_event_job("on-log", |cx, line: String| {
+    // forward `line` to JS ...
+});
+```
+
+Use `spawn_event_job` for listeners that live for the whole program; a holding
+job on such a stream would keep the process from ever exiting.
+
+### 6.5 Raw polling jobs: `add_job` and `add_job_no_gc`
 
 ```rust
 let (tx, rx) = ctx.make_wake_channel::<i32>();
@@ -305,7 +338,8 @@ ctx.add_job_no_gc(move |_cx| match rx.try_recv() {
   To capture JS values (for example, a callback for each value), use `add_job`
   and implement `ZqJob` (`run` plus `ZqGcTrace::trace`). Put the callback in a
   traced payload.
-- `ZqWakeSender` is `Send + Sync`. Clones share one wake token. Drop also
+- `ZqWakeSender` is `Send + Sync` when `T` is (the waker handle is
+  explicitly `Send + Sync`). Clones share one wake token. Drop also
   wakes, so a consumer cannot park forever.
 
 ## 7. Host loading
@@ -333,7 +367,8 @@ pointers do not dangle.
 - [ ] Every class method checks `this` with `payload` or `payload_mut`.
 - [ ] Payloads with JS handles have `ZqGcTrace`. `payload_no_gc` is only for
       zero JS handles.
-- [ ] Slow work uses `promise_threaded`, `promise_fut`, or an async iterator.
-      It does not block the JS thread.
+- [ ] Slow work uses `promise_threaded`, `promise_fut`, an async iterator, or a
+      channel job (`spawn_channel_job` / `spawn_event_job`). It does not block
+      the JS thread.
 - [ ] Errors use `ctx.throw_*` plus `Err`. Do not swallow exceptions.
 - [ ] Extension and host zapi versions match.

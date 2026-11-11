@@ -8,7 +8,7 @@
 
 ```toml
 [dependencies]
-zuqe = { version = "0.11", features = ["jit"] } # jit is on by default
+zuqe = { version = "0.12", features = ["jit"] } # jit is off by default
 ```
 
 - `jit` compiles **already parsed bytecode**. It does not touch the parser,
@@ -23,7 +23,7 @@ zuqe = { version = "0.11", features = ["jit"] } # jit is on by default
 
 ## 2. Enable and attach the JIT
 
-`jit` is on by default. For a custom build, include it explicitly:
+`jit` is off by default. For a custom build, include it explicitly:
 
 ```bash
 cargo build --no-default-features --features "jit"
@@ -60,8 +60,8 @@ println!("{:?}", jit.metrics());
 
 `Jit::attach_to(&runtime, config)`:
 
-- One JIT per `Runtime`. It returns `Err(JitError)` if there is no Cranelift
-  backend.
+- One JIT per `Runtime`. It returns `Err(JitError)` if a JIT is already
+  attached, or if there is no Cranelift backend.
 - `Jit` holds a strong reference to `Runtime`. The runtime stays alive while
   the handle lives. You do not need to control drop order. A runtime can be
   attached only once.
@@ -90,8 +90,8 @@ dispatches, drains, and installs. As a result:
 |---|---|
 | `Interpreter` | Install no native code. Hooks stay idle. |
 | `Tier1` | Compile the baseline tier only. |
-| `Tier2` | Always specialize parts with recorded feedback. |
-| `Automatic` | Default. Two gates: baseline compile, then promote to the optimizing tier. |
+| `Tier2` | Compile straight to the optimizing tier at the first gate, specializing every recorded int-monomorphic site regardless of the profitability gate. |
+| `Automatic` | Default. Two gates: baseline compile, then promote to the optimizing tier. The profitability gate applies only here. |
 
 Each gate is a weighted budget over entries and back edges:
 `L * calls + C * loops >= C * L`. `call_threshold` and `loop_threshold` are the

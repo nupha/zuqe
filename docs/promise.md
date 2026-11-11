@@ -3,7 +3,7 @@
 This page describes how Zuqe implements Promises and bridges them to Rust
 futures. For the host-facing API — creating/settling Promises, channels, result
 slots, `into_future`, `create_from_future` — see
-**[Promise and Rust Future Bridge](../skills/promise.md)**.
+**[Promise and Rust Future Bridge](../skills/references/promise.md)**.
 
 ## Promise payload
 
@@ -13,7 +13,8 @@ slots, `into_future`, `create_from_future` — see
 - `result: WriteBarrier<JSValue>` — the fulfillment value or rejection reason.
 - reaction lists — one per settlement kind, stored as guarded containers so an
   old Promise accepting a young reaction records the barrier.
-- `is_handled` — used by the host unhandled-rejection tracker.
+- `is_handled` — a debug-only flag; it decides whether `settle` / `then` notify
+  the host rejection tracker. Marked `#[deprecated]` in the source.
 
 Settlement is spec-compliant: `settle` returns early if the Promise is no longer
 `Pending` (second settle is a silent no-op, matching ECMA-262 resolving-function
@@ -90,8 +91,10 @@ future's values stay alive.
 
 ### `Promise::create_from_future`
 
-Creates a Promise and a shared result slot, then queues a polling job. The
-host-supplied closure receives a `notify` callback; calling it stores the result,
+Creates a Promise plus an `Rc<RefCell<Option<Result<JSValue, JSValue>>>>`
+result cell, then queues a polling job that settles the Promise when the cell
+is filled. The host-supplied closure receives a `notify` callback; calling it
+stores the result,
 and the next job poll settles the Promise. `notify` is not `Send`, so it must be
 called on the JS thread (or from same-thread polling logic); cross-thread results
 use the channel/slot APIs instead.
@@ -114,6 +117,6 @@ semantics.
 
 ## Related
 
-- Host API: [Promise and Rust Future Bridge](../skills/promise.md)
+- Host API: [Promise and Rust Future Bridge](../skills/references/promise.md)
 - Tick loop: [Running Loop](loop.md)
 - GC roots and barriers: [Garbage Collection](gc.md)

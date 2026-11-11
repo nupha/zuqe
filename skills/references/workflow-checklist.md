@@ -97,14 +97,15 @@
 
 - [ ] Without a loader, imports throw `ReferenceError`. The host either sets a
       loader or keeps this default on purpose.
-- [ ] The normalizer and loader are plain `fn` pointers. Host state goes in
-      `RuntimeImpl::user_state`.
+- [ ] The normalizer and loader are plain `fn` pointers. Host state comes from
+      `Runtime::create_with` and is read with `user_state::<T>()`.
 - [ ] Import attributes (for example JSON) are handled in the loader.
       `compile_module` gets the correct URL.
 - [ ] Promise channel/slot `convert` runs on the JS thread. Cross-thread data is
       plain Rust data with no GC handles.
-- [ ] Unobserved Promises use `*_hold_when_awaited` only when they must keep the
-      process alive.
+- [ ] Unobserved Promises use `*_hold_when_awaited` when they must **not**
+      keep the process alive; the plain variants keep the loop parked while the
+      job waits.
 
 ### B. Native function binding
 

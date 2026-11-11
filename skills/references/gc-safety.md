@@ -25,7 +25,7 @@ field, a `thread_local!`, or an untraced Rust container is invisible.
 
 - If it is the only reference, a full mark or major collects it.
 - Rust keeps using it: **use-after-free**.
-- Debug builds often show `gc: bad node`. Release builds may crash randomly,
+- Debug builds often show `bad node: 0x…`. Release builds may crash randomly,
   throw `TypeError`, corrupt callbacks, or crash at teardown.
 - A short script may never run a full mark. "It ran" does not mean trace is
   correct.
@@ -41,7 +41,7 @@ does **not descend old payloads**.
 - Debug builds panic after the minor: `— missing write barrier`. Release builds
   have a silent UAF.
 - Common symptoms: promises or async work never settle, random `TypeError`,
-  `gc: bad node`.
+  `bad node: 0x…`.
 
 ### 1.3 They cannot replace each other
 
@@ -169,7 +169,7 @@ use std::ptr::NonNull;
 
 use zuqe::{
     GcBind, JSValue, Object, ScopedContext, WriteBarrier, WriteBarrierMap, WriteBarrierVec,
-    def_native_object,
+    ClassCtorDef, def_native_object,
     gc_lite::{GcHead, GcTrace},
 };
 

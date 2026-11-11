@@ -185,7 +185,7 @@ async fn main() {
 
 `Context::eval_wait` creates its own GC scope, so no manual `with_new_scope` is
 needed. For the full execution guide (sync mode, `eval`, `EvalName`, scopes,
-resource limits), see [Basics: Runtime, Context, and Execution](skills/basics.md).
+resource limits), see [Basics: Runtime, Context, and Execution](skills/references/basics.md).
 
 ### Embedding API Highlights
 
@@ -259,15 +259,15 @@ Documentation is split by audience:
 
 - **[Skills](skills/SKILL.md)** — how to use and embed Zuqe from Rust. Start here
   if you are writing host code or an extension:
-  - [Basics: Runtime, Context, and Execution](skills/basics.md) — Runtime/Context, `eval`/`eval_wait`, limits
-  - [Native Function Binding](skills/native-function.md)
-  - [Native Classes](skills/native-class.md)
-  - [Modules: ESM Loading and Native Modules](skills/native-module.md)
-  - [Promise and Rust Future Bridge](skills/promise.md)
-  - [Tiered JIT Usage](skills/jit.md)
-  - [Writing a zapi Extension (cdylib)](skills/zapi-extension.md)
-  - [GC Safety Rules](skills/gc-safety.md)
-  - [Workflow and Review Checklist](skills/workflow-checklist.md)
+  - [Basics: Runtime, Context, and Execution](skills/references/basics.md) — Runtime/Context, `eval`/`eval_wait`, limits
+  - [Native Function Binding](skills/references/native-function.md)
+  - [Native Classes](skills/references/native-class.md)
+  - [Modules: ESM Loading and Native Modules](skills/references/native-module.md)
+  - [Promise and Rust Future Bridge](skills/references/promise.md)
+  - [Tiered JIT Usage](skills/references/jit.md)
+  - [Writing a zapi Extension (cdylib)](skills/references/zapi-extension.md)
+  - [GC Safety Rules](skills/references/gc-safety.md)
+  - [Workflow and Review Checklist](skills/references/workflow-checklist.md)
 - **[Docs](docs/)** — internals, design, build, and tool manuals:
   - [About Zuqe](docs/about.md) — the name, philosophy, and design goals
   - [Garbage Collection](docs/gc.md) — collector implementation

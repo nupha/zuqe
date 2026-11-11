@@ -18,7 +18,7 @@ zjs [options] <filename>
 
 - **`--vm-stack-arena <n>`** _(default: 256k)_: Set the size of the JS virtual machine **stack arena** to `n` bytes. This is a pre-allocated, contiguous bump-region used as the _fast path_ for function call frames — frames are carved out of it by simply bumping a pointer.
 
-- **`--vm-stack-limit <n>`** _(default: 512k)_: Set the **hard cap on the total live virtual stack** (arena-used + heap-used) to `n` bytes. When a new frame would push the combined usage past this limit, a stack-overflow error is thrown. This is what actually bounds recursion depth.
+- **`--vm-stack-limit <n>`** _(default: 512k)_: Set the **hard cap on the total live virtual stack** (arena-used + heap-used) to `n` bytes. When a new frame would push the combined usage past this limit, frame allocation fails and the engine throws `InternalError: maximum call stack size exceeded` (an arena allocation failure throws `execution stack allocation failed` instead). This is what actually bounds recursion depth.
 
 - **`--thread-stack-limit <n>`**: Set the **C-stack recursion limit** — the maximum native stack bytes JS recursion may consume below the eval-entry SP. Omitted or `0` selects **auto mode**: the guard is derived from the current thread's real stack bottom, keeping a fixed internal head-room (`THREAD_STACK_LIMIT_MARGIN`) free for the throw path. Auto mode is the default; a strict limit only applies when set explicitly. On platforms where `Runtime::CAN_AUTO_THREAD_STACK_LIMIT` is false, `zjs` falls back to a strict 512 KiB limit.
 
@@ -55,8 +55,11 @@ ZJS can execute JavaScript files in two modes:
 
 In case no `-m` or `--module` flag, the execution mode will be automatically detected:
 
-- for filename with `.mjs` extension, or `import/export` syntax is found in file content, then use ES6 module mode
-- otherwise use global mode.
+- for filename with `.mjs` extension, use ES6 module mode;
+- otherwise use `ModuleDef::detect_module`, which skips the shebang and
+  leading comments and checks the **first token**: `export`, or `import` not
+  followed by `(` / `.` (so `import(...)` / `import.meta` do not count) means
+  module mode; anything else is global mode.
 
 ### Example Usage
 
@@ -162,7 +165,10 @@ The ZJS example demonstrates how to embed the Zuqe engine in a Rust application.
    - GC trace for thread-local handlers and timers
 
 7. **Native module `std`** (`mod_std.rs`):
-   - Standard library: `open`, `puts` (stdout), `evalScript`, `gc`, `exit`
+   - Standard library: `open`, `puts` (stdout), `evalScript`, `exit`
+   - GC controls: `gc` (request a major), `gcMinor` (request a minor at the
+     next safepoint — not an immediate run), `gcPromote` (set promotion age
+     0/1/2), `gcMemory`, `gcStats`
    - Lazy `in`/`out`/`err` values for pre-built `File` instances
 
 The main application flow:

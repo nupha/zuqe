@@ -11,9 +11,10 @@
 ```rust
 use zuqe::{CallContext, JSResult, JSValue, ScopedContext, Callback};
 
-// Host/builtin native callback (src/function/fields.rs, nfun.rs)
+// Host/builtin native callback (src/function/nfun.rs)
 pub type CallbackFn = fn(ctx: &mut ScopedContext, cc: CallContext) -> JSResult;
-// JSResult = Result<JSValue, ErrCode> (error.rs). After a throw, return Err(-1).
+// JSResult = Result<JSValue, ErrCode> (error.rs; ErrCode = i32).
+// After a throw, return Err(-1) or the throw helper's own code.
 ```
 
 Common `CallContext` methods (`src/function/call.rs`):
@@ -39,8 +40,10 @@ Common `CallContext` methods (`src/function/call.rs`):
 - **Return values**: return `Ok(value)`. For no value, return
   `Ok(JSValue::UNDEFINED)`.
 - **Throw**: set the current exception with a `ScopedContext` method such as
-  `throw_type_error`, `throw_range_error`, or `throw_internal_error`. Then
-  return `Err(-1)`. Do not return `Ok(...)` after setting an exception.
+  `throw_type_error`, `throw_range_error`, or `throw_internal_error`. The usual
+  spelling is `return Err(ctx.throw_type_error("..."));` — the throw helpers
+  return the error code. Returning `Err(-1)` after setting the exception
+  yourself works too. Do not return `Ok(...)` after setting an exception.
 - **Check `this`**: methods should check that `cc.this()` is the expected native
   object or class instance. Throw `TypeError` on a mismatch.
 
@@ -166,7 +169,8 @@ fn main() -> Result<(), i32> {
 ```
 
 > Current signatures: `CallbackFn = fn(&mut ScopedContext, CallContext) ->
-> JSResult`, and `JSResult = Result<JSValue, i32>`. The template shows the
+> JSResult`, and `JSResult = Result<JSValue, ErrCode>` (`ErrCode = i32`). The
+> template shows the
 > standard callback, error return, install, and scope shape.
 
 ## Anti-patterns

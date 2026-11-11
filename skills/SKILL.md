@@ -19,9 +19,10 @@ description: >
 # zuqe Embedding Skill
 
 This directory is the user guide for embedding and extending **zuqe**. It shows
-how a Rust host calls, embeds, and extends the engine. It does not cover engine
-internals such as the GC heap, tick loop, or JIT lowering. Those live in
-`docs/`.
+how a Rust host calls, embeds, and extends the engine. The topic pages live in
+[`references/`](references/) — start from the topic index below. It does not
+cover engine internals such as the GC heap, tick loop, or JIT lowering. Those
+live in `docs/`.
 
 > The API can change. Check the source and the checklists here when writing or
 > reviewing code.
@@ -39,11 +40,11 @@ internals such as the GC heap, tick loop, or JIT lowering. Those live in
 2. **GC safety needs two parts.** `GcTrace` covers full marks. Old-to-young
    writes also need a write barrier (`gc_generations`). You need both. Do not
    suggest `gc_protect_transient` as a fix. Read
-   [GC Safety Rules](gc-safety.md) first, then the trace and barrier details.
+   [GC Safety Rules](references/gc-safety.md) first, then the trace and barrier details.
 3. **Modules have two paths.** JS/ESM modules come from a host loader and
    normalizer. Native modules are registered with `create_module`/`FieldDef`.
    zapi extensions use the cdylib ABI. See
-   [Modules: ESM Loading and Native Modules](native-module.md).
+   [Modules: ESM Loading and Native Modules](references/native-module.md).
 
 ## Topic index
 
@@ -54,38 +55,38 @@ read the GC safety rules first.
 
 | Topic | File | When to read |
 |---|---|---|
-| **Workflow and checklist** | [workflow-checklist.md](workflow-checklist.md) | Every zuqe embedding task |
-| **Basics** | [Basics: Runtime, Context, and Execution](basics.md) | Cargo features, Runtime/Context, `eval`/`eval_wait`, `EvalName`, limits, module hooks |
-| **Promise and Future** | [promise.md](promise.md) | `Promise::create*`, channels/slots, `into_future`, `create_from_future`, `run_async` |
+| **Workflow and checklist** | [workflow-checklist.md](references/workflow-checklist.md) | Every zuqe embedding task |
+| **Basics** | [Basics: Runtime, Context, and Execution](references/basics.md) | Cargo features, Runtime/Context, `eval`/`eval_wait`, `EvalName`, limits, module hooks |
+| **Promise and Future** | [promise.md](references/promise.md) | `Promise::create*`, channels/slots, `into_future`, `create_from_future`, `run_async` |
 
 ### JIT
 
 | Topic | File | When to read |
 |---|---|---|
-| **Tiered JIT Usage** | [Tiered JIT Usage](jit.md) | Enable `jit`, `Jit::attach_to`, tiers, thresholds, metrics, compile timing |
+| **Tiered JIT Usage** | [Tiered JIT Usage](references/jit.md) | Enable `jit`, `Jit::attach_to`, tiers, thresholds, metrics, compile timing |
 
 ### GC
 
 | Topic | File | When to read |
 |---|---|---|
-| **GC safety rules (read first)** | [gc-safety.md](gc-safety.md) | Rules 0-5, the two parts, failure modes, template |
-| ↳ Trace details | [gc-trace.md](gc-trace.md) | `GcTrace`, `thread_local!`, keeping values alive across JS calls |
-| ↳ Write barriers and tools | [gc-write-barrier.md](gc-write-barrier.md) | Barrier patterns, failure modes, static audit, minor GC and stress tests |
+| **GC safety rules (read first)** | [gc-safety.md](references/gc-safety.md) | Rules 0-5, the two parts, failure modes, template |
+| ↳ Trace details | [gc-trace.md](references/gc-trace.md) | `GcTrace`, `thread_local!`, keeping values alive across JS calls |
+| ↳ Write barriers and tools | [gc-write-barrier.md](references/gc-write-barrier.md) | Barrier patterns, failure modes, static audit, minor GC and stress tests |
 
 ### Bindings and extensions
 
 | Topic | File | When to read |
 |---|---|---|
-| Native functions | [native-function.md](native-function.md) | Register host functions, callbacks, arguments, errors |
-| Native classes | [native-class.md](native-class.md) | `def_native_object!`, payload, `GcTrace`, inheritance |
-| Modules (ESM and native) | [native-module.md](native-module.md) | `create_module`/`FieldDef`, loader/normalizer, import attributes, `import.meta` |
-| zapi extensions | [zapi-extension.md](zapi-extension.md) | cdylib setup, `#[zq_*]` macros, classes, async work, GC trace |
+| Native functions | [native-function.md](references/native-function.md) | Register host functions, callbacks, arguments, errors |
+| Native classes | [native-class.md](references/native-class.md) | `def_native_object!`, payload, `GcTrace`, inheritance |
+| Modules (ESM and native) | [native-module.md](references/native-module.md) | `create_module`/`FieldDef`, loader/normalizer, import attributes, `import.meta` |
+| zapi extensions | [zapi-extension.md](references/zapi-extension.md) | cdylib setup, `#[zq_*]` macros, classes, async work, GC trace |
 
 ## Key rules
 
-- **GC rules:** [GC Safety Rules](gc-safety.md) is the only rule source. Trace
-  examples are in [gc-trace.md](gc-trace.md). Barrier and audit tools are in
-  [gc-write-barrier.md](gc-write-barrier.md). Other files link to these rules
+- **GC rules:** [GC Safety Rules](references/gc-safety.md) is the only rule source. Trace
+  examples are in [gc-trace.md](references/gc-trace.md). Barrier and audit tools are in
+  [gc-write-barrier.md](references/gc-write-barrier.md). Other files link to these rules
   and do not repeat them.
 - **Payload shapes:** use `()` for zero-size or stateless payloads. Use
   `unsafe_empty_gc_trace!` when a non-zero payload has fields that do not
@@ -93,9 +94,10 @@ read the GC safety rules first.
   not use an empty hand-written impl by default. Do not hide GC fields behind
   an empty trace macro; the audit checks this.
 - **Project rules:** GC node safe. Clear zapi boundary. **Class inheritance has
-  one path only.** Build root classes first. Link host classes with
-  `def_native_object!(..., extends: X)` or with the engine primitives
-  `ScopedContext::link_class_extends` and `init_class_proto_extends`. Do not
+  one path only.** Build root classes first. Host crates link a parent only with
+  `def_native_object!(..., extends: Parent::class_id)` plus `use_class`.
+  `ScopedContext::link_class_extends` and `init_class_proto_extends` are
+  `pub(crate)` engine primitives for builtins — hosts cannot call them. Do not
   write `set_prototype` by hand. Do not expose InitFn to third parties. Use the
   right path for the audience.
 - **Entry point:** with default `async_support`, `Context::eval_wait(...)` is
@@ -109,12 +111,12 @@ read the GC safety rules first.
 
 1. Decide the audience and path: host/builtin Rust or a zapi cdylib extension.
    Do not mix them.
-2. Read the [workflow and checklist](workflow-checklist.md).
+2. Read the [workflow and checklist](references/workflow-checklist.md).
 3. Read the topic file. Copy the template and adjust it to the real types and
    API. Do not guess field names.
-4. If GC nodes are involved, read [GC Safety Rules](gc-safety.md) and follow
+4. If GC nodes are involved, read [GC Safety Rules](references/gc-safety.md) and follow
    rules 0-5.
 5. Before you commit, run the static audit
    (`cargo test --test gc_audit`). Run focused dynamic checks with
    debug + `gc_generations`, and use `--gc-stress` when needed. Then recheck
-   [workflow-checklist.md](workflow-checklist.md).
+   [workflow-checklist.md](references/workflow-checklist.md).

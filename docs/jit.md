@@ -1,8 +1,8 @@
 # Tiered JIT
 
-Zuqe ships a tiered bytecode JIT behind the `jit` feature (enabled by default;
-build with `--no-default-features` plus an explicit feature list to leave it
-out). It compiles hot JavaScript functions to Cranelift-generated machine code
+Zuqe ships a tiered bytecode JIT behind the `jit` feature (off by default;
+add `--features jit`, or list it explicitly with `--no-default-features`). It
+compiles hot JavaScript functions to Cranelift-generated machine code
 while the interpreter stays the reference for correctness.
 
 ## What it is
@@ -54,7 +54,7 @@ two weighted gates over calls and back edges). Anything the backend cannot
 translate keeps running interpreted.
 
 For the complete host-facing API — feature setup, thresholds, metrics, and
-caveats — see **[Tiered JIT Usage](../skills/jit.md)**. The rest of this page
+caveats — see **[Tiered JIT Usage](../skills/references/jit.md)**. The rest of this page
 covers the implementation pipeline and test framework.
 
 
@@ -104,7 +104,7 @@ runtime ever made hot.
    moment. A guard miss simply calls the helper on the same frame. (Decision
    D-25; cross-block values travel as block parameters.)
 4. **Helpers are interpreter semantics.** The generated code calls a trampoline
-   table of `extern "C"` functions in `abi.rs`; each one reads operands straight
+   table of `extern "C"` functions in `src/jit/abi/`; each one reads operands straight
    out of the frame, calls the interpreter's existing Rust function, and writes
    the result back.
 5. **Calls keep the caller in native code.** The `call` helpers run the callee
@@ -132,8 +132,7 @@ Native code returns a small status to the interpreter:
 | `Interrupt` | the host interrupt fired at a back-edge safepoint; **bypasses JS `catch`** |
 | `Retry` | re-enter the interpreter at this pc |
 
-(`JitExitKind` also declares `Unwind`, `CallBytecode` and `TailCall`; the
-baseline lowering does not emit them.)
+(`JitExitKind` has exactly these five variants.)
 
 Two different kinds of "failure" must not be confused: a **compile-time reject**
 (policy/verify) is permanent — the function is never compiled; a **run-time
@@ -167,13 +166,14 @@ instructions, so it is called analysis, not IR.
   generated code, and they are the production input of the guard feedback):
   `JitMetrics` carries the inline guards' hits and misses
   (`property_guard_*`, `global_guard_*`), the monomorphic call path's
-  (`inline_call_*`, `frame_inline_hits`), the speculative int guards'
+  (`mono_call_hits`/`mono_call_misses`, `inline_body_hits`), the speculative int guards'
   (`specialized_guard_misses`), and the GC scope's LOCAL-list high-water mark
-  (`scope_local_peak`). `examples/jit-bench.rs` prints them per run,
-  under both protocols, with no feature flag:
+  (`scope_local_peak`). `examples/jit-bench.rs` prints them per run (labels:
+  `property_guard`, `inline_call`, `inline_body_hits`, …),
+  under both protocols, with no `jit_dump` feature needed (only `jit`):
 
   ```sh
-  cargo run --release --example jit-bench -- --kernel ctor-heavy
+  cargo run --release --features jit --example jit-bench -- --kernel ctor-heavy
   # property_guard (hits/misses): interpreter=0/0 tier1=… automatic=…
   ```
 
@@ -216,13 +216,13 @@ maintainer-local and are not part of this repository.
 | Opcode strategy (generated from the opcode table) | `build_opcodes.rs` → `src/jit/policy.rs` |
 | Pointer-free function snapshot | `src/jit/snapshot.rs` |
 | Frontend gate (decode, CFG, abstract stack, verify) | `src/jit/bytecode/{mod,decode,cfg,stack,verify}.rs` |
-| Baseline + Tier-2 lowering, inline guards | `src/jit/compiler.rs` |
-| Monomorphic direct call / frame inlining | `src/jit/direct_call.rs`, `src/jit/inline_call.rs` |
-| Native ABI, frame layout, helper trampolines | `src/jit/abi.rs` |
+| Baseline + Tier-2 lowering, inline guards | `src/jit/compiler/` |
+| Monomorphic direct call / frame inlining | `src/jit/direct_call.rs`, `src/jit/inline_call/` |
+| Native ABI, frame layout, helper trampolines | `src/jit/abi/` |
 | Function-scoped analysis (data-flow facts: liveness, dominators, loops, value numbering) | `src/jit/analysis/{mod,values}.rs` |
 | Tier-2 type feedback table | `src/jit/feedback.rs` |
-| Hotness counters, thresholds, tier policy | `src/jit/runtime/hotness.rs`, `src/jit/config.rs` |
-| Compilation queue and function lifecycle | `src/jit/runtime/coordinator.rs` |
+| Hotness counters, thresholds, tier policy | `src/jit/runtime/hotness/`, `src/jit/config.rs` |
+| Compilation queue and function lifecycle | `src/jit/runtime/coordinator/` |
 | Executable memory (W^X, i-cache) and code cache | `src/jit/runtime/install.rs`, `src/jit/platform.rs`, `src/jit/code_cache.rs` |
 | Measured compile cost (the cost gate's input) | `src/jit/rate.rs` |
 | IR / machine-code dump (feature `jit_dump`, off by default) | `src/jit/dump.rs` |
@@ -271,7 +271,7 @@ and it cannot catch a bug shared by the interpreter and the JIT.
 Assemble a bytecode body with `Asm`, compile it with the real compiler, and run
 it against a synthetic `JitExecFrame` (`test_harness::run_function`) or a copied
 inline body (`run_inline`). Located in `src/jit/test_harness.rs`,
-`src/jit/inline_call.rs` (`#[test]`) and `src/jit/compiler.rs` (`#[test]`), run
+`src/jit/inline_call/tests.rs` (`#[test]`) and `src/jit/compiler/tests.rs` (`#[test]`), run
 with `cargo test --features jit --lib`.
 
 A real heap object may be passed in as an argument (e.g. a typed array for the
@@ -354,7 +354,7 @@ matches it by design. Test262 and the pinned corpora cover that.
 
 | Suite | Path | Command |
 |---|---|---|
-| White-box lowering harness | `src/jit/test_harness.rs`, `src/jit/inline_call.rs`, `src/jit/compiler.rs` | `cargo test --features jit --lib` |
+| White-box lowering harness | `src/jit/test_harness.rs`, `src/jit/inline_call/tests.rs`, `src/jit/compiler/tests.rs` | `cargo test --features jit --lib` |
 | Differential (4 modes, bit-exact) | `tests/jit/jit_differential.rs` | `cargo test --features jit --test jit jit_differential` |
 | Per-opcode end-to-end + claim audit | `tests/jit/jit_opcodes.rs`, `tests/jit/opcode-claims.py` | `cargo test --features jit --test jit jit_opcodes` |
 | Semantic stress | `tests/jit/jit_semantics.rs` | `cargo test --features jit --test jit jit_semantics` |
@@ -363,7 +363,7 @@ matches it by design. Test262 and the pinned corpora cover that.
 | Tier feedback / speculation | `tests/jit/jit_feedback.rs` | `cargo test --features jit --test jit jit_feedback` |
 | Inline guards (property/array/typed array/global) | `tests/jit/jit_field.rs`, `jit_array.rs`, `jit_global.rs` | `cargo test --features jit --test jit jit_field` |
 | Calls: direct path, frame inlining, `apply` | `tests/jit/jit_inline_call.rs`, `jit_frame_inline.rs` | `cargo test --features jit --test jit jit_inline_call` |
-| Bench matrix (51 kernels × 4 modes) | `examples/jit-bench.rs`, `tests/jit/jit-bench-matrix.sh` | `./tests/jit/jit-bench-matrix.sh --protocol process` |
+| Bench matrix (34 kernels × 4 modes) | `examples/jit-bench.rs`, `tests/jit/jit-bench-matrix.sh` | `./tests/jit/jit-bench-matrix.sh --protocol process` |
 | Compile-threshold sweep | `tests/jit/jit-threshold-grid.sh` | `./tests/jit/jit-threshold-grid.sh` |
 | Feature-gating / hardening gates | `tests/jit/ci-gate.sh`, `tests/jit/ci-sanitize.sh`, `.github/workflows/ci.yml` | `./tests/jit/ci-gate.sh` |
 

@@ -10,12 +10,13 @@ tick handlers. Hosts do **not** call `tick()` directly; they drive it through:
 - synchronous `eval_wait` when `async_support` is disabled.
 
 Host-facing setup and signatures are in
-**[Basics: Runtime, Context, and Execution](../skills/basics.md)**;
-Promise-specific bridging is in **[Promise and Rust Future Bridge](../skills/promise.md)**.
+**[Basics: Runtime, Context, and Execution](../skills/references/basics.md)**;
+Promise-specific bridging is in **[Promise and Rust Future Bridge](../skills/references/promise.md)**.
 
 ## One tick
 
-`RuntimeImpl::tick_self` / `tick_tree` iterate contexts and run, in order:
+`RuntimeImpl::tick_self` and the module-level `tick_tree` (which also ticks
+child runtimes) iterate contexts and run, in order:
 
 1. **One-shot jobs.** Promise reactions and timer callbacks. They always
    complete and are never retried; newly queued one-shot jobs are drained in the
@@ -39,11 +40,17 @@ When a polling job is blocked (I/O, timer, channel), the driver parks the
 thread. Wakes come from:
 
 - `WakeSender`/`WakeReceiver` and `PromiseResultSlot` commits;
-- timers;
+- timers and the earliest `set_poll_hint` deadline, delivered through the
+  host-injected `RuntimeImpl::set_deadline_waker` (the engine spawns no
+  threads; the host uses its own timer facility);
+- POSIX signal handlers, via `WakeHandle::wake_from_signal` — a single
+  async-signal-safe `write()` into a self-pipe that the host watches;
 - custom host wake handles (`ctx.wake_handle()` / runtime park state).
 
-With `quantum_poll` enabled, every park is capped by a quantum; by default the
-wait is purely event-driven (self-pipe + deadline).
+With the `quantum_poll` feature **and** `RuntimeImpl::use_quantum_poll(ms)`,
+every park is capped by that quantum (0 = off); by default the wait is purely
+event-driven (self-pipe + deadline), so every wait point must have a wake
+source.
 
 ## Custom tick handler
 

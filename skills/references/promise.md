@@ -165,8 +165,8 @@ if let Ok(p) = Promise::try_from(val) {
 ```
 
 `PromiseFuture` implements `Future<Output = Result<JSValue, JSValue>>`. It
-attaches `then` and `catch` handlers and wakes the Waker when the Promise
-settles.
+registers two reactions (fulfill and reject) on the Promise and wakes the
+Waker when the Promise settles.
 
 ### 4.2 Future to Promise: `create_from_future`
 

@@ -8,7 +8,7 @@
 
 ```toml
 [dependencies]
-zuqe = "0.11"          # use the version in Cargo.toml
+zuqe = "0.12"          # use the version in Cargo.toml
 tokio = { version = "1", features = ["full"] } # async hosts only
 ```
 
@@ -17,7 +17,7 @@ single switch. Every feature is listed, including the default ones.
 
 | Feature | Default | Purpose |
 |---|---|---|
-| `default` | - | Group: `inline_cache`, `big_int`, `all_unicode`, `async_support`, `gc_generations`, `jit`, and the default `builtin_*` set. |
+| `default` | - | Group: `inline_cache`, `big_int`, `all_unicode`, `async_support`, and the default `builtin_*` set. |
 | `inline_cache` | on | Per-opcode inline caches for property access. |
 | `big_int` | on | `BigInt` support, including `BigInt` literals and operators. |
 | `all_unicode` | on | Full Unicode identifier rules and normalization (`unicode-id-start`, `unicode-normalization`). |
@@ -38,11 +38,11 @@ single switch. Every feature is listed, including the default ones.
 | `builtin_math` | on | `Math` support. |
 | `builtin_weakref` | on | `WeakRef` and `FinalizationRegistry`. |
 | `intl402` | off | `Intl` support. Uses ICU and `fixed_decimal`. |
-| `gc_generations` | on | Generational GC: young/old generations, minor collections, and write barriers. |
+| `gc_generations` | off | Generational GC: young/old generations, minor collections, and write barriers. |
 | `gc_protect_transient` | off | Protect temporary GC objects when `gc_alloc` can trigger a collection. Enable only when the allocator can collect. |
 | `dump_bytecode` | off | Print bytecode disassembly during compilation. Development tool. |
 | `debug_gc` | off | In debug builds, run a GC after every opcode. Very slow; debug only. |
-| `jit` | on | Tiered bytecode JIT with Cranelift. Adds the Cranelift crates. See [Tiered JIT Usage](jit.md). |
+| `jit` | off | Tiered bytecode JIT with Cranelift. Adds the Cranelift crates. See [Tiered JIT Usage](jit.md). |
 | `jit_dump` | off | Dump Cranelift IR and machine code. Implies `jit`. Debug tool. |
 
 For a smaller build, use `--no-default-features --features "..."` and list only
@@ -235,8 +235,9 @@ rt.set_module_normalizer(my_normalizer); // optional; a default normalizer exist
 rt.set_module_loader(my_loader);         // without it, every import throws
 ```
 
-Both callbacks are plain `fn` pointers. They carry no host state. Put state in
-`RuntimeImpl::user_state` and read it with `ctx.rt()`. See
+Both callbacks are plain `fn` pointers. They carry no host state. Inject state
+with `Runtime::create_with(state)` and read it back with
+`ctx.rt().user_state::<T>()`. See
 [Modules: ESM Loading and Native Modules](native-module.md) for signatures,
 import attributes, `import.meta`, and zapi extension loading.
 

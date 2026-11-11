@@ -9,8 +9,8 @@ The complete guide — `create_module`, `FieldDef` variants, ESM `set_module_loa
 / `set_module_normalizer`, import attributes, `import.meta`, and the zapi
 boundary — is in:
 
-- **[Modules: ESM Loading and Native Modules](../skills/native-module.md)**
-- **[Writing a zapi Extension (cdylib)](../skills/zapi-extension.md)**
+- **[Modules: ESM Loading and Native Modules](../skills/references/native-module.md)**
+- **[Writing a zapi Extension (cdylib)](../skills/references/zapi-extension.md)**
 
 Minimal registration:
 

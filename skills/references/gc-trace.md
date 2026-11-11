@@ -23,7 +23,7 @@ field, a `thread_local!`, or an untraced Rust container is invisible. If it is
 the only reference, the next full mark or major collects it. Rust keeps using
 it: UAF.
 
-- Debug builds often show `gc: bad node`.
+- Debug builds often show `bad node: 0x…`.
 - Release builds may crash randomly, throw `TypeError`, corrupt callbacks, or
   crash at teardown.
 - A short script may never run a full mark or major. "It ran" does not prove
@@ -216,6 +216,7 @@ Do not default to an empty hand-written `impl GcTrace`. Choose the smallest form
    payload type.
 
    ```rust
+   // A stateless class: no payload type at all.
    def_native_object!(
        "TextEncoder",
        JSTextEncoder,
@@ -347,8 +348,13 @@ borrow after each value, then call JS.
 
 Violates Rule 4 in [GC Safety Rules](gc-safety.md).
 
+`gc_protect_transient` is `pub(crate)` — engine code only, and it is a no-op
+unless the `gc_protect_transient` feature is on. Host crates cannot call it at
+all, and even inside the engine it only protects until the current scope ends.
+
 ```rust
-gc_protect_transient(value); // no-op when the feature is off; still scope-bound
+// engine-internal, feature-gated, scope-bound — not a fix
+gc_protect_transient(value);
 call_js(ctx)?;
 use(value);
 ```
@@ -436,7 +442,7 @@ nodes. When unsure, use derive or `#[gc(skip)]`.
    bare GC fields by shape. It does not prove trace is correct, but it can show
    a missed traceable field. See [Write Barriers](gc-write-barrier.md).
 9. **Debug full or major:** use a host GC API (for example `std.gc()` in zjs)
-   to force collection and look for `gc: bad node`. Long or stress runs also
+   to force collection and look for `bad node: 0x…`. Long or stress runs also
    expose problems.
 
 For the rules themselves, use [GC Safety Rules](gc-safety.md), Rules 1, 2, and

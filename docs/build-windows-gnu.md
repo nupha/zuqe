@@ -1,4 +1,4 @@
-﻿# Building on Windows
+# Building on Windows
 
 This document provides instructions for compiling this project on Windows platforms.
 
@@ -50,8 +50,8 @@ Each package serves a specific purpose:
 | Package | Purpose |
 |---|---|
 | `base-devel` | Core build utilities (`make`, `patch`, etc.) |
-| `mingw-w64-x86_64-gcc` | GCC compiler + binutils (`dlltool`, `ar`, `ld`) 鈥?used by the `cc` crate to compile C source code (e.g. the `lre` regex engine), and `dlltool` is required by the `libloading` crate |
-| `mingw-w64-clang-x86_64-clang` | Clang compiler 鈥?provides `libclang`, which `bindgen` dynamically loads at build time to parse C/C++ headers |
+| `mingw-w64-x86_64-gcc` | GCC compiler + binutils (`dlltool`, `ar`, `ld`) — used by the `cc` crate to compile C source code (e.g. the `lre` regex engine), and `dlltool` is required by the `libloading` crate |
+| `mingw-w64-clang-x86_64-clang` | Clang compiler — provides `libclang`, which `bindgen` dynamically loads at build time to parse C/C++ headers |
 
 > **Note:** The full `mingw-w64-x86_64-toolchain` meta-package is **not** required. It pulls in GDB, make, and many other tools this project does not need. The individual packages above are sufficient and significantly lighter.
 
@@ -59,9 +59,9 @@ Each package serves a specific purpose:
 
 After installation, you need to add the MSYS2 toolchain binaries to your system PATH. For example, if MSYS2 was installed in dir `C:\msys64\`, then the required paths are:
 
-- `C:\msys64\mingw64\bin` 鈥?MinGW-w64 GCC toolchain (`gcc`, `dlltool`, `ar`, etc.)
-- `C:\msys64\clang64\bin` 鈥?Clang toolchain required by `bindgen`
-- `C:\msys64\usr\bin` 鈥?Common Unix utilities (`git`, `make`, `pacman`, `bash`, etc.)
+- `C:\msys64\mingw64\bin` — MinGW-w64 GCC toolchain (`gcc`, `dlltool`, `ar`, etc.)
+- `C:\msys64\clang64\bin` — Clang toolchain required by `bindgen`
+- `C:\msys64\usr\bin` — Common Unix utilities (`git`, `make`, `pacman`, `bash`, etc.)
 
 > ⚠️ **IMPORTANT**
 >
@@ -95,7 +95,7 @@ You may need to restart your command prompt or terminal for the changes to take 
 
 Create or edit the `.cargo/config.toml` file in your project root directory.
 
-> **Note:** This repository already ships a `.cargo/config.toml` containing the `[patch.crates-io]` entries `zuqe_zapi = { path = "../zuqe-zapi" }` and `zuqe_zapi_macros = { path = "../zuqe-zapi-macros" }`. If you edit that file, **preserve those entries** and add the sections below alongside them — do not overwrite the file.
+> **Note:** Do **not** overwrite an existing `.cargo/config.toml` — it may already hold entries you must keep (e.g. an active `[patch.crates-io]` override such as `gc-lite = { path = "../gc-lite-v2" }` when developing against a local gc-lite checkout). Add the sections below alongside those entries.
 
 ```toml
 [target.x86_64-pc-windows-gnu]
@@ -139,7 +139,7 @@ Open the **MSYS2 MSYS shell** (not PowerShell or CMD) and navigate to the projec
 cargo build --examples
 ```
 
-This command will compile the project using the Windows GNU toolchain and build the `zjs` example. The `test262` and `persistent` examples are skipped: they declare `required-features` (`intl402` and `persistent` respectively, see `[[example]]` in `Cargo.toml`), and neither feature is in the default feature set.
+This command will compile the project using the Windows GNU toolchain and build the examples without `required-features` (`zjs`, `deepnest`, `multi_runtime`, `reentry_depth`). The `test262`, `persistent`, `corpus`, and `jit-bench` examples are skipped: they declare `required-features` (`intl402`, `persistent`, `persistent`, and `jit` respectively, see `[[example]]` in `Cargo.toml`), and none of these features is in the default feature set.
 
 > **Note:** It is strongly recommended to build inside the **MSYS2 MSYS shell**. Running `cargo build` in PowerShell may cause GCC to crash with errors like `gcc: error: spawn failed (exit status 0xc0000005)` due to DLL conflicts or environment incompatibilities. MSYS2 provides a Unix-like environment that the GNU toolchain expects and avoids these issues.
 

@@ -18,7 +18,7 @@ module manifest and `finalize` hook, `ZqGcTrace` / `payload_no_gc`, async work
 (`promise_threaded`, `promise_fut`, async iterators, jobs), and the host loading
 contract — is in:
 
-- **[Writing a zapi Extension (cdylib)](../skills/zapi-extension.md)**
+- **[Writing a zapi Extension (cdylib)](../skills/references/zapi-extension.md)**
 
 Runnable references:
 
@@ -27,6 +27,7 @@ Runnable references:
 | `examples/zapi_basic` | Every JS value type crossing the boundary, a GC-traced class, a value export |
 | `examples/zapi_event` | A full class: methods, `magic` dispatch, static accessors, thread-local state |
 | `examples/zapi_raw` | The raw ABI, if you need to drop below the safe layer |
+| `examples/zapi_ffi_test` | Every `ZqApi` entry point exercised; driven by `test_ffi.mjs` (conformance) |
 
 The runtime side of loading (`load_zapi_extension`, symbol resolution, class and
 export registration, payload re-scan) is implemented in `src/zapi/host.rs`.

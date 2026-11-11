@@ -11,10 +11,10 @@ handling. It is for changing the engine.
 
 If you are writing a host crate that depends on `zuqe` — native payloads, `GcTrace`, guard slots,
 `GcBind`, or the static GC audit — read the user-facing rules in
-**[GC Safety Rules](../skills/gc-safety.md)** first. That file is the single source of truth
+**[GC Safety Rules](../skills/references/gc-safety.md)** first. That file is the single source of truth
 for rules 0-5; implementation examples live in
-**[GC Tracing: Examples and Pitfalls](../skills/gc-trace.md)** and
-**[Write Barriers: Patterns and Tools](../skills/gc-write-barrier.md)**. This page does not repeat them.
+**[GC Tracing: Examples and Pitfalls](../skills/references/gc-trace.md)** and
+**[Write Barriers: Patterns and Tools](../skills/references/gc-write-barrier.md)**. This page does not repeat them.
 
 ---
 
@@ -135,21 +135,26 @@ itself does not promote (its result stays where the caller puts it), so it can r
 
 A mark starts from:
 
-- **scopes** (see above) — but note that the executor calls `clear_locals()` on the current scope
-  *before* `gc_collect()`, so scope protection is dropped exactly when the GC runs;
-- **runtime roots**: pending jobs, the shape registry, prototype/constructor slots, module and
-  bytecode tables;
-- **user trace callbacks** registered with `gc_set_trace_handler` (Rule 2 in
-  [GC Safety Rules](../skills/gc-safety.md));
-- **root containers** (the context itself, the shape registry, jobs, user state): a minor
-  force-descends these, so writes into them need no barrier.
+- **scopes** (see above) — but note that the executor calls
+  `clear_locals_from_depth()` on the current scope *before* `gc_collect()`, so
+  scope protection is dropped exactly when the GC runs;
+- **runtime roots** (`RuntimeImpl::trace_runtime_roots`): contexts and their
+  VM-stack frames, the shape registry, pending Promises and async states,
+  the current exception, the eval base URL, in-flight JIT compiles, the running
+  job, the Promise→Future registry, and the host `user_state`;
+- **user trace callbacks** registered with `gc_set_trace_handler` or
+  `gc_add_trace_callback` (Rule 2 in
+  [GC Safety Rules](../skills/references/gc-safety.md));
+- **root containers**: a minor passes `force_roots`, so old root containers
+  (contexts, shape registry, jobs, user state) are still descended and writes
+  into them need no barrier.
 
 Ordinary old containers are **not** descended by a minor — that is the whole point of the write
 barrier.
 
 ## 4. Generations
 
-`gc_generations` is a build feature (on by default in zuqe's default feature set). Without it the
+`gc_generations` is a build feature (off by default; add `--features gc_generations`). Without it the
 collector keeps the single-generation path; with it, each partition is split into a young chain
 and an old chain.
 
@@ -167,8 +172,12 @@ and an old chain.
 
 Minors run automatically when young allocations exceed the young budget. `gc_minor_request()`
 only *requests* one: it runs at the next safepoint, so a caller must execute a few more bytecodes.
-`gc_minor_now()` runs one immediately (debug builds only; exposed to host scripts as
-`Aike.gcMinor`). `gc_set_promote_after(0)` disables minors (major-only) while keeping the
+`gc_minor_now()` runs one immediately (debug builds only; the host test API,
+e.g. `Aike.gcMinor`). Note that `zjs`'s `std.gcMinor` is different: it calls
+`gc_minor_request()`, which only *requests* one — the minor runs at the next
+safepoint, so the script must execute a few more bytecodes (or hit a tick)
+before it actually happens. `gc_set_promote_after(0)` disables minors
+(major-only) while keeping the
 bookkeeping; `gc_set_promote_after` accepts 0/1/2 (larger values clamp to 2).
 
 Consequence: a quick script passing proves nothing about barriers. The owner is often already old
@@ -198,7 +207,7 @@ silent corruption, caught only by the debug assert in `GcHeap::bind` and by revi
 
 **Removal is free.** `remove`/`pop`/`clear`/`retain`/`take` need no barrier — but the removed
 value loses `trace` coverage, so if it is still used after the next GC point it must be held in a
-traced slot (Rule 4 in [GC Safety Rules](../skills/gc-safety.md)).
+traced slot (Rule 4 in [GC Safety Rules](../skills/references/gc-safety.md)).
 
 ## 6. Guard slots and their representation
 
@@ -234,7 +243,7 @@ Deliberately withheld:
   bare edge. Prefer rebuilding the element through `remove` + `push` where that is natural.
 - **Whole-field replacement still compiles** (`p.slot = WriteBarrier::new(v)`,
   `mem::replace(&mut p.slot, …)`). Rust cannot forbid it, so the static audit rejects it
-  (see [Write Barriers: Patterns and Tools](../skills/gc-write-barrier.md)).
+  (see [Write Barriers: Patterns and Tools](../skills/references/gc-write-barrier.md)).
 
 Guard slots cover the **minor**: `set`/`push`/`insert` call `bind` on the stored value, and a
 container element supplies its own edges through `GcBind`. They do **not** replace `GcTrace`: a
@@ -280,15 +289,15 @@ holds, because the re-scan can only see what it reports.
 
 The public rules are in the skill docs, not here:
 
-- **[GC Safety Rules](../skills/gc-safety.md)** — what a host
+- **[GC Safety Rules](../skills/references/gc-safety.md)** — what a host
   payload must do: trace every GC node, register `thread_local!` traces, keep values alive across
   JS re-entry, and record old→young writes.
-- **[GC Tracing: Examples and Pitfalls](../skills/gc-trace.md)** — `#[derive(GcTrace)]`, `#[gc(skip)]`,
+- **[GC Tracing: Examples and Pitfalls](../skills/references/gc-trace.md)** — `#[derive(GcTrace)]`, `#[gc(skip)]`,
   `#[gc(with = ...)]`, `unsafe_empty_gc_trace!`, and counter-examples.
-- **[Write Barriers: Patterns and Tools](../skills/gc-write-barrier.md)** — `WriteBarrier`,
+- **[Write Barriers: Patterns and Tools](../skills/references/gc-write-barrier.md)** — `WriteBarrier`,
   `WriteBarrierVec`, `WriteBarrierMap`, `GcBind`, `zuqe-gc-audit`, dynamic minor verification,
   and `--gc-stress`.
-- **[Workflow and Review Checklist](../skills/workflow-checklist.md)** — the end-to-end review list.
+- **[Workflow and Review Checklist](../skills/references/workflow-checklist.md)** — the end-to-end review list.
 
 Two invariants connect the two halves:
 
@@ -298,5 +307,5 @@ Two invariants connect the two halves:
    setter conventions exist so forgetting the barrier is a compile error where possible.
 
 The engine keeps the guard-slot primitives, the static audit, and the generational validator in
-`src/gc/`; hosts should consume them through the public types and the `zuqe_audit_test!` macro
+`src/gc/`; hosts should consume them through the public types and the `zuqe::gc_audit_test!` macro
 described in the skill docs.

@@ -1,8 +1,10 @@
 # Known Issue: release fat-LTO miscompile — GC root loss → SEGV
 
-Status: **not reproducible on current master** (`d8b6bb2f`, = `origin/master`).
-Diagnosis complete for the pre-fix revisions (maintainer-local notes
-`memo/lto-ub-handover.md`, not shipped in this repository; its §20.2 holds the
+Status: **not reproducible on master as verified at `d8b6bb2f`** (master head on
+2026-09-14; the fix `499b45b9` is still in master's ancestry — master has since
+advanced without re-running this Windows verification). Diagnosis complete for
+the pre-fix revisions (maintainer-local notes `memo/lto-ub-handover.md`, not
+shipped in this repository and absent from the local tree; its §20.2 held the
 LLVM report draft); upstream root-cause attribution (engine UB vs LLVM bug)
 still open.
 
@@ -96,9 +98,10 @@ Measurement caveats:
 - `.cargo/config.toml` used to inject `-Cllvm-args=-memdep-block-scan-limit=1`
   globally, masking the issue. Cross-toolchain measurement requires removing
   that flag. **The flag injection and the build.rs guard have since been
-  removed** — the flag now lives in the inactive `.cargo/config_obsolete.toml.bak`
-  (`5d96a8f9b`), the guard was deleted (`cdb6484a2`); this file now documents
-  the historical state.
+  removed** — `5d96a8f9b` moved the flag-carrying config out of the active
+  `.cargo/config.toml` into `.cargo/config_obsolete.toml`, `95b32c1cb` later
+  deleted that file, and `cdb6484a2` removed the build.rs guard; no file under
+  `.cargo/` carries the flag today. This document records the historical state.
 - **Cargo target-dir reuse across toolchains (gotcha).** Without an explicit
   `CARGO_TARGET_DIR`, both toolchains write to `target/release`, and cargo does
   **not** invalidate on a host/toolchain switch: after a GNU build, a plain

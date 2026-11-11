@@ -4,7 +4,7 @@
 //! Write-barrier guards: the value-level trait [`GcBind`] (P1) and the payload
 //! slot types [`WriteBarrier`] / [`WriteBarrierVec`] / [`WriteBarrierMap`] (P2).
 //!
-//! See `memo/gc_bind_guard.md` and `skills/gc-safety.md` Rule 5.
+//! See `memo/gc_bind_guard.md` and `skills/references/gc-safety.md` Rule 5.
 
 use std::{
     collections::{HashMap, hash_map::Entry},
@@ -145,10 +145,10 @@ impl<U> WriteBarrier<Option<U>> {
     /// Removal: the value leaves the traced slot, so it is no longer covered by
     /// `trace`. No barrier is needed to remove, but if the value is still used
     /// after the next GC point it must be `gc_protect_transient`ed first
-    /// (`skills/gc-safety.md` Rule 4). Only `Option` guards can be emptied — a guard
+    /// (`skills/references/gc-safety.md` Rule 4). Only `Option` guards can be emptied — a guard
     /// holding a bare `T` has no "empty" state.
-    #[inline]
-    pub fn take(&mut self) -> Option<U> {
+    #[inline(always)]
+    pub const fn take(&mut self) -> Option<U> {
         self.val.take()
     }
 }
@@ -156,7 +156,7 @@ impl<U> WriteBarrier<Option<U>> {
 /// Read path only: `get` copies, so it needs `Copy`; the write path does not.
 impl<T: Copy + GcBind> WriteBarrier<T> {
     #[inline(always)]
-    pub fn get(&self) -> T {
+    pub const fn get(&self) -> T {
         self.val
     }
 }
@@ -195,20 +195,20 @@ impl<T> WriteBarrierVec<T> {
 
     /// Construction only: the owner does not exist yet, so no edges are bound.
     #[inline(always)]
-    pub fn from_vec(v: Vec<T>) -> Self {
+    pub const fn from_vec(v: Vec<T>) -> Self {
         Self { inner: v }
     }
 
     /// Hand the elements back in one step. They leave the traced slot, so they
     /// lose `trace` coverage: the caller must put them into a rooted Job before
-    /// the next GC point (`skills/gc-safety.md` Rule 4) — same family as [`remove`](Self::remove).
+    /// the next GC point (`skills/references/gc-safety.md` Rule 4) — same family as [`remove`](Self::remove).
     #[inline(always)]
     pub fn into_vec(self) -> Vec<T> {
         self.inner
     }
 
     #[inline(always)]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.inner.len()
     }
 
@@ -251,7 +251,7 @@ impl<T> WriteBarrierVec<T> {
 
     /// Removal needs no barrier, but the removed element loses `trace`
     /// coverage: protect it (`gc_protect_transient`) before any GC point if it
-    /// is still used — `skills/gc-safety.md` Rule 4.
+    /// is still used — `skills/references/gc-safety.md` Rule 4.
     #[inline]
     pub fn remove(&mut self, i: usize) -> T {
         self.inner.remove(i)
@@ -353,7 +353,7 @@ impl<K, V> WriteBarrierMap<K, V> {
 impl<K: Eq + Hash, V> WriteBarrierMap<K, V> {
     /// Removal needs no barrier, but the removed value loses `trace`
     /// coverage: protect it (`gc_protect_transient`) before any GC point if it
-    /// is still used — `skills/gc-safety.md` Rule 4, same as
+    /// is still used — `skills/references/gc-safety.md` Rule 4, same as
     /// [`WriteBarrierVec::remove`].
     #[inline]
     pub fn remove(&mut self, k: K) -> Option<V> {

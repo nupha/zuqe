@@ -37,7 +37,7 @@ Why "the script ran" does not mean safe:
 - Release builds have no debug validator. Many missing barriers show up only
   under stress, long runs, or real load.
 - The same bug may show `missing write barrier` in debug. In release it may show
-  `gc: bad node`, random `TypeError`, a teardown crash, or a promise that never
+  `bad node: 0x…`, random `TypeError`, a teardown crash, or a promise that never
   settles.
 
 If the engine or host enables **incremental or concurrent marking**, the rules
@@ -69,8 +69,9 @@ impl FooPayload {
 
 A guard slot only handles the barrier. The payload still needs `GcTrace` (see
 [GC Tracing](gc-trace.md)). `WriteBarrierVec<T>` and `WriteBarrierMap<K, V>`
-implement `GcTrace` when `T`/`V` implement `GcTrace`. If an element type only
-implements `GcBind` and not `GcTrace`, the payload derive fails to compile.
+implement `GcTrace` when `T`, or `K` **and** `V`, implement `GcTrace`. If an
+element type only implements `GcBind` and not `GcTrace`, the payload derive
+fails to compile.
 Construction-time and late writes are covered by Rule 5 in
 [GC Safety Rules](gc-safety.md).
 
@@ -346,7 +347,7 @@ GC safety check.
 | Condition | Note |
 |---|---|
 | **Debug build** | The validator and `gc_minor_now` exist only in debug. Release has no runtime check. |
-| **`gc_generations`** | Enables old/young generations and the remembered set. It is in the default feature set. |
+| **`gc_generations`** | Enables old/young generations and the remembered set. Off by default; add `--features gc_generations`. |
 | **You can trigger a minor** | Pure native paths do not reach a safepoint. Tests must call `gc_minor_now`. |
 
 Release or feature-off builds: `gc_set_stress` and `gc_minor_now` do not exist
@@ -363,7 +364,9 @@ to "remove the panic".
 | `gc_minor_count()` | Number of minors run. Use it to assert the test ran one. | public |
 
 > `gc_minor_now` is a host test API (for example `Aike.gcMinor`). Release hosts
-> must not depend on it. Internal tests use the crate method `gc_minor()`;
+> must not depend on it. `zjs`'s `std.gcMinor` is **not** this API: it calls
+> `gc_minor_request()`, so the minor runs at the next safepoint rather than
+> immediately. Internal tests use the crate method `gc_minor()`;
 > external crates use `gc_minor_now()`.
 
 ### 5.3 Focused old-to-young check
@@ -412,6 +415,7 @@ fn late_write_is_barriered() -> Result<(), i32> {
         assert!(cx.remove_local(node));
 
         // The setter is on the native wrapper. owner = JSValue::from(owner).
+        // `set_cached` stands in for your own wrapper setter.
         owner.set_cached(&cx, Some(child));
 
         cx.rt_mut().gc_minor_now(); // missing barrier panics here
@@ -424,9 +428,8 @@ fn late_write_is_barriered() -> Result<(), i32> {
 
 Key points:
 
-- **Owner comes from the setter.** Setters such as `set_controller`,
-  `set_stream`, `set_algorithms`, and `set_byte_self_handle` live on the native
-  wrapper. They use `JSValue::from(*self)`, so the caller cannot pass the wrong
+- **Owner comes from the setter.** A setter on the native wrapper builds the
+  owner from `self` (`JSValue::from(*self)`), so the caller cannot pass the wrong
   owner.
 - If an existing wrapper or payload API still takes `owner` from the caller,
   capture the correct instance before borrowing the payload. The static audit
@@ -543,7 +546,7 @@ and how to locate them.
 | Static audit is green but full mark loses an object | A hand-written `GcTrace` misses a field. Use `#[derive(GcTrace)]` with `#[gc(crate_path = zuqe::gc_lite)]`. |
 | Only `--gc-stress` crashes | Normal allocation frequency is too low. Use a focused minor test to narrow the path. |
 | Release crashes randomly, debug does not | Silent UAF from a missing barrier. Go back to static audit, a focused minor, and review. |
-| `gc: bad node` | Check trace with [GC Tracing](gc-trace.md), then check the write path. |
+| `bad node: 0x…` | Check trace with [GC Tracing](gc-trace.md), then check the write path. |
 
 Before commit, check Rule 5 in [GC Safety Rules](gc-safety.md). This file does
 not repeat the checklist.

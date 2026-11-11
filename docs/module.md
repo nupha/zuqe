@@ -3,7 +3,7 @@
 This page describes how Zuqe represents, resolves, links, and evaluates ES
 modules. For the host-facing API — `set_module_loader`,
 `set_module_normalizer`, `create_module`, import attributes, `import.meta` — see
-**[Modules: ESM Loading and Native Modules](../skills/native-module.md)**.
+**[Modules: ESM Loading and Native Modules](../skills/references/native-module.md)**.
 
 ## Representation
 
@@ -42,8 +42,11 @@ import:
    specifiers against the importer URL and converts absolute paths to URLs.
    `file://` URLs are canonicalized centrally after normalization, so symlink
    aliases collapse to one cache key.
-3. **Look up / load.** If the normalized URL is already in `loaded_modules`, it
-   is reused. Otherwise `module_load_func` is called with the URL and the import
+3. **Look up / load.** If a module with the same normalized URL **and** the
+   same import attributes (compared by their `type` value; see
+   `attrs_are_same`) is already in `loaded_modules`, it is reused — the same URL
+   imported with different attributes is a distinct module. Otherwise
+   `module_load_func` is called with the URL and the import
    attributes `JSValue`. The default loader is a stub that throws
    `ReferenceError` for every import.
 4. **Compile.** A JS loader normally calls
@@ -100,7 +103,8 @@ A native module is a `ModuleDef` with `init_func = Some(...)` and no bytecode.
 walks the `FieldDef` table and installs functions, constants, lazy values, and
 class constructors.
 
-`loaded_module_names(ModuleNameFilter)` exposes the registry for hosts; the
+`ContextImpl::loaded_module_names(ModuleNameFilter)` exposes the registry for
+hosts (reached through `Deref`, so `ctx.loaded_module_names(...)` works); the
 filter distinguishes native (`NativeOnly`), bytecode (`BytecodeOnly`), and all
 modules.
 
