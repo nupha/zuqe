@@ -527,11 +527,12 @@ impl RuntimeImpl {
             zapi_class_defs: Vec::new(),
             #[cfg(feature = "zapi")]
             zapi_gc_tracers: Vec::new(),
+            #[cfg(feature = "zapi")]
             zapi_class_strs: Vec::new(),
-            #[cfg(all(feature = "zapi", feature = "gc_generations"))]
-            zapi_instances: Vec::new(),
             #[cfg(feature = "zapi")]
             zapi_module_finalizers: Vec::new(),
+            #[cfg(all(feature = "zapi", feature = "gc_generations"))]
+            zapi_instances: Vec::new(),
 
             host_promise_rejection_tracker_opaque: std::ptr::null_mut(),
             host_promise_rejection_tracker: None,
