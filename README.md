@@ -92,24 +92,24 @@ Add `zuqe` to your dependencies in `Cargo.toml`:
 
 ```toml
 [dependencies]
-zuqe = "0.11.2"
+zuqe = "0.12.0"
 tokio = { version = "1", features = ["full"] } # for the async entry point below
 ```
 
 Zuqe provides several Cargo features to customize the build:
 
-| Feature              | Description                                                             | Default |
-| -------------------- | ----------------------------------------------------------------------- | ------- |
-| `jit`                | Tiered bytecode JIT (Cranelift) with worker-thread compilation          | on      |
-| `async_support`      | Enable Promise↔Future bridge and `Runtime::run_async()`                 | on      |
-| `gc_generations`     | Generational GC with minor collections and write barriers               | on      |
-| `all_unicode`        | Full Unicode support (XID, normalization)                               | on      |
-| `zapi`               | Load zapi `cdylib` extensions as ES modules                             | off     |
-| `intl402`            | `Intl` support (ICU-backed)                                             | off     |
-| `persistent`         | Bytecode persistence helpers                                            | off     |
-| `crossbeam_channel`  | Use `crossbeam::channel` instead of `std::sync::mpsc`                   | off     |
-| `serde_json_support` | Enable `JSValue` ↔ `serde_json::Value` conversion                       | off     |
-| `builtin_*`          | Individual built-in feature gates (symbol, proxy, mapset, regexp, etc.) | on      |
+| Feature              | What's for                                                              |
+| -------------------- | ----------------------------------------------------------------------- |
+| `jit`                | Tiered bytecode JIT (Cranelift) with worker-thread compilation          |
+| `async_support`      | Enable Promise↔Future bridge and `Runtime::run_async()`                 |
+| `gc_generations`     | Generational GC with minor collections and write barriers               |
+| `all_unicode`        | Full Unicode support (XID, normalization)                               |
+| `zapi`               | Load zapi `cdylib` extensions as ES modules                             |
+| `intl402`            | `Intl` support (ICU-backed)                                             |
+| `persistent`         | Bytecode persistence helpers                                            |
+| `crossbeam_channel`  | Use `crossbeam::channel` instead of `std::sync::mpsc`                   |
+| `serde_json_support` | Enable `JSValue` ↔ `serde_json::Value` conversion                       |
+| `builtin_*`          | Individual built-in feature gates (symbol, proxy, mapset, regexp, etc.) |
 
 ### Initialize Runtime and Context
 
@@ -134,7 +134,7 @@ fn main() {
 
 ### Run JavaScript
 
-With the default `async_support` feature, `Context::eval_wait` is an async
+With the `async_support` feature, `Context::eval_wait` is an async
 function. It executes the entry and drives the event loop until all jobs and
 promises settle; the context's own runtime is used, so there is no runtime
 argument:

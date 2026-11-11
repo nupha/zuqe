@@ -1,6 +1,6 @@
 [package]
 name = "zuqe"
-version = "0.11.2"
+version = "0.12.0"
 edition = "2024"
 description = "Rust-native JavaScript engine for embedding: stackless interpreter, host-enforced memory and stack limits, interrupt control, and a Promise/Future bridge. For scripting, plugin runtimes, and resource-limited execution of generated code."
 build = "build.rs"
@@ -46,12 +46,6 @@ gc_generations = ["gc-lite/gc_generations"]
 dump_bytecode = []
 debug_gc = []
 
-# One-shot Cranelift IR + machine-code dump for attribution: reading `JIT_DUMP`
-# at attach writes `<function-id>-<tier>.clif/.bin`. Off by default, never in
-# `default` — the whole dump path is `#[cfg(feature = "jit_dump")]`, so a
-# production build contains none of it. Requires `jit` (there is nothing to
-# dump without the JIT).
-jit_dump = ["jit"]
 
 # Tiered bytecode JIT. when disabled
 # it adds no dependency and changes no runtime structure or execution path.
@@ -65,6 +59,12 @@ jit = [
     "dep:cranelift-object",
     "dep:windows-sys",
 ]
+# One-shot Cranelift IR + machine-code dump for attribution: reading `JIT_DUMP`
+# at attach writes `<function-id>-<tier>.clif/.bin`. Off by default, never in
+# `default` — the whole dump path is `#[cfg(feature = "jit_dump")]`, so a
+# production build contains none of it. Requires `jit` (there is nothing to
+# dump without the JIT).
+jit_dump = ["jit"]
 
 # Protect temporarily dangling GC objects taken out of traced locations before
 # they are re-anchored. Enable only when gc_alloc may trigger collect (arena
@@ -79,8 +79,6 @@ default = [
     "big_int",
     "all_unicode",
     "async_support",
-    "gc_generations",
-    "jit",
 
     "builtin_mapset",
     "builtin_proxy",
@@ -218,4 +216,3 @@ required-features = ["intl402"]
 name = "jit-bench"
 path = "examples/jit-bench.rs"
 required-features = ["jit"]
-
