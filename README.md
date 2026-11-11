@@ -265,7 +265,6 @@ Documentation is split by audience:
   - [Modules: ESM Loading and Native Modules](skills/references/native-module.md)
   - [Promise and Rust Future Bridge](skills/references/promise.md)
   - [Tiered JIT Usage](skills/references/jit.md)
-  - zapi extensions: `zuqe-zapi/skills/SKILL.md` (a sibling crate; authoring needs only `zuqe_zapi`)
   - [GC Safety Rules](skills/references/gc-safety.md)
   - [Workflow and Review Checklist](skills/references/workflow-checklist.md)
 - **[Docs](docs/)** — internals, design, build, and tool manuals:
@@ -280,6 +279,8 @@ Documentation is split by audience:
     [cross-compile](docs/build-cross.md)
   - [Known issue](docs/known-issue.md)
 - **[Examples](examples/)**
+
+To write zapi extensions, see `skills/SKILL.md` of the [zuqe-zapi](https://github.com/nupha/zuqe-zapi) crate.
 
 ## 🤝 Contributing
 
